@@ -1,0 +1,37 @@
+ARG registry
+FROM ${registry}golang:1.21-alpine as builder
+ARG binary=bin/api
+ARG dep_netrc
+ARG GOPROXY
+
+RUN set -xe  && \
+        apk update && apk upgrade  && \
+        apk add --no-cache make git
+ENV CGO_ENABLED=0
+COPY . /go/src/app
+WORKDIR /go/src/app
+
+RUN git config --global http.sslVerify false && echo "${dep_netrc}" >> ~/.netrc
+
+{{- if .Clean }}
+RUN GOPRIVATE=gitlab.educentr.info go mod download
+{{- end }}
+
+RUN make build_in_docker && \
+    cp ${binary} /service
+
+
+FROM ${registry}alpine
+COPY --from=builder /service /service
+CMD ["/service"]
+
+{{- if .REST }}
+# HTTP
+EXPOSE {{ .Ports.Rest }}
+{{- end }}
+{{- if .GRPC }}
+# GRPC
+EXPOSE {{ .Ports.Grpc }}
+# SYSPORT
+EXPOSE {{ .Ports.Sys }}
+{{- end }}

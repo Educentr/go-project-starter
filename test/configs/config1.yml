@@ -1,0 +1,74 @@
+main:
+  name: example
+  logger: zerolog
+
+post_generate:
+  - git_install
+  #- tools_install
+  - clean_imports
+  - executable_scripts
+  - call_generate
+  - go_mod_tidy
+  - get_last_linter_config
+  #- go_get_u
+  #- echo "post generate last job"
+  
+git:
+  module_path: gitlab.educentr.info/golang/projects/example
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: 1.21
+  ogen_version: v0.78.0
+  golangci_version: 1.55.2
+
+rest:
+  - name: example
+    path: ./example.swagger.yml
+    api_prefix: /
+    port: 8081
+  - name: sys
+    port: 8085
+
+grpc:
+  - name: ExampleService
+    short: example
+    path: ./example.proto
+    port: 8083
+  - name: AdminService
+    short: admin
+    path: ./admin.proto
+    port: 8084
+
+repository:
+  - name: exampledb1
+    type_db: psql
+    driver_db: sqlc
+#  - name: exampledb2
+#    type_db: psql
+#    driver_db: sqlc
+  - name: examplecache
+    alias: Cache # important: case-sensitive
+    type_db: redis
+    driver_db: redis
+
+#consumer:
+#  - name: petstore
+#    path: ./example/kafka_example.proto
+#    backend: kafka
+#    group: pets_store
+#    topic: pets_store_events
+
+applications:
+  - name: publicApi
+    rest:
+      - example
+      - sys
+    grpc:
+      - ExampleService
+  - name: internalApi
+    grpc:
+      - AdminService
+# TODO
+  # - name: worker
+  #   worker: true

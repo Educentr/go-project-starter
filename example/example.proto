@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package example.v1;
+
+option go_package = "example/v1";
+
+service ExampleService {
+  rpc Get(GetRequest) returns (GetResponse) {}
+  rpc List(ListRequest) returns (ListResponse) {}
+
+}
+
+message GetRequest {
+  int32 id = 1;
+}
+
+message GetResponse {
+  Item item = 1;
+}
+
+message ListRequest {
+}
+
+message ListResponse {
+  repeated Item items = 1;
+}
+
+message Item {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_AVAILABLE = 1;
+    STATUS_PENDING = 2;
+    STATUS_SOLD = 3;
+  }
+
+  int32 id = 1;
+  string name = 2;
+  string photo_url = 3;
+  int32 likes = 4;
+  Status status = 5;
+}

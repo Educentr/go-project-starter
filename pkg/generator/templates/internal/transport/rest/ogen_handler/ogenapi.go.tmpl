@@ -1,0 +1,105 @@
+package {{ .Handler.Name | toLower }}
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+
+	"github.com/go-faster/errors"
+	"github.com/rs/cors"
+	{{ .Logger.Import }}
+
+	{{ .Handler.ImportAlias }} "{{ .ProjectPath }}/internal/app/{{ .Handler.Name | toLower }}/{{ .Handler.ApiVersion }}"
+	"{{ .ProjectPath }}/internal/pkg/config"
+	"{{ .ProjectPath }}/internal/pkg/metrics"
+	"{{ .ProjectPath }}/internal/pkg/service"
+	oas "{{ .ProjectPath }}/pkg/{{ .ProjectName }}/{{ .Handler.Name | toLower }}"
+)
+
+// API exists all methods that can help you up your http server for business logic
+
+type API struct {
+	Name    string
+	httpSrv *http.Server
+	handler *hello.Handler
+}
+
+func (a *API) GetName() string {
+	return a.Name
+}
+
+func (a *API) GetHTTPSrv() *http.Server {
+	return a.httpSrv
+}
+
+func (a *API) Handler() any {
+	return a.handler
+}
+
+func (a *API) InitRouters(ctx context.Context, srv *service.Service, metrics *metrics.Metrics) error {
+	var err error
+
+	a.handler, err = {{ .Handler.ImportAlias }}.NewHandler(ctx, srv)
+	if err != nil {
+		return errors.Wrap(err, "Handler initialization error")
+	}
+
+	// TODO ogen middlewares
+	// securityHandler := NewSecurityHandler()
+	// TODO	oas.WithTracerProvider(m.TracerProvider()),
+	oasServer, err := oas.NewServer(
+		a.handler,
+		//TODO ogen middlewares
+		//		securityHandler,
+		//securityHandler := NewSecurityHandler()
+		oas.WithErrorHandler(UnexpectedError),
+		oas.WithNotFound(NotFoundError),
+		oas.WithMeterProvider(metrics.MeterProvider()),
+		// TODO ogen middlewares
+		//		oas.WithMiddleware(mw_ogen.OgenMiddlewareAuth(a.bucket.AppInfo.AppName)),
+	)
+	if err != nil {
+		return errors.Wrap(err, "server initialization")
+	}
+
+	cfg := config.FromContext(ctx)
+	port := strconv.Itoa({{ .Handler.Port }})
+
+	httpHandle := cors.Default().Handler(oasServer)
+	mws := InitMiddleware(ctx, metrics, srv, a.GetName())
+
+	for i := len(mws); i > 0; i-- {
+		httpHandle = mws[i-1](httpHandle)
+	}
+
+	httpServer := http.Server{
+		Addr:              "0.0.0.0:" + port,
+		WriteTimeout:      cfg.Static.API.HTTP.Timeout,
+		ReadTimeout:       cfg.Static.API.HTTP.Timeout,
+		IdleTimeout:       cfg.Static.API.HTTP.Timeout,
+		ReadHeaderTimeout: cfg.Static.API.HTTP.ReadHeaderTimeout,
+		Handler:           httpHandle,
+	}
+
+	a.httpSrv = &httpServer
+
+	return nil
+}
+
+// RunApiRouters initializing your api routes
+func (a *API) RunRouters(ctx context.Context) error {
+	zlog.Ctx(ctx).Info().Str("Address", a.httpSrv.Addr).Msg("http server started serving")
+
+	err := a.httpSrv.ListenAndServe()
+	if err != nil {
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+
+		zlog.Ctx(ctx).Error().Err(err).Msg("http server initialization/runtime error")
+
+		return err
+	}
+
+	return nil
+}

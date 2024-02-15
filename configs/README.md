@@ -1,0 +1,1 @@
+Place here all configurations for generators, linters, tools etc..

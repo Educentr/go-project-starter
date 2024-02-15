@@ -1,0 +1,64 @@
+# IDE
+.idea
+.vscode
+# OS specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.fseventsd
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Temporary
+*~
+._*
+*.tmp
+tmp.*
+
+# Logs
+*.log
+vendor
+
+# Binaries for programs and plugins
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+tmp
+
+# Test binary, build with `go test -c`
+*.test
+test/coverage.*/
+cover.out
+test/tests.output
+test/tests.xml
+allure-results/
+.cover
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Configs and environment files
+.env
+
+
+# postgres local files
+# rabbitmq local files
+# redis local files
+loc/
+
+# python venv
+venv/
+# pycache
+*__pycache__*
+gen
+gott_cover
+
+steps
+check
+
+

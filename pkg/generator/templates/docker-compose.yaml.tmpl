@@ -1,0 +1,155 @@
+version: '3.7'
+services:
+  {{- if .PG }}
+  postgres:
+    image: postgres:15.3-bullseye
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: app_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+  {{- end }}
+
+  consul:
+    image: consul:1.15.4
+    container_name: consul
+    ports:
+      - "8500:8500"
+    command: "agent -dev -client=0.0.0.0 -log-level info"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.46
+    container_name: jaeger
+    ports:
+      - "14250:14250"
+      - "14268:14268"
+      - "14269:14269"
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+      - "5778:5778"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "9411:9411"
+
+  {{- if .Kafka }}
+  kafka:
+    image: redpandadata/redpanda:v23.2.12
+    container_name: kafka
+    ports:
+      - "9092:9092"
+  {{- end }}
+
+  {{- if .Redis}}
+  redis:
+    image: redis:7.2.3
+    container_name: redis
+    ports:
+      - "6379:6379"
+  {{- end }}
+
+  svc:
+    image: helios/{{ .ProjectName }}:dev
+    container_name: svc
+    depends_on:
+      {{- if .Kafka }}
+      - postgres
+      {{- end }}
+      - consul
+      {{- if .Kafka }}
+      - kafka
+      {{- end }}
+      {{- if .Clean }}
+      - petnamechecker
+      {{- end }}
+      - jaeger
+    ports:
+      {{- if .REST }}
+      - "{{ .Ports.Rest }}:{{ .Ports.Rest }}"
+      {{- end }}
+      - "{{ .Ports.Grpc }}:{{ .Ports.Grpc }}"
+      {{- if .GRPC }}
+      - "{{ .Ports.Sys }}:{{ .Ports.Sys }}"
+      {{- end }}
+    environment:
+      CONSUL_HTTP_ADDR: http://consul:8500
+      CONSUL_HTTP_SSL: false
+      {{ .ProjectName | ToUpper }}_DEVELOPER_LOGGER_ENCODER: true
+      {{ .ProjectName | ToUpper }}_CONSUL_REGISTER: true
+      {{- if .PG }}
+      {{ .ProjectName | ToUpper }}_DB_HOST: postgres
+      {{ .ProjectName | ToUpper }}_DB_NAME: app_db
+      {{ .ProjectName | ToUpper }}_DB_PASSWORD: mysecretpassword
+      {{ .ProjectName | ToUpper }}_DB_PORT: 5432
+      {{ .ProjectName | ToUpper }}_DB_USER: postgres
+      {{- end }}
+      {{- if .REST }}
+      {{ .ProjectName | ToUpper }}_HTTP_API_PORT: {{ .Ports.Rest }}
+      {{ .ProjectName | ToUpper }}_HTTP_API_HOST: svc
+      {{- end }}
+      {{- if .GRPC }}
+      {{ .ProjectName | ToUpper }}_GRPC_SERVER_PORT: {{ .Ports.Grpc }}
+      {{ .ProjectName | ToUpper }}_GRPC_SERVER_HOST: svc
+      {{- end }}
+      {{- if .Kafka }}
+      {{ .ProjectName | ToUpper }}_KAFKA_BROKERS: kafka:9092
+      {{ .ProjectName | ToUpper }}_KAFKA_VERSION: 3.2.0
+      {{- end }}
+      {{- if .Redis }}
+      {{ .ProjectName | ToUpper }}_REDIS_HOST: redis
+      {{ .ProjectName | ToUpper }}_PORT: 6379
+      {{ .ProjectName | ToUpper }}_REDIS_ENABLE_TRACING: true
+      {{- end }}
+      {{ .ProjectName | ToUpper }}_LOG_LEVEL: debug
+      {{ .ProjectName | ToUpper }}_SYS_PORT: {{ .Ports.Sys }}
+      {{ .ProjectName | ToUpper }}_TRACING_COLLECTOR_URI: jaeger:4317
+      {{ .ProjectName | ToUpper }}_HEALTHCHECK_INTERVAL: 1s
+      {{- if .Clean }}
+      {{ .ProjectName | ToUpper }}_PETNAMECHECKER_BASE_URL: petnamechecker:8088
+      {{- end }}
+
+  {{- if .Clean }}
+  petnamechecker:
+    image: petnamechecker:dev
+    container_name: petnamechecker
+    depends_on:
+      - consul
+      - jaeger
+    ports:
+      - "8087:8087"
+      - "8088:8088"
+      - "8089:8089"
+    environment:
+      CONSUL_HTTP_ADDR: http://consul:8500
+      CONSUL_HTTP_SSL: false
+      PETNAMECHECKER_CONSUL_REGISTER: true
+      PETNAMECHECKER_HTTP_API_PORT: 8087
+      PETNAMECHECKER_HTTP_API_HOST: petnamechecker
+      PETNAMECHECKER_GRPC_SERVER_PORT: 8088
+      PETNAMECHECKER_GRPC_SERVER_HOST: petnamechecker
+      PETNAMECHECKER_DEVELOPER_LOGGER_ENCODER: true
+      PETNAMECHECKER_LOG_LEVEL: debug
+      PETNAMECHECKER_SYS_HOST: petnamechecker
+      PETNAMECHECKER_SYS_PORT: 8089
+      PETNAMECHECKER_TRACING_COLLECTOR_URI: jaeger:4317
+
+  nginx:
+    image: nginx:alpine3.18
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./test/ui/nginx.conf:/etc/nginx/nginx.conf
+      - ./test/ui:/usr/share/nginx/html
+    depends_on:
+      - svc
+  {{- end }}
+
+{{- if .PG }}
+volumes:
+  postgres_data:
+{{- end }}

@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Lint changes staged for commit
+git stash -q --keep-index
+make lint
+ret=$?
+git stash pop -q
+exit $ret

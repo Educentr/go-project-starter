@@ -1,0 +1,9 @@
+package rest
+
+type RestRouter interface {
+	InitRouters(ctx context.Context, srv *service.Service, metrics *metrics.Metrics) error
+	RunRouters(ctx context.Context) error
+	GetHTTPSrv() *http.Server
+	GetName() string
+	Handler() any
+}

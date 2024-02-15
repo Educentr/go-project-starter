@@ -1,0 +1,36 @@
+package {{ .Handler.Name | toLower }}
+
+import (
+	"context"
+	"net/http"
+
+	"{{ .ProjectPath }}/internal/app/public-api/mw"
+	"{{ .ProjectPath }}/internal/pkg/metrics"
+	"{{ .ProjectPath }}/internal/pkg/service"
+)
+
+func InitMiddleware(ctx context.Context, metrics *metrics.Metrics, srv *service.Service, appName string) []func(next http.Handler) http.Handler {
+	// Мидлвари работают в том порядке в котором они находятся в этом массиве
+	// Изменение порядка может сильно повлиять на работу сервиса, делать это надо только если вы уверенны что происходит
+	return []func(next http.Handler) http.Handler{
+		mw.HTTPServerMiddlewareConfig(ctx),                    // Обогащаем контекст запроса конфигом из глобального контекста
+		mw.HTTPServerMiddlewareZlog(ctx),                      // Обогащаем логгер инфой из основной горутины
+		mw.HTTPServerMiddlewareRequestStartTime(),             // Обогащаем контекст временем начала запроса
+		mw.HTTPServerMiddlewareTracing(ctx),                   // Обогащаем контекст запроса ID для трейсинга
+		mw.HTTPServerMiddlewareMetrics(ctx, appName, metrics), // Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
+		mw.HTTPServerMiddlewareXServerHeader(ctx, appName),    // Обогащаем ответ заголовком X-Server
+		mw.HTTPServerMiddlewareAuth(ctx),                      // Проводим аутентификацию
+		mw.HTTPServerMiddlewareCSRF(ctx),                      // Проверяем CSRF токены
+	}
+}
+
+/*TODO ogen
+func panicRecoverFunc(ctx context.Context) func(ctx context.Context, p interface{}) (err error) {
+	ctxLogger := zlog.Ctx(ctx)
+
+	return func(ctx context.Context, p interface{}) (err error) {
+		ctxLogger.Error().Interface("Panic", p).Bytes("Stack trace", debug.Stack()).Msg("Panic triggered")
+		return status.Errorf(codes.Unknown, "panic triggered: %v", p)
+	}
+}
+*/
