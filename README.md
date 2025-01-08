@@ -45,6 +45,37 @@ Generated successfully
 Dockerfile          Makefile            api                 cmd                 configs             docker-compose.yaml go.mod              go.sum              internal            pkg                 scripts
 ```
 
+## Swagger
+
+Все `path` в спеке должны содержать `default response`:
+
+```
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+```
+
+Схема ответа должна быть такой:
+
+```
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
+```
+
 ## Contributing
 
-TODO
+## ToDos
+
+- Убрать все прямые импорты `zlog "github.com/rs/zerolog"` логгер должен задаваться из конфига

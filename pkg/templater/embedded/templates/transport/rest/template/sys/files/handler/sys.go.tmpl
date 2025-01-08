@@ -1,0 +1,53 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+
+	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/pkg/app/rest"
+)
+
+func (h *Handler) VersionHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(rest.ContentTypeHeader, rest.ContentTypeJSON)
+	w.WriteHeader(http.StatusOK)
+
+	write(r.Context(), w, h.Srv.GetBucket().AppInfo)
+}
+
+func (h *Handler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
+	httpStatus := http.StatusOK
+
+	ok := h.Srv.GetBucket().AppReady.Load()
+	if !ok {
+		httpStatus = http.StatusServiceUnavailable
+	}
+
+	w.Header().Set(rest.ContentTypeHeader, rest.ContentTypeJSON)
+	w.WriteHeader(httpStatus)
+
+	write(r.Context(), w, map[string]bool{
+		"ready": ok,
+	})
+}
+
+func (h *Handler) LiveHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(rest.ContentTypeHeader, rest.ContentTypeJSON)
+	w.WriteHeader(http.StatusOK)
+
+	// ToDo liveness probe
+	write(r.Context(), w, map[string]bool{
+		"live": true,
+	})
+}
+
+func write(ctx context.Context, w http.ResponseWriter, a any) {
+	enc := json.NewEncoder(w)
+
+	err := enc.Encode(a)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "Error while writing response"}}
+	}
+}

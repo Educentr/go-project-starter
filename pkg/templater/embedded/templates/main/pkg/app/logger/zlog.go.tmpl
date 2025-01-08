@@ -1,0 +1,79 @@
+package logger
+
+import (
+	"context"
+	"os"
+	"time"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+
+	"{{ .ProjectPath }}/pkg/logger"
+	{{ .Logger.Import }}
+)
+
+const (
+	onlineconfPrefix    = "log"
+	onlineconfLevelPath = "level"
+)
+
+func InitZlog(ctx context.Context, serviceName string) context.Context {
+	zlog.TimeFieldFormat = zlog.TimeFormatUnixMs
+	applog := logger.InitAppZlog(func(endpoint string) *zlog.Logger {
+		var (
+			levelGlob = zlog.InfoLevel
+			levelEP   = zlog.InfoLevel
+			zlogInst  = zlog.New(os.Stdout)
+		)
+
+		// Создаём новый экземпляр логерра
+		devStand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(serviceName, "devstand"), false)
+		if err == nil && devStand {
+			zlogInst = zlog.New(zlog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
+		}
+
+		zlogInst = zlogInst.With().Timestamp().Caller().Logger()
+
+		levelCfg, err := onlineconf.GetString(
+			ctx,
+			onlineconf.MakePath(serviceName, onlineconfPrefix, onlineconfLevelPath),
+			zlog.LevelInfoValue,
+		)
+		if err == nil {
+			// Уровень логирования по умолчанию
+			levelGlob, err = zlog.ParseLevel(levelCfg)
+			if err != nil {
+				levelGlob = zlog.InfoLevel
+			}
+		}
+
+		// Уровень логирования переопределённый для данного endpoint-а
+		levelCfgEndpoint, err := onlineconf.GetString(
+			ctx,
+			onlineconf.MakePath(serviceName, onlineconfPrefix, onlineconfLevelPath, endpoint),
+			"",
+		)
+		if err == nil {
+			levelEP, err = zlog.ParseLevel(levelCfgEndpoint)
+			// Если не получилось распарсить уровень то выставляем Info
+			if err != nil {
+				levelEP = zlog.InfoLevel
+			}
+		}
+
+		if levelCfgEndpoint != "" && levelCfgEndpoint != levelCfg {
+			zlogInst = zlogInst.Level(levelEP)
+		} else {
+			zlogInst = zlogInst.Level(levelGlob)
+		}
+
+		return &zlogInst
+	})
+
+	// Добавим в контекст информацию о логгере
+	ctx = applog.WrapZlog(ctx, "")
+
+	{{ .Logger.InfoMsg "ctx" "zlog initialized"}}
+
+	// Проинициализируем Zlog
+	return logger.Wrap(ctx, applog)
+}

@@ -6,49 +6,27 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/pkg/errors"
+	"gitlab.educentr.info/golang/service-starter/pkg/config"
+	"gitlab.educentr.info/golang/service-starter/pkg/ds"
+	"gitlab.educentr.info/golang/service-starter/pkg/templater"
 	"gitlab.educentr.info/golang/service-starter/pkg/tools"
 )
 
-type Logger interface {
-	ErrorMsg(string, string, string, ...string) string
-	WarnMsg(string, string, ...string) string
-	InfoMsg(string, string, ...string) string
-	Import() string
-}
-
-type Handler struct {
-	Transport  string
-	Name       string
-	ApiVersion string
-	Port       string
-	SpecPath   string // ToDo []strings for spec with refs
-}
-
-type GeneratorParamsBase struct {
-	Logger      Logger
-	ProjName    string
-	ProjectPath string
-}
-
-type GeneratorParams struct {
-	GeneratorParamsBase
-	Handlers []Handler
-}
-
-type GeneratorHandlerParams struct {
-	GeneratorParamsBase
-	Handler Handler
-}
-
-type App struct {
-	Name     string
-	Handlers []Handler
-	// RestList     []string
-	// GrpcList     []string `mapstructure:"grpc"`
-	// WsList       []string `mapstructure:"ws"`
-	// ConsumerList []string `mapstructure:"consumer"`
+type Generator struct {
+	AppInfo       string
+	Logger        ds.Logger
+	ProjectName   string
+	ProjectPath   string
+	GoLangVersion string
+	OgenVersion   string
+	TargetDir     string
+	PostGenerate  []ExecCmd
+	Transports    ds.Transports
+	Applications  ds.Apps
 }
 
 type ExecCmd struct {
@@ -57,18 +35,11 @@ type ExecCmd struct {
 	Msg string
 }
 
-type Generator struct {
-	Logger       Logger
-	ProjectName  string
-	ProjectPath  string
-	TargetDir    string
-	PostGenerate []ExecCmd
-	Applications []App
-}
-
-func New(config Config) (*Generator, error) {
+func New(AppInfo string, config config.Config) (*Generator, error) {
 	g := Generator{
-		Applications: make([]App, 0, len(config.Applications)),
+		Applications: make(ds.Apps, 0, len(config.Applications)),
+		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
+		Transports:   make(ds.Transports),
 	}
 
 	if err := g.processConfig(config); err != nil {
@@ -78,69 +49,70 @@ func New(config Config) (*Generator, error) {
 	return &g, nil
 }
 
-func (g *Generator) GetTmplParams() GeneratorParams {
-	return GeneratorParams{
-		GeneratorParamsBase: GeneratorParamsBase{
-			Logger:      g.Logger,
-			ProjName:    g.ProjectName,
-			ProjectPath: g.ProjectPath,
-		},
-	}
-}
-
-func (g *Generator) GetTmplAppParams(app App) GeneratorParams {
-	return GeneratorParams{
-		GeneratorParamsBase: GeneratorParamsBase{
-			Logger:      g.Logger,
-			ProjName:    g.ProjectName,
-			ProjectPath: g.ProjectPath,
-		},
-		Handlers: app.Handlers,
-	}
-}
-
-func (g *Generator) GetTmplHandlerParams(handler Handler) GeneratorHandlerParams {
-	return GeneratorHandlerParams{
-		GeneratorParamsBase: GeneratorParamsBase{
-			Logger:      g.Logger,
-			ProjName:    g.ProjectName,
-			ProjectPath: g.ProjectPath,
-		},
-		Handler: handler,
-	}
-}
-
-func (g *Generator) processConfig(config Config) error {
-	l, ex := LoggerMapping[config.Main.Logger]
-	if !ex {
-		log.Fatalln("invalid logger", config.Main.Logger)
-	}
-
-	g.Logger = l
+func (g *Generator) processConfig(config config.Config) error {
+	g.Logger = config.Main.LoggerObj
 	g.ProjectName = config.Main.Name
 	g.ProjectPath = config.Git.ModulePath
-	g.TargetDir = config.Main.TargetDir
+	g.GoLangVersion = config.Tools.GolangVersion
+	g.OgenVersion = config.Tools.OgenVersion
+	g.TargetDir = "./"
 
-	if g.TargetDir == "" {
-		g.TargetDir = "./"
+	if config.Main.TargetDir != "" {
+		g.TargetDir = config.Main.TargetDir
+	}
+
+	for _, rest := range config.RestList {
+		paths := make([]string, 0, len(rest.Path))
+
+		for _, path := range rest.Path {
+			paths = append(paths, filepath.Join(config.BasePath, path))
+		}
+
+		if rest.Name == "" {
+			return errors.New("rest name is empty")
+		}
+
+		if rest.Port == 0 {
+			return fmt.Errorf("rest port is empty for %s", rest.Name)
+		}
+
+		transport := ds.Transport{
+			Import:            []string{fmt.Sprintf(`%s_%s "%s/internal/app/transport/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)},
+			Init:              fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version),
+			Type:              ds.RestTransportType,
+			GeneratorType:     rest.GeneratorType,
+			GeneratorTemplate: rest.GeneratorTemplate,
+			Handler:           ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10), paths),
+		}
+
+		if err := g.Transports.Add(rest.Name, transport); err != nil {
+			return err
+		}
+	}
+
+	for _, grpc := range config.GrpcList {
+		panic("Not implemented " + grpc.Name) //ToDo
 	}
 
 	for _, app := range config.Applications {
-		application := App{}
-
-		for _, restHandler := range app.RestList {
-			application.Handlers = append(application.Handlers, Handler{Transport: "rest", Name: restHandler, SpecPath: config.restMap[restHandler].Path})
+		application := ds.App{
+			Name:       app.Name,
+			Transports: make(ds.Transports),
+			Drivers:    []string{},
 		}
 
-		for _, grpcHandler := range app.GrpcList {
-			application.Handlers = append(application.Handlers, Handler{Transport: "grpc", Name: grpcHandler, SpecPath: config.grpcMap[grpcHandler].Path})
+		for _, transport := range app.TransportList {
+			tr, ex := g.Transports[transport]
+			if !ex {
+				return fmt.Errorf("unknown transport: %s", transport)
+			}
+
+			application.Transports[transport] = tr
 		}
 
 		g.Applications = append(g.Applications, application)
 	}
 
-	// ToDo move to config (map[string]ExecCmd)
-	// ToDo add priority for post generate steps
 	for _, postGenerate := range config.PostGenerate {
 		switch postGenerate {
 		case "git_install":
@@ -150,7 +122,7 @@ func (g *Generator) processConfig(config Config) error {
 		case "clean_imports":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"clean-import"}, Msg: "cleaning imports"})
 		case "executable_scripts":
-			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "chmod", Arg: []string{"a+x", "scripts/goversioncheck.sh"}, Msg: "executable scripts"})
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "chmod", Arg: []string{"a+x", "scripts/goversioncheck.sh"}, Msg: "make scripts executable"})
 		case "call_generate":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"generate"}, Msg: "generate"})
 		case "go_mod_tidy":
@@ -218,13 +190,52 @@ func (g *Generator) processConfig(config Config) error {
 	return nil
 }
 
+func (g *Generator) GetTmplParams() templater.GeneratorParams {
+	return templater.GeneratorParams{
+		Logger:        g.Logger,
+		ProjectName:   g.ProjectName,
+		ProjectPath:   g.ProjectPath,
+		GoLangVersion: g.GoLangVersion,
+		OgenVersion:   g.OgenVersion,
+		Applications:  g.Applications,
+	}
+}
+
+func (g *Generator) GetTmplAppParams(app ds.App) templater.GeneratorAppParams {
+	return templater.GeneratorAppParams{
+		GeneratorParams: g.GetTmplParams(),
+		Application:     app,
+	}
+}
+
+func (g *Generator) GetTmplHandlerParams(transport ds.Transport) templater.GeneratorHandlerParams {
+	return templater.GeneratorHandlerParams{
+		GeneratorParams: g.GetTmplParams(),
+		Transport:       transport,
+	}
+}
+
 func (g *Generator) CopySpecs() error {
 	for _, app := range g.Applications {
-		for _, handler := range app.Handlers {
-			tools.CopyFile(
-				handler.SpecPath,
-				filepath.Join(g.TargetDir, "api", handler.Name, "v"+handler.ApiVersion, handler.Name+".swagger.yml"),
-			)
+		for _, transport := range app.Transports {
+			for _, spec := range transport.Handler.SpecPath {
+				if _, err := os.Stat(spec); err != nil {
+					return fmt.Errorf("spec file not found: %s", spec)
+				}
+
+				source := spec
+
+				dest := filepath.Join(
+					transport.Handler.GetTargetSpecDir(g.TargetDir),
+					transport.Handler.GetTargetSpecFile(),
+				)
+
+				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
+
+				if err := tools.CopyFile(source, dest); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -233,52 +244,55 @@ func (g *Generator) CopySpecs() error {
 
 // ToDo Generate generates the content of a file and writes it to the specified destination path.
 // It also applies custom code patches and saves a snapshot of the generated content.
+// Добавить проверку, что хватает менста на диске
 func (g *Generator) Generate() error {
 	targetPath, err := filepath.Abs(g.TargetDir)
 	if err != nil {
 		return err
 	}
 
-	// ToDo check git status
-	// ToDo make backup of targetPath
-
-	dirs, err := g.CollectTargetDir()
+	dirs, files, err := g.collectFiles(targetPath)
 	if err != nil {
-		return fmt.Errorf("failed to collect target directories: %w", err)
+		return err
 	}
-
-	files, err := g.CollectTargetFiles()
-	if err != nil {
-		return fmt.Errorf("failed to collect target files: %w", err)
-	}
-
-	// ToDo Dry run
-	// ToDo validate checksum previous generated files
 
 	for _, dir := range dirs {
-		newDir := filepath.Join(targetPath, dir.DestTmplName)
-		if err := os.MkdirAll(newDir, 0700); err != nil && err != os.ErrExist {
-			return fmt.Errorf("failed to create directory %s: %w", newDir, err)
-		}
+		fmt.Printf("Dir: %s -> %s\n", dir.SourceName, dir.DestName)
 	}
 
 	for _, file := range files {
-		destFileName, err := GenerateFilenameByTmpl(file, file.ParamsTmpl)
+		fmt.Printf("File: %s -> %s\n", file.SourceName, file.DestName)
+	}
+
+	existingCode, err := templater.GetUserCodeFromFiles(files)
+	if err != nil {
+		return err
+	}
+
+	for i := range files {
+		tmpl, err := templater.GetTemplate(files[i].SourceName)
 		if err != nil {
-			return fmt.Errorf("failed to generate filename by template %s: %w", file.DestTmplName, err)
+			return fmt.Errorf("failed to get template %s: %w", files[i].SourceName, err)
 		}
 
-		// ToDo rename destPath -> destFile
-		destPath := filepath.Join(targetPath, destFileName)
-
-		tmpl, err := GetTemplate(file.SourceName)
+		files[i].Code, err = templater.GenerateByTmpl(tmpl, files[i].ParamsTmpl, existingCode[files[i].DestName], files[i].DestName)
 		if err != nil {
-			return fmt.Errorf("failed to get template %s: %w", file.SourceName, err)
-		}
-
-		if err = GenerateByTmpl(tmpl, file.ParamsTmpl, destPath); err != nil {
 			return err
 		}
+	}
+
+	if err = tools.MakeDirs(dirs); err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		dstFile, err := os.Create(file.DestName)
+		if err != nil {
+			return err
+		}
+		defer dstFile.Close()
+
+		file.Code.WriteTo(dstFile)
 	}
 
 	if err = g.CopySpecs(); err != nil {
@@ -296,71 +310,201 @@ func (g *Generator) Generate() error {
 			return fmt.Errorf("%w: %s", err, out)
 		}
 
-		log.Printf("result: %s\n", cmd.Stdout)
+		if len(out) > 0 {
+			log.Printf("result: %s\n", out)
+		}
 	}
 
 	return nil
 }
 
-func (g *Generator) CollectTargetDir() ([]Files, error) {
-	targetDirs, ex := dirToCreate["main"]
-	if !ex {
-		return nil, fmt.Errorf("main directory not found")
+func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, error) {
+	dirs, files, err := templater.GetMainTemplates(g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get main templates: %w", err)
 	}
 
-	for n := range targetDirs {
-		targetDirs[n].ParamsTmpl = g.GetTmplParams()
-	}
+	types := g.Transports.GetUniqueTypes()
 
-	for _, app := range g.Applications {
-		for _, handler := range app.Handlers {
-			tmplParams := g.GetTmplHandlerParams(handler)
+	for transportType, templateType := range types {
+		dirsTr, filesTr, err := templater.GetTransportTemplates(transportType, g.GetTmplParams())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get transport templates: %w", err)
+		}
 
-			dirsToAdd, ex := dirToCreate[handler.Transport]
-			if !ex {
-				return nil, fmt.Errorf("unknown transport: %s", handler.Transport)
+		dirs = append(dirs, dirsTr...)
+		files = append(files, filesTr...)
+
+		for tmplType, tr := range templateType {
+			dirsTrT, filesTrT, err := templater.GetTransportGeneratorTemplates(transportType, tmplType, g.GetTmplParams())
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get transport generator templates: %w", err)
 			}
 
-			for n := range dirsToAdd {
-				dirsToAdd[n].ParamsTmpl = tmplParams
-			}
+			dirs = append(dirs, dirsTrT...)
+			files = append(files, filesTrT...)
 
-			targetDirs = append(targetDirs, dirsToAdd...)
+			for _, transport := range tr {
+				dirsH, filesH, err := templater.GetTransportHandlerTemplates(
+					transport.Type,
+					filepath.Join(transport.GeneratorType, transport.GeneratorTemplate),
+					g.GetTmplHandlerParams(transport),
+				)
+				if err != nil {
+					return nil, nil, errors.Wrapf(err, "failed to get transport handler templates: `%s`, `%s`, `%s`", transport.Type, transport.GeneratorType, transport.GeneratorTemplate)
+				}
+
+				dirs = append(dirs, dirsH...)
+				files = append(files, filesH...)
+			}
 		}
 	}
 
-	return targetDirs, nil
-}
-
-func (g *Generator) CollectTargetFiles() ([]Files, error) {
-	targetFiles, ex := filesToGenerate["main"]
-	if !ex {
-		return nil, fmt.Errorf("main files not found")
+	dirsL, filesL, err := templater.GetLoggerTemplates(g.Logger.FilesToGenerate(), g.Logger.DestDir(), g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get logger templates: %w", err)
 	}
 
-	for n := range targetFiles {
-		targetFiles[n].ParamsTmpl = g.GetTmplParams()
-	}
+	dirs = append(dirs, dirsL...)
+	files = append(files, filesL...)
 
 	for _, app := range g.Applications {
-		for _, handler := range app.Handlers {
-			tmplParams := g.GetTmplHandlerParams(handler)
-
-			filesToAdd, ex := filesToGenerate[handler.Transport]
-			if !ex {
-				return nil, fmt.Errorf("unknown transport: %s", handler.Transport)
-			}
-
-			for n := range filesToAdd {
-				filesToAdd[n].ParamsTmpl = tmplParams
-			}
-
-			targetFiles = append(targetFiles, filesToAdd...)
+		dirApp, filesApp, err := templater.GetAppTemplates(g.GetTmplAppParams(app))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get app templates: %w", err)
 		}
+
+		dirs = append(dirs, dirApp...)
+		files = append(files, filesApp...)
 	}
 
-	return targetFiles, nil
+	// ToDo check git status
+	// ToDo make backup of targetPath
+	// ToDo Dry run
+	// ToDo validate checksum previous generated files
+
+	for i := range dirs {
+		destDirName, err := templater.GenerateFilenameByTmpl(dirs[i])
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate filename by template %s: %w", dirs[i].DestName, err)
+		}
+
+		dirs[i].DestName = filepath.Join(targetPath, destDirName)
+	}
+
+	for i := range files {
+		destFileName, err := templater.GenerateFilenameByTmpl(files[i])
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate filename by template %s: %w", files[i].DestName, err)
+		}
+
+		files[i].DestName = filepath.Join(targetPath, destFileName)
+	}
+
+	return dirs, files, nil
 }
+
+// func (g *Generator) CollectTargetDir() ([]Files, error) {
+// 	targetDirs, ex := dirToCreate[templateMainType]
+// 	if !ex {
+// 		return nil, fmt.Errorf("main directory not found")
+// 	}
+
+// 	for n := range targetDirs {
+// 		// ToDo не надо передавать пустой объект App, либо разделить на разные типы либо передавать nil
+// 		targetDirs[n].ParamsTmpl = g.GetTmplParams(App{})
+// 	}
+
+// 	for _, app := range g.Applications {
+// 		if len(app.Handlers) > 0 {
+// 			dirsToAdd, ex := dirToCreate[templateHandlerType]
+// 			if !ex {
+// 				return nil, fmt.Errorf("handler directory not found")
+// 			}
+
+// 			for n := range dirsToAdd {
+// 				dirsToAdd[n].ParamsTmpl = g.GetTmplParams(app)
+// 				targetDirs = append(targetDirs, dirsToAdd...)
+// 			}
+
+// 			dirsToAdd = g.Logger.DirsToGenerate()
+
+// 			for n := range dirsToAdd {
+// 				dirsToAdd[n].ParamsTmpl = g.GetTmplParams(app)
+// 				targetDirs = append(targetDirs, dirsToAdd...)
+// 			}
+
+// 			for _, handler := range app.Handlers {
+// 				tmplParams := g.GetTmplHandlerParams(handler)
+
+// 				dirsToAdd, ex := dirToCreate[TemplateType(handler.Transport)]
+// 				if !ex {
+// 					return nil, fmt.Errorf("unknown transport: %s", handler.Transport)
+// 				}
+
+// 				for n := range dirsToAdd {
+// 					dirsToAdd[n].ParamsTmpl = tmplParams
+// 				}
+
+// 				targetDirs = append(targetDirs, dirsToAdd...)
+// 			}
+// 		}
+// 	}
+
+// 	return targetDirs, nil
+// }
+
+// ToDo сделать проверку на дубли файлов
+// Возможно надо вывернуть на изнанку мапку filesToGenerate в которой ключами файлы, а значениями будут транспорты/хендлеры/...
+// func (g *Generator) CollectTargetFiles() ([]Files, error) {
+// 	targetFiles, ex := filesToGenerate["main"]
+// 	if !ex {
+// 		return nil, fmt.Errorf("main files not found")
+// 	}
+
+// 	for n := range targetFiles {
+// 		// ToDo не надо передавать пустой объект App, либо разделить на разные типы либо передавать nil
+// 		targetFiles[n].ParamsTmpl = g.GetTmplParams(App{})
+// 	}
+
+// 	for _, app := range g.Applications {
+// 		if len(app.Handlers) > 0 {
+// 			filesToAdd, ex := filesToGenerate[templateHandlerType]
+// 			if !ex {
+// 				return nil, fmt.Errorf("handler files not found")
+// 			}
+
+// 			for n := range filesToAdd {
+// 				filesToAdd[n].ParamsTmpl = g.GetTmplParams(app)
+// 				targetFiles = append(targetFiles, filesToAdd...)
+// 			}
+
+// 			filesToAdd = g.Logger.FilesToGenerate()
+
+// 			for n := range filesToAdd {
+// 				filesToAdd[n].ParamsTmpl = g.GetTmplParams(app)
+// 				targetFiles = append(targetFiles, filesToAdd...)
+// 			}
+
+// 			for _, handler := range app.Handlers {
+// 				tmplParams := g.GetTmplHandlerParams(handler)
+
+// 				filesToAdd, ex := filesToGenerate[TemplateType(handler.Transport)]
+// 				if !ex {
+// 					return nil, fmt.Errorf("unknown transport: %s", handler.Transport)
+// 				}
+
+// 				for n := range filesToAdd {
+// 					filesToAdd[n].ParamsTmpl = tmplParams
+// 				}
+
+// 				targetFiles = append(targetFiles, filesToAdd...)
+// 			}
+// 		}
+// 	}
+
+// 	return targetFiles, nil
+// }
 
 //==============================================================
 /*

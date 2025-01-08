@@ -1,0 +1,123 @@
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/joho/godotenv"
+	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/internal/app/constant"
+	{{ range $_, $imp := .Application.TransportImports }}
+	{{ $imp }}
+	{{ end }}
+	"{{ .ProjectPath }}/internal/pkg/service"
+	"{{ .ProjectPath }}/pkg/app"
+	"{{ .ProjectPath }}/pkg/app/ds"
+	"{{ .ProjectPath }}/pkg/app/logger"
+	"{{ .ProjectPath }}/pkg/app/rest"
+)
+
+const (
+	ExitCodeOK = iota
+	ExitCodeErrorConfig
+	ExitCodeErrorApp
+	ExitCodeErrorDriver
+	ExitCodeErrorTransport
+	ExitCodeErrorService
+	ExitCodeInit
+	ExitCodeErrorRun
+)
+
+const (
+	envFileName = ".env"
+)
+
+// ldflags
+var (
+	Version     string
+	BuildTime   string
+	BuildOS     string
+	BuildCommit string
+)
+
+func main() {
+	// initialization parent background context
+	mainCtx := context.Background()
+
+	_, err := os.Lstat(envFileName)
+	if !os.IsNotExist(err) {
+		err := godotenv.Load(envFileName)
+		if err != nil {
+			log.Fatal("Error loading .env file")
+		}
+	}
+
+	// Initialize onlineconf
+	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir("etc/onlineconf"))
+	if err != nil {
+		log.Printf("failed to initialize onlineconf: %v", err)
+		os.Exit(ExitCodeErrorConfig)
+	}
+
+	// Инициализация логгера
+	mainCtx = {{ .Logger.InitLogger "mainCtx" "constant.ServiceName" }}
+
+	application, err := app.New(mainCtx, constant.ServiceName, getAppInfo())
+	if err != nil {
+		log.Printf("can't create new application: %s", err)
+		os.Exit(ExitCodeErrorApp)
+	}
+
+	{{ .Logger.InfoMsg "mainCtx" "application created" }}
+
+	// initializing graceful stop for application
+	mainCtx = application.InitGracefulStop(mainCtx)
+
+	err = application.SetTransport(
+		{{ range $_, $tr := .Application.Transports }}
+		{{ $tr.Init }},
+		{{ end }}
+	)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set stat_receiver transport" }}
+		os.Exit(ExitCodeErrorTransport)
+	}
+
+	srv, err := service.NewService(mainCtx)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't create new service" }}
+		os.Exit(ExitCodeErrorService)
+	}
+
+	err = application.SetService(srv)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set service" }}
+		os.Exit(ExitCodeErrorService)
+	}
+
+	// Initializing app
+	err = application.Init(mainCtx)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize application" }}
+		os.Exit(ExitCodeInit)
+	}
+
+	err = application.Run(mainCtx)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't start application" }}
+		os.Exit(ExitCodeErrorRun)
+	}
+
+	{{ .Logger.InfoMsg "mainCtx" "service has been successfully shutdown" }}
+}
+
+func getAppInfo() *ds.AppInfo {
+	return ds.NewAppInfo(constant.ServiceName).
+		WithVersion(Version).
+		WithBuildTime(BuildTime).
+		WithBuildOS(BuildOS).
+		WithBuildCommit(BuildCommit)
+}

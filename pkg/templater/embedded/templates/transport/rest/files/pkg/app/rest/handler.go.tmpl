@@ -1,0 +1,16 @@
+package rest
+
+import (
+	"context"
+
+	"{{ .ProjectPath }}/pkg/app/ds"
+)
+
+type DefaultServiceHandler struct {
+	Srv ds.IService
+}
+
+func (sh *DefaultServiceHandler) InitHandler(_ context.Context, srv ds.IService) error {
+	sh.Srv = srv
+	return nil
+}

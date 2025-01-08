@@ -1,0 +1,106 @@
+package ds
+
+import (
+	"context"
+	"sync/atomic"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/errgroup"
+)
+
+type IService interface {
+	InitService(ctx context.Context, drvs []IDriver, bucket ServerBucket, m *prometheus.Registry) error
+	GetBucket() ServerBucket
+	GetAuthorizer() Authorizer
+}
+
+type Actor interface {
+	GetID() uint64
+}
+
+type Authorizer interface {
+	Init(ctx context.Context, drvs []IDriver, m *prometheus.Registry) (Authorizer, error)
+	AuthRest(r *http.Request) (Actor, error)
+	CheckCSRF(r *http.Request) (bool, error)
+}
+
+type ITransport interface {
+	// Get transport name
+	Name() string
+
+	// Init transport
+	Init(ctx context.Context, serviceName string, metrics *prometheus.Registry, srv IService) error
+
+	// Run - start transport
+	Run(ctx context.Context, errGr *errgroup.Group)
+
+	// ShutdownHTTP shutting down transport
+	Shutdown(ctx context.Context) error
+
+	// GracefulStop do graceful stop transport
+	GracefulStop(ctx context.Context) (<-chan struct{}, error)
+}
+
+type IDriver interface {
+	// Get transport name
+	Name() string
+
+	// Init transport
+	Init(ctx context.Context, rb ServerBucket, metrics *prometheus.Registry) error
+
+	// Run - start transport
+	Run(ctx context.Context, errGr *errgroup.Group)
+
+	// ShutdownHTTP shutting down transport
+	Shutdown(ctx context.Context) error
+
+	// GracefulStop do graceful stop transport
+	GracefulStop(ctx context.Context) (<-chan struct{}, error)
+}
+
+type AppInfo struct {
+	AppName     string `json:"app_name"`
+	Version     string `json:"version"`
+	BuildTime   string `json:"build_time"`
+	BuildOS     string `json:"build_os"`
+	BuildCommit string `json:"build_commit"`
+	StartupTime string `json:"startup_time"`
+}
+
+type AuthorizationData struct {
+	UserID uint64
+}
+
+// ToDo Аккумулировать все ready флаги в структуру bucket
+type ServerBucket struct {
+	AppInfo  *AppInfo
+	AppReady *atomic.Bool
+}
+
+func NewAppInfo(name string) *AppInfo {
+	return &AppInfo{
+		AppName:     name,
+		StartupTime: time.Now().Format(time.RFC3339),
+	}
+}
+
+func (i *AppInfo) WithVersion(version string) *AppInfo {
+	i.Version = version
+	return i
+}
+
+func (i *AppInfo) WithBuildTime(buildTime string) *AppInfo {
+	i.BuildTime = buildTime
+	return i
+}
+
+func (i *AppInfo) WithBuildOS(buildOS string) *AppInfo {
+	i.BuildOS = buildOS
+	return i
+}
+
+func (i *AppInfo) WithBuildCommit(commit string) *AppInfo {
+	i.BuildCommit = commit
+	return i
+}

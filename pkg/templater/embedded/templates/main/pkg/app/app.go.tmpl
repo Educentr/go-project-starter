@@ -1,0 +1,275 @@
+package app
+
+import (
+	"context"
+	"sync/atomic"
+
+	"github.com/go-faster/errors"
+	"github.com/povilasv/prommod"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	{{ .Logger.Import }}
+	"golang.org/x/sync/errgroup"
+
+	"{{ .ProjectPath }}/pkg/app/ds"
+	"{{ .ProjectPath }}/pkg/app/metrics"
+	"{{ .ProjectPath }}/pkg/model/actor"
+)
+
+// Все Init флаги вынести в пакет ready и на основе их сделать готовность приложения
+type App struct {
+	// Имя приложения
+	name string
+
+	// Информация о сервисе
+	info *ds.AppInfo
+
+	// Сервис с бизнес логикой
+	service ds.IService
+
+	// Драйверы для работы с данными
+	drivers []ds.IDriver
+
+	// Драйверы инициализированы
+	driverInit atomic.Bool
+
+	// Авторизатор
+	authorizer ds.Authorizer
+
+	// Транспортный слой обслуживания бизнес логики
+	transports []ds.ITransport
+
+	// Transport initialized
+	transportInit atomic.Bool
+
+	// Готовность всего приложения к обслуживанию клиентов
+	ready atomic.Bool
+
+	// Контекст для остановки
+	ctxStop context.CancelFunc
+
+	// Группа обработки ошибок транспортов
+	errGr *errgroup.Group
+
+	// Метрики
+	metrics *prometheus.Registry
+}
+
+type UnimplementedAuthorizer struct {}
+
+func (u *UnimplementedAuthorizer) Init(_ context.Context, _ []ds.IDriver, _ *prometheus.Registry) (ds.Authorizer, error) {
+	return u, nil
+}
+
+func (u *UnimplementedAuthorizer) AuthRest(r *http.Request) (ds.Actor, error) {
+	{{ .Logger.WarnMsg "r.Context()" "Unimplemented method AuthRest" }}
+
+	return &actor.Actor{}, nil
+}
+
+func (u *UnimplementedAuthorizer) CheckCSRF(r *http.Request) (bool, error) {
+	{{ .Logger.WarnMsg "r.Context()" "Unimplemented method CheckCSRF" }}
+
+	return true, nil
+}
+
+var (
+	errDriverNotInit        = errors.New("drivers not initialized")
+	errDriverAlreadyInit    = errors.New("driver already initialized")
+	errTransportNotInit     = errors.New("transports not initialized")
+	errTransportsEmpty      = errors.New("error initialize. No transports")
+	errTransportAlreadyInit = errors.New("transport already initialized")
+	errServiceEmpty         = errors.New("service is empty")
+)
+
+func New(ctx context.Context, name string, info *ds.AppInfo) (*App, error) {
+	app := &App{
+		info: info,
+		name: name,
+	}
+
+	var err error
+
+	// Инициализируем метрики
+	if app.metrics, err = metrics.InitMetrics(ctx); err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "can't start application cause metrics init fail"}}
+		return nil, err
+	}
+
+	app.metrics.MustRegister(
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		collectors.NewGoCollector(),
+		collectors.NewBuildInfoCollector(),
+		metrics.BuildInfoCollector(name, app.info),
+		prommod.NewCollector("server"),
+	)
+
+	return app, err
+}
+
+func (a *App) InitService(ctx context.Context) error {
+	if !a.driverInit.Load() {
+		return errDriverNotInit
+	}
+
+	bucket := ds.ServerBucket{AppInfo: a.info, AppReady: &a.ready}
+
+	err := a.service.InitService(ctx, a.drivers, bucket, a.metrics)
+	if err != nil {
+		return errors.Wrap(err, "can't create new service")
+	}
+
+	return nil
+}
+
+func (a *App) SetTransport(transport ...ds.ITransport) error {
+	if a.transportInit.Load() {
+		return errTransportAlreadyInit
+	}
+
+	a.transports = append(a.transports, transport...)
+
+	return nil
+}
+
+func (a *App) SetDriver(driver ...ds.IDriver) error {
+	if a.driverInit.Load() {
+		return errDriverAlreadyInit
+	}
+
+	a.drivers = append(a.drivers, driver...)
+
+	return nil
+}
+
+func (a *App) InitTransports(ctx context.Context) error {
+	if a.service == nil {
+		return errServiceEmpty
+	}
+
+	if !a.transportInit.CompareAndSwap(false, true) {
+		return errTransportAlreadyInit
+	}
+
+	for _, transport := range a.transports {
+		if err := transport.Init(ctx, a.name, a.metrics, a.service); err != nil {
+			return errors.Wrapf(err, "can't create new router: %s", transport.Name())
+		}
+	}
+
+	return nil
+}
+
+func (a *App) SetService(s ds.IService) error {
+	a.service = s
+
+	return nil
+}
+
+func (a *App) Init(ctx context.Context) error {
+	// Initializing driver
+	err := a.InitDrivers(ctx)
+	if err != nil {
+		return errors.Wrap(err, "can't initialize driver")
+	}
+
+	err = a.InitService(ctx)
+	if err != nil {
+		return errors.Wrap(err, "can't initialize service")
+	}
+
+	err = a.InitTransports(ctx)
+	if err != nil {
+		return errors.Wrap(err, "can't initialize transport")
+	}
+
+	return nil
+}
+
+func (a *App) InitDrivers(ctx context.Context) error {
+	if !a.driverInit.CompareAndSwap(false, true) {
+		return errDriverAlreadyInit
+	}
+
+	bucket := ds.ServerBucket{AppInfo: a.info, AppReady: &a.ready}
+
+	for _, driver := range a.drivers {
+		if err := driver.Init(ctx, bucket, a.metrics); err != nil {
+			return errors.Wrapf(err, "can't initialize driver: %s", driver)
+		}
+	}
+
+	return nil
+}
+
+func (a *App) Run(ctx context.Context) error {
+	if !a.driverInit.Load() {
+		return errDriverNotInit
+	}
+
+	if !a.transportInit.Load() {
+		return errTransportNotInit
+	}
+
+	if len(a.transports) == 0 {
+		return errTransportsEmpty
+	}
+
+	if a.service == nil {
+		return errServiceEmpty
+	}
+
+	{{ .Logger.InfoMsg "ctx" "Application running"}}
+
+	for _, driver := range a.drivers {
+		driver.Run(ctx, a.errGr)
+	}
+
+	for _, transport := range a.transports {
+		transport.Run(ctx, a.errGr)
+	}
+
+	// помечаем, что приложение запустилось
+	a.ready.Store(true)
+	<-ctx.Done()
+
+	{{ .Logger.ErrorMsg "ctx" "ctx.Err()" "Application context is done" }}
+
+	return a.gracefulStop(ctx)
+}
+
+func (a *App) Stop() error {
+	return nil
+}
+
+//func (a *App) GetLogLevel(ctx context.Context) (zlog.Level, error) {
+//	var logLevel zlog.Level
+//
+//	cfgLogLevel, err := onlineconf.GetString(ctx, "/{{ .ProjectName }}/logger/level", "info")
+//	if err != nil {
+//		{{ .Logger.ErrorMsg "ctx" "err" "error get log level from onlineconf. Set 'info'"}}
+//		cfgLogLevel = "info"
+//	}
+//
+//	logLevel, err := zlog.ParseLevel(cfgLogLevel)
+//	if err != nil {
+//		{{ .Logger.ErrorMsg "ctx" "err" "error parse log level. Set 'info'" }}
+//	}
+//
+//	return logLevel, err
+//}
+
+// ToDo ActiveRecord
+//func (a *App) InitActiveRecord() error {
+//	level, err := a.GetLogLevel()
+//	if err != nil {
+//		return fmt.Errorf("error init actveRecord instance: %w", err)
+//	}
+//
+//	activerecord.InitActiveRecord(
+//		activerecord.WithLogger(ar_config.NewARLogger(level)),
+//		activerecord.WithConfig(ar_config.NewARConfig(config.FromContext(a.ctx))),
+//		activerecord.WithMetrics(ar_config.NewARMetrics(a.metrics)))
+//
+//	return nil
+//}

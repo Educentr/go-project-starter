@@ -1,0 +1,51 @@
+package rest
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"{{ .ProjectPath }}/pkg/app/ds"
+)
+
+type Router interface {
+	InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.IService, metrics *prometheus.Registry) error
+	GetMiddlewares(ctx context.Context, metrics *prometheus.Registry, srv ds.IService, name string, errHdl RestErrorHandler) ([]func(next http.Handler) http.Handler, error)
+	GetErrorHandler() RestErrorHandler
+}
+
+type RestErrorHandler interface {
+	UnexpectedError(ctx context.Context, w http.ResponseWriter, r *http.Request, errHdl error)
+	NotFoundError(w http.ResponseWriter, r *http.Request)
+	NotAuthorizedError(w http.ResponseWriter, r *http.Request)
+}
+
+const (
+	ContentTypeHeader = "Content-Type"
+	ContentTypeJSON   = "application/json"
+	defaultListenIP   = "0.0.0.0"
+)
+
+var (
+	defaultHTTPTimeout = 2 * time.Second
+)
+
+type EmptyErrorHandler struct{}
+
+func (e *EmptyErrorHandler) GetErrorHandler() RestErrorHandler {
+	return e
+}
+
+func (e *EmptyErrorHandler) UnexpectedError(_ context.Context, _ http.ResponseWriter, _ *http.Request, _ error) {
+	panic("Unimplemented")
+}
+
+func (e *EmptyErrorHandler) NotFoundError(_ http.ResponseWriter, _ *http.Request) {
+	panic("Unimplemented")
+}
+
+func (e *EmptyErrorHandler) NotAuthorizedError(_ http.ResponseWriter, _ *http.Request) {
+	panic("Unimplemented")
+}

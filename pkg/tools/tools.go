@@ -9,14 +9,15 @@ import (
 	"path/filepath"
 
 	"github.com/go-git/go-git/v5"
+	"gitlab.educentr.info/golang/service-starter/pkg/ds"
 )
 
 const (
 	fileMode = 0755
 
-	msgStopFailedToOpenGitRepo      = "failed to open git repository (%s): %s\n"
-	msgStopFailedToGetGitWorktree   = "failed to get git worktree (%s): %s\n"
-	msgStopFailedToGetGitStatus     = "failed to get git status (%s): %s\n"
+	msgStopFailedToOpenGitRepo      = "failed to open git repository (%s): %s"
+	msgStopFailedToGetGitWorktree   = "failed to get git worktree (%s): %s"
+	msgStopFailedToGetGitStatus     = "failed to get git status (%s): %s"
 	msgStopGitHasUncommittedChanges = "git (%v) has uncommitted changes. Please commit them first"
 )
 
@@ -49,6 +50,16 @@ func CheckGitStatus(paths ...string) (err error) {
 
 		if !sta.IsClean() {
 			return fmt.Errorf(msgStopGitHasUncommittedChanges, path) //nolint:goerr113
+		}
+	}
+
+	return nil
+}
+
+func MakeDirs(dirs []ds.Files) error {
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir.DestName, 0700); err != nil && err != os.ErrExist {
+			return fmt.Errorf("failed to create directory %s: %w", dir.DestName, err)
 		}
 	}
 
@@ -109,4 +120,22 @@ func CleanDirectory(dir string) error {
 	}
 
 	return nil
+}
+
+type retFileExist error
+
+var ErrExist retFileExist = errors.New("file exist")
+var ErrInvalid retFileExist = errors.New("invalid file")
+
+func FileExists(filename string) retFileExist {
+	info, err := os.Stat(filename)
+	if err != nil {
+		return err
+	}
+
+	if info.Mode().IsRegular() {
+		return ErrExist
+	}
+
+	return ErrInvalid
 }

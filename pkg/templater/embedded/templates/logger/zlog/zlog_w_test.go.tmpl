@@ -1,0 +1,41 @@
+// Подключение zlog-а к приложению
+// Модуль реализует основные необходимые функции для инициализации
+// и создания логгеров в новых контекстах
+package logger
+
+import (
+	"testing"
+
+	{{ .Logger.Import }}
+)
+
+func TestInitAppZlog(t *testing.T) {
+	type args struct {
+		f func(endpoint string) *zlog.Logger
+	}
+
+	log := zlog.New(zlog.NewConsoleWriter())
+	logCreator := func(endpoint string) *zlog.Logger {
+		return &log
+	}
+
+	tests := []struct {
+		name string
+		args args
+		want AppZlogLogger
+	}{
+		{
+			name: "simple",
+			args: args{
+				f: logCreator,
+			},
+			want: AppZlogLogger{
+				zlogCreator: logCreator,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+		})
+	}
+}

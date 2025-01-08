@@ -1,0 +1,16 @@
+package servicemetrics
+
+import (
+	"context"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+type EmptyMetrics struct {
+	Metrics *prometheus.Registry
+}
+
+func (em *EmptyMetrics) InitMetrics(_ context.Context, m *prometheus.Registry) error {
+	em.Metrics = m
+	return nil
+}

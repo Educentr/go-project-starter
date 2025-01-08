@@ -1,0 +1,93 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/signal"
+	"time"
+
+	{{ .Logger.Import }}
+	"golang.org/x/sync/errgroup"
+)
+
+type IGracefulShuhtdown interface {
+	GracefulStop(ctx context.Context) (<-chan struct{}, error)
+	Shutdown(ctx context.Context) error
+}
+
+const (
+	gracefulShutdownTimeout = 30 * time.Second
+	loggerObjectName        = "object"
+)
+
+func gracefullyShutdown(shutdownCtx context.Context, closer IGracefulShuhtdown) {
+	stopped, err := closer.GracefulStop(shutdownCtx)
+	if err != nil {
+		err = closer.Shutdown(shutdownCtx)
+		if err != nil {
+			{{ .Logger.ErrorMsg "shutdownCtx" "err" "can't graceful stop" "Interface(loggerObjectName, closer)"}}
+		}
+
+		return
+	}
+
+	// hard limit
+	t := time.NewTimer(gracefulShutdownTimeout)
+	select {
+	case <-t.C:
+		{{ .Logger.InfoMsg "shutdownCtx" "shutdown with 30s deadline" "Interface(loggerObjectName, closer)"}}
+
+		err = closer.Shutdown(shutdownCtx)
+		if err != nil {
+			{{ .Logger.ErrorMsg "shutdownCtx" "err" "can't shutdown" "Interface(loggerObjectName, closer)"}}
+		}
+	case <-stopped:
+		t.Stop()
+		{{ .Logger.InfoMsg "shutdownCtx" "successfully shutdown" "Interface(loggerObjectName, closer)"}}
+	}
+}
+
+func (a *App) InitGracefulStop(ctx context.Context) context.Context {
+	// graceful shutdown
+	ctx, a.ctxStop = signal.NotifyContext(ctx, os.Interrupt)
+
+	// init error group
+	a.errGr, ctx = errgroup.WithContext(ctx)
+
+	return ctx
+}
+
+func (a *App) gracefulStop(ctx context.Context) error {
+	var err error
+
+	a.ready.Store(false) // помечаем, что приложение не готово принимать запросы
+
+	{{ .Logger.InfoMsg "ctx" "transports gracefully shutting down"}}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, gracefulShutdownTimeout)
+	defer shutdownCancel()
+
+	if len(a.transports) > 0 {
+		for _, transport := range a.transports {
+			gracefullyShutdown(shutdownCtx, transport)
+		}
+	} else {
+		{{ .Logger.InfoMsg "ctx" "empty transport"}}
+	}
+
+	if len(a.drivers) > 0 {
+		for _, driver := range a.drivers {
+			gracefullyShutdown(shutdownCtx, driver)
+		}
+	} else {
+		{{ .Logger.InfoMsg "ctx" "empty driver"}}
+	}
+
+	err = a.errGr.Wait()
+	if errors.Is(err, context.Canceled) {
+		err = nil
+	}
+
+	return err
+}

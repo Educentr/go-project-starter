@@ -28,20 +28,34 @@ func ExecCommand(targetPath, command string, args []string, msg string) (string,
 func TestGenerateNew(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
-		t.Errorf("Error getting current directory: %v", err)
+		t.Fatalf("Error getting current directory: %v", err)
 	}
 
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "go-project-starter")
 	if err != nil {
-		t.Errorf("Error creating temporary directory: %v", err)
+		t.Fatalf("Error creating temporary directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	//defer os.RemoveAll(tmpDir)
 
-	if err := tools.CopyFile(filepath.Join(curDir, "configs", "config1.yml"), filepath.Join(tmpDir, "project-config.yml")); err != nil {
-		t.Errorf("Error copying file: %v", err)
+	if err = os.MkdirAll(filepath.Join(tmpDir, ".project-config"), 0755); err != nil {
+		t.Fatalf("Error creating directory: %v", err)
 	}
 
-	if out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{"run", filepath.Join(curDir, "..", "main.go"), "--target", tmpDir, "--config", filepath.Join(tmpDir, "project-config.yml")}, "Create project by file"); err != nil {
-		t.Errorf("Error creating project: %s\n%s", err, out)
+	for _, copyFile := range [][2]string{
+		{"config1.yml", "project.yaml"},
+		{"example.swagger.yml", "example.swagger.yml"},
+		{"example.proto", "example.proto"},
+		{"admin.proto", "admin.proto"},
+	} {
+		if err := tools.CopyFile(filepath.Join(curDir, "configs", copyFile[0]), filepath.Join(tmpDir, ".project-config", copyFile[1])); err != nil {
+			t.Fatalf("Error copying file: %v", err)
+		}
 	}
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"), "--target", tmpDir, "--configDir", filepath.Join(tmpDir, ".project-config")}, "Create project by file ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("Project created in %s: %s", tmpDir, out)
 }

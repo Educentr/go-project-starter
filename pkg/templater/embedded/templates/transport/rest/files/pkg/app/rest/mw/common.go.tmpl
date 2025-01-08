@@ -1,0 +1,28 @@
+package mw
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"{{ .ProjectPath }}/pkg/reqctx"
+)
+
+func HTTPServerMiddlewareXServerHeader(_ context.Context, appName string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Server", appName)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func HTTPServerMiddlewareRequestStartTime() func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := reqctx.SetRequestStartTime(r.Context(), time.Now())
+			r = r.WithContext(ctx)
+			next.ServeHTTP(w, r)
+		})
+	}
+}

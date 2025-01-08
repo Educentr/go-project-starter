@@ -1,0 +1,27 @@
+ARG registry
+FROM ${registry}golang:1.21-alpine as builder
+ARG binary=bin/api
+ARG dep_netrc
+ARG GOPROXY
+
+RUN set -xe  && \
+    apk update && apk upgrade  && \
+    apk add --no-cache make git
+ENV CGO_ENABLED=0
+COPY . /go/src/app
+WORKDIR /go/src/app
+
+RUN git config --global http.sslVerify false && echo "${dep_netrc}" >> ~/.netrc
+
+RUN make build_in_docker && \
+    cp ${binary} /service
+
+
+FROM ${registry}alpine
+COPY --from=builder /service /service
+CMD ["/service"]
+
+{{- range $_, $t := .Applications.GetRestTransport }}
+# {{ $t.Handler.Name }}/{{ $t.Type }}
+EXPOSE {{ $t.Handler.Port }}
+{{- end }}

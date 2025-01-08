@@ -1,0 +1,37 @@
+package rest
+
+import (
+	"context"
+
+	"github.com/go-faster/errors"
+	{{ .Logger.Import }}
+)
+
+// Closer exists all router methods that can help you
+// stop your http servers
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	return s.ShutdownHTTP(ctx)
+}
+
+func (s *Server) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
+	stopped := make(chan struct{})
+
+	go (func() {
+		err := s.ShutdownHTTP(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			{{ .Logger.ErrorMsg "ctx" "err" "server shutdown with error"}}
+		} else {
+			{{ .Logger.InfoMsg "ctx" "server successfully shutdown"}}
+		}
+
+		close(stopped)
+	})()
+
+	return stopped, nil
+}
+
+// ShutdownHTTP shutting down one of your http server
+func (s *Server) ShutdownHTTP(ctx context.Context) error {
+	return s.httpSrv.Shutdown(ctx)
+}

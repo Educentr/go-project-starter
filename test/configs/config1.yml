@@ -4,7 +4,7 @@ main:
 
 post_generate:
   - git_install
-  #- tools_install
+  - tools_install
   - clean_imports
   - executable_scripts
   - call_generate
@@ -18,27 +18,29 @@ git:
 
 tools:
   protobuf_version: 1.7.0
-  golang_version: 1.21
+  golang_version: 1.22.7
   ogen_version: v0.78.0
   golangci_version: 1.55.2
 
 rest:
   - name: example
-    path: ./example.swagger.yml
+    path: example.swagger.yml
     api_prefix: /
     port: 8081
+    generator_type: ogen
   - name: sys
     port: 8085
+    generator_type: template/sys
 
-grpc:
-  - name: ExampleService
-    short: example
-    path: ./example.proto
-    port: 8083
-  - name: AdminService
-    short: admin
-    path: ./admin.proto
-    port: 8084
+# grpc:
+#   - name: ExampleService
+#     short: example
+#     path: example.proto
+#     port: 8083
+#   - name: AdminService
+#     short: admin
+#     path: ./admin.proto
+#     port: 8084
 
 repository:
   - name: exampledb1
@@ -64,11 +66,11 @@ applications:
     rest:
       - example
       - sys
-    grpc:
-      - ExampleService
-  - name: internalApi
-    grpc:
-      - AdminService
+    # grpc:
+    #   - ExampleService
+  #- name: internalApi
+    # grpc:
+    #   - AdminService
 # TODO
   # - name: worker
   #   worker: true

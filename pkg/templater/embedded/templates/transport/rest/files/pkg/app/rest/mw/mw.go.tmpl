@@ -1,0 +1,67 @@
+package mw
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"{{ .ProjectPath }}/pkg/app/ds"
+	"{{ .ProjectPath }}/pkg/reqctx"
+	"{{ .ProjectPath }}/pkg/app/rest"
+)
+
+type DefaultMiddlewares struct{}
+type EmptyMiddlewares struct{}
+
+func (dmw *DefaultMiddlewares) GetMiddlewares(
+	ctx context.Context,
+	metrics *prometheus.Registry,
+	srv ds.IService,
+	name string,
+	errHdl rest.RestErrorHandler,
+) (
+	[]func(next http.Handler) http.Handler,
+	error,
+) {
+	// Мидлвари работают в том порядке в котором они находятся в этом массиве
+	// Изменение порядка может сильно повлиять на работу сервиса, делать это надо только если вы уверенны что происходит
+	return []func(next http.Handler) http.Handler{
+		// Создаём контекст запроса
+		func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r.WithContext(reqctx.CreateContext(ctx, r.RequestURI)))
+			})
+		},
+		HTTPServerMiddlewareRequestStartTime(),                     // Обогащаем контекст временем начала запроса
+		HTTPServerMiddlewareTracing(ctx),                           // Обогащаем контекст запроса ID для трейсинга
+		HTTPServerMiddlewareMetrics(ctx, name, metrics),            // Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
+		HTTPServerMiddlewareXServerHeader(ctx, name),               // Обогащаем ответ заголовком X-Server
+		HTTPServerMiddlewareAuth(ctx, srv.GetAuthorizer(), errHdl), // Авторизация
+		HTTPServerMiddlewareCSRF(ctx, srv.GetAuthorizer(), errHdl), // CSRF
+	}, nil
+}
+
+func (emw *EmptyMiddlewares) GetMiddlewares(
+	_ context.Context,
+	_ *prometheus.Registry,
+	_ ds.IService,
+	_ string,
+	_ rest.RestErrorHandler,
+) (
+	[]func(next http.Handler) http.Handler,
+	error,
+) {
+	return []func(next http.Handler) http.Handler{}, nil
+}
+
+/*TODO ogen
+func panicRecoverFunc(ctx context.Context) func(ctx context.Context, p interface{}) (err error) {
+	ctxLogger := zlog.Ctx(ctx)
+
+	return func(ctx context.Context, p interface{}) (err error) {
+		ctxLogger.Error().Interface("Panic", p).Bytes("Stack trace", debug.Stack()).Msg("Panic triggered")
+		return status.Errorf(codes.Unknown, "panic triggered: %v", p)
+	}
+}
+*/

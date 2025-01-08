@@ -1,0 +1,161 @@
+package reqctx
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/pkg/logger"
+	"{{ .ProjectPath }}/pkg/model/actor"
+)
+
+type ctxKey int
+
+const (
+	actorField ctxKey = iota
+	requestIDField
+	requestStartTimeField
+	metricHist
+	metricCount
+)
+
+var (
+	ErrUndefinedActor            = fmt.Errorf("undefined actor")
+	errEmptyRequestID            = fmt.Errorf("setRequestID in context error: RID is empty")
+	errUndefinedRequestStartTime = fmt.Errorf("undefined RequestStartTime")
+	errInvalidRequestStartTime   = fmt.Errorf("invalid RequestStartTime value type")
+	errInvalidRequestID          = fmt.Errorf("invalid RequestID value type")
+)
+
+func CreateContext(mainCtx context.Context, endpoint string) context.Context {
+	// Создаём новый контекст, что бы в него перенести данные из
+	// контекста приложения (конфиг, логгер, ...)
+	pCtx := context.Background()
+
+	// Перекладываем конфиг из основного контекста
+
+	ocInst := onlineconf.FromContext(mainCtx)
+	if ocInst == nil {
+		panic("failed to get onlineconf instance from context")
+	}
+
+	pCtx = onlineconf.ToContext(pCtx, ocInst)
+
+	// Перекладываем логгер из основного контекста
+	pCtx = logger.ReWrapZlog(mainCtx, pCtx, endpoint)
+
+	return pCtx
+}
+
+func GetActor(ctx context.Context) (ds.Actor, error) {
+	ac := ctx.Value(actorField)
+	if ac == nil {
+		return nil, ErrUndefinedActor
+	}
+
+	curActor, ok := ac.(ds.Actor)
+	if !ok {
+		return nil, fmt.Errorf("invalid actor value type: `%T`", ac)
+	}
+
+	return curActor, nil
+}
+
+func SetActor(ctx context.Context, act ds.Actor) (context.Context, error) {
+	if act.GetID() == 0 {
+		return nil, fmt.Errorf("invalid actor: %v", act)
+	}
+
+	{{ .Logger.UpdateContext "ctx" "Uint64(\"ActorUID\", act.GetID())" }}
+
+	return context.WithValue(ctx, actorField, act), nil
+}
+
+func GetRequestID(ctx context.Context) (string, error) {
+	ridf := ctx.Value(requestIDField)
+	if ridf == nil {
+		return "", nil
+	}
+
+	rid, ok := ridf.(string)
+	if !ok {
+		return "", errors.Wrapf(errInvalidRequestID, "%T", ridf)
+	}
+
+	return rid, nil
+}
+
+func SetRequestID(ctx context.Context, rID string) (context.Context, error) {
+	if rID == "" {
+		return ctx, errEmptyRequestID
+	}
+
+	{{ .Logger.UpdateContext "ctx" "Str(\"RequestID\", rID)" }}
+
+	return context.WithValue(ctx, requestIDField, rID), nil
+}
+
+func GetRequestStartTime(ctx context.Context) (time.Time, error) {
+	t := ctx.Value(requestStartTimeField)
+	if t == nil {
+		return time.Time{}, errUndefinedRequestStartTime
+	}
+
+	tt, ok := t.(time.Time)
+	if !ok {
+		return time.Time{}, errors.Wrapf(errInvalidRequestStartTime, "%T", t)
+	}
+
+	return tt, nil
+}
+
+func SetRequestStartTime(ctx context.Context, time time.Time) context.Context {
+	{{ .Logger.UpdateContext "ctx" "Time(\"RequestStartTime\", time)" }}
+
+	return context.WithValue(ctx, requestStartTimeField, time)
+}
+
+func CreateCumulativeMetric(ctx context.Context, collectorHist *prometheus.HistogramVec, collectorCount *prometheus.CounterVec) (context.Context, error) {
+	ctx = context.WithValue(ctx, metricHist, NewContextCumulativeMetric(collectorHist))
+	return context.WithValue(ctx, metricCount, NewContextCumulativeMetric(collectorCount)), nil
+}
+
+func GetCumulativeMetric(ctx context.Context, metricType ctxKey) *ContextCumulativeMetric {
+	ccmp := ctx.Value(metricType)
+	if ccmp == nil {
+		return nil
+	}
+
+	ccm, ok := ccmp.(*ContextCumulativeMetric)
+	if !ok {
+		{{ .Logger.WarnMsg "ctx" "invalid type of context cumulative metric" "Interface(\"Metrics type\", ccmp)" }}
+		return nil
+	}
+
+	return ccm
+}
+
+func IncCumulativeMetric(ctx context.Context, name string, diff int32) {
+	if ccm := GetCumulativeMetric(ctx, metricCount); ccm != nil {
+		ccm.IncMetric(name, diff)
+	}
+}
+
+func TimeCumulativeMetric(ctx context.Context, name string, dur time.Duration) {
+	if ccm := GetCumulativeMetric(ctx, metricHist); ccm != nil {
+		ccm.TimeMetric(name, dur)
+	}
+}
+
+func FlushCumulativeMetric(ctx context.Context, requestName string, labels ...string) {
+	for _, mn := range []ctxKey{metricCount, metricHist} {
+		if ccm := GetCumulativeMetric(ctx, mn); ccm != nil {
+			ccm.FlushMetric(requestName, labels...)
+		}
+	}
+}
