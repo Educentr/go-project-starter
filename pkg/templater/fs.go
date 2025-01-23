@@ -13,7 +13,7 @@ import (
 	"gitlab.educentr.info/golang/service-starter/pkg/ds"
 )
 
-//go:embed embedded
+//go:embed all:embedded
 var templates embed.FS
 
 //go:embed embedded/disclaimer.txt
@@ -180,6 +180,13 @@ func GetAppTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fil
 		err = errors.Wrap(err, "error while get app templates")
 
 		return
+	}
+
+	for i := range files {
+		ext := filepath.Ext(files[i].DestName)
+		fname := strings.TrimSuffix(files[i].DestName, ext)
+
+		files[i].DestName = fname + "-" + params.Application.Name + ext
 	}
 
 	dirsC, filesC, err := GetTemplates(templates, "embedded/templates/app/cmd", params)

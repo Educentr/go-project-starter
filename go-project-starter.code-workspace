@@ -4,7 +4,10 @@
 			"path": "./"
 		},
 		{
-			"path": "../../../../../../../tmp/go-project-starter3157755898"
+			"path": "../../../../advix/xbo_stat_collector_gen"
+		},
+		{
+			"path": "../../../../advix/xbo_stat_collector"
 		}
 	],
 	"settings": {}

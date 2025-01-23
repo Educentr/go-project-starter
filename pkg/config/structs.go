@@ -11,11 +11,13 @@ import (
 
 type (
 	Main struct {
-		Name      string `mapstructure:"name"`
-		Logger    string `mapstructure:"logger"`
-		LoggerObj ds.Logger
-		TargetDir string
-		ConfigDir string
+		Name            string `mapstructure:"name"`
+		Logger          string `mapstructure:"logger"`
+		Author          string `mapstructure:"author"`
+		SkipServiceInit bool   `mapstructure:"skip_service_init"`
+		LoggerObj       ds.Logger
+		TargetDir       string
+		ConfigDir       string
 	}
 
 	Scheduler struct {
@@ -88,21 +90,25 @@ type (
 		DriverList    []string `mapstructure:"driver"`
 	}
 
+	Docker struct {
+		ImagePrefix string `mapstructure:"image_prefix"`
+	}
+
 	Config struct {
-		BasePath        string
-		Main            Main           `mapstructure:"main"`
-		PostGenerate    []string       `mapstructure:"post_generate"`
-		Git             Git            `mapstructure:"git"`
-		Tools           Tools          `mapstructure:"tools"`
-		RepositoryList  RepositoryList `mapstructure:"repository"`
-		Scheduler       Scheduler      `mapstructure:"scheduler"`
-		RestList        RestList       `mapstructure:"rest"`
-		GrpcList        GrpcList       `mapstructure:"grpc"`
-		WsList          WsList         `mapstructure:"ws"`
-		ConsumerList    ConsumerList   `mapstructure:"consumer"`
-		DriverList      DriverList     `mapstructure:"driver"`
-		Applications    []Application  `mapstructure:"applications"`
-		SkipServiceInit bool           `mapstructure:"skip_service_init"`
+		BasePath       string
+		Main           Main           `mapstructure:"main"`
+		PostGenerate   []string       `mapstructure:"post_generate"`
+		Git            Git            `mapstructure:"git"`
+		Tools          Tools          `mapstructure:"tools"`
+		RepositoryList RepositoryList `mapstructure:"repository"`
+		Scheduler      Scheduler      `mapstructure:"scheduler"`
+		RestList       RestList       `mapstructure:"rest"`
+		GrpcList       GrpcList       `mapstructure:"grpc"`
+		WsList         WsList         `mapstructure:"ws"`
+		ConsumerList   ConsumerList   `mapstructure:"consumer"`
+		DriverList     DriverList     `mapstructure:"driver"`
+		Applications   []Application  `mapstructure:"applications"`
+		Docker         Docker         `mapstructure:"docker"`
 
 		RestMap map[string]Rest
 		GrpcMap map[string]Grpc

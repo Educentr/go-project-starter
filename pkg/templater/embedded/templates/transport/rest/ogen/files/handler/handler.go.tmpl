@@ -21,22 +21,3 @@ var (
 	// ErrServiceType is a service type error
 	ErrServiceType = errors.New("service type error")
 )
-
-// ToDo
-// func (h *Handler) NewError(ctx context.Context, err error) oas.ErrorSimpleStatusCode {
-// 	zlog.Ctx(ctx).Err(err).CallerSkipFrame(1).Msg("Internal error")
-
-// 	return oas.ErrorSimpleStatusCode{
-// 		StatusCode: http.StatusInternalServerError,
-// 		Response: oas.ErrorSimple{
-// 			Error: "INTERNAL",
-// 		},
-// 	}
-// }
-
-// func NewHandler(ctx context.Context, srv *service.Service) (*Handler, error) {
-// 	return &Handler{
-// 		ctx: ctx,
-// 		srv: srv,
-// 	}, nil
-// }

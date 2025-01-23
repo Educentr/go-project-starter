@@ -1,15 +1,16 @@
 main:
   name: example
   logger: zerolog
+  author: educentr
 
 post_generate:
   - git_install
   #- tools_install
   - clean_imports
   - executable_scripts
-  - go_mod_tidy
   - call_generate
   - go_mod_tidy
+  - call_generate_mock
   - get_last_linter_config
   #- go_get_u
   #- echo "post generate last job"

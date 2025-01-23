@@ -10,7 +10,8 @@ type EmptyMetrics struct {
 	Metrics *prometheus.Registry
 }
 
-func (em *EmptyMetrics) InitMetrics(_ context.Context, m *prometheus.Registry) error {
+func (em *EmptyMetrics) InitMetrics(_ context.Context, _ string, m *prometheus.Registry) (*prometheus.Registry, error) {
 	em.Metrics = m
-	return nil
+	return em.Metrics, nil
 }
+

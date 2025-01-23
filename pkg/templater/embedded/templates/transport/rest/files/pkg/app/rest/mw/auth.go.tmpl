@@ -15,12 +15,15 @@ func HTTPServerMiddlewareAuth(ctx context.Context, authorizer ds.Authorizer, _ r
             actor, err := authorizer.AuthRest(r)
             if err != nil {
                 http.Error(w, err.Error(), http.StatusUnauthorized)
+
                 return
             }
 
 			ctx, err := reqctx.SetActor(r.Context(), actor)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+
+				return
 			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))

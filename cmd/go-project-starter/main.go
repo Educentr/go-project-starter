@@ -32,11 +32,14 @@ func main() {
 		targetDir     string
 		baseConfigDir string
 		err           error
+		dryRun        bool
 	)
 
 	pflag.StringVar(&baseConfigDir, "configDir", ".project-config", "project configuration directory")
 	pflag.StringVar(&cfgPath, "config", "project.yaml", "project configuration file")
 	pflag.StringVar(&targetDir, "target", "", "target directory")
+	pflag.BoolVar(&dryRun, "dry-run", false, "Dry run")
+
 	pflag.Parse()
 
 	if err = viper.BindPFlags(pflag.CommandLine); err != nil {
@@ -53,11 +56,13 @@ func main() {
 		cfg.SetTargetDir(targetDir)
 	}
 
-	if gen, err = generator.New(AppInfo, cfg); err != nil {
+	if gen, err = generator.New(AppInfo, cfg, dryRun); err != nil {
 		log.Fatalf(layoutFailedToCreateGenerator, err)
 	}
 
-	log.Printf("Generator: %+v", gen)
+	// ToDo debug log
+	// Прикрутить логгер, сделать уровни логирования и добавить эту секцию как Debug
+	// log.Printf("Generator: %+v", gen)
 
 	if err = gen.Generate(); err != nil {
 		log.Fatalf(layoutFailedToGenerate, err)

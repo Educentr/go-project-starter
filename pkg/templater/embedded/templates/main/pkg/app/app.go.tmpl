@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"sync/atomic"
+	"math"
 
 	"github.com/go-faster/errors"
 	"github.com/povilasv/prommod"
@@ -55,6 +56,10 @@ type App struct {
 	metrics *prometheus.Registry
 }
 
+type EmptyUserSetFunc struct{}
+
+func (u *EmptyUserSetFunc) SetFunc(_ context.Context, _ *App) error {return nil}
+
 type UnimplementedAuthorizer struct {}
 
 func (u *UnimplementedAuthorizer) Init(_ context.Context, _ []ds.IDriver, _ *prometheus.Registry) (ds.Authorizer, error) {
@@ -64,7 +69,7 @@ func (u *UnimplementedAuthorizer) Init(_ context.Context, _ []ds.IDriver, _ *pro
 func (u *UnimplementedAuthorizer) AuthRest(r *http.Request) (ds.Actor, error) {
 	{{ .Logger.WarnMsg "r.Context()" "Unimplemented method AuthRest" }}
 
-	return &actor.Actor{}, nil
+	return &actor.Actor{ID: math.MaxUint64}, nil
 }
 
 func (u *UnimplementedAuthorizer) CheckCSRF(r *http.Request) (bool, error) {

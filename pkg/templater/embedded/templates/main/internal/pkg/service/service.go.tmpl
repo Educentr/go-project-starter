@@ -29,9 +29,7 @@ type Service struct {
 func NewService(ctx context.Context) (ds.IService, error) {
 	srv := &Service{}
 
-	err := srv.Init(ctx)
-
-	return srv, err
+	return srv.Init(ctx)
 }
 
 {{ if ne 0 ( len .Drivers ) }}
@@ -54,7 +52,7 @@ func (s *Service) setDrivers(drvs []ds.IDriver) error {
 {{ if not .SkipServiceInit }}
 func (s *Service) InitService(ctx context.Context, drvs []ds.IDriver, bucket ds.ServerBucket, m *prometheus.Registry) error {
 	s.Service.InitState(ctx, drvs, bucket, m)
-	s.EmptyMetrics.InitMetrics(ctx, m)
+	s.EmptyMetrics.InitMetrics(ctx, constant.ServiceName, m)
 	s.Authorizer.Init(ctx, drvs, m)
 {{ if ne 0 ( len .Drivers ) }}
 	return s.setDrivers(drvs)

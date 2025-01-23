@@ -43,6 +43,10 @@ var (
 	BuildCommit string
 )
 
+type UserSetFunc struct {
+	app.EmptyUserSetFunc
+}
+
 func main() {
 	// initialization parent background context
 	mainCtx := context.Background()
@@ -75,6 +79,14 @@ func main() {
 
 	// initializing graceful stop for application
 	mainCtx = application.InitGracefulStop(mainCtx)
+
+	userFunc := UserSetFunc{}
+
+	err = userFunc.SetFunc(mainCtx, application)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set user func" }}
+		os.Exit(ExitCodeErrorApp)
+	}
 
 	err = application.SetTransport(
 		{{ range $_, $tr := .Application.Transports }}

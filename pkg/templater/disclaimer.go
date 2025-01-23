@@ -19,14 +19,35 @@ const (
 	extDot  = "."
 )
 
+func isFileIgnored(fName string) bool {
+	switch fName {
+	case ".keep":
+		fallthrough
+	case "LICENSE.txt":
+		return true
+	}
+
+	switch filepath.Ext(fName) {
+	case extMod:
+		return true
+	}
+
+	return false
+}
+
 func makeStartDisclaimer(fName string) (string, error) {
 	_, fname := filepath.Split(fName)
+
+	if isFileIgnored(fname) {
+		return "", nil
+	}
+
 	prefix := ""
+
 	switch filepath.Ext(fname) {
 	case extMD:
+		// ToDo надо доставать заголовок первого уровня из файла и вставлять его перед disclaimer
 		prefix = "# " + fname + "\n\n"
-	case extMod:
-		return "", nil
 	}
 
 	text, err := makeComment(fname, disclaimerTop)
@@ -40,8 +61,8 @@ func makeStartDisclaimer(fName string) (string, error) {
 
 func makeFinishDisclaimer(fName string) (string, error) {
 	_, fname := filepath.Split(fName)
-	switch filepath.Ext(fname) {
-	case extMod:
+
+	if isFileIgnored(fname) {
 		return "", nil
 	}
 
@@ -60,7 +81,15 @@ func makeComment(fName, text string) (string, error) {
 		commPrefix = "--"
 	case extGo:
 		commPrefix = "//"
+	case ".example":
+		if !strings.HasPrefix(fName, ".env-") {
+			return "", fmt.Errorf("unknown dot file: %s", fName)
+		}
+
+		fallthrough
 	case extSh:
+		fallthrough
+	case ".gitignore":
 		fallthrough
 	case extYml:
 		fallthrough
@@ -76,6 +105,10 @@ func makeComment(fName, text string) (string, error) {
 	case extSum:
 		fallthrough
 	case "":
+		if strings.HasPrefix(fName, "Dockerfile") {
+			fName = "Dockerfile"
+		}
+
 		switch fName {
 		case "pre-commit":
 			fallthrough
@@ -94,5 +127,5 @@ func makeComment(fName, text string) (string, error) {
 		res += commPrefix + " " + ln + " " + commPostfix + "\n"
 	}
 
-	return res + "\n", nil
+	return res, nil
 }

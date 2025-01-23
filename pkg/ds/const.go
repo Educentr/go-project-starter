@@ -183,93 +183,11 @@ func (h Handler) GetTargetGeneratePath(targetDir string) string {
 	return filepath.Join(targetDir, "pkg", "rest", h.Name, h.ApiVersion)
 }
 
-// Сделать Возможность не указывать DestTmplName, а брать его из SourceName
-// var filesToGenerate = map[TemplateType][]Files{
-// 	templateMainType: {
-// 		{SourceName: "go.mod.tmpl", DestTmplName: "go.mod"},
-// 		{SourceName: "Makefile.tmpl", DestTmplName: "Makefile"},
-// 		{SourceName: "README.md.tmpl", DestTmplName: "README.md"},
-// 		{SourceName: "LICENSE.txt.tmpl", DestTmplName: "LICENSE.txt"},
-// 		{SourceName: "docker-compose.yaml.tmpl", DestTmplName: "docker-compose.yaml"},
-// 		{SourceName: "configs/golangci-lint.yml.tmpl", DestTmplName: "configs/golangci-lint.yml"},
-// 		{SourceName: "scripts/goversioncheck.sh.tmpl", DestTmplName: "scripts/goversioncheck.sh"},
-// 		{SourceName: "scripts/githooks/pre-commit.tmpl", DestTmplName: "scripts/githooks/pre-commit"},
-// 		{SourceName: "internal/pkg/constant/constant.go.tmpl", DestTmplName: "internal/pkg/constant/constant.go"},
-// 		{SourceName: "internal/pkg/ds/app.go.tmpl", DestTmplName: "internal/pkg/ds/app.go"},
-// 		{SourceName: "internal/pkg/metrics/build_collector.go.tmpl", DestTmplName: "internal/pkg/metrics/build_collector.go"},
-// 		{SourceName: "internal/pkg/metrics/metrics.go.tmpl", DestTmplName: "internal/pkg/metrics/metrics.go"},
-// 		{SourceName: "internal/pkg/service/service.go.tmpl", DestTmplName: "internal/pkg/service/service.go"},
-// 		{SourceName: "internal/pkg/service/README.md.tmpl", DestTmplName: "internal/pkg/service/README.md"},
-// 		// ToDo этих файлов должно быть несколько для каждого application свой
-// 		{SourceName: "internal/app/app.go.tmpl", DestTmplName: "internal/app/app.go"},
-// 		{SourceName: "internal/app/closer.go.tmpl", DestTmplName: "internal/app/closer.go"},
-// 		{SourceName: "docker.tmpl", DestTmplName: "Dockerfile"},
-// 	},
-// 	templateHandlerType: {
-// 		{SourceName: "cmd/api/main.go.tmpl", DestTmplName: "cmd/api/main.go"},
-// 		{SourceName: "cmd/api/main_test.go.tmpl", DestTmplName: "cmd/api/main_test.go"},
-// 		{SourceName: "internal/pkg/auth/auth.go.tmpl", DestTmplName: "internal/pkg/auth/auth.go"},
-// 		{SourceName: "pkg/model/actor/actor.go.tmpl", DestTmplName: "pkg/model/actor/actor.go"},
-// 		{SourceName: "pkg/req_ctx/context.go.tmpl", DestTmplName: "pkg/req_ctx/context.go"},
-// 		{SourceName: "pkg/req_ctx/cumulative_metric.go.tmpl", DestTmplName: "pkg/req_ctx/cumulative_metric.go"},
-// 	},
-// 	templateRestType: {
-// 		{SourceName: "internal/transport/rest/router.go.tmpl", DestTmplName: "internal/transport/rest/router.go"},
-// 		{SourceName: "internal/transport/rest/mw/common.go.tmpl", DestTmplName: "internal/transport/rest/mw/common.go"},
-// 		{SourceName: "internal/transport/rest/mw/csrf.go.tmpl", DestTmplName: "internal/transport/rest/mw/csrf.go"},
-// 		{SourceName: "internal/transport/rest/mw/metrics.go.tmpl", DestTmplName: "internal/transport/rest/mw/metrics.go"},
-// 		{SourceName: "internal/transport/rest/mw/tracing.go.tmpl", DestTmplName: "internal/transport/rest/mw/tracing.go"},
-// 		{SourceName: "internal/transport/rest/mw/error_responses.go.tmpl", DestTmplName: "internal/transport/rest/mw/error_responses.go"},
-// 		{SourceName: "internal/transport/rest/server.go.tmpl", DestTmplName: "internal/transport/rest/server.go"},
-// 		{SourceName: "internal/transport/rest/closer.go.tmpl", DestTmplName: "internal/transport/rest/closer.go"},
-// 		{SourceName: "internal/transport/rest/ogen_handler/router.go.tmpl", DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}/router.go"},
-// 		{SourceName: "internal/transport/rest/ogen_handler/middleware.go.tmpl", DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}/middleware.go"},
-// 		{SourceName: "internal/transport/rest/ogen_handler/error_response.go.tmpl", DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}/error_response.go"},
-// 		{SourceName: "internal/transport/rest/ogen_handler/handler/handler.go.tmpl", DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}/handler/handler.go"},
-// 		{SourceName: "internal/transport/rest/ogen_handler/handler/README.md.tmpl", DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}/handler/README.md"},
-// 	},
-// 	templateSysType: {
-// 		{SourceName: "internal/transport/rest/template/sys/server.go.tmpl", DestTmplName: "internal/transport/rest/sys/server.go"},
-// 		{SourceName: "internal/transport/rest/template/sys/closer.go.tmpl", DestTmplName: "internal/transport/rest/sys/closer.go"},
-// 		{SourceName: "internal/transport/rest/template/sys/handler/handler.go.tmpl", DestTmplName: "internal/transport/rest/sys/handler/handler.go"},
-// 		{SourceName: "internal/transport/rest/template/sys/handler/sys.go.tmpl", DestTmplName: "internal/transport/rest/sys/handler/sys.go"},
-// 	},
-// }
-
-// var dirToCreate = map[TemplateType][]Files{
-// 	templateMainType: {
-// 		{DestTmplName: "api"},
-// 		{DestTmplName: "cmd"},
-// 		{DestTmplName: "docs"},
-// 		{DestTmplName: "configs"},
-// 		{DestTmplName: "internal"},
-// 		{DestTmplName: "internal/transport"},
-// 		{DestTmplName: "internal/app"},
-// 		{DestTmplName: "internal/pkg"},
-// 		{DestTmplName: "internal/pkg/constant"},
-// 		{DestTmplName: "internal/pkg/ds"},
-// 		{DestTmplName: "internal/pkg/interface"},
-// 		{DestTmplName: "internal/pkg/metrics"},
-// 		{DestTmplName: "internal/pkg/service"},
-// 		{DestTmplName: "scripts"},
-// 		{DestTmplName: "scripts/githooks"},
-// 	},
-// 	templateHandlerType: {
-// 		{DestTmplName: "cmd/api"},
-// 		{DestTmplName: "internal/pkg/auth"},
-// 		{DestTmplName: "pkg/model"},
-// 		{DestTmplName: "pkg/req_ctx"},
-// 		{DestTmplName: "pkg/model/actor"},
-// 	},
-// 	templateRestType: {
-// 		{DestTmplName: "internal/transport/rest"},
-// 		{DestTmplName: "internal/transport/rest/mw"},
-// 		{DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}"},
-// 		{DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}"},
-// 		{DestTmplName: "internal/transport/rest/{{ .Handler.Name | ToLower }}/{{ .Handler.ApiVersion | ToLower }}/handler"},
-// 	},
-// 	templateSysType: {
-// 		{DestTmplName: "internal/transport/rest"},
-// 		{DestTmplName: "internal/transport/rest/sys"},
-// 	},
-// }
+type FilesDiff struct {
+	NewFiles     map[string]struct{}
+	IgnoreFiles  map[string]struct{}
+	OldFiles     map[string]struct{}
+	NewDirectory map[string]struct{}
+	OldDirectory map[string]struct{}
+	UserContent  map[string][]byte
+}

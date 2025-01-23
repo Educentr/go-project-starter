@@ -20,7 +20,7 @@ LOCAL_BIN:=$(CURDIR)/bin
 # Путь до бинарника golang-ci
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 # Minimal Golang version
-MIN_GO_VERSION = 1.19.3
+MIN_GO_VERSION = 1.22.7
 # Ogen version
 OGENVERSION = {{ .OgenVersion }}
 # Build datetime
@@ -38,13 +38,11 @@ LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)
 # GOPATH
 GOPATH = $(shell go env GOPATH)
 # Docker variables
-DOCKER_IMAGE ?= helios/${SERVICE_NAME}
-DOCKER_TAG ?= dev
-GOPRIVATE =gitlab.educentr.info
+DOCKER_IMAGE ?= {{ .DockerImagePrefix }}/${SERVICE_NAME}
+DOCKER_TAG ?= latest
 GOPROXY ?=https://proxy.golang.org,direct
-SQLC_PATH ?= configs/sqlc.yaml
 PACKAGE = $(shell go list -m)
-PKG_LIST_FOR_TEST = $(shell go list ./... | grep -v /test/gott)
+PKG_LIST_FOR_TEST = $(shell go list ./...)
 
 # Environment prefix (dev\test)
 ENVIRONMENT_PREFIX = "dev-"
@@ -106,17 +104,17 @@ go-get-u:
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
 lint: install-lint
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME)
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME)
 
 # Run full code lint
 .PHONY: lint-full
 lint-full: lint
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci.yml ./... --build-tags=$(SERVICE_NAME)
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint-fix
 lint-fix: lint
-	$(GOLANGCI_BIN) run --fix --config=./configs/golangci.yml ./... --build-tags=$(SERVICE_NAME)
+	$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
 
 # Run service
 .PHONY: run
@@ -161,9 +159,10 @@ build_in_docker:
 	go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" $(PWD)/cmd/$(RUN_TYPE)
 
 # Build docker image
+# ToDo build all containers
 .PHONY: docker
 docker:
-	docker build -f ./Dockerfile --build-arg dep_netrc="$(shell cat ${HOME}/.netrc)" --build-arg registry=$(REGISTRY) --rm -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+	docker build -f ./Dockerfile --build-arg registry=$(REGISTRY) --rm -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
 
 # Generate pb files from proto description
 .PHONY: proto
@@ -287,7 +286,7 @@ install-tools: install-hooks install-lint {{ if eq $proto true }}install-buf {{ 
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: mock proto generate-ogen {{ if eq $sqlc true }}sqlc{{ end }}
+generate: proto generate-ogen {{ if eq $sqlc true }}sqlc{{ end }}
 
 .PHONY: download
 download:

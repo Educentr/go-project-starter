@@ -9,23 +9,33 @@ type ZlogLogger struct{}
 
 func (zl *ZlogLogger) getAddParams(params ...string) string {
 	addParams := strings.Join(params, ".")
+	if len(addParams) > 100 {
+		addParams = strings.Join(params, ".\n")
+	}
+
 	if addParams != "" {
-		addParams = fmt.Sprintf(`.%s`, addParams)
+		if len(addParams) > 100 {
+			addParams = fmt.Sprintf(".\n%s.\n", addParams)
+		} else {
+			addParams = fmt.Sprintf(".%s.", addParams)
+		}
+	} else {
+		addParams = "."
 	}
 
 	return addParams
 }
 
 func (zl *ZlogLogger) ErrorMsg(ctx, err, msg string, params ...string) string {
-	return fmt.Sprintf("zlog.Ctx(%s).Error()%s.Err(%s).Msg(\"%s\")", ctx, zl.getAddParams(params...), err, msg)
+	return fmt.Sprintf("zlog.Ctx(%s).Error()%sErr(%s).Msg(\"%s\")", ctx, zl.getAddParams(params...), err, msg)
 }
 
 func (zl *ZlogLogger) WarnMsg(ctx, msg string, params ...string) string {
-	return fmt.Sprintf("zlog.Ctx(%s).Warn()%s.Msg(\"%s\")", ctx, zl.getAddParams(params...), msg)
+	return fmt.Sprintf("zlog.Ctx(%s).Warn()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
 }
 
 func (zl *ZlogLogger) InfoMsg(ctx, msg string, params ...string) string {
-	return fmt.Sprintf("zlog.Ctx(%s).Info()%s.Msg(\"%s\")", ctx, zl.getAddParams(params...), msg)
+	return fmt.Sprintf("zlog.Ctx(%s).Info()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
 }
 
 func (zl *ZlogLogger) UpdateContext(params ...string) string {

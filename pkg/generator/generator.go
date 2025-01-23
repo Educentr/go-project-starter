@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"gitlab.educentr.info/golang/service-starter/pkg/config"
@@ -17,16 +18,20 @@ import (
 )
 
 type Generator struct {
-	AppInfo       string
-	Logger        ds.Logger
-	ProjectName   string
-	ProjectPath   string
-	GoLangVersion string
-	OgenVersion   string
-	TargetDir     string
-	PostGenerate  []ExecCmd
-	Transports    ds.Transports
-	Applications  ds.Apps
+	AppInfo           string
+	DryRun            bool
+	Logger            ds.Logger
+	ProjectName       string
+	Author            string
+	ProjectPath       string
+	GoLangVersion     string
+	OgenVersion       string
+	TargetDir         string
+	DockerImagePrefix string
+	SkipInitService   bool
+	PostGenerate      []ExecCmd
+	Transports        ds.Transports
+	Applications      ds.Apps
 }
 
 type ExecCmd struct {
@@ -35,11 +40,12 @@ type ExecCmd struct {
 	Msg string
 }
 
-func New(AppInfo string, config config.Config) (*Generator, error) {
+func New(AppInfo string, config config.Config, dryrun bool) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
 		Transports:   make(ds.Transports),
+		DryRun:       dryrun,
 	}
 
 	if err := g.processConfig(config); err != nil {
@@ -52,6 +58,9 @@ func New(AppInfo string, config config.Config) (*Generator, error) {
 func (g *Generator) processConfig(config config.Config) error {
 	g.Logger = config.Main.LoggerObj
 	g.ProjectName = config.Main.Name
+	g.Author = config.Main.Author
+	g.DockerImagePrefix = config.Docker.ImagePrefix
+	g.SkipInitService = config.Main.SkipServiceInit
 	g.ProjectPath = config.Git.ModulePath
 	g.GoLangVersion = config.Tools.GolangVersion
 	g.OgenVersion = config.Tools.OgenVersion
@@ -123,10 +132,12 @@ func (g *Generator) processConfig(config config.Config) error {
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"clean-import"}, Msg: "cleaning imports"})
 		case "executable_scripts":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "chmod", Arg: []string{"a+x", "scripts/goversioncheck.sh"}, Msg: "make scripts executable"})
-		case "call_generate":
-			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"generate"}, Msg: "generate"})
+		case "call_generate_mock":
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"mock"}, Msg: "generate"})
 		case "go_mod_tidy":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"tidy"}, Msg: "go mod tidy"})
+		case "call_generate":
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"generate"}, Msg: "generate"})
 		case "go_get_u":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"go-get-u"}, Msg: "updating dependencies"})
 		default:
@@ -192,12 +203,16 @@ func (g *Generator) processConfig(config config.Config) error {
 
 func (g *Generator) GetTmplParams() templater.GeneratorParams {
 	return templater.GeneratorParams{
-		Logger:        g.Logger,
-		ProjectName:   g.ProjectName,
-		ProjectPath:   g.ProjectPath,
-		GoLangVersion: g.GoLangVersion,
-		OgenVersion:   g.OgenVersion,
-		Applications:  g.Applications,
+		Logger:            g.Logger,
+		ProjectName:       g.ProjectName,
+		Author:            g.Author,
+		Year:              time.Now().Format("2006"),
+		ProjectPath:       g.ProjectPath,
+		DockerImagePrefix: g.DockerImagePrefix,
+		SkipServiceInit:   g.SkipInitService,
+		GoLangVersion:     g.GoLangVersion,
+		OgenVersion:       g.OgenVersion,
+		Applications:      g.Applications,
 	}
 }
 
@@ -256,15 +271,17 @@ func (g *Generator) Generate() error {
 		return err
 	}
 
-	for _, dir := range dirs {
-		fmt.Printf("Dir: %s -> %s\n", dir.SourceName, dir.DestName)
-	}
+	// ToDo debug log
+	// Прикрутить логгер, сделать уровни логирования и добавить эту секцию как Debug
+	// for _, dir := range dirs {
+	// 	fmt.Printf("Dir: %s -> %s\n", dir.SourceName, dir.DestName)
+	// }
 
-	for _, file := range files {
-		fmt.Printf("File: %s -> %s\n", file.SourceName, file.DestName)
-	}
+	// for _, file := range files {
+	// 	fmt.Printf("File: %s -> %s\n", file.SourceName, file.DestName)
+	// }
 
-	existingCode, err := templater.GetUserCodeFromFiles(files)
+	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files)
 	if err != nil {
 		return err
 	}
@@ -275,10 +292,38 @@ func (g *Generator) Generate() error {
 			return fmt.Errorf("failed to get template %s: %w", files[i].SourceName, err)
 		}
 
-		files[i].Code, err = templater.GenerateByTmpl(tmpl, files[i].ParamsTmpl, existingCode[files[i].DestName], files[i].DestName)
+		files[i].Code, err = templater.GenerateByTmpl(tmpl, files[i].ParamsTmpl, filesDiff.UserContent[files[i].DestName], files[i].DestName)
 		if err != nil {
 			return err
 		}
+	}
+
+	if g.DryRun {
+		for file := range filesDiff.IgnoreFiles {
+			fmt.Printf("Ignore file: %s\n", file)
+		}
+
+		for file := range filesDiff.NewDirectory {
+			fmt.Printf("Created new directory: %s\n", file)
+		}
+
+		for file := range filesDiff.NewFiles {
+			fmt.Printf("Created new file: %s\n", file)
+		}
+
+		for file := range filesDiff.OldDirectory {
+			fmt.Printf("Not modified directory: %s\n", file)
+		}
+
+		for file := range filesDiff.OldFiles {
+			fmt.Printf("Not modified file: %s\n", file)
+		}
+
+		for file, content := range filesDiff.UserContent {
+			fmt.Printf("Store user content in file: %s (len: %d)\n", file, len(content))
+		}
+
+		return nil
 	}
 
 	if err = tools.MakeDirs(dirs); err != nil {
@@ -286,6 +331,10 @@ func (g *Generator) Generate() error {
 	}
 
 	for _, file := range files {
+		if _, ex := filesDiff.IgnoreFiles[file.DestName]; ex {
+			continue
+		}
+
 		dstFile, err := os.Create(file.DestName)
 		if err != nil {
 			return err

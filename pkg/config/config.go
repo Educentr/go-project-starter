@@ -23,6 +23,8 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 		return config, err
 	}
 
+	viper.SetDefault("docker.image_prefix", "educentr")
+
 	viper.SetDefault("post_generate.git_install", true)
 	viper.SetDefault("post_generate.tools_install", true)
 	viper.SetDefault("post_generate.clean_imports", true)
@@ -35,6 +37,8 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 	viper.SetDefault("tools.golang_version", defaultGolangVersion)
 	viper.SetDefault("tools.ogen_version", defaultOgenVersion)
 	viper.SetDefault("tools.golangci_version", defaultGolangciVersion)
+
+	viper.SetDefault("main.author", "Unknown author")
 
 	if err := viper.Unmarshal(&config); err != nil {
 		return config, err

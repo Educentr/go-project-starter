@@ -46,7 +46,7 @@ func (s *Server) GetHTTPServer(ctx context.Context, serviceName string) (*http.S
 	}
 
 	if !ex {
-		return nil, errors.New("port not found")
+		return nil, errors.New("port not found " + onlineconf.MakePath(serviceName, "transport/rest/"+s.Name()+"/port"))
 	}
 
 	timeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(serviceName, "transport/rest/"+s.Name()+"/timeout"), defaultHTTPTimeout)

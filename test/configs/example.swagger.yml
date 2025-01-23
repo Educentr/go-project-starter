@@ -30,6 +30,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Item'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
       requestBody:
         description: Create a new item in the store
         required: true
@@ -51,6 +57,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Items'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
   '/item/{itemId}/like':
     put:
       tags:
@@ -69,6 +81,12 @@ paths:
       responses:
         '201':
           description: successful operation
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
   '/item/{itemId}':
     get:
       tags:
@@ -93,6 +111,12 @@ paths:
                 $ref: '#/components/schemas/Item'
         '404':
           description: Item not found
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
     put:
       tags:
         - item
@@ -117,6 +141,12 @@ paths:
       responses:
         '200':
           description: successful operation
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
     delete:
       tags:
         - item
@@ -134,8 +164,25 @@ paths:
       responses:
         '200':
           description: successful operation
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
 components:
   schemas:
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
     ItemStatus:
       type: string
       description: item status in the store

@@ -3,6 +3,9 @@ package templater
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,13 +19,16 @@ import (
 )
 
 type GeneratorParams struct {
-	AppInfo         string
-	Logger          ds.Logger
-	ProjectName     string
-	ProjectPath     string
-	SkipServiceInit bool
-	GoLangVersion   string
-	OgenVersion     string
+	AppInfo           string
+	Logger            ds.Logger
+	Author            string
+	Year              string
+	ProjectName       string
+	ProjectPath       string
+	DockerImagePrefix string
+	SkipServiceInit   bool
+	GoLangVersion     string
+	OgenVersion       string
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	Drivers []ds.IDriver
@@ -114,14 +120,125 @@ func GenerateFilenameByTmpl(file ds.Files) (string, error) {
 	return buf.String(), nil
 }
 
-func GetUserCodeFromFiles(files []ds.Files) (map[string]string, error) {
-	// ToDo сохранить весь существующий пользовательский код
-	return make(map[string]string), nil
+// ToDo сделать проверку, что эта строка есть в файле дисклеймера
+// для случаев, когда дисклеймер меняется, надо поддержать массив строк для поиска
+// CI должен проверять, что массив строк "никогда" не уменьшается, что бы не нарушать обратную совместимость
+const (
+	disclaimer = "If you need you can add your code after this message"
+)
+
+var (
+	ignoreIfExistsPath = map[string]struct{}{
+		".git/hooks/pre-commit": {},
+		"go.mod":                {},
+		"go.sum":                {},
+		"LICENSE.txt":           {},
+		"README.md":             {},
+		"etc/onlineconf/.keep":  {},
+	}
+)
+
+func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, error) {
+	filesDiff := ds.FilesDiff{
+		NewFiles:     make(map[string]struct{}),
+		IgnoreFiles:  make(map[string]struct{}),
+		NewDirectory: make(map[string]struct{}),
+		OldFiles:     make(map[string]struct{}),
+		OldDirectory: make(map[string]struct{}),
+		UserContent:  make(map[string][]byte),
+	}
+
+	for _, file := range files {
+		filesDiff.NewFiles[file.DestName] = struct{}{}
+		dir, _ := filepath.Split(file.DestName)
+		filesDiff.NewDirectory[dir] = struct{}{}
+	}
+
+	err := fs.WalkDir(os.DirFS(targetDir), ".", func(relPath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		path := filepath.Join(targetDir, relPath)
+
+		if _, ok := ignoreIfExistsPath[relPath]; ok {
+			delete(filesDiff.NewFiles, path)
+			filesDiff.IgnoreFiles[path] = struct{}{}
+
+			return nil
+		}
+
+		if d.IsDir() {
+			path = path + "/"
+			if _, ok := filesDiff.NewDirectory[path]; ok {
+				delete(filesDiff.NewDirectory, path)
+			} else {
+				filesDiff.OldDirectory[path] = struct{}{}
+			}
+
+			return nil
+		}
+
+		if _, ok := filesDiff.NewFiles[path]; ok {
+			delete(filesDiff.NewFiles, path)
+			fileContent, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			_, userData, err := splitDisclaimer(string(fileContent))
+			if err != nil {
+				// ToDo сделать force режим
+				return errors.Wrap(err, "error split disclaimer in file "+path)
+			}
+
+			if len(userData) > 0 {
+				filesDiff.UserContent[path] = []byte(userData)
+			}
+		} else {
+			fileContent, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			// ToDo сделать удаление старых файлов с дисклеймером которые больше не будут генерироваться
+			_, userData, err := splitDisclaimer(string(fileContent))
+			if err == nil && len(userData) > 0 {
+				// ToDo сделать миграции с возможностью указать перемещение файлов из одного места в другое, что бы пользовательский код переносить
+				return errors.New("end disclaimer found in file " + targetDir + " / " + path + " buf file won't be regenerated")
+			}
+
+			filesDiff.OldFiles[path] = struct{}{}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return ds.FilesDiff{}, err
+	}
+
+	return filesDiff, nil
 }
 
-func GenerateByTmpl(tmpl Template, params any, userCode string, destPath string) (*bytes.Buffer, error) {
-	buf := &bytes.Buffer{}
+func splitDisclaimer(fileContent string) (string, string, error) {
+	disclamerFind := strings.Index(fileContent, disclaimer)
+	if disclamerFind == -1 {
+		return fileContent, "", errors.New("end disclaimer not found in file")
+	}
 
+	newLine := strings.Index(fileContent[disclamerFind+len(disclaimer):], "\n")
+	if newLine == -1 {
+		return fileContent[:disclamerFind], "", nil
+	}
+
+	userData := fileContent[disclamerFind+len(disclaimer)+newLine+1:]
+
+	return fileContent[:disclamerFind+len(disclaimer)+newLine+1], userData, nil
+}
+
+const bufferSizeStep = 1024
+
+func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string) (*bytes.Buffer, error) {
 	startDisclaimer, err := makeStartDisclaimer(destPath)
 	if err != nil {
 		return nil, err
@@ -137,6 +254,10 @@ func GenerateByTmpl(tmpl Template, params any, userCode string, destPath string)
 		"ToUpper":    strings.ToUpper,
 		"Capitalize": cases.Title(language.Und).String,
 	}
+
+	buf := &bytes.Buffer{}
+
+	buf.Grow(len(userCode) + bufferSizeStep*((len(startDisclaimer)+len(tmpl.Tmpl)+len(finishDisclaimer))/bufferSizeStep) + 1)
 
 	templatePackage, err := template.New(destPath).Funcs(funcs).Parse(startDisclaimer + tmpl.Tmpl + "\n" + finishDisclaimer)
 	if err != nil {
@@ -155,6 +276,10 @@ func GenerateByTmpl(tmpl Template, params any, userCode string, destPath string)
 		}
 
 		return nil, errors.New("error execute template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	}
+
+	if len(userCode) > 0 {
+		buf.Write(userCode)
 	}
 
 	return buf, nil
@@ -194,14 +319,6 @@ func getImportErrorLine(lines []string, tmplerror string) (string, error) {
 	} else {
 		return "", errors.New("can't get line from error `" + tmplerror + "`")
 	}
-}
-
-func fetchFileName(path, def string) string {
-	if parts := strings.Split(path, "/"); len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-
-	return def
 }
 
 func getTmplErrorLine(lines []string, tmplErr string) (string, error) {
