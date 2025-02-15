@@ -66,7 +66,7 @@ func (s *Server) GetHTTPServer(ctx context.Context, serviceName string) (*http.S
 	// ToDo split timeout for read and write
 	return &http.Server{
 		Addr:              ip + ":" + port,
-		WriteTimeout:      timeout,
+		WriteTimeout:      timeout * 2,
 		ReadTimeout:       timeout,
 		IdleTimeout:       timeout,
 		ReadHeaderTimeout: headerTimeout,

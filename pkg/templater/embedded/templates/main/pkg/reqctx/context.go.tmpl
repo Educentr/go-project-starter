@@ -49,6 +49,20 @@ func CreateContext(mainCtx context.Context, endpoint string) context.Context {
 	// Перекладываем логгер из основного контекста
 	pCtx = logger.ReWrapZlog(mainCtx, pCtx, endpoint)
 
+	ocEndpoint := strings.Replace(endpoint[1:], "/", "_", -1)
+
+	ocPath := onlineconf.MakePath("{{ .ProjectName }}", "/handler/http", ocEndpoint, "timeout")
+	timeout, err := onlineconf.GetDuration(pCtx, ocPath, 0)
+	if err != nil {
+		{{ .Logger.WarnMsg "pCtx" "failed to get timeout from onlineconf. Skip" "Err(err)" }}
+	}
+
+	if timeout != 0 {
+		pCtx, _ = context.WithTimeout(pCtx, timeout)
+	}
+
+	{{ .Logger.UpdateContext "pCtx" "Str(\"Config endpoint\", ocPath)" }}
+
 	return pCtx
 }
 

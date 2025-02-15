@@ -175,7 +175,7 @@ func (a *App) Init(ctx context.Context) error {
 	// Initializing driver
 	err := a.InitDrivers(ctx)
 	if err != nil {
-		return errors.Wrap(err, "can't initialize driver")
+		return errors.Wrap(err, "can't initialize drivers")
 	}
 
 	err = a.InitService(ctx)
@@ -200,7 +200,7 @@ func (a *App) InitDrivers(ctx context.Context) error {
 
 	for _, driver := range a.drivers {
 		if err := driver.Init(ctx, bucket, a.metrics); err != nil {
-			return errors.Wrapf(err, "can't initialize driver: %s", driver)
+			return errors.Wrapf(err, "can't initialize driver: %s", driver.Name())
 		}
 	}
 

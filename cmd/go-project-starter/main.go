@@ -2,12 +2,14 @@ package main
 
 import (
 	"log"
+	"path/filepath"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"gitlab.educentr.info/golang/service-starter/pkg/config"
 	"gitlab.educentr.info/golang/service-starter/pkg/generator"
+	"gitlab.educentr.info/golang/service-starter/pkg/meta"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 
 	layoutFailedToBindFlags       = "failed to bind flags: %v"
 	layoutFailedToLoadConfig      = "failed to load config: %v"
+	layoutFailedToLoadMeta        = "failed to load meta: %v"
 	layoutFailedToCreateGenerator = "failed to create generator: %v"
 	layoutFailedToGenerate        = "failed to generate: %v"
 )
@@ -28,6 +31,7 @@ func main() {
 	var (
 		gen           *generator.Generator
 		cfg           config.Config
+		genMeta       meta.Meta
 		cfgPath       string
 		targetDir     string
 		baseConfigDir string
@@ -48,15 +52,24 @@ func main() {
 
 	log.Println(msgConfig, cfgPath)
 
-	if cfg, err = config.GetConfig(baseConfigDir, cfgPath); err != nil {
+	cfgDir := baseConfigDir
+	if !filepath.IsAbs(baseConfigDir) {
+		cfgDir = filepath.Join(targetDir, baseConfigDir)
+	}
+
+	if cfg, err = config.GetConfig(cfgDir, cfgPath); err != nil {
 		log.Fatalf(layoutFailedToLoadConfig, err)
+	}
+
+	if genMeta, err = meta.GetMeta(cfgDir, "meta.yaml"); err != nil {
+		log.Fatalf(layoutFailedToLoadMeta, err)
 	}
 
 	if targetDir != "" {
 		cfg.SetTargetDir(targetDir)
 	}
 
-	if gen, err = generator.New(AppInfo, cfg, dryRun); err != nil {
+	if gen, err = generator.New(AppInfo, cfg, genMeta, dryRun); err != nil {
 		log.Fatalf(layoutFailedToCreateGenerator, err)
 	}
 

@@ -24,23 +24,15 @@ func getCSRFTokenParam(r *http.Request) string {
 func HTTPServerMiddlewareCSRF(ctx context.Context, authorizer ds.Authorizer, errHdl rest.RestErrorHandler) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			csrfEnabled, err := onlineconf.GetBool(r.Context(), "/{{ .ProjectName }}/security/csrf/enabled", false)
-			if err != nil {
-				errHdl.UnexpectedError(r.Context(), w, r, fmt.Errorf("error get csrf enabled"))
+			csrf := getCSRFTokenParam(r)
+			if csrf == "" {
+				errHdl.NotAuthorizedError(w, r)
 				return
 			}
 
-			if csrfEnabled {
-				csrf := getCSRFTokenParam(r)
-				if csrf == "" {
-					errHdl.NotAuthorizedError(w, r)
-					return
-				}
-
-				if ok, err := authorizer.CheckCSRF(r); err != nil || !ok {
-					errHdl.NotAuthorizedError(w, r)
-					return
-				}
+			if ok, err := authorizer.CheckCSRF(r); err != nil || !ok {
+				errHdl.NotAuthorizedError(w, r)
+				return
 			}
 
 			next.ServeHTTP(w, r)

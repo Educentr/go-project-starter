@@ -26,7 +26,7 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 ) {
 	// Мидлвари работают в том порядке в котором они находятся в этом массиве
 	// Изменение порядка может сильно повлиять на работу сервиса, делать это надо только если вы уверенны что происходит
-	return []func(next http.Handler) http.Handler{
+	mws := []func(next http.Handler) http.Handler{
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,9 +37,27 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		HTTPServerMiddlewareTracing(ctx),                           // Обогащаем контекст запроса ID для трейсинга
 		HTTPServerMiddlewareMetrics(ctx, name, metrics),            // Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
 		HTTPServerMiddlewareXServerHeader(ctx, name),               // Обогащаем ответ заголовком X-Server
-		HTTPServerMiddlewareAuth(ctx, srv.GetAuthorizer(), errHdl), // Авторизация
-		HTTPServerMiddlewareCSRF(ctx, srv.GetAuthorizer(), errHdl), // CSRF
-	}, nil
+	}
+
+	httpAuthEnable, err := onlineconf.GetBool(ctx, "/{{ .ProjectName }}/security/httpAuth/enabled", true)
+	if err != nil {
+		return nil, fmt.Errorf("error get httpAuth enabled: %w", err)
+	}
+
+	if httpAuthEnable {
+		mws = append(mws, HTTPServerMiddlewareAuth(ctx, srv.GetAuthorizer(), errHdl))
+	}
+
+	csrfEnabled, err := onlineconf.GetBool(ctx, "/{{ .ProjectName }}/security/csrf/enabled", false)
+	if err != nil {
+		return nil, fmt.Errorf("error get csrf enabled: %w", err)
+	}
+
+	if csrfEnabled {
+		mws = append(mws, HTTPServerMiddlewareCSRF(ctx, srv.GetAuthorizer(), errHdl))
+	}
+
+	return mws, nil
 }
 
 func (emw *EmptyMiddlewares) GetMiddlewares(

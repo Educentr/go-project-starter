@@ -23,35 +23,22 @@ const (
 // templateHandlerType TemplateType = "handlers"
 )
 
-type IDriver interface {
-	Import() string
-	DataType() string
-}
-
-type IHandler interface {
-	Name() string
-	Version() string
-}
-
-type ITransports interface {
-	Import() []string
-	Init() []string
-}
-
 type Files struct {
-	SourceName string
-	DestName   string
-	ParamsTmpl any
-	Code       *bytes.Buffer
+	SourceName  string
+	DestName    string
+	OldDestName string
+	ParamsTmpl  any
+	Code        *bytes.Buffer
 }
 
 type App struct {
-	Name       string     // unused
-	Transports Transports // unused
-	Drivers    []string   // unused
+	Name       string
+	Transports Transports
+	Drivers    Drivers
 }
 
 type Transports map[string]Transport
+type Drivers map[string]Driver
 
 func (ts Transports) Add(name string, transport Transport) error {
 	if _, ex := ts[name]; ex {
@@ -77,6 +64,13 @@ func (ts Transports) GetUniqueTypes() map[TransportType]map[string][]Transport {
 	return uniqueTypes
 }
 
+type Driver struct {
+	Name    string
+	Import  string
+	Package string
+	ObjName string
+}
+
 type Transport struct {
 	Import            []string
 	Init              string
@@ -84,6 +78,7 @@ type Transport struct {
 	Type              TransportType
 	GeneratorType     string
 	GeneratorTemplate string
+	GeneratorParams   map[string]string
 }
 
 type Apps []App
@@ -184,10 +179,11 @@ func (h Handler) GetTargetGeneratePath(targetDir string) string {
 }
 
 type FilesDiff struct {
-	NewFiles     map[string]struct{}
-	IgnoreFiles  map[string]struct{}
-	OldFiles     map[string]struct{}
-	NewDirectory map[string]struct{}
-	OldDirectory map[string]struct{}
-	UserContent  map[string][]byte
+	NewFiles       map[string]struct{}
+	IgnoreFiles    map[string]struct{}
+	OtherFiles     map[string]struct{}
+	NewDirectory   map[string]struct{}
+	OtherDirectory map[string]struct{}
+	UserContent    map[string][]byte
+	RenameFiles    map[string]string
 }

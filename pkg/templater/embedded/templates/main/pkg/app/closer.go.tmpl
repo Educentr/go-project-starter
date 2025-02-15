@@ -21,12 +21,13 @@ const (
 	loggerObjectName        = "object"
 )
 
-func gracefullyShutdown(shutdownCtx context.Context, closer IGracefulShuhtdown) {
+func gracefullyShutdown(shutdownCtx context.Context, closer IGracefulShuhtdown, name string) {
+	{{ .Logger.InfoMsg "shutdownCtx" "graceful shutdown" "Str(\"Name\", name)"}}
 	stopped, err := closer.GracefulStop(shutdownCtx)
 	if err != nil {
 		err = closer.Shutdown(shutdownCtx)
 		if err != nil {
-			{{ .Logger.ErrorMsg "shutdownCtx" "err" "can't graceful stop" "Interface(loggerObjectName, closer)"}}
+			{{ .Logger.ErrorMsg "shutdownCtx" "err" "can't graceful stop" "Str(\"Name\", name)"}}
 		}
 
 		return
@@ -36,15 +37,15 @@ func gracefullyShutdown(shutdownCtx context.Context, closer IGracefulShuhtdown) 
 	t := time.NewTimer(gracefulShutdownTimeout)
 	select {
 	case <-t.C:
-		{{ .Logger.InfoMsg "shutdownCtx" "shutdown with 30s deadline" "Interface(loggerObjectName, closer)"}}
+		{{ .Logger.InfoMsg "shutdownCtx" "shutdown with 30s deadline" "Str(\"Name\", name)"}}
 
 		err = closer.Shutdown(shutdownCtx)
 		if err != nil {
-			{{ .Logger.ErrorMsg "shutdownCtx" "err" "can't shutdown" "Interface(loggerObjectName, closer)"}}
+			{{ .Logger.ErrorMsg "shutdownCtx" "err" "can't shutdown" "Str(\"Name\", name)"}}
 		}
 	case <-stopped:
 		t.Stop()
-		{{ .Logger.InfoMsg "shutdownCtx" "successfully shutdown" "Interface(loggerObjectName, closer)"}}
+		{{ .Logger.InfoMsg "shutdownCtx" "successfully shutdown" "Str(\"Name\", name)"}}
 	}
 }
 
@@ -70,7 +71,7 @@ func (a *App) gracefulStop(ctx context.Context) error {
 
 	if len(a.transports) > 0 {
 		for _, transport := range a.transports {
-			gracefullyShutdown(shutdownCtx, transport)
+			gracefullyShutdown(shutdownCtx, transport, "Transport " + transport.Name())
 		}
 	} else {
 		{{ .Logger.InfoMsg "ctx" "empty transport"}}
@@ -78,7 +79,7 @@ func (a *App) gracefulStop(ctx context.Context) error {
 
 	if len(a.drivers) > 0 {
 		for _, driver := range a.drivers {
-			gracefullyShutdown(shutdownCtx, driver)
+			gracefullyShutdown(shutdownCtx, driver, "Driver " + driver.Name())
 		}
 	} else {
 		{{ .Logger.InfoMsg "ctx" "empty driver"}}

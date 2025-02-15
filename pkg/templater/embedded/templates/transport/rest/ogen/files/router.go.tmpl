@@ -19,6 +19,8 @@ import (
 type API struct {
 	mw.DefaultMiddlewares
 	OgenErrorHandler
+	DefaultOgenMiddlewares
+	DefaultOgenSecurityHandler
 }
 
 func (a *API) GetErrorHandler() rest.RestErrorHandler {
@@ -33,24 +35,33 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 		return errors.Wrap(err, "Handler initialization error")
 	}
 
-	// TODO ogen middlewares
-	// securityHandler := NewSecurityHandler()
+	{{ if ne "off" ( index .TransportParams "auth_handler" ) }}
+	securityHandler, err := a.NewSecurityHandler(ctx)
+	if err != nil {
+		return errors.Wrap(err, "security handler initialization")
+	}
+	{{ end }}
 	// TODO	oas.WithTracerProvider(m.TracerProvider()),
 	oasServer, err := oas.NewServer(
 		oasHandler,
-		// TODO ogen middlewares
-		//		securityHandler,
-		// securityHandler := NewSecurityHandler()
+		{{ if ne "" (index .TransportParams "auth_handler") }}securityHandler,{{ end }}
 		oas.WithErrorHandler(a.UnexpectedError),
 		oas.WithNotFound(a.NotFoundError),
-		// TODO ogen middlewares
-		//		oas.WithMiddleware(mw_ogen.OgenMiddlewareAuth(a.bucket.AppInfo.AppName)),
+		oas.WithMiddleware(a.GetOgenMiddlewares(ctx)...),
 	)
 	if err != nil {
 		return errors.Wrap(err, "server initialization")
 	}
 
-	httpSrv.Handler = cors.Default().Handler(oasServer)
+	errTimeout := oas.ErrorDefault{
+		Code:  http.StatusInternalServerError,
+		Error: "timeout",
+	}
+
+	e := jx.GetEncoder()
+	errTimeout.Encode(e)
+
+	httpSrv.Handler = cors.Default().Handler(http.TimeoutHandler(oasServer, httpSrv.IdleTimeout, e.String()))
 
 	return nil
 }

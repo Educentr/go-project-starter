@@ -1,0 +1,11 @@
+package {{ .Transport.Handler.Name }}
+
+import (
+	oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+)
+
+type DefaultOgenMiddlewares struct{}
+
+func (dwm *DefaultOgenMiddlewares) GetOgenMiddlewares() []oas.Middleware {
+	return []oas.Middleware{}
+}

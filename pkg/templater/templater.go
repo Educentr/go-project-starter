@@ -25,16 +25,22 @@ type GeneratorParams struct {
 	Year              string
 	ProjectName       string
 	ProjectPath       string
+	Repo              string
 	DockerImagePrefix string
 	SkipServiceInit   bool
 	GoLangVersion     string
 	OgenVersion       string
+	Drivers           ds.Drivers
 	// GRPCVersion   string
 	// Transports ds.Transtorts
-	Drivers []ds.IDriver
 	// Models ???
 	Applications ds.Apps
 }
+
+// type GeneratorParamDriver struct {
+// 	PackageName string
+// 	ImportPath  string
+// }
 
 type GeneratorRepositoryParams struct {
 	Name       string //unused
@@ -48,8 +54,9 @@ type GeneratorAppParams struct {
 }
 
 type GeneratorHandlerParams struct {
-	GeneratorParams              //unused
-	Transport       ds.Transport //unused
+	GeneratorParams
+	Transport       ds.Transport
+	TransportParams map[string]string
 }
 
 type Template struct {
@@ -68,8 +75,8 @@ const (
 )
 
 var (
-	tmplErrRx   = regexp.MustCompile(`template: .*?:(\d+):(\d+:)? `)
-	importErrRx = regexp.MustCompile(`(\d+):(\d+): `)
+	tmplErrRx = regexp.MustCompile(`template: .*?:(\d+):(\d+:)? `)
+	// importErrRx = regexp.MustCompile(`(\d+):(\d+): `)
 )
 
 var cache = TemplateCache{
@@ -99,7 +106,7 @@ func GetTemplate(filename string) (Template, error) {
 	return tmpl, nil
 }
 
-func GenerateFilenameByTmpl(file ds.Files) (string, error) {
+func GenerateFilenameByTmpl(file *ds.Files, targetPath string, lastVer int) error {
 	buf := new(strings.Builder)
 
 	var funcs = template.FuncMap{
@@ -110,14 +117,32 @@ func GenerateFilenameByTmpl(file ds.Files) (string, error) {
 
 	templatePackage, err := template.New(TemplateName).Funcs(funcs).Parse(file.DestName)
 	if err != nil {
-		return "", fmt.Errorf("error parse template name `%s`: %w", file.DestName, err)
+		return fmt.Errorf("error parse template name `%s`: %w", file.DestName, err)
 	}
 
 	if err = templatePackage.Execute(buf, file.ParamsTmpl); err != nil {
-		return "", fmt.Errorf("error execute template name `%s`: %w", file.DestName, err)
+		return fmt.Errorf("error execute template name `%s`: %w", file.DestName, err)
 	}
 
-	return buf.String(), nil
+	destFileName := buf.String()
+
+	if pos := strings.Index(destFileName, ".go"); pos > 0 && pos == len(destFileName)-3 {
+		dir, fName := filepath.Split(destFileName)
+
+		destFileName = filepath.Join(dir, "psg_"+fName[:len(fName)-3]+"_gen.go")
+	}
+
+	oldFileName := destFileName
+
+	switch {
+	case lastVer < 2:
+		oldFileName = buf.String()
+	}
+
+	file.DestName = filepath.Join(targetPath, destFileName)
+	file.OldDestName = filepath.Join(targetPath, oldFileName)
+
+	return nil
 }
 
 // ToDo сделать проверку, что эта строка есть в файле дисклеймера
@@ -128,7 +153,10 @@ const (
 )
 
 var (
-	ignoreIfExistsPath = map[string]struct{}{
+	ignoreExistingPath = []string{
+		".git",
+	}
+	ignoreIfExistsFiles = map[string]struct{}{
 		".git/hooks/pre-commit": {},
 		"go.mod":                {},
 		"go.sum":                {},
@@ -138,21 +166,51 @@ var (
 	}
 )
 
+func isFileIgnore(path string) bool {
+	if _, ok := ignoreIfExistsFiles[path]; ok {
+		return true
+	}
+
+	for _, ignorePath := range ignoreExistingPath {
+		if strings.HasPrefix(path, ignorePath) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
-		NewFiles:     make(map[string]struct{}),
-		IgnoreFiles:  make(map[string]struct{}),
-		NewDirectory: make(map[string]struct{}),
-		OldFiles:     make(map[string]struct{}),
-		OldDirectory: make(map[string]struct{}),
-		UserContent:  make(map[string][]byte),
+		NewFiles:       make(map[string]struct{}),
+		IgnoreFiles:    make(map[string]struct{}),
+		NewDirectory:   make(map[string]struct{}),
+		OtherFiles:     make(map[string]struct{}),
+		OtherDirectory: make(map[string]struct{}),
+		UserContent:    make(map[string][]byte),
+		RenameFiles:    make(map[string]string),
 	}
 
 	for _, file := range files {
 		filesDiff.NewFiles[file.DestName] = struct{}{}
-		dir, _ := filepath.Split(file.DestName)
-		filesDiff.NewDirectory[dir] = struct{}{}
+		dir := file.DestName
+
+		for {
+			dir, _ = filepath.Split(dir)
+			if _, ex := filesDiff.NewDirectory[dir]; ex || len(dir) < len(targetDir) {
+				break
+			}
+
+			filesDiff.NewDirectory[dir] = struct{}{}
+			dir = dir[:len(dir)-1]
+		}
+
+		if file.OldDestName != file.DestName {
+			filesDiff.RenameFiles[file.OldDestName] = file.DestName
+		}
 	}
+
+	foundDirs := make(map[string]struct{})
 
 	err := fs.WalkDir(os.DirFS(targetDir), ".", func(relPath string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -161,26 +219,31 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 
 		path := filepath.Join(targetDir, relPath)
 
-		if _, ok := ignoreIfExistsPath[relPath]; ok {
+		if isFileIgnore(relPath) {
 			delete(filesDiff.NewFiles, path)
 			filesDiff.IgnoreFiles[path] = struct{}{}
 
 			return nil
 		}
 
+		newFile := path
+		if renameFile, ex := filesDiff.RenameFiles[path]; ex {
+			newFile = renameFile
+		}
+
 		if d.IsDir() {
-			path = path + "/"
-			if _, ok := filesDiff.NewDirectory[path]; ok {
-				delete(filesDiff.NewDirectory, path)
+			newFile = newFile + "/"
+			if _, ok := filesDiff.NewDirectory[newFile]; ok {
+				foundDirs[newFile] = struct{}{}
 			} else {
-				filesDiff.OldDirectory[path] = struct{}{}
+				filesDiff.OtherDirectory[newFile] = struct{}{}
 			}
 
 			return nil
 		}
 
-		if _, ok := filesDiff.NewFiles[path]; ok {
-			delete(filesDiff.NewFiles, path)
+		if _, ex := filesDiff.NewFiles[newFile]; ex {
+			delete(filesDiff.NewFiles, newFile)
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
 				return err
@@ -193,7 +256,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 			}
 
 			if len(userData) > 0 {
-				filesDiff.UserContent[path] = []byte(userData)
+				filesDiff.UserContent[newFile] = []byte(userData)
 			}
 		} else {
 			fileContent, err := os.ReadFile(path)
@@ -205,16 +268,20 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 			_, userData, err := splitDisclaimer(string(fileContent))
 			if err == nil && len(userData) > 0 {
 				// ToDo сделать миграции с возможностью указать перемещение файлов из одного места в другое, что бы пользовательский код переносить
-				return errors.New("end disclaimer found in file " + targetDir + " / " + path + " buf file won't be regenerated")
+				return errors.New("found user code in stale gen file " + targetDir + " / " + path)
 			}
 
-			filesDiff.OldFiles[path] = struct{}{}
+			filesDiff.OtherFiles[path] = struct{}{}
 		}
 
 		return nil
 	})
 	if err != nil {
 		return ds.FilesDiff{}, err
+	}
+
+	for delDir := range foundDirs {
+		delete(filesDiff.NewDirectory, delDir)
 	}
 
 	return filesDiff, nil
@@ -285,41 +352,41 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 	return buf, nil
 }
 
-func getImportErrorLine(lines []string, tmplerror string) (string, error) {
-	lineTmpl := importErrRx.FindStringSubmatch(tmplerror)
-	if len(lineTmpl) > 1 {
-		lineNum, errParse := strconv.ParseInt(lineTmpl[1], 10, 64)
-		if errParse != nil {
-			return "", errors.New("error get line from error")
-		} else if len(lines) == 0 {
-			return "", errors.New("empty lines in template")
-		} else {
-			cntline := 3
-			startLine := int(lineNum) - cntline - 1
-			if startLine < 0 {
-				startLine = 0
-			}
+// func getImportErrorLine(lines []string, tmplerror string) (string, error) {
+// 	lineTmpl := importErrRx.FindStringSubmatch(tmplerror)
+// 	if len(lineTmpl) > 1 {
+// 		lineNum, errParse := strconv.ParseInt(lineTmpl[1], 10, 64)
+// 		if errParse != nil {
+// 			return "", errors.New("error get line from error")
+// 		} else if len(lines) == 0 {
+// 			return "", errors.New("empty lines in template")
+// 		} else {
+// 			cntline := 3
+// 			startLine := int(lineNum) - cntline - 1
+// 			if startLine < 0 {
+// 				startLine = 0
+// 			}
 
-			stopLine := int(lineNum) + cntline
-			if stopLine > int(lineNum) {
-				stopLine = int(lineNum)
-			}
+// 			stopLine := int(lineNum) + cntline
+// 			if stopLine > int(lineNum) {
+// 				stopLine = int(lineNum)
+// 			}
 
-			errorLines := lines[startLine:stopLine]
-			for num := range errorLines {
-				if num == cntline {
-					errorLines[num] = "-->> " + errorLines[num]
-				} else {
-					errorLines[num] = "     " + errorLines[num]
-				}
-			}
+// 			errorLines := lines[startLine:stopLine]
+// 			for num := range errorLines {
+// 				if num == cntline {
+// 					errorLines[num] = "-->> " + errorLines[num]
+// 				} else {
+// 					errorLines[num] = "     " + errorLines[num]
+// 				}
+// 			}
 
-			return "\n" + strings.Join(errorLines, ""), nil
-		}
-	} else {
-		return "", errors.New("can't get line from error `" + tmplerror + "`")
-	}
-}
+// 			return "\n" + strings.Join(errorLines, ""), nil
+// 		}
+// 	} else {
+// 		return "", errors.New("can't get line from error `" + tmplerror + "`")
+// 	}
+// }
 
 func getTmplErrorLine(lines []string, tmplErr string) (string, error) {
 	lineTmpl := tmplErrRx.FindStringSubmatch(tmplErr)

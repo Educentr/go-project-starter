@@ -1,0 +1,17 @@
+package {{ .Transport.Handler.Name }}
+
+import (
+    "context"
+
+    oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+)
+
+type DefaultOgenSecurityHandler struct{}
+
+func (dosh *DefaultOgenSecurityHandler) NewSecurityHandler(ctx context.Context) (oas.SecurityHandler, error) {
+    return &DefaultOgenSecurityHandler{}, nil
+}
+
+func (dosh *DefaultOgenSecurityHandler) HandleAuthHeader(ctx context.Context, operationName string, t oas.AuthHeader) (context.Context, error) {
+    return ctx, nil
+}

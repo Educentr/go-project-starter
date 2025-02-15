@@ -9,7 +9,7 @@ import (
 
 	"{{ .ProjectPath }}/internal/app/constant"
 	{{ range $_, $driver := .Drivers }}
-	{{ $driver | ToLower }} "{{ $driver.Import }}"
+	{{ $driver.Name | ToLower }} "{{ $driver.Import }}"
 	{{ end }}
 	"{{ .ProjectPath }}/pkg/app/ds"
 	"{{ .ProjectPath }}/pkg/app/healthstate"
@@ -22,7 +22,7 @@ type Service struct {
 	servicemetrics.EmptyMetrics
 	serviceauth.Authorizer
 	{{ range $_, $driver := .Drivers }}
-	{{ $driver.Name | ToLower }} {{ $driver.DataType }}
+	{{ $driver.Name | ToLower }} *{{ $driver.Package }}.{{ $driver.ObjName }}
 	{{ end }}
 }
 
@@ -37,7 +37,7 @@ func (s *Service) setDrivers(drvs []ds.IDriver) error {
 	for _, drv := range drvs {
 		switch d := drv.(type) {
 		{{ range $_, $driver := .Drivers }}
-		case *{{ $driver.Type }}:
+		case *{{ $driver.Package }}.{{ $driver.ObjName }}:
 			s.{{ $driver.Name | ToLower }} = d
 		{{ end }}
 		default:
@@ -50,14 +50,37 @@ func (s *Service) setDrivers(drvs []ds.IDriver) error {
 {{ end }}
 
 {{ if not .SkipServiceInit }}
-func (s *Service) InitService(ctx context.Context, drvs []ds.IDriver, bucket ds.ServerBucket, m *prometheus.Registry) error {
-	s.Service.InitState(ctx, drvs, bucket, m)
-	s.EmptyMetrics.InitMetrics(ctx, constant.ServiceName, m)
-	s.Authorizer.Init(ctx, drvs, m)
-{{ if ne 0 ( len .Drivers ) }}
-	return s.setDrivers(drvs)
-{{ else }}
+var (
+	errAppReadyNil = errors.New("app ready pointer can't be nil")
+	errAppInfoNil  = errors.New("app info pointer can't be nil")
+)
+
+func (s *Service) Init(_ context.Context) (*EmptyService, error) {
+	return &EmptyService{
+		Service: s,
+	}, nil
+}
+
+//nolint:decorder
+type EmptyService struct {
+	*Service
+}
+
+func (s *EmptyService) InitService(ctx context.Context, drvs []ds.IDriver, bucket ds.ServerBucket, m *prometheus.Registry) error {
+	err := s.InitState(ctx, drvs, bucket, m)
+	if err != nil {
+		return errors.Wrap(err, "error init state")
+	}
+
+	s.Metrics, err = s.InitMetrics(ctx, constant.ServiceName, s.Metrics)
+	if err != nil {
+		return errors.Wrap(err, "error init metrics")
+	}
+	
+	{{ if ne 0 ( len .Drivers ) }}
+	s.setDrivers(drvs)
+	{{ end }}
+
 	return nil
-{{ end }}
 }
 {{ end }}

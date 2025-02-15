@@ -25,6 +25,7 @@ type (
 	}
 
 	Git struct {
+		Repo       string `mapstructure:"repo"`
 		ModulePath string `mapstructure:"module_path"`
 		// ProjectID  uint   `mapstructure:"project_id"` // Todo
 	}
@@ -37,13 +38,14 @@ type (
 	}
 
 	Rest struct {
-		Name              string   `mapstructure:"name"`
-		Path              []string `mapstructure:"path"`
-		APIPrefix         string   `mapstructure:"api_prefix"`
-		Port              uint     `mapstructure:"port"`
-		Version           string   `mapstructure:"version"`
-		GeneratorType     string   `mapstructure:"generator_type"`
-		GeneratorTemplate string   `mapstructure:"generator_template"`
+		Name              string            `mapstructure:"name"`
+		Path              []string          `mapstructure:"path"`
+		APIPrefix         string            `mapstructure:"api_prefix"`
+		Port              uint              `mapstructure:"port"`
+		Version           string            `mapstructure:"version"`
+		GeneratorType     string            `mapstructure:"generator_type"`
+		GeneratorTemplate string            `mapstructure:"generator_template"`
+		GeneratorParams   map[string]string `mapstructure:"generator_params"`
 	}
 
 	Grpc struct {
@@ -74,7 +76,10 @@ type (
 	}
 
 	Driver struct {
-		Name string `mapstructure:"name"`
+		Name    string `mapstructure:"name"`
+		Import  string `mapstructure:"import"`
+		Package string `mapstructure:"package"`
+		ObjName string `mapstructure:"obj_name"`
 	}
 
 	RestList       []Rest
@@ -110,9 +115,9 @@ type (
 		Applications   []Application  `mapstructure:"applications"`
 		Docker         Docker         `mapstructure:"docker"`
 
-		RestMap map[string]Rest
-		GrpcMap map[string]Grpc
-		//driverMap map[string]Driver
+		RestMap   map[string]Rest
+		GrpcMap   map[string]Grpc
+		DriverMap map[string]Driver
 	}
 )
 
@@ -265,6 +270,10 @@ func (g Git) IsValid() (bool, string) {
 		return false, "Empty module path"
 	}
 
+	if len(g.Repo) == 0 {
+		return false, "Empty repo"
+	}
+
 	return true, ""
 }
 
@@ -294,9 +303,21 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 		if len(r.GeneratorTemplate) != 0 {
 			return false, "Invalid generator template for type ogen"
 		}
+		if len(r.GeneratorParams) != 0 {
+			for k := range r.GeneratorParams {
+				switch k {
+				case "auth_handler":
+				default:
+					return false, "Invalid generator params"
+				}
+			}
+		}
 	case "template":
 		if len(r.GeneratorTemplate) == 0 {
 			return false, "Empty generator template"
+		}
+		if len(r.GeneratorParams) != 0 {
+			return false, "Generator params not supported"
 		}
 	default:
 		return false, "Invalid generator type"
@@ -319,6 +340,26 @@ func (g Grpc) IsValid(baseConfigDir string) (bool, string) {
 
 	if tools.FileExists(absPath) != tools.ErrExist {
 		return false, "Invalid path: " + g.Path
+	}
+
+	return true, ""
+}
+
+func (d Driver) IsValid() (bool, string) {
+	if len(d.Name) == 0 {
+		return false, "Empty name"
+	}
+
+	if len(d.Import) == 0 {
+		return false, "Empty import"
+	}
+
+	if len(d.Package) == 0 {
+		return false, "Empty package"
+	}
+
+	if len(d.ObjName) == 0 {
+		return false, "Empty object name"
 	}
 
 	return true, ""

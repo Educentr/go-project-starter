@@ -1,12 +1,6 @@
 PWD = $(CURDIR)
 # Service name
 SERVICE_NAME = {{ .ProjectName }}
-# Type of the running app, 'api' by default
-RUN_TYPE = api
-# API version
-API_VERSION = v1
-# Running binary name
-BIN_NAME = bin/$(RUN_TYPE)
 # 8 symbols of the last commit
 LAST_COMMIT_HASH = $(shell git rev-parse --short=8 HEAD)
 # Version of api/buf.yaml buf generator
@@ -37,20 +31,28 @@ endif
 LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)' -X 'main.BuildTime=$(BUILD_DATE)' -X 'main.BuildOS=$(OSNAME)'
 # GOPATH
 GOPATH = $(shell go env GOPATH)
-# Docker variables
-DOCKER_IMAGE ?= {{ .DockerImagePrefix }}/${SERVICE_NAME}
-DOCKER_TAG ?= latest
 GOPROXY ?=https://proxy.golang.org,direct
 PACKAGE = $(shell go list -m)
 PKG_LIST_FOR_TEST = $(shell go list ./...)
 
-# Environment prefix (dev\test)
-ENVIRONMENT_PREFIX = "dev-"
-ifeq ($(CI_COMMIT_BRANCH), main)
-	ENVIRONMENT_PREFIX = ""
+COMMIT_BRANCH = $(shell git branch --no-color --show-current)
+
+# Environment prefix (prod/alpha/beta)
+ENVIRONMENT_PREFIX = dev-
+ifeq ($(COMMIT_BRANCH), main)
+	ENVIRONMENT_PREFIX =
+else ifeq ($(COMMIT_BRANCH), alpha)
+	ENVIRONMENT_PREFIX = alpha-
+else ifeq ($(COMMIT_BRANCH), beta)
+	ENVIRONMENT_PREFIX = beta-
 endif
-# by default 'make' will run the service
-default: run
+
+# Docker variables
+REGISTRY_SERVER ?= {{ .DockerImagePrefix }}
+DOCKER_TAG ?= $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+
+# by default 'make' will build the service
+default: build
 
 # Add flag to test race condition
 ifdef GO_RACE_DETECTOR
@@ -84,6 +86,11 @@ GOLANGCI_BIN:=$(shell which golangci-lint)
 endif
 endif
 ##################### End of golang-ci checks #####################
+.PHONY: git-repo
+git-repo:
+	@(git status >/dev/null 2>&1 || (git init && git remote add origin {{ .Repo }} && git fetch origin && git pull origin main))
+	@(git fetch origin)
+	@echo "Git repository fetch done"
 
 # Install linter
 .PHONY: install-lint
@@ -116,11 +123,6 @@ lint-full: lint
 lint-fix: lint
 	$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
 
-# Run service
-.PHONY: run
-run:
-	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && OTEL_SERVICE_NAME="$(SERVICE_NAME)-devel" go run -ldflags="$(LD_FLAGS)" $(PWD)/cmd/$(RUN_TYPE)/main.go
-
 # Create test coverage report
 .PHONY: coverage
 coverage:
@@ -141,28 +143,54 @@ test-int-up-deps:
 .PHONY: test
 test:
 	@echo "Start testing $(SERVICE_NAME) \n"
-	go test -parallel=10 $(PKG_LIST_FOR_TEST) -coverprofile=cover.out -timeout=$(TEST_TIMEOUT)
-
-.PHONY: race
-race:
-	@echo "Start race testing $(SERVICE_NAME) \n"
 	go test -race -parallel=10 $(PKG_LIST_FOR_TEST) -coverprofile=cover.out -timeout=$(TEST_TIMEOUT)
-	@echo "Race already in test"
 
 .PHONY: dep-ci
 dep-ci: ## Install dependencies
 	go mod download
 
-# Build service in container
-.PHONY: build_in_docker
-build_in_docker:
-	go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" $(PWD)/cmd/$(RUN_TYPE)
+{{ range $_, $a := .Applications }}
+# Build service {{ $a.Name }} in container
+.PHONY: build_in_docker-{{ $a.Name }}
+build_in_docker-{{ $a.Name }}:
+	go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
 
-# Build docker image
-# ToDo build all containers
+# Build docker image for service {{ $a.Name }}
+.PHONY: docker-{{ $a.Name }}
+docker-{{ $a.Name }}:
+	docker build . -f ./Dockerfile-{{ $a.Name }} --rm -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+
+.PHONY: docker-push-{{ $a.Name }}
+docker_push-{{ $a.Name }}:
+	docker push $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+
+# Run service {{ $a.Name }}
+.PHONY: run-{{ $a.Name }}
+run-{{ $a.Name }}:
+	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && OTEL_SERVICE_NAME="$(SERVICE_NAME)-devel" go run -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}/psg_main_gen.go
+
+# Build service {{ $a.Name }}
+.PHONY: build-{{ $a.Name }}
+build-{{ $a.Name }}:
+	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
+
+.PHONY: build_for_test-{{ $a.Name }}
+build_for_test-{{ $a.Name }}: download
+	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "all=-N -l" -o /tmp/{{ $a.Name }} ${PACKAGE}/cmd/{{ $a.Name }}
+
+{{ end }}
+
 .PHONY: docker
-docker:
-	docker build -f ./Dockerfile --build-arg registry=$(REGISTRY) --rm -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
+
+.PHONY: docker-push
+docker: {{ range $_, $a := .Applications }}docker_push-{{ $a.Name }} {{ end }}
+
+.PHONY: build
+build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
+
+.PHONE: build-for-test
+build-for-test: {{ range $_, $a := .Applications }}build_for_test-{{ $a.Name }} {{ end }}
 
 # Generate pb files from proto description
 .PHONY: proto
@@ -180,12 +208,9 @@ proto:
 {{- end }}
 {{ if eq $proto true }}
 	@echo "proto done"
+{{ else }}
+	@echo "No proto files found"
 {{ end }}
-
-.PHONY: generate-ansible
-generate-ansible:
-	@echo "Generating ansible config..."
-	@./scripts/goversioncheck.sh $(MIN_GO_VERSION) && OTEL_SERVICE_NAME="$(SERVICE_NAME)"  go run -ldflags="$(LD_FLAGS) -X 'main.GenerateAnsible=Yes'" $(PWD)/cmd/$(RUN_TYPE)/main.go
 
 {{- $ogen := false }}
 {{- range $_, $t := .Applications.GetRestTransport }}
@@ -214,7 +239,7 @@ install-ogen:
 # Print release tag
 .PHONY: release-tag
 release-tag:
-	@echo $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+	@echo $(DOCKER_TAG)
 
 {{ if eq $proto true }}
 # Install dependencies for protobuf generator
@@ -249,11 +274,6 @@ tidy:
 clean-import:
 	@echo "cleaning imports..."
 	@goimports -w .
-
-# Build service
-.PHONY: build
-build:
-	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" $(PWD)/cmd/$(RUN_TYPE)
 
 {{- $pg := false }}
 {{- $sqlc := false }}
@@ -291,9 +311,5 @@ generate: proto generate-ogen {{ if eq $sqlc true }}sqlc{{ end }}
 .PHONY: download
 download:
 	@go mod download
-
-.PHONY: build-for-test
-build-for-test: download
-	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "all=-N -l" -o /tmp/${RUN_TYPE} ${PACKAGE}/cmd/$(RUN_TYPE)
 
 #ToDo integration tests GITEF

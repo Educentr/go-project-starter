@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"gitlab.educentr.info/golang/service-starter/pkg/config"
 	"gitlab.educentr.info/golang/service-starter/pkg/ds"
+	"gitlab.educentr.info/golang/service-starter/pkg/meta"
 	"gitlab.educentr.info/golang/service-starter/pkg/templater"
 	"gitlab.educentr.info/golang/service-starter/pkg/tools"
 )
@@ -20,10 +21,12 @@ import (
 type Generator struct {
 	AppInfo           string
 	DryRun            bool
+	Meta              meta.Meta
 	Logger            ds.Logger
 	ProjectName       string
 	Author            string
 	ProjectPath       string
+	Repo              string
 	GoLangVersion     string
 	OgenVersion       string
 	TargetDir         string
@@ -31,6 +34,7 @@ type Generator struct {
 	SkipInitService   bool
 	PostGenerate      []ExecCmd
 	Transports        ds.Transports
+	Drivers           ds.Drivers
 	Applications      ds.Apps
 }
 
@@ -40,12 +44,14 @@ type ExecCmd struct {
 	Msg string
 }
 
-func New(AppInfo string, config config.Config, dryrun bool) (*Generator, error) {
+func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
 		Transports:   make(ds.Transports),
+		Drivers:      make(ds.Drivers),
 		DryRun:       dryrun,
+		Meta:         genMeta,
 	}
 
 	if err := g.processConfig(config); err != nil {
@@ -62,6 +68,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.DockerImagePrefix = config.Docker.ImagePrefix
 	g.SkipInitService = config.Main.SkipServiceInit
 	g.ProjectPath = config.Git.ModulePath
+	g.Repo = config.Git.Repo
 	g.GoLangVersion = config.Tools.GolangVersion
 	g.OgenVersion = config.Tools.OgenVersion
 	g.TargetDir = "./"
@@ -91,11 +98,25 @@ func (g *Generator) processConfig(config config.Config) error {
 			Type:              ds.RestTransportType,
 			GeneratorType:     rest.GeneratorType,
 			GeneratorTemplate: rest.GeneratorTemplate,
+			GeneratorParams:   rest.GeneratorParams,
 			Handler:           ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10), paths),
 		}
 
 		if err := g.Transports.Add(rest.Name, transport); err != nil {
 			return err
+		}
+	}
+
+	for _, driver := range config.DriverList {
+		if _, ex := g.Drivers[driver.Name]; ex {
+			return fmt.Errorf("duplicate driver name: %s", driver.Name)
+		}
+
+		g.Drivers[driver.Name] = ds.Driver{
+			Name:    driver.Name,
+			Import:  driver.Import,
+			Package: driver.Package,
+			ObjName: driver.ObjName,
 		}
 	}
 
@@ -107,7 +128,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		application := ds.App{
 			Name:       app.Name,
 			Transports: make(ds.Transports),
-			Drivers:    []string{},
+			Drivers:    make(ds.Drivers),
 		}
 
 		for _, transport := range app.TransportList {
@@ -119,13 +140,22 @@ func (g *Generator) processConfig(config config.Config) error {
 			application.Transports[transport] = tr
 		}
 
+		for _, driver := range app.DriverList {
+			dr, ex := g.Drivers[driver]
+			if !ex {
+				return fmt.Errorf("unknown driver: %s", driver)
+			}
+
+			application.Drivers[driver] = dr
+		}
+
 		g.Applications = append(g.Applications, application)
 	}
 
 	for _, postGenerate := range config.PostGenerate {
 		switch postGenerate {
 		case "git_install":
-			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "git", Arg: []string{"init"}, Msg: "initialize git"})
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"git-repo"}, Msg: "initialize git"})
 		case "tools_install":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"install-tools"}, Msg: "install tools"})
 		case "clean_imports":
@@ -208,11 +238,13 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Author:            g.Author,
 		Year:              time.Now().Format("2006"),
 		ProjectPath:       g.ProjectPath,
+		Repo:              g.Repo,
 		DockerImagePrefix: g.DockerImagePrefix,
 		SkipServiceInit:   g.SkipInitService,
 		GoLangVersion:     g.GoLangVersion,
 		OgenVersion:       g.OgenVersion,
 		Applications:      g.Applications,
+		Drivers:           g.Drivers,
 	}
 }
 
@@ -227,6 +259,7 @@ func (g *Generator) GetTmplHandlerParams(transport ds.Transport) templater.Gener
 	return templater.GeneratorHandlerParams{
 		GeneratorParams: g.GetTmplParams(),
 		Transport:       transport,
+		TransportParams: transport.GeneratorParams,
 	}
 }
 
@@ -271,16 +304,6 @@ func (g *Generator) Generate() error {
 		return err
 	}
 
-	// ToDo debug log
-	// Прикрутить логгер, сделать уровни логирования и добавить эту секцию как Debug
-	// for _, dir := range dirs {
-	// 	fmt.Printf("Dir: %s -> %s\n", dir.SourceName, dir.DestName)
-	// }
-
-	// for _, file := range files {
-	// 	fmt.Printf("File: %s -> %s\n", file.SourceName, file.DestName)
-	// }
-
 	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files)
 	if err != nil {
 		return err
@@ -307,16 +330,20 @@ func (g *Generator) Generate() error {
 			fmt.Printf("Created new directory: %s\n", file)
 		}
 
+		for oldFile, newFile := range filesDiff.RenameFiles {
+			fmt.Printf("Rename file: %s -> %s\n", oldFile, newFile)
+		}
+
 		for file := range filesDiff.NewFiles {
 			fmt.Printf("Created new file: %s\n", file)
 		}
 
-		for file := range filesDiff.OldDirectory {
-			fmt.Printf("Not modified directory: %s\n", file)
+		for file := range filesDiff.OtherDirectory {
+			fmt.Printf("User dir: %s\n", file)
 		}
 
-		for file := range filesDiff.OldFiles {
-			fmt.Printf("Not modified file: %s\n", file)
+		for file := range filesDiff.OtherFiles {
+			fmt.Printf("User file: %s\n", file)
 		}
 
 		for file, content := range filesDiff.UserContent {
@@ -328,6 +355,12 @@ func (g *Generator) Generate() error {
 
 	if err = tools.MakeDirs(dirs); err != nil {
 		return err
+	}
+
+	for oldFile, newFile := range filesDiff.RenameFiles {
+		if err = os.Rename(oldFile, newFile); err != nil {
+			return err
+		}
 	}
 
 	for _, file := range files {
@@ -346,6 +379,10 @@ func (g *Generator) Generate() error {
 
 	if err = g.CopySpecs(); err != nil {
 		return err
+	}
+
+	if err = g.Meta.Save(); err != nil {
+		return fmt.Errorf("error save meta: %w", err)
 	}
 
 	for _, procData := range g.PostGenerate {
@@ -429,25 +466,18 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 	// ToDo check git status
 	// ToDo make backup of targetPath
-	// ToDo Dry run
 	// ToDo validate checksum previous generated files
 
 	for i := range dirs {
-		destDirName, err := templater.GenerateFilenameByTmpl(dirs[i])
-		if err != nil {
+		if err := templater.GenerateFilenameByTmpl(&dirs[i], targetPath, g.Meta.Version); err != nil {
 			return nil, nil, fmt.Errorf("failed to generate filename by template %s: %w", dirs[i].DestName, err)
 		}
-
-		dirs[i].DestName = filepath.Join(targetPath, destDirName)
 	}
 
 	for i := range files {
-		destFileName, err := templater.GenerateFilenameByTmpl(files[i])
-		if err != nil {
+		if err := templater.GenerateFilenameByTmpl(&files[i], targetPath, g.Meta.Version); err != nil {
 			return nil, nil, fmt.Errorf("failed to generate filename by template %s: %w", files[i].DestName, err)
 		}
-
-		files[i].DestName = filepath.Join(targetPath, destFileName)
 	}
 
 	return dirs, files, nil

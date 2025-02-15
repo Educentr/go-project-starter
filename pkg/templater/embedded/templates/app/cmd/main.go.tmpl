@@ -13,6 +13,9 @@ import (
 	{{ range $_, $imp := .Application.TransportImports }}
 	{{ $imp }}
 	{{ end }}
+	{{ range $_, $drv := .Application.Drivers }}
+	{{ $drv.Package }} "{{ $drv.Import }}"
+	{{ end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/app"
 	"{{ .ProjectPath }}/pkg/app/ds"
@@ -87,6 +90,12 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set user func" }}
 		os.Exit(ExitCodeErrorApp)
 	}
+
+	application.SetDriver(
+		{{ range $_, $drv := .Application.Drivers }}
+		{{ $drv.Package }}.Create(),
+		{{ end }}
+	)
 
 	err = application.SetTransport(
 		{{ range $_, $tr := .Application.Transports }}

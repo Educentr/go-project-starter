@@ -2,6 +2,9 @@ package handler
 
 import (
 	"github.com/pkg/errors"
+	"github.com/ogen-go/ogen/ogenerrors"
+	"github.com/pkg/errors"
+	zlog "github.com/rs/zerolog"
 
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/app/rest"
@@ -9,9 +12,36 @@ import (
 	oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
 )
 
-type Handler struct {
+type ogenDefaultError struct {
 	oas.UnimplementedHandler // automatically implement all methods
+}
+
+func (h *ogenDefaultError) NewError(ctx context.Context, err error) *oas.ErrorDefaultStatusCode {
+	var securityErr *ogenerrors.SecurityError
+	if errors.As(err, &securityErr) {
+		return &oas.ErrorDefaultStatusCode{
+			StatusCode: 401,
+			Response: oas.ErrorDefault{
+				Code:  401,
+				Error: "Unauthorized",
+			},
+		}
+	}
+
+	zlog.Ctx(ctx).Error().Err(err).Msg("Unexpected error from handler")
+
+	return &oas.ErrorDefaultStatusCode{
+		StatusCode: 500,
+		Response: oas.ErrorDefault{
+			Code:  500,
+			Error: "Internal server error",
+		},
+	}
+}
+
+type Handler struct {
 	rest.DefaultServiceHandler
+	ogenDefaultError
 }
 
 // Compile-time check for Handler.

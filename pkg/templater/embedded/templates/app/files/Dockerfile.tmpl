@@ -1,5 +1,4 @@
-ARG registry
-FROM ${registry}golang:1.22-alpine as builder
+FROM golang:1.22-alpine AS builder
 ARG binary=bin/api
 ARG GOPROXY
 
@@ -10,11 +9,11 @@ ENV CGO_ENABLED=0
 COPY . /go/src/app
 WORKDIR /go/src/app
 
-RUN make build_in_docker && \
+RUN make build_in_docker-{{ .Application.Name }} && \
     cp ${binary} /service
 
 
-FROM ${registry}alpine
+FROM alpine
 COPY --from=builder /service /service
 RUN mkdir -p /etc/onlineconf
 CMD ["/service"]

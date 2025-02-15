@@ -27,6 +27,7 @@ services:
       - postgres_data:/var/lib/postgresql/data/
   {{- end }}
 
+{{ if 0 }}
 #  jaeger:
 #    image: jaegertracing/all-in-one:1.46
 #    container_name: jaeger
@@ -57,7 +58,7 @@ services:
 #    ports:
 #      - "6379:6379"
 #  - end }}
-
+{{ end }}
   svc:
     image: {{ .ProjectName }}:dev
     container_name: svc
@@ -68,7 +69,9 @@ services:
       #- if .Kafka }}
       #- kafka
       #- end }}
+      {{ if 0 }}
       - jaeger
+       {{ end }}
     ports:
       {{- range $_, $t := .Applications.GetRestTransport }}
       - "{{ $t.Handler.Port }}:{{ $t.Handler.Port }}"
@@ -77,7 +80,21 @@ services:
       - "{{ $h.Port }}:{{ $h.Port }}"
       {{- end }}
     environment:
-      {{ .ProjectName | ToUpper }}_DEVELOPER_LOGGER_ENCODER: true
+      ONLINECONFIG_FROM_ENV=true
+      {{ $projectName := .ProjectName }}
+      OC_{{ $projectName }}__devstand=0
+      OC_{{ $projectName }}__log__level=info
+      {{ range $_, $app := .Applications }}
+        {{ range $_, $tr := $app.Transports }}
+      OC_{{ $projectName }}__transport__rest__{{ $tr.Handler.Name }}_{{ $tr.Handler.ApiVersion }}__ip=0.0.0.0
+      OC_{{ $projectName }}__transport__rest__{{ $tr.Handler.Name }}_{{ $tr.Handler.ApiVersion }}__port={{ $tr.Handler.Port }}
+      OC_{{ $projectName }}__transport__rest__{{ $tr.Handler.Name }}_{{ $tr.Handler.ApiVersion }}__timeout=2s
+      OC_{{ $projectName }}__transport__rest__{{ $tr.Handler.Name }}_{{ $tr.Handler.ApiVersion }}__timeout_read_header=2s
+        {{ end }}
+      {{ end }}
+      OC_{{ $projectName }}__security__csrf__enabled=0
+      OC_{{ $projectName }}__security__httpAuth__enabled=0
+      {{ if 0 }} // ToDo all onlineconf var
       {{- if eq $pg true }}
       {{ .ProjectName | ToUpper }}_DB_HOST: postgres
       {{ .ProjectName | ToUpper }}_DB_NAME: app_db
@@ -105,7 +122,12 @@ services:
       {{ .ProjectName | ToUpper }}_LOG_LEVEL: debug
       {{ .ProjectName | ToUpper }}_TRACING_COLLECTOR_URI: jaeger:4317
       {{ .ProjectName | ToUpper }}_HEALTHCHECK_INTERVAL: 1s
-
+      {{ end }}
+    healthcheck:
+      test: ["CMD", "curl --fail http://localhost:8083/live || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 {{- if eq $pg true}}
 volumes:
   postgres_data:

@@ -24,7 +24,7 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 	
 	userErr := "UnexpectedError"
 
-	devstand, err := onlineconf.GetBool(ctx, "/devstand", false)
+	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath("{{ .ProjectName }}", "devstand"), false)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Unexpected error from onlineconf"}}
 	}
@@ -75,7 +75,7 @@ func (o *OgenErrorHandler) NotAuthorizedError(w http.ResponseWriter, r *http.Req
 
 	errResp := oas.ErrorDefault{
 		Code: http.StatusUnauthorized,
-		Error: "not found",
+		Error: "not authorized",
 	}
 
 	write(r.Context(), w, errResp)

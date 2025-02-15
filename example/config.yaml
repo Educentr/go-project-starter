@@ -3,6 +3,9 @@ main:
   logger: zerolog
   author: educentr
 
+docker:
+  image_prefix: registry.educentr.info
+
 post_generate:
   - git_install
   #- tools_install
@@ -10,12 +13,11 @@ post_generate:
   - executable_scripts
   - call_generate
   - go_mod_tidy
-  - call_generate_mock
-  - get_last_linter_config
   #- go_get_u
   #- echo "post generate last job"
   
 git:
+  repo: git@gitlab.educentr.info:golang/projects/example.git
   module_path: gitlab.educentr.info/golang/projects/example
   # projectId: 1
 
@@ -33,6 +35,8 @@ rest:
     version: "v1"
     port: 8081
     generator_type: ogen
+    genarator_params:
+      auth_handler: "on"
   - name: sys
     port: 8085
     version: "v1"

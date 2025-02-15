@@ -31,7 +31,6 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 	viper.SetDefault("post_generate.executable_scripts", true)
 	viper.SetDefault("post_generate.call_generate", true)
 	viper.SetDefault("post_generate.go_mod_tidy", true)
-	viper.SetDefault("post_generate.get_last_linter_config", true)
 
 	viper.SetDefault("tools.protobuf_version", defaultProtobufVersion)
 	viper.SetDefault("tools.golang_version", defaultGolangVersion)
@@ -52,6 +51,7 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 
 	config.RestMap = make(map[string]Rest)
 	config.GrpcMap = make(map[string]Grpc)
+	config.DriverMap = make(map[string]Driver)
 
 	for i, rest := range config.RestList {
 		if ok, msg := rest.IsValid(baseDir); !ok {
@@ -81,6 +81,18 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 		config.GrpcMap[grpc.Name] = grpc
 	}
 
+	for _, driver := range config.DriverList {
+		if ok, msg := driver.IsValid(); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig, "invalid config driver section: "+msg)
+		}
+
+		if _, ex := config.DriverMap[driver.Name]; ex {
+			return config, errors.WithMessage(ErrInvalidConfig, "duplicate driver name: "+driver.Name)
+		}
+
+		config.DriverMap[driver.Name] = driver
+	}
+
 	for _, app := range config.Applications {
 		if ok, msg := app.IsValid(); !ok {
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
@@ -94,9 +106,15 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 				return config, errors.WithMessage(ErrInvalidConfig, "unknown transport: "+transport+" in application: "+app.Name)
 			}
 		}
+
+		for _, driver := range app.DriverList {
+			if _, ex := config.DriverMap[driver]; !ex {
+				return config, errors.WithMessage(ErrInvalidConfig, "unknown driver: "+driver+" in application: "+app.Name)
+			}
+		}
 	}
 
-	// ToDo drivers, ws, ...
+	// ToDo ws, ...
 
 	config.BasePath = baseDir
 
