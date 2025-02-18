@@ -35,6 +35,7 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 	viper.SetDefault("tools.protobuf_version", defaultProtobufVersion)
 	viper.SetDefault("tools.golang_version", defaultGolangVersion)
 	viper.SetDefault("tools.ogen_version", defaultOgenVersion)
+	viper.SetDefault("tools.argen_version", defaultArgenVersion)
 	viper.SetDefault("tools.golangci_version", defaultGolangciVersion)
 
 	viper.SetDefault("main.author", "Unknown author")

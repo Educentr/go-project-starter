@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"{{ .ProjectPath }}/pkg/app/ds"
@@ -30,7 +31,9 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r.WithContext(reqctx.CreateContext(ctx, r.RequestURI)))
+				ctx, cancel := reqctx.CreateContext(ctx, r.RequestURI)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				cancel()
 			})
 		},
 		HTTPServerMiddlewareRequestStartTime(),                     // Обогащаем контекст временем начала запроса

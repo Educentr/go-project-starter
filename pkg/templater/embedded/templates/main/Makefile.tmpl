@@ -17,6 +17,10 @@ GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 MIN_GO_VERSION = 1.22.7
 # Ogen version
 OGENVERSION = {{ .OgenVersion }}
+{{ if .UseActiveRecord }}
+# activeRecord version
+ARGENVERSION = {{ .ArgenVersion }}
+{{ end }}
 # Build datetime
 BUILD_DATE = $(shell TZ=UTC-3 date +%Y%m%d-%H%M)
 # Operation system
@@ -227,6 +231,18 @@ generate-ogen:
 	{{ end }}
 {{ end }}
 
+{{ if .UseActiveRecord }}
+# Generate activerecord files from all openapi specifications
+.PHONY: generate-argen
+generate-argen:
+	go run github.com/Educentr/go-activerecord/cmd/argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
+
+.PHONY: install-argen
+install-argen:
+	go get github.com/Educentr/go-activerecord@$(ARGENVERSION)
+	go install github.com/Educentr/go-activerecord/cmd/argen@$(ARGENVERSION)
+{{ end }}
+
 {{ if eq $ogen true }}
 # ToDo нужно в каждом подключаемом сервисе хранить список необходимых для установки tools-ов и убрать тут проверку, что есто ogen
 # Install dependencies for Ogen generator
@@ -300,7 +316,7 @@ install-goimports:
 
 # Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-lint {{ if eq $proto true }}install-buf {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+install-tools: install-hooks install-lint {{ if eq $proto true }}install-buf {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
 
 # Generate mock packages
 #TODO: enable ansible generator after debugging

@@ -9,6 +9,15 @@ import (
 	"github.com/povilasv/prommod"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+
+	{{ if .UseActiveRecord }}
+	// ToDo Выбирать логгер для activerecord
+	"github.com/Educentr/go-activerecord/pkg/logger/arzlog"
+	"github.com/Educentr/go-activerecord/pkg/activerecord"
+	"github.com/Educentr/go-activerecord/pkg/logger"
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	{{ end }}
+
 	{{ .Logger.Import }}
 	"golang.org/x/sync/errgroup"
 
@@ -188,6 +197,12 @@ func (a *App) Init(ctx context.Context) error {
 		return errors.Wrap(err, "can't initialize transport")
 	}
 
+	// ToDo get logger level for activerecord
+	err = a.InitActiveRecord(logger.InfoLoggerLevel, a.metrics)
+	if err != nil {
+		return errors.Wrap(err, "can't initialize activerecord")
+	}
+
 	return nil
 }
 
@@ -247,34 +262,12 @@ func (a *App) Stop() error {
 	return nil
 }
 
-//func (a *App) GetLogLevel(ctx context.Context) (zlog.Level, error) {
-//	var logLevel zlog.Level
-//
-//	cfgLogLevel, err := onlineconf.GetString(ctx, "/{{ .ProjectName }}/logger/level", "info")
-//	if err != nil {
-//		{{ .Logger.ErrorMsg "ctx" "err" "error get log level from onlineconf. Set 'info'"}}
-//		cfgLogLevel = "info"
-//	}
-//
-//	logLevel, err := zlog.ParseLevel(cfgLogLevel)
-//	if err != nil {
-//		{{ .Logger.ErrorMsg "ctx" "err" "error parse log level. Set 'info'" }}
-//	}
-//
-//	return logLevel, err
-//}
+func (a *App) InitActiveRecord(level logger.LogLevel, metrics *prometheus.Registry) error {
+	activerecord.InitActiveRecord(
+		activerecord.WithLogger(arzlog.NewARLogger(level)),
+		activerecord.WithConfig(func(ctx context.Context) activerecord.ConfigInterface { return onlineconf.FromContext(ctx) }),
+		activerecord.WithMetrics(activerecord.NewARMetrics(metrics, nil)),
+	)
 
-// ToDo ActiveRecord
-//func (a *App) InitActiveRecord() error {
-//	level, err := a.GetLogLevel()
-//	if err != nil {
-//		return fmt.Errorf("error init actveRecord instance: %w", err)
-//	}
-//
-//	activerecord.InitActiveRecord(
-//		activerecord.WithLogger(ar_config.NewARLogger(level)),
-//		activerecord.WithConfig(ar_config.NewARConfig(config.FromContext(a.ctx))),
-//		activerecord.WithMetrics(ar_config.NewARMetrics(a.metrics)))
-//
-//	return nil
-//}
+	return nil
+}

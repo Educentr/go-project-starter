@@ -25,11 +25,13 @@ type GeneratorParams struct {
 	Year              string
 	ProjectName       string
 	ProjectPath       string
+	UseActiveRecord   bool
 	Repo              string
 	DockerImagePrefix string
 	SkipServiceInit   bool
 	GoLangVersion     string
 	OgenVersion       string
+	ArgenVersion      string
 	Drivers           ds.Drivers
 	// GRPCVersion   string
 	// Transports ds.Transtorts

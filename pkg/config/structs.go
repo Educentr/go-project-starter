@@ -15,6 +15,7 @@ type (
 		Logger          string `mapstructure:"logger"`
 		Author          string `mapstructure:"author"`
 		SkipServiceInit bool   `mapstructure:"skip_service_init"`
+		UseActiveRecord bool   `mapstructure:"use_active_record"`
 		LoggerObj       ds.Logger
 		TargetDir       string
 		ConfigDir       string
@@ -34,6 +35,7 @@ type (
 		ProtobufVersion string `mapstructure:"protobuf_version"`
 		GolangVersion   string `mapstructure:"golang_version"`
 		OgenVersion     string `mapstructure:"ogen_version"`
+		ArgenVersion    string `mapstructure:"argen_version"`
 		GolangciVersion string `mapstructure:"golangci_version"`
 	}
 
@@ -239,6 +241,7 @@ const (
 	defaultProtobufVersion = "1.7.0"
 	defaultGolangciVersion = "1.55.2"
 	defaultOgenVersion     = "v0.78.0"
+	defaultArgenVersion    = "v1.0.0"
 
 	// defaultRestPort = 8080
 	// defaultGrpcPort = 8082

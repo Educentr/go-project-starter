@@ -32,7 +32,7 @@ var (
 	errInvalidRequestID          = fmt.Errorf("invalid RequestID value type")
 )
 
-func CreateContext(mainCtx context.Context, endpoint string) context.Context {
+func CreateContext(mainCtx context.Context, endpoint string) (context.Context, context.CancelFunc) {
 	// Создаём новый контекст, что бы в него перенести данные из
 	// контекста приложения (конфиг, логгер, ...)
 	pCtx := context.Background()
@@ -57,13 +57,15 @@ func CreateContext(mainCtx context.Context, endpoint string) context.Context {
 		{{ .Logger.WarnMsg "pCtx" "failed to get timeout from onlineconf. Skip" "Err(err)" }}
 	}
 
+	var cancel context.CancelFunc = func() {}
+
 	if timeout != 0 {
-		pCtx, _ = context.WithTimeout(pCtx, timeout)
+		pCtx, cancel = context.WithTimeout(pCtx, timeout)
 	}
 
 	{{ .Logger.UpdateContext "pCtx" "Str(\"Config endpoint\", ocPath)" }}
 
-	return pCtx
+	return pCtx, cancel
 }
 
 func GetActor(ctx context.Context) (ds.Actor, error) {

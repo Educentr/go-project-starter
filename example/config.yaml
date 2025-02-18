@@ -2,6 +2,7 @@ main:
   name: example
   logger: zerolog
   author: educentr
+  use_active_record: false
 
 docker:
   image_prefix: registry.educentr.info

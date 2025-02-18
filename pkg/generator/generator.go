@@ -26,9 +26,11 @@ type Generator struct {
 	ProjectName       string
 	Author            string
 	ProjectPath       string
+	UseActiveRecord   bool
 	Repo              string
 	GoLangVersion     string
 	OgenVersion       string
+	ArgenVersion      string
 	TargetDir         string
 	DockerImagePrefix string
 	SkipInitService   bool
@@ -68,9 +70,11 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.DockerImagePrefix = config.Docker.ImagePrefix
 	g.SkipInitService = config.Main.SkipServiceInit
 	g.ProjectPath = config.Git.ModulePath
+	g.UseActiveRecord = config.Main.UseActiveRecord
 	g.Repo = config.Git.Repo
 	g.GoLangVersion = config.Tools.GolangVersion
 	g.OgenVersion = config.Tools.OgenVersion
+	g.ArgenVersion = config.Tools.ArgenVersion
 	g.TargetDir = "./"
 
 	if config.Main.TargetDir != "" {
@@ -238,11 +242,13 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Author:            g.Author,
 		Year:              time.Now().Format("2006"),
 		ProjectPath:       g.ProjectPath,
+		UseActiveRecord:   g.UseActiveRecord,
 		Repo:              g.Repo,
 		DockerImagePrefix: g.DockerImagePrefix,
 		SkipServiceInit:   g.SkipInitService,
 		GoLangVersion:     g.GoLangVersion,
 		OgenVersion:       g.OgenVersion,
+		ArgenVersion:      g.ArgenVersion,
 		Applications:      g.Applications,
 		Drivers:           g.Drivers,
 	}

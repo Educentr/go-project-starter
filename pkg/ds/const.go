@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 type TransportType string
@@ -89,6 +91,10 @@ func (a App) TransportImports() []string {
 	for _, transport := range a.Transports {
 		imports = append(imports, transport.Import...)
 	}
+
+	sort.Slice(imports, func(i, j int) bool {
+		return strings.Compare(imports[i], imports[j]) < 0
+	})
 
 	return imports
 }
