@@ -12,7 +12,7 @@ import (
 
 type Router interface {
 	InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.IService, metrics *prometheus.Registry) error
-	GetMiddlewares(ctx context.Context, metrics *prometheus.Registry, srv ds.IService, name string, errHdl RestErrorHandler) ([]func(next http.Handler) http.Handler, error)
+	GetMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName string, errHdl RestErrorHandler) ([]func(next http.Handler) http.Handler, error)
 	GetErrorHandler() RestErrorHandler
 }
 

@@ -17,9 +17,10 @@ type EmptyMiddlewares struct{}
 
 func (dmw *DefaultMiddlewares) GetMiddlewares(
 	ctx context.Context,
+	appName string,
 	metrics *prometheus.Registry,
 	srv ds.IService,
-	name string,
+	serviceName string,
 	errHdl rest.RestErrorHandler,
 ) (
 	[]func(next http.Handler) http.Handler,
@@ -31,15 +32,15 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				ctx, cancel := reqctx.CreateContext(ctx, r.RequestURI)
+				ctx, cancel := reqctx.CreateContext(ctx, onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler"), r.URL.Path)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				cancel()
 			})
 		},
 		HTTPServerMiddlewareRequestStartTime(),                     // Обогащаем контекст временем начала запроса
 		HTTPServerMiddlewareTracing(ctx),                           // Обогащаем контекст запроса ID для трейсинга
-		HTTPServerMiddlewareMetrics(ctx, name, metrics),            // Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
-		HTTPServerMiddlewareXServerHeader(ctx, name),               // Обогащаем ответ заголовком X-Server
+		HTTPServerMiddlewareMetrics(ctx, serviceName, metrics),     // Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
+		HTTPServerMiddlewareXServerHeader(ctx, serviceName),        // Обогащаем ответ заголовком X-Server
 	}
 
 	httpAuthEnable, err := onlineconf.GetBool(ctx, "/{{ .ProjectName }}/security/httpAuth/enabled", true)
@@ -65,6 +66,7 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 
 func (emw *EmptyMiddlewares) GetMiddlewares(
 	_ context.Context,
+	_ string,
 	_ *prometheus.Registry,
 	_ ds.IService,
 	_ string,

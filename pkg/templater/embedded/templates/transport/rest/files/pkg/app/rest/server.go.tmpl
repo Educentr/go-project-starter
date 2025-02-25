@@ -99,7 +99,7 @@ func (s *Server) Init(ctx context.Context, serviceName string, metrics *promethe
 		return errors.Wrap(err, "error initialization API Routers")
 	}
 
-	mws, err := s.router.GetMiddlewares(ctx, metrics, srv, s.Name(), s.router.GetErrorHandler())
+	mws, err := s.router.GetMiddlewares(ctx, serviceName, metrics, srv, s.Name(), s.router.GetErrorHandler())
 	if err != nil {
 		return errors.Wrap(err, "error initialization API middlewares")
 	}

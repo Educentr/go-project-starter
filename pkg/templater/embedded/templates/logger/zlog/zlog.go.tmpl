@@ -11,11 +11,11 @@ import (
 
 // AppZlogLogger структура хранящая функцию создания инстанса логгера
 type AppZlogLogger struct {
-	zlogCreator func(endpoint string) *zlog.Logger
+	zlogCreator func(ocPrefix, ocPath string) *zlog.Logger
 }
 
 // InitAppZlog конструктор для логгера zlog
-func InitAppZlog(f func(endpoint string) *zlog.Logger) AppZlogLogger {
+func InitAppZlog(f func(ocPrefix, ocPath string) *zlog.Logger) AppZlogLogger {
 	return AppZlogLogger{
 		zlogCreator: f,
 	}
@@ -34,17 +34,17 @@ func FromContextLoggerZlog(ctx context.Context) AppZlogLogger {
 
 // Функция позволяющая переложить логгер из одного контекста в другой
 // а так же создать инстанс zlog-а в контексте получателе
-func ReWrapZlog(source context.Context, destination context.Context, endpoint string) context.Context {
+func ReWrapZlog(source context.Context, destination context.Context, ocPrefix, ocPath string) context.Context {
 	nCtx, err := CopyLoggerContext(source, destination)
 	if err != nil {
 		{{ .Logger.ErrorMsg "source" "err" "error rewrap logger"}}
 		return destination
 	}
 
-	return FromContextLoggerZlog(nCtx).zlogCreator(endpoint).WithContext(nCtx)
+	return FromContextLoggerZlog(nCtx).zlogCreator(ocPrefix, ocPath).WithContext(nCtx)
 }
 
 // Создание zlog-а в контексте
-func (l AppZlogLogger) WrapZlog(ctx context.Context, endpoint string) context.Context {
-	return l.zlogCreator(endpoint).WithContext(ctx)
+func (l AppZlogLogger) WrapZlog(ctx context.Context, ocPrefix, ocPath string) context.Context {
+	return l.zlogCreator(ocPrefix, ocPath).WithContext(ctx)
 }

@@ -61,7 +61,19 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 	e := jx.GetEncoder()
 	errTimeout.Encode(e)
 
-	httpSrv.Handler = cors.Default().Handler(http.TimeoutHandler(oasServer, httpSrv.IdleTimeout, e.String()))
+	// ToDo для прода Default для dev окружения AllowAll а еще лучше брать из конфига
+	// 		AllowedOrigins: []string{"*"},
+	//	AllowedMethods: []string{
+	//		http.MethodHead,
+	//		http.MethodGet,
+	//		http.MethodPost,
+	//		http.MethodPut,
+	//		http.MethodPatch,
+	//		http.MethodDelete,
+	//	},
+	//	AllowedHeaders:   []string{"*"},
+	//	AllowCredentials: false,
+	httpSrv.Handler = cors.AllowAll().Handler(http.TimeoutHandler(oasServer, httpSrv.IdleTimeout, e.String()))
 
 	return nil
 }

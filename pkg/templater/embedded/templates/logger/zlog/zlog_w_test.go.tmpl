@@ -11,11 +11,11 @@ import (
 
 func TestInitAppZlog(t *testing.T) {
 	type args struct {
-		f func(endpoint string) *zlog.Logger
+		f func(ocPrefix, ocPath string) *zlog.Logger
 	}
 
 	log := zlog.New(zlog.NewConsoleWriter())
-	logCreator := func(endpoint string) *zlog.Logger {
+	logCreator := func(ocPrefix, ocPath string) *zlog.Logger {
 		return &log
 	}
 

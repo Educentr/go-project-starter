@@ -12,13 +12,12 @@ import (
 )
 
 const (
-	onlineconfPrefix    = "log"
-	onlineconfLevelPath = "level"
+	onlineconfLevelPath = "log_level"
 )
 
 func InitZlog(ctx context.Context, serviceName string) context.Context {
 	zlog.TimeFieldFormat = zlog.TimeFormatUnixMs
-	applog := logger.InitAppZlog(func(endpoint string) *zlog.Logger {
+	applog := logger.InitAppZlog(func(onlineconfPrefix, ocPath string) *zlog.Logger {
 		var (
 			levelGlob = zlog.InfoLevel
 			levelEP   = zlog.InfoLevel
@@ -35,7 +34,7 @@ func InitZlog(ctx context.Context, serviceName string) context.Context {
 
 		levelCfg, err := onlineconf.GetString(
 			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, onlineconfLevelPath),
+			onlineconf.MakePath(serviceName, onlineconfPrefix, "default", onlineconfLevelPath),
 			zlog.LevelInfoValue,
 		)
 		if err == nil {
@@ -49,7 +48,7 @@ func InitZlog(ctx context.Context, serviceName string) context.Context {
 		// Уровень логирования переопределённый для данного endpoint-а
 		levelCfgEndpoint, err := onlineconf.GetString(
 			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, onlineconfLevelPath, endpoint),
+			onlineconf.MakePath(serviceName, onlineconfPrefix, ocPath, onlineconfLevelPath),
 			"",
 		)
 		if err == nil {
@@ -70,7 +69,7 @@ func InitZlog(ctx context.Context, serviceName string) context.Context {
 	})
 
 	// Добавим в контекст информацию о логгере
-	ctx = applog.WrapZlog(ctx, "")
+	ctx = applog.WrapZlog(ctx, "", "")
 
 	{{ .Logger.InfoMsg "ctx" "zlog initialized"}}
 

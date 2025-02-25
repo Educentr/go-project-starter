@@ -235,12 +235,12 @@ generate-ogen:
 # Generate activerecord files from all openapi specifications
 .PHONY: generate-argen
 generate-argen:
-	go run github.com/Educentr/go-activerecord/cmd/argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
+	go run github.com/Educentr/go-activerecord/v3/cmd/argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
 
 .PHONY: install-argen
 install-argen:
-	go get github.com/Educentr/go-activerecord@$(ARGENVERSION)
-	go install github.com/Educentr/go-activerecord/cmd/argen@$(ARGENVERSION)
+	go get github.com/Educentr/go-activerecord/v3@$(ARGENVERSION)
+	go install github.com/Educentr/go-activerecord/v3/cmd/argen@$(ARGENVERSION)
 {{ end }}
 
 {{ if eq $ogen true }}

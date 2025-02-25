@@ -32,7 +32,7 @@ var (
 	errInvalidRequestID          = fmt.Errorf("invalid RequestID value type")
 )
 
-func CreateContext(mainCtx context.Context, endpoint string) (context.Context, context.CancelFunc) {
+func CreateContext(mainCtx context.Context, configPathPrefix, configPath string) (context.Context, context.CancelFunc) {
 	// Создаём новый контекст, что бы в него перенести данные из
 	// контекста приложения (конфиг, логгер, ...)
 	pCtx := context.Background()
@@ -47,12 +47,21 @@ func CreateContext(mainCtx context.Context, endpoint string) (context.Context, c
 	pCtx = onlineconf.ToContext(pCtx, ocInst)
 
 	// Перекладываем логгер из основного контекста
-	pCtx = logger.ReWrapZlog(mainCtx, pCtx, endpoint)
+	pCtx = logger.ReWrapZlog(mainCtx, pCtx, configPathPrefix, configPath)
 
-	ocEndpoint := strings.Replace(endpoint[1:], "/", "_", -1)
+	ocDefaultPath := onlineconf.MakePath(configPathPrefix, "default/timeout")
+	ocPath := onlineconf.MakePath(configPathPrefix, configPath, "timeout")
 
-	ocPath := onlineconf.MakePath("{{ .ProjectName }}", "/handler/http", ocEndpoint, "timeout")
-	timeout, err := onlineconf.GetDuration(pCtx, ocPath, 0)
+	zlog.Ctx(pCtx).UpdateContext(func(c zlog.Context) zlog.Context {
+		return c.Str("Endpoint config", ocPath).Str("Endpoint config default", ocDefaultPath)
+    })
+
+	timeoutDef, err := onlineconf.GetDuration(pCtx, ocDefaultPath, 0)
+	if err != nil {
+		zlog.Ctx(pCtx).Warn().Err(err).Msg("failed to get timeout from onlineconf. Skip")
+	}
+
+	timeout, err := onlineconf.GetDuration(pCtx, ocPath, timeoutDef)
 	if err != nil {
 		{{ .Logger.WarnMsg "pCtx" "failed to get timeout from onlineconf. Skip" "Err(err)" }}
 	}
@@ -61,6 +70,9 @@ func CreateContext(mainCtx context.Context, endpoint string) (context.Context, c
 
 	if timeout != 0 {
 		pCtx, cancel = context.WithTimeout(pCtx, timeout)
+		zlog.Ctx(pCtx).UpdateContext(func(c zlog.Context) zlog.Context {
+			return c.Str("Config endpoint timeout", timeout.String())
+		})
 	}
 
 	{{ .Logger.UpdateContext "pCtx" "Str(\"Config endpoint\", ocPath)" }}
