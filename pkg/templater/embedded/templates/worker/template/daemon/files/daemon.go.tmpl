@@ -1,0 +1,113 @@
+package {{ .Worker.Name }}
+
+import (
+	"context"
+	"time"
+
+	"{{ .ProjectPath }}/pkg/app/daemon"
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	{{ .Logger.Import }}
+
+	"golang.org/x/sync/errgroup"
+)
+
+type Worker struct {
+	daemon.EmptyWorker
+	Srv ds.IService
+	jobState any
+}
+
+const (
+	nameFieldLogger = "Name"
+)
+
+func Create() *Worker {
+    return &Worker{}
+}
+
+func (w *Worker) Name() string {
+	return "{{ .Worker.Name }}"
+}
+
+func (s *Worker) Init(ctx context.Context, serviceName string, metrics *prometheus.Registry, srv ds.IService) error {
+	s.Srv = srv
+	return nil
+}
+
+func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) {
+	ctxJob, cancel := reqctx.CreateContext(ctx, onlineconf.MakePath(constant.ServiceName, "/worker/"), "job")
+	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, w.Name())" }}
+
+	err = errors.New("unexpected error")
+
+	defer func() {
+		err := recover()
+		if err != nil {
+			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "Interface(\"panic error\", err)" }}
+		}
+
+		cancel()
+	}()
+
+	err = task.Do(ctxJob, w.Srv)
+
+	return
+}
+
+// Run - start worker
+func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
+	// initialization worker
+	errGr.Go(func() error {
+		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, w.Name())" }}
+
+		timer := time.NewTimer(time.Millisecond * 500)
+	JOB:
+		for {
+			select {
+			case <-timer.C:
+				tasks, jobState, err := w.GetTasks(ctx, w.jobState)
+				if err != nil {
+					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "Str(nameFieldLogger, w.Name())" }}
+					timer = time.NewTimer(worker.ErrorTimeout)
+					continue
+				}
+
+				w.jobState = jobState
+
+				if len(tasks) == 0 {
+					timer = time.NewTimer(worker.NewCycleTimeout)
+					continue
+				}
+
+				for _, task := range tasks {
+					err = w.JobStarter(ctx, task)
+					if err != nil {
+						{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "Str(\"taskID\", task.GetID(ctx))" "Str(nameFieldLogger, w.Name())"}}
+					}
+				}
+
+				{{ .Logger.InfoMsg "ctx" "worker finished cycle" }}
+				timer = time.NewTimer(worker.NextIterationTimeout)
+			case <-ctx.Done():
+				break JOB
+			}
+		}
+
+		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, w.Name())" }}
+
+		return nil
+	})
+}
+
+// ShutdownHTTP shutting down worker
+func (w *Worker) Shutdown(_ context.Context) error {
+	return nil
+}
+
+// GracefulStop do graceful stop worker
+func (w *Worker) GracefulStop(_ context.Context) (<-chan struct{}, error) {
+	stopped := make(chan struct{})
+	close(stopped)
+
+	return stopped, nil
+}
