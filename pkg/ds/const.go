@@ -10,10 +10,14 @@ import (
 
 type TransportType string
 
+//type WorkerType string
+
 const (
 	RestTransportType  TransportType = "rest"
 	GrpcTransportType  TransportType = "grpc"
 	KafkaTransportType TransportType = "kafka"
+
+//	WorkerDaemonType WorkerType = "daemon"
 
 // ServiceName  = "service_name"
 // ConsumerName = "consumer_name"
@@ -37,10 +41,32 @@ type App struct {
 	Name       string
 	Transports Transports
 	Drivers    Drivers
+	Workers    Workers
 }
 
 type Transports map[string]Transport
 type Drivers map[string]Driver
+type Workers map[string]Worker
+
+func (w Workers) Add(name string, worker Worker) error {
+	if _, ex := w[name]; ex {
+		return fmt.Errorf("worker %s already exists", name)
+	}
+
+	w[name] = worker
+
+	return nil
+}
+
+func (w Workers) GetUniqueTypes() map[string][]Worker {
+	uniqueTypes := make(map[string][]Worker)
+
+	for _, work := range w {
+		uniqueTypes[work.GeneratorType] = append(uniqueTypes[work.GeneratorType], work)
+	}
+
+	return uniqueTypes
+}
 
 func (ts Transports) Add(name string, transport Transport) error {
 	if _, ex := ts[name]; ex {
@@ -74,10 +100,18 @@ type Driver struct {
 }
 
 type Transport struct {
-	Import            []string
+	Import            []string // ToDo точно ли нужен срез?
 	Init              string
 	Handler           Handler
 	Type              TransportType
+	GeneratorType     string
+	GeneratorTemplate string
+	GeneratorParams   map[string]string
+}
+
+type Worker struct {
+	Import            string
+	Name              string
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
@@ -146,6 +180,7 @@ type Logger interface {
 	ErrorMsg(string, string, string, ...string) string
 	WarnMsg(string, string, ...string) string
 	InfoMsg(string, string, ...string) string
+	DebugMsg(string, string, ...string) string
 	UpdateContext(...string) string
 	Import() string
 	FilesToGenerate() string

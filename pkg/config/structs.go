@@ -50,6 +50,15 @@ type (
 		GeneratorParams   map[string]string `mapstructure:"generator_params"`
 	}
 
+	Worker struct {
+		Name              string            `mapstructure:"name"`
+		Path              []string          `mapstructure:"path"`
+		Version           string            `mapstructure:"version"`
+		GeneratorType     string            `mapstructure:"generator_type"`
+		GeneratorTemplate string            `mapstructure:"generator_template"`
+		GeneratorParams   map[string]string `mapstructure:"generator_params"`
+	}
+
 	Grpc struct {
 		Name  string `mapstructure:"name"`
 		Path  string `mapstructure:"path"`
@@ -88,6 +97,7 @@ type (
 	GrpcList       []Grpc
 	WsList         []Ws
 	RepositoryList []Repository
+	WorkerList     []Worker
 	ConsumerList   []Consumer
 	DriverList     []Driver
 
@@ -95,6 +105,7 @@ type (
 		Name          string   `mapstructure:"name"`
 		TransportList []string `mapstructure:"transport"`
 		DriverList    []string `mapstructure:"driver"`
+		WorkerList    []string `mapstructure:"worker"`
 	}
 
 	Docker struct {
@@ -110,6 +121,7 @@ type (
 		RepositoryList RepositoryList `mapstructure:"repository"`
 		Scheduler      Scheduler      `mapstructure:"scheduler"`
 		RestList       RestList       `mapstructure:"rest"`
+		WorkerList     WorkerList     `mapstructure:"worker"`
 		GrpcList       GrpcList       `mapstructure:"grpc"`
 		WsList         WsList         `mapstructure:"ws"`
 		ConsumerList   ConsumerList   `mapstructure:"consumer"`
@@ -120,6 +132,7 @@ type (
 		RestMap   map[string]Rest
 		GrpcMap   map[string]Grpc
 		DriverMap map[string]Driver
+		WorkerMap map[string]Worker
 	}
 )
 
@@ -320,6 +333,38 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			return false, "Empty generator template"
 		}
 		if len(r.GeneratorParams) != 0 {
+			return false, "Generator params not supported"
+		}
+	default:
+		return false, "Invalid generator type"
+	}
+
+	return true, ""
+}
+
+func (w Worker) IsValid(baseConfigDir string) (bool, string) {
+	if len(w.Name) == 0 {
+		return false, "Empty name"
+	}
+
+	if len(w.Path) == 0 {
+		return false, "Empty path"
+	}
+
+	for _, p := range w.Path {
+		absPath := filepath.Join(baseConfigDir, p)
+
+		if tools.FileExists(absPath) != tools.ErrExist {
+			return false, "Invalid path: " + p
+		}
+	}
+
+	switch w.GeneratorType {
+	case "template":
+		if len(w.GeneratorTemplate) == 0 {
+			return false, "Empty generator template"
+		}
+		if len(w.GeneratorParams) != 0 {
 			return false, "Generator params not supported"
 		}
 	default:

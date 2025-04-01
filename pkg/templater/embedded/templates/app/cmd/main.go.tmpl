@@ -16,6 +16,9 @@ import (
 	{{ range $_, $drv := .Application.Drivers }}
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
+	{{ range $_, $wor := .Application.Workers }}
+	{{ $wor.Name }} {{ $wor.Import }}
+	{{ end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/app"
 	"{{ .ProjectPath }}/pkg/app/ds"
@@ -72,6 +75,12 @@ func main() {
 	// Инициализация логгера
 	mainCtx = {{ .Logger.InitLogger "mainCtx" "constant.ServiceName" }}
 
+	err = onlineconf.StartWatcher(mainCtx)
+    if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't start watcher" }}
+		os.Exit(ExitCodeErrorConfig)
+    }
+
 	application, err := app.New(mainCtx, constant.ServiceName, getAppInfo())
 	if err != nil {
 		log.Printf("can't create new application: %s", err)
@@ -103,7 +112,17 @@ func main() {
 		{{ end }}
 	)
 	if err != nil {
-		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set stat_receiver transport" }}
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set transport" }}
+		os.Exit(ExitCodeErrorTransport)
+	}
+
+	err = application.SetWorker(
+		{{ range $_, $wr := .Application.Workers }}
+		{{ $wr.Name }}.Create(),
+		{{ end }}
+	)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't set worker" }}
 		os.Exit(ExitCodeErrorTransport)
 	}
 
@@ -131,6 +150,8 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't start application" }}
 		os.Exit(ExitCodeErrorRun)
 	}
+	 
+	onlineconf.StopWatcher(mainCtx)
 
 	{{ .Logger.InfoMsg "mainCtx" "service has been successfully shutdown" }}
 }

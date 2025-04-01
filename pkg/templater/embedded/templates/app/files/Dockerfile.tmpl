@@ -1,5 +1,5 @@
 FROM golang:1.22-alpine AS builder
-ARG binary=bin/api
+ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
 
 RUN set -xe  && \

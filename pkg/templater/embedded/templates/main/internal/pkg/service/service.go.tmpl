@@ -33,7 +33,7 @@ func NewService(ctx context.Context) (ds.IService, error) {
 }
 
 {{ if ne 0 ( len .Drivers ) }}
-func (s *Service) setDrivers(drvs []ds.IDriver) error {
+func (s *Service) setDrivers(drvs []ds.Runnable) error {
 	for _, drv := range drvs {
 		switch d := drv.(type) {
 		{{ range $_, $driver := .Drivers }}
@@ -66,7 +66,7 @@ type EmptyService struct {
 	*Service
 }
 
-func (s *EmptyService) InitService(ctx context.Context, drvs []ds.IDriver, bucket ds.ServerBucket, m *prometheus.Registry) error {
+func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, bucket ds.ServerBucket, m *prometheus.Registry) error {
 	err := s.InitState(ctx, drvs, bucket, m)
 	if err != nil {
 		return errors.Wrap(err, "error init state")

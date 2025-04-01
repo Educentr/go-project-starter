@@ -1,4 +1,5 @@
 package {{ .Transport.Handler.Name }}
+{{ if ne "off" ( index .TransportParams "auth_handler" ) }}
 
 import (
     "context"
@@ -15,3 +16,5 @@ func (dosh *DefaultOgenSecurityHandler) NewSecurityHandler(ctx context.Context) 
 func (dosh *DefaultOgenSecurityHandler) HandleAuthHeader(ctx context.Context, operationName string, t oas.AuthHeader) (context.Context, error) {
     return ctx, nil
 }
+
+{{ end }}

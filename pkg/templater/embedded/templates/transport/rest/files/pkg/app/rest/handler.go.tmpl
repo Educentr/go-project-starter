@@ -4,6 +4,12 @@ import (
 	"context"
 
 	"{{ .ProjectPath }}/pkg/app/ds"
+	"{{ .ProjectPath }}/internal/pkg/service"
+)
+
+var (
+	// ErrServiceType is a service type error
+	ErrServiceType = errors.New("service type error")
 )
 
 type DefaultServiceHandler struct {
@@ -13,4 +19,13 @@ type DefaultServiceHandler struct {
 func (sh *DefaultServiceHandler) InitHandler(_ context.Context, srv ds.IService) error {
 	sh.Srv = srv
 	return nil
+}
+
+func (sh *DefaultServiceHandler) GetSrv() (*service.EmptyService, error) {
+	srv, ok := sh.Srv.(*service.EmptyService)
+	if !ok {
+		return nil, ErrServiceType
+	}
+
+	return srv, nil
 }

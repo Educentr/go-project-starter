@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -31,11 +32,13 @@ type Generator struct {
 	GoLangVersion     string
 	OgenVersion       string
 	ArgenVersion      string
+	GolangciVersion   string
 	TargetDir         string
 	DockerImagePrefix string
 	SkipInitService   bool
 	PostGenerate      []ExecCmd
 	Transports        ds.Transports
+	Workers           ds.Workers
 	Drivers           ds.Drivers
 	Applications      ds.Apps
 }
@@ -51,6 +54,7 @@ func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
 		Transports:   make(ds.Transports),
+		Workers:      make(ds.Workers),
 		Drivers:      make(ds.Drivers),
 		DryRun:       dryrun,
 		Meta:         genMeta,
@@ -75,6 +79,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.GoLangVersion = config.Tools.GolangVersion
 	g.OgenVersion = config.Tools.OgenVersion
 	g.ArgenVersion = config.Tools.ArgenVersion
+	g.GolangciVersion = config.Tools.GolangciVersion
 	g.TargetDir = "./"
 
 	if config.Main.TargetDir != "" {
@@ -111,6 +116,24 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 	}
 
+	for _, w := range config.WorkerList {
+		if w.Name == "" {
+			return errors.New("worker name is empty")
+		}
+
+		worker := ds.Worker{
+			Import:            fmt.Sprintf(`"%s/internal/app/worker/%s"`, g.ProjectPath, w.Name),
+			Name:              w.Name,
+			GeneratorType:     w.GeneratorType,
+			GeneratorTemplate: w.GeneratorTemplate,
+			GeneratorParams:   w.GeneratorParams,
+		}
+
+		if err := g.Workers.Add(w.Name, worker); err != nil {
+			return err
+		}
+	}
+
 	for _, driver := range config.DriverList {
 		if _, ex := g.Drivers[driver.Name]; ex {
 			return fmt.Errorf("duplicate driver name: %s", driver.Name)
@@ -132,6 +155,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		application := ds.App{
 			Name:       app.Name,
 			Transports: make(ds.Transports),
+			Workers:    make(ds.Workers),
 			Drivers:    make(ds.Drivers),
 		}
 
@@ -142,6 +166,15 @@ func (g *Generator) processConfig(config config.Config) error {
 			}
 
 			application.Transports[transport] = tr
+		}
+
+		for _, worker := range app.WorkerList {
+			w, ex := g.Workers[worker]
+			if !ex {
+				return fmt.Errorf("unknown worker: %s", worker)
+			}
+
+			application.Workers[worker] = w
 		}
 
 		for _, driver := range app.DriverList {
@@ -249,8 +282,10 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		GoLangVersion:     g.GoLangVersion,
 		OgenVersion:       g.OgenVersion,
 		ArgenVersion:      g.ArgenVersion,
+		GolangciVersion:   g.GolangciVersion,
 		Applications:      g.Applications,
 		Drivers:           g.Drivers,
+		Workers:           g.Workers,
 	}
 }
 
@@ -266,6 +301,14 @@ func (g *Generator) GetTmplHandlerParams(transport ds.Transport) templater.Gener
 		GeneratorParams: g.GetTmplParams(),
 		Transport:       transport,
 		TransportParams: transport.GeneratorParams,
+	}
+}
+
+func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRunnerParams {
+	return templater.GeneratorRunnerParams{
+		GeneratorParams: g.GetTmplParams(),
+		Worker:          worker,
+		WorkerParams:    worker.GeneratorParams,
 	}
 }
 
@@ -364,6 +407,18 @@ func (g *Generator) Generate() error {
 	}
 
 	for oldFile, newFile := range filesDiff.RenameFiles {
+		st, err := os.Stat(oldFile)
+		if err != nil {
+			if _, ok := err.(*fs.PathError); ok {
+				continue
+			}
+		}
+
+		log.Printf("stat: %+v -> %T\n", st, err)
+		if st, err := os.Stat(newFile); err == nil && st.Name() == filepath.Base(newFile) {
+			return errors.New("Want to rename but new file exists: " + newFile)
+		}
+
 		if err = os.Rename(oldFile, newFile); err != nil {
 			return err
 		}
@@ -449,6 +504,39 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 				dirs = append(dirs, dirsH...)
 				files = append(files, filesH...)
 			}
+		}
+	}
+
+	workerTypes := g.Workers.GetUniqueTypes()
+
+	for tmplType, w := range workerTypes {
+		dirsTr, filesTr, err := templater.GetWorkerTemplates(g.GetTmplParams())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get worker templates: %w", err)
+		}
+
+		dirs = append(dirs, dirsTr...)
+		files = append(files, filesTr...)
+
+		dirsTrT, filesTrT, err := templater.GetWorkerGeneratorTemplates(tmplType, g.GetTmplParams())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get worker generator templates: %w", err)
+		}
+
+		dirs = append(dirs, dirsTrT...)
+		files = append(files, filesTrT...)
+
+		for _, work := range w {
+			dirsH, filesH, err := templater.GetWorkerRunnerTemplates(
+				filepath.Join(work.GeneratorType, work.GeneratorTemplate),
+				g.GetTmplRunnerParams(work),
+			)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "failed to get worker runner templates: `%s`, `%s`", work.GeneratorType, work.GeneratorTemplate)
+			}
+
+			dirs = append(dirs, dirsH...)
+			files = append(files, filesH...)
 		}
 	}
 

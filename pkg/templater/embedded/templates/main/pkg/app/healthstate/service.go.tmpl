@@ -22,7 +22,7 @@ func (s *Service) Init(_ context.Context) error {
 	return nil
 }
 
-func (s *Service) InitState(_ context.Context, _ []ds.IDriver, bucket ds.ServerBucket, _ *prometheus.Registry) error {
+func (s *Service) InitState(_ context.Context, _ []ds.Runnable, bucket ds.ServerBucket, _ *prometheus.Registry) error {
 	if bucket.AppInfo == nil {
 		return errAppInfoNil
 	}
@@ -38,4 +38,8 @@ func (s *Service) InitState(_ context.Context, _ []ds.IDriver, bucket ds.ServerB
 
 func (s *Service) GetBucket() ds.ServerBucket {
 	return s.Bucket
+}
+
+func (s *Service) BeforeRunHook(_ context.Context) error {
+	return nil
 }

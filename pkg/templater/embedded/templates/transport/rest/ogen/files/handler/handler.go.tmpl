@@ -28,7 +28,7 @@ func (h *ogenDefaultError) NewError(ctx context.Context, err error) *oas.ErrorDe
 		}
 	}
 
-	zlog.Ctx(ctx).Error().Err(err).Msg("Unexpected error from handler")
+	zlog.Ctx(ctx).Error().Caller(2).Err(err).Msg("Unexpected error from handler")
 
 	return &oas.ErrorDefaultStatusCode{
 		StatusCode: 500,
@@ -47,7 +47,3 @@ type Handler struct {
 // Compile-time check for Handler.
 var _ oas.Handler = (*Handler)(nil)
 
-var (
-	// ErrServiceType is a service type error
-	ErrServiceType = errors.New("service type error")
-)

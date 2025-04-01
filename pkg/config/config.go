@@ -53,6 +53,7 @@ func GetConfig(baseDir, configPath string) (Config, error) {
 	config.RestMap = make(map[string]Rest)
 	config.GrpcMap = make(map[string]Grpc)
 	config.DriverMap = make(map[string]Driver)
+	config.WorkerMap = make(map[string]Worker)
 
 	for i, rest := range config.RestList {
 		if ok, msg := rest.IsValid(baseDir); !ok {

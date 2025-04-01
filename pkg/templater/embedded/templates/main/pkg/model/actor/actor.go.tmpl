@@ -9,7 +9,7 @@ import (
 )
 
 type Actor struct {
-	ID uint64
+	ID int64
 }
 
 func New(aData ds.AuthorizationData) *Actor {
@@ -18,6 +18,6 @@ func New(aData ds.AuthorizationData) *Actor {
 	}
 }
 
-func (a *Actor) GetID() uint64 {
+func (a *Actor) GetID() int64 {
 	return a.ID
 }

@@ -20,7 +20,9 @@ type API struct {
 	mw.DefaultMiddlewares
 	OgenErrorHandler
 	DefaultOgenMiddlewares
+{{ if ne "off" ( index .TransportParams "auth_handler" ) }}
 	DefaultOgenSecurityHandler
+{{ end }}
 }
 
 func (a *API) GetErrorHandler() rest.RestErrorHandler {
@@ -44,7 +46,7 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 	// TODO	oas.WithTracerProvider(m.TracerProvider()),
 	oasServer, err := oas.NewServer(
 		oasHandler,
-		{{ if ne "" (index .TransportParams "auth_handler") }}securityHandler,{{ end }}
+		{{ if ne "off" (index .TransportParams "auth_handler") }}securityHandler,{{ end }}
 		oas.WithErrorHandler(a.UnexpectedError),
 		oas.WithNotFound(a.NotFoundError),
 		oas.WithMiddleware(a.GetOgenMiddlewares(ctx)...),
@@ -73,7 +75,7 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 	//	},
 	//	AllowedHeaders:   []string{"*"},
 	//	AllowCredentials: false,
-	httpSrv.Handler = cors.AllowAll().Handler(http.TimeoutHandler(oasServer, httpSrv.IdleTimeout, e.String()))
+	httpSrv.Handler = cors.AllowAll().Handler(oasServer)
 
 	return nil
 }

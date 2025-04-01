@@ -77,6 +77,14 @@ func (a *App) gracefulStop(ctx context.Context) error {
 		{{ .Logger.InfoMsg "ctx" "empty transport"}}
 	}
 
+	if len(a.workers) > 0 {
+		for _, worker := range a.workers {
+			gracefullyShutdown(shutdownCtx, worker, "Worker " + worker.Name())
+		}
+	} else {
+		{{ .Logger.InfoMsg "ctx" "empty workers"}}
+	}
+
 	if len(a.drivers) > 0 {
 		for _, driver := range a.drivers {
 			gracefullyShutdown(shutdownCtx, driver, "Driver " + driver.Name())

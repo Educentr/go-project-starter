@@ -38,7 +38,7 @@ type App struct {
 	service ds.IService
 
 	// Драйверы для работы с данными
-	drivers []ds.IDriver
+	drivers []ds.Runnable
 
 	// Драйверы инициализированы
 	driverInit atomic.Bool
@@ -47,10 +47,16 @@ type App struct {
 	authorizer ds.Authorizer
 
 	// Транспортный слой обслуживания бизнес логики
-	transports []ds.ITransport
+	transports []ds.RunnableService
+
+	// Обработчики
+	workers []ds.RunnableService
 
 	// Transport initialized
 	transportInit atomic.Bool
+
+	// Worker initialized
+	workerInit atomic.Bool
 
 	// Готовность всего приложения к обслуживанию клиентов
 	ready atomic.Bool
@@ -71,14 +77,14 @@ func (u *EmptyUserSetFunc) SetFunc(_ context.Context, _ *App) error {return nil}
 
 type UnimplementedAuthorizer struct {}
 
-func (u *UnimplementedAuthorizer) Init(_ context.Context, _ []ds.IDriver, _ *prometheus.Registry) (ds.Authorizer, error) {
+func (u *UnimplementedAuthorizer) Init(_ context.Context, _ []ds.Runnable, _ *prometheus.Registry) (ds.Authorizer, error) {
 	return u, nil
 }
 
 func (u *UnimplementedAuthorizer) AuthRest(r *http.Request) (ds.Actor, error) {
 	{{ .Logger.WarnMsg "r.Context()" "Unimplemented method AuthRest" }}
 
-	return &actor.Actor{ID: math.MaxUint64}, nil
+	return &actor.Actor{ID: math.MaxInt64}, nil
 }
 
 func (u *UnimplementedAuthorizer) CheckCSRF(r *http.Request) (bool, error) {
@@ -91,8 +97,10 @@ var (
 	errDriverNotInit        = errors.New("drivers not initialized")
 	errDriverAlreadyInit    = errors.New("driver already initialized")
 	errTransportNotInit     = errors.New("transports not initialized")
-	errTransportsEmpty      = errors.New("error initialize. No transports")
+	errWorkerNotInit        = errors.New("worker not initialized")
+	errTransportsEmpty      = errors.New("error initialize. No transports and no workers")
 	errTransportAlreadyInit = errors.New("transport already initialized")
+	errWorkerAlreadyInit	= errors.New("worker already initialized")
 	errServiceEmpty         = errors.New("service is empty")
 )
 
@@ -136,7 +144,7 @@ func (a *App) InitService(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) SetTransport(transport ...ds.ITransport) error {
+func (a *App) SetTransport(transport ...ds.RunnableService) error {
 	if a.transportInit.Load() {
 		return errTransportAlreadyInit
 	}
@@ -146,7 +154,17 @@ func (a *App) SetTransport(transport ...ds.ITransport) error {
 	return nil
 }
 
-func (a *App) SetDriver(driver ...ds.IDriver) error {
+func (a *App) SetWorker(worker ...ds.RunnableService) error {
+	if a.workerInit.Load() {
+		return errWorkerAlreadyInit
+	}
+
+	a.workers = append(a.workers, worker...)
+
+	return nil
+}
+
+func (a *App) SetDriver(driver ...ds.Runnable) error {
 	if a.driverInit.Load() {
 		return errDriverAlreadyInit
 	}
@@ -174,6 +192,24 @@ func (a *App) InitTransports(ctx context.Context) error {
 	return nil
 }
 
+func (a *App) InitWorkers(ctx context.Context) error {
+	if a.service == nil {
+		return errServiceEmpty
+	}
+
+	if !a.workerInit.CompareAndSwap(false, true) {
+		return errWorkerAlreadyInit
+	}
+
+	for _, worker := range a.workers {
+		if err := worker.Init(ctx, a.name, a.metrics, a.service); err != nil {
+			return errors.Wrapf(err, "can't init worker: %s", worker.Name())
+		}
+	}
+
+	return nil
+}
+
 func (a *App) SetService(s ds.IService) error {
 	a.service = s
 
@@ -195,6 +231,11 @@ func (a *App) Init(ctx context.Context) error {
 	err = a.InitTransports(ctx)
 	if err != nil {
 		return errors.Wrap(err, "can't initialize transport")
+	}
+
+	err = a.InitWorkers(ctx)
+	if err != nil {
+		return errors.Wrap(err, "can't initialize worker")
 	}
 
 	// ToDo get logger level for activerecord
@@ -231,7 +272,11 @@ func (a *App) Run(ctx context.Context) error {
 		return errTransportNotInit
 	}
 
-	if len(a.transports) == 0 {
+	if !a.workerInit.Load() {
+		return errWorkerNotInit
+	}
+
+	if len(a.transports) == 0 && len(a.workers) == 0 {
 		return errTransportsEmpty
 	}
 
@@ -239,14 +284,23 @@ func (a *App) Run(ctx context.Context) error {
 		return errServiceEmpty
 	}
 
-	{{ .Logger.InfoMsg "ctx" "Application running"}}
-
 	for _, driver := range a.drivers {
 		driver.Run(ctx, a.errGr)
 	}
 
+	err := a.service.BeforeRunHook(ctx)
+	if err != nil {
+		return errors.Wrap(err, "can't run service, before run hook failed")
+	}
+
+	{{ .Logger.InfoMsg "ctx" "Application running"}}
+
 	for _, transport := range a.transports {
 		transport.Run(ctx, a.errGr)
+	}
+
+	for _, worker := range a.workers {
+		worker.Run(ctx, a.errGr)
 	}
 
 	// помечаем, что приложение запустилось

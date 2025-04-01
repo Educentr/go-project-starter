@@ -40,8 +40,6 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			{{ .Logger.InfoMsg "r.Context()" "Start request"
-				"Str(\"Method\", r.Method)"
-				"Str(\"URI\", r.RequestURI)"
 				"Str(\"Content-Length\", r.Header.Get(\"content-length\"))"
 				"Str(\"X-Real-IP\", r.Header.Get(\"x-real-ip\"))"
 				"Str(\"Content-Type\", r.Header.Get(\"content-type\"))"
@@ -76,8 +74,6 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 
 			{{ .Logger.InfoMsg "r.Context()" "Done request"
 				"Int(\"Status\", rw.Status())"
-				"Str(\"Method\", r.Method)"
-				"Str(\"URI\", r.RequestURI)"
 				"Str(\"Content-Length\", r.Header.Get(\"content-length\"))"
 				"Str(\"X-Real-IP\", r.Header.Get(\"x-real-ip\"))"
 				"Str(\"Content-Type\", r.Header.Get(\"content-type\"))"

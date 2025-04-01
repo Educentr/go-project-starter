@@ -86,6 +86,40 @@ func GetLoggerTemplates(path string, dst string, params GeneratorParams) (dirs [
 	return
 }
 
+func GetWorkerTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/worker/files"), params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get worker templates")
+
+		return
+	}
+
+	return
+}
+
+func GetWorkerGeneratorTemplates(generatorType string, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/worker", generatorType, "config"), params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get worker templates")
+
+		return
+	}
+
+	return
+}
+
 func GetTransportTemplates(transportType ds.TransportType, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/transport", string(transportType), "files"), params)
 	if err != nil {
@@ -123,7 +157,9 @@ func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorTyp
 var (
 	prefixDirs = map[string]string{
 		"transport": "internal/app/transport/{{ .Transport.Type }}/{{ .Transport.Handler.Name }}/{{ .Transport.Handler.ApiVersion }}",
-		"app":       "cmd/{{ .Application.Name }}",
+		"worker":    "internal/app/worker/{{ .Worker.Name }}",
+
+		"app": "cmd/{{ .Application.Name }}",
 	}
 )
 
@@ -143,15 +179,48 @@ var (
 	}
 )
 
+func GetWorkerRunnerTemplates(template string, params GeneratorRunnerParams) (dirs, files []ds.Files, err error) {
+	cacheKey := filepath.Join("embedded/templates/worker", template, "files")
+
+	// ToDo если включить кеширование то кешируются и параметры, а не только файлы
+	// templateFileNameCache.Lock()
+	// defer templateFileNameCache.Unlock()
+
+	// if v, ok := templateFileNameCache.cache[cacheKey]; ok {
+	// 	return v.dirs, v.files, nil
+	// }
+
+	dirs, files, err = GetTemplates(templates, cacheKey, params)
+	if err != nil {
+		err = errors.Wrapf(err, "error while get worker runner templates `%s`", cacheKey)
+
+		return
+	}
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(prefixDirs["worker"], dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(prefixDirs["worker"], files[i].DestName)
+	}
+
+	// templateFileNameCache.cache[cacheKey] = MapTemplateFileName{dirs, files}
+
+	return dirs, files, nil
+
+}
+
 func GetTransportHandlerTemplates(transport ds.TransportType, template string, params GeneratorHandlerParams) (dirs, files []ds.Files, err error) {
 	cacheKey := filepath.Join("embedded/templates/transport", string(transport), template, "files")
 
-	templateFileNameCache.Lock()
-	defer templateFileNameCache.Unlock()
+	// ToDo если включить кеширование то кешируются и параметры, а не только файлы
+	// templateFileNameCache.Lock()
+	// defer templateFileNameCache.Unlock()
 
-	if v, ok := templateFileNameCache.cache[cacheKey]; ok {
-		return v.dirs, v.files, nil
-	}
+	// if v, ok := templateFileNameCache.cache[cacheKey]; ok {
+	// 	return v.dirs, v.files, nil
+	// }
 
 	dirs, files, err = GetTemplates(templates, cacheKey, params)
 	if err != nil {
@@ -168,7 +237,7 @@ func GetTransportHandlerTemplates(transport ds.TransportType, template string, p
 		files[i].DestName = filepath.Join(prefixDirs["transport"], files[i].DestName)
 	}
 
-	templateFileNameCache.cache[cacheKey] = MapTemplateFileName{dirs, files}
+	// templateFileNameCache.cache[cacheKey] = MapTemplateFileName{dirs, files}
 
 	return dirs, files, nil
 

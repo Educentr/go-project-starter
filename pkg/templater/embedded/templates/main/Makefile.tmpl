@@ -8,7 +8,7 @@ BUF_VERSION:=1.7.0
 # Test timeout
 TEST_TIMEOUT?=20s
 # golang-ci tag
-GOLANGCI_TAG:=1.52.2
+GOLANGCI_TAG:={{ .GolangciVersion }}
 # Path to the binary
 LOCAL_BIN:=$(CURDIR)/bin
 # Путь до бинарника golang-ci
@@ -21,6 +21,8 @@ OGENVERSION = {{ .OgenVersion }}
 # activeRecord version
 ARGENVERSION = {{ .ArgenVersion }}
 {{ end }}
+# Onlineconf version
+ONLINECONF_UPDATER_VERSION = v3.6.2
 # Build datetime
 BUILD_DATE = $(shell TZ=UTC-3 date +%Y%m%d-%H%M)
 # Operation system
@@ -89,6 +91,11 @@ ifeq "$(GOLANGCI_TAG)" "$(word 1, $(sort $(GOLANGCI_TAG) $(GOLANGCI_VERSION_SHOR
 GOLANGCI_BIN:=$(shell which golangci-lint)
 endif
 endif
+
+.PHONY: regenerate
+regenerate:
+	go-project-starter --target ${PWD}
+
 ##################### End of golang-ci checks #####################
 .PHONY: git-repo
 git-repo:
@@ -101,8 +108,8 @@ git-repo:
 install-lint:
 ifeq ($(wildcard $(GOLANGCI_BIN)),)
 	$(info "Downloading golangci-lint v$(GOLANGCI_TAG)")
-	tmp=$$(mktemp -d) && cd $$tmp && pwd && go mod init temp && go get -d github.com/golangci/golangci-lint/cmd/golangci-lint@v$(GOLANGCI_TAG) && \
-		go build -ldflags "-X 'main.version=$(GOLANGCI_TAG)' -X 'main.commit=test' -X 'main.date=test'" -o $(LOCAL_BIN)/golangci-lint github.com/golangci/golangci-lint/cmd/golangci-lint && \
+	tmp=$$(mktemp -d) && cd $$tmp && pwd && go mod init temp && go get -d github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_TAG) && \
+		go build -ldflags "-X 'main.version=$(GOLANGCI_TAG)' -X 'main.commit=test' -X 'main.date=test'" -o $(LOCAL_BIN)/golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint && \
 		rm -rf $$tmp
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 endif
@@ -112,15 +119,20 @@ go-get-u:
 	@echo "go get -u all dependencies..."
 	@GOSUMDB=off go get -d -u ./...
 
+.PHONY: onlineconf-update
+onlineconf-update:
+	@echo "Update onlineconf..."
+	@onlineconf-updater -config etc/onlineconf-updater.conf -once
+
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
 lint: install-lint
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME)
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME) --path-prefix='config/'
 
 # Run full code lint
 .PHONY: lint-full
 lint-full: lint
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME) --path-prefix='config/'
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint-fix
@@ -170,7 +182,7 @@ docker_push-{{ $a.Name }}:
 
 # Run service {{ $a.Name }}
 .PHONY: run-{{ $a.Name }}
-run-{{ $a.Name }}:
+run-{{ $a.Name }}: onlineconf-update
 	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && OTEL_SERVICE_NAME="$(SERVICE_NAME)-devel" go run -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}/psg_main_gen.go
 
 # Build service {{ $a.Name }}
@@ -188,7 +200,7 @@ build_for_test-{{ $a.Name }}: download
 docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
 
 .PHONY: docker-push
-docker: {{ range $_, $a := .Applications }}docker_push-{{ $a.Name }} {{ end }}
+docker-push: {{ range $_, $a := .Applications }}docker_push-{{ $a.Name }} {{ end }}
 
 .PHONY: build
 build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
@@ -235,7 +247,7 @@ generate-ogen:
 # Generate activerecord files from all openapi specifications
 .PHONY: generate-argen
 generate-argen:
-	go run github.com/Educentr/go-activerecord/v3/cmd/argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
+	argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
 
 .PHONY: install-argen
 install-argen:
@@ -314,9 +326,13 @@ ToDo select driver for PG
 install-goimports:
 	go install golang.org/x/tools/cmd/goimports@latest
 
+.PHONY: install-onlineconf-updater
+install-onlineconf-updater:
+	go install github.com/Nikolo/onlineconf/updater/v3@$(ONLINECONF_UPDATER_VERSION)
+
 # Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-lint {{ if eq $proto true }}install-buf {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
 
 # Generate mock packages
 #TODO: enable ansible generator after debugging

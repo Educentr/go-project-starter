@@ -3,9 +3,11 @@ package mw
 import (
 	"context"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/prometheus/client_golang/prometheus"
+	{{ .Logger.Import }}
 
 	"{{ .ProjectPath }}/pkg/app/ds"
 	"{{ .ProjectPath }}/pkg/reqctx"
@@ -33,10 +35,12 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ctx, cancel := reqctx.CreateContext(ctx, onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler"), r.URL.Path)
+				{{ .Logger.UpdateContext "ctx" "Str(\"Method\", r.Method)" "Str(\"URI\", r.RequestURI)" }}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				cancel()
 			})
 		},
+		PanicRecoveryMiddleware(ctx),								// Обработка паник
 		HTTPServerMiddlewareRequestStartTime(),                     // Обогащаем контекст временем начала запроса
 		HTTPServerMiddlewareTracing(ctx),                           // Обогащаем контекст запроса ID для трейсинга
 		HTTPServerMiddlewareMetrics(ctx, serviceName, metrics),     // Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
@@ -78,13 +82,17 @@ func (emw *EmptyMiddlewares) GetMiddlewares(
 	return []func(next http.Handler) http.Handler{}, nil
 }
 
-/*TODO ogen
-func panicRecoverFunc(ctx context.Context) func(ctx context.Context, p interface{}) (err error) {
-	ctxLogger := zlog.Ctx(ctx)
-
-	return func(ctx context.Context, p interface{}) (err error) {
-		ctxLogger.Error().Interface("Panic", p).Bytes("Stack trace", debug.Stack()).Msg("Panic triggered")
-		return status.Errorf(codes.Unknown, "panic triggered: %v", p)
+func PanicRecoveryMiddleware(ctx context.Context) func (next http.Handler) http.Handler {
+	return func (next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if err := recover(); err != nil {
+					{{ .Logger.ErrorMsg "r.Context()" "nil" "Panic recovered" "Str(\"Stack\", strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1))" "Interface(\"Error\", err)" }}
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				}
+			}()
+			
+			next.ServeHTTP(w, r)
+		})
 	}
 }
-*/

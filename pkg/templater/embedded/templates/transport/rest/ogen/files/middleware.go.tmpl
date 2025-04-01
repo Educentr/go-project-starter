@@ -6,6 +6,6 @@ import (
 
 type DefaultOgenMiddlewares struct{}
 
-func (dwm *DefaultOgenMiddlewares) GetOgenMiddlewares() []oas.Middleware {
+func (dwm *DefaultOgenMiddlewares) GetOgenMiddlewares(_ context.Context) []oas.Middleware {
 	return []oas.Middleware{}
 }

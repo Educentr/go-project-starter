@@ -32,7 +32,9 @@ type GeneratorParams struct {
 	GoLangVersion     string
 	OgenVersion       string
 	ArgenVersion      string
+	GolangciVersion   string
 	Drivers           ds.Drivers
+	Workers           ds.Workers
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
@@ -59,6 +61,12 @@ type GeneratorHandlerParams struct {
 	GeneratorParams
 	Transport       ds.Transport
 	TransportParams map[string]string
+}
+
+type GeneratorRunnerParams struct {
+	GeneratorParams
+	Worker       ds.Worker
+	WorkerParams map[string]string
 }
 
 type Template struct {

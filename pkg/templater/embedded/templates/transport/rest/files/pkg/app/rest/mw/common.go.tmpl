@@ -11,7 +11,12 @@ import (
 func HTTPServerMiddlewareXServerHeader(_ context.Context, appName string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-Server", appName)
+			hostname, err := os.Hostname()
+			if err != nil {
+				hostname = "unknown"
+			}
+
+			w.Header().Set("X-Server", appName + " - " + hostname)
 			next.ServeHTTP(w, r)
 		})
 	}

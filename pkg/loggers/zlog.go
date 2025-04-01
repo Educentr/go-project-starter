@@ -38,6 +38,10 @@ func (zl *ZlogLogger) InfoMsg(ctx, msg string, params ...string) string {
 	return fmt.Sprintf("zlog.Ctx(%s).Info()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
 }
 
+func (zl *ZlogLogger) DebugMsg(ctx, msg string, params ...string) string {
+	return fmt.Sprintf("zlog.Ctx(%s).Debug()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
+}
+
 func (zl *ZlogLogger) UpdateContext(params ...string) string {
 	return fmt.Sprintf(`zlog.Ctx(%s).UpdateContext(func(c zlog.Context) zlog.Context {
 		return c.%s
