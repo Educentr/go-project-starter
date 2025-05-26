@@ -7,6 +7,14 @@ main:
 docker:
   image_prefix: registry.educentr.info
 
+deploy:
+  log_collector:
+    type: loki
+    parameters:
+      - 'loki-url: "https://loki.educentr.info/loki/api/v1/push"'
+      - "loki-retries: 2"
+      - "loki-timeout: 4s"
+
 post_generate:
   - git_install
   #- tools_install
@@ -16,7 +24,7 @@ post_generate:
   - go_mod_tidy
   #- go_get_u
   #- echo "post generate last job"
-  
+
 git:
   repo: git@gitlab.educentr.info:golang/projects/example.git
   module_path: gitlab.educentr.info/golang/projects/example
@@ -30,7 +38,7 @@ tools:
 
 rest:
   - name: example
-    path: 
+    path:
       - ./example/example.swagger.yml
     api_prefix: /
     version: "v1"
@@ -41,6 +49,7 @@ rest:
   - name: sys
     port: 8085
     version: "v1"
+    health_check_path: /live
     generator_type: template
     generator_template: sys
 
@@ -89,7 +98,7 @@ applications:
     transport:
       - example
       - sys
-     #- ExampleService
+      #- ExampleService
     driver:
       # - clickhouse_batcher
   # - name: internalApi

@@ -1,0 +1,51 @@
+package service
+
+import (
+    "context"
+    tgbotapi "github.com/OvyFlash/telegram-bot-api"
+)
+
+func (s *Service) GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel {
+    return s.telegram.Poller
+}
+
+func (s *Service) StopChannel(ctx context.Context) {
+    s.telegram.StopChannel(ctx)
+}
+
+func (s *Service) TelegramGetPayments(ctx context.Context, skip int64) (*tgbotapi.StarTransactions, error) {
+	return s.telegram.GetPayments(ctx, skip)
+}
+
+func (s *Service) TelegramAnswerCallback(ctx context.Context, callbackID string, text string) (bool, error) {
+	return s.telegram.SendAnswerCallback(ctx, callbackID, text)
+}
+
+func (s *Service) TelegramSendMessageButtons(ctx context.Context, chatID int64, msg telegram.Message) (int, error) {
+	msgID, err := s.telegram.SendMessageWithButton(ctx, chatID, msg)
+	if err != nil {
+		return 0, errors.Wrap(err, "can't send message")
+	}
+
+	return msgID, nil
+}
+
+func (s *Service) TelegramDeleteMessage(ctx context.Context, chatID int64, msgID int) error {
+	return s.telegram.DeleteMessage(ctx, chatID, msgID)
+}
+
+func (s *Service) TelegramRefundPayment(ctx context.Context, TgID int64, telegramPaymentChargeID string) error {
+	return s.telegram.RefundPayment(ctx, TgID, telegramPaymentChargeID)
+}
+
+func (s *Service) TelegramCheckUserInChannel(ctx context.Context, channelID, userID int64) (bool, error) {
+	return s.telegram.CheckUserInChannel(ctx, channelID, userID)
+}
+
+func (s *Service) TelegramAnswerPreCheckout(ctx context.Context, channelID, text string) error {
+    return s.telegram.AnswerPreCheckout(ctx, channelID, text)
+}
+
+func (s *Service) SendInvoice(ctx context.Context, chatID int64, invoice telegram.InvoiceData) (int, error) {
+	return s.telegram.SendInvoice(ctx, chatID, invoice)
+}

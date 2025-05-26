@@ -1,0 +1,41 @@
+package telegram
+
+import (
+	"context"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+)
+
+func (tg *Telegram) SendAnswerCallback(_ context.Context, callbackID string, text string) (bool, error) {
+	tgMes, err := tg.bot.Request(tgbotapi.CallbackConfig{
+		CallbackQueryID: callbackID,
+		Text:            text,
+	})
+
+	return tgMes.Ok, err
+}
+
+func (tg *Telegram) DeleteMessage(_ context.Context, chatID int64, msgID int) error {
+	_, err := tg.bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
+
+	return err
+}
+
+func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg Message) (int, error) {
+	msgTg := tgbotapi.NewMessage(chatID, msg.Text)
+
+	if len(msg.Btn) != 0 {
+		msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
+	}
+
+	return tg.send(msgTg)
+}
+
+func (tg *Telegram) send(msg tgbotapi.Chattable) (int, error) {
+	tgMsg, err := tg.bot.Send(msg)
+	if err != nil {
+		return 0, err
+	}
+
+	return tgMsg.MessageID, nil
+}

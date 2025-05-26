@@ -1,0 +1,17 @@
+package telegram
+
+type Option interface {
+	apply(*Telegram)
+}
+
+type optionFunc func(*Telegram)
+
+func (o optionFunc) apply(c *Telegram) {
+	o(c)
+}
+
+func WithUpdatePoller() Option {
+	return optionFunc(func(t *Telegram) {
+		t.startUpdatePoller = true
+	})
+}

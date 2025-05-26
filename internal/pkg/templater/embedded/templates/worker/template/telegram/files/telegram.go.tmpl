@@ -1,0 +1,197 @@
+package {{ .Worker.Name }}
+
+import (
+	"context"
+	"time"
+	"strings"
+	"runtime/debug"
+	"errors"
+
+	{{ .Logger.Import }}
+	"github.com/prometheus/client_golang/prometheus"
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"golang.org/x/sync/errgroup"
+
+	"{{ .ProjectPath }}/pkg/app/daemon"
+	"{{ .ProjectPath }}/pkg/ds"
+	"{{ .ProjectPath }}/pkg/reqctx"
+	"{{ .ProjectPath }}/pkg/app/telegram"
+	"{{ .ProjectPath }}/internal/app/constant"	
+	"{{ .ProjectPath }}/internal/pkg/service"
+)
+
+type Worker struct {
+	telegram.UnimplementedUpdateHandler
+	telegram.UnimplementedAdminStatusHandler
+	daemon.EmptyWorker
+	Srv ds.IService
+	tgSrv TelegramUpdateWorker 
+	jobState any
+}
+
+type TelegramUpdateWorker interface {
+	GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel
+	StopChannel(ctx context.Context)
+}
+
+const (
+	nameFieldLogger = "Name"
+)
+
+var (
+	ErrServiceType = errors.New("service type is not TelegramUpdateWorker")
+)
+
+func Create() *Worker {
+    return &Worker{}
+}
+
+func (w *Worker) Name() string {
+	return "{{ .Worker.Name }}"
+}
+
+func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prometheus.Registry, srv ds.IService) error {
+	w.Srv = srv
+
+	var err error
+
+	w.tgSrv, err = w.GetTelegramSrv()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *Worker) GetConfigPath(key ...string) string{
+	components := []string{constant.ServiceName, "worker", w.Name()}
+	components = append(components, key...)
+
+	return onlineconf.MakePath(components...)
+}
+
+func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
+	ctxJob, cancel := reqctx.CreateContext(ctx, w.GetConfigPath(), "job")
+	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, w.Name())" }}
+
+	err := errors.New("unexpected error")
+
+	defer func() {
+		err := recover()
+		if err != nil {
+			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "Interface(\"panic error\", err)" "Str(\"Stack\", strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1))" }}
+		}
+
+		cancel()
+	}()
+
+	switch {
+	case update.PreCheckoutQuery != nil:
+		err = w.PreCheckout(ctxJob, update.PreCheckoutQuery)
+	case update.Message != nil && update.Message.SuccessfulPayment != nil:
+		err = w.Purchase(ctxJob, update.Message.From.ID, update.Message.SuccessfulPayment)
+	case update.Message != nil && update.Message.Text != "":
+		err = w.TextMessage(ctxJob, update.Message)
+	case update.CallbackQuery != nil:
+		err = w.CallbackQuery(ctxJob, update.CallbackQuery)
+	default:
+		zlog.Ctx(ctxJob).Info().Interface("Update", update).Msg("Skipping update")
+		
+		err = telegram.ErrUnsupportedHandler
+	}
+
+	return err
+}
+
+// Run - start worker
+func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
+	// initialization worker
+	errGr.Go(func() error {
+		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, w.Name())" }}
+
+	JOB:
+		for {
+			select {
+			case update := <- w.tgSrv.GetUpdateChannel(ctx):
+				{{ .Logger.InfoMsg "ctx" "worker get update" "Str(nameFieldLogger, w.Name())" }}
+
+				err := w.JobStarter(ctx, update)
+				if err != nil {
+					if errors.Is(err, telegram.ErrUnimplementedHandler) {
+						{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "Str(nameFieldLogger, w.Name())" }}
+
+						continue
+					}
+
+					if errors.Is(err, telegram.ErrUnsupportedHandler) {
+						{{ .Logger.InfoMsg "ctx" "unsupported. skip" "Str(nameFieldLogger, w.Name())" }}
+
+						continue
+					}
+
+					{{ .Logger.ErrorMsg "ctx" "err" "worker error" "Str(nameFieldLogger, w.Name())" }}
+				}
+
+			case <-ctx.Done():
+				break JOB
+			}
+		}
+
+		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, w.Name())" }}
+
+		return nil
+	})
+}
+
+// Shutdown shutting down telegram worker
+func (w *Worker) Shutdown(_ context.Context) error {
+	return nil
+}
+
+// GracefulStop do graceful stop telegram worker
+func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
+	{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+	w.tgSrv.StopChannel(ctx)
+	stopped := make(chan struct{})
+
+	go func() {
+		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+		// wait for all jobs to finish
+		// or timeout
+		c := time.NewTicker(time.Millisecond * 100)
+		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+		for {
+			select {
+			case <-c.C:
+				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 {
+					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+
+					close(stopped)
+					
+					return
+				}
+			}
+		}
+	}()
+
+	return stopped, nil
+}
+
+func (w *Worker) GetTelegramSrv() (TelegramUpdateWorker, error) {
+	srv, ok := w.Srv.(TelegramUpdateWorker)
+	if !ok {
+		return nil, ErrServiceType
+	}
+
+	return srv, nil
+}
+
+func (w *Worker) GetEmptySrv() (*service.EmptyService, error) {
+	srv, ok := w.Srv.(*service.EmptyService)
+	if !ok {
+		return nil, ErrServiceType
+	}
+
+	return srv, nil
+}

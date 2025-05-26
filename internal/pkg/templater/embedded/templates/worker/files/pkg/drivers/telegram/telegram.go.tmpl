@@ -1,0 +1,177 @@
+package telegram
+
+import (
+	"context"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"{{ .ProjectPath }}/pkg/ds"
+	"github.com/prometheus/client_golang/prometheus"
+	zlog "github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
+)
+
+type Telegram struct {
+	bot               *tgbotapi.BotAPI
+	startUpdatePoller bool
+	Poller            tgbotapi.UpdatesChannel
+}
+
+const (
+	defaultWaitTimeout = 60
+	defaultChannelSize = 100
+)
+
+func Create(options ...Option) ds.Runnable {
+	tg := &Telegram{}
+
+	for _, opt := range options {
+		opt.apply(tg)
+	}
+
+	return tg
+}
+
+func (tg *Telegram) Name() string {
+	return "Telegram"
+}
+
+func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBucket, _ *prometheus.Registry) error {
+	bufferSizeConfigPath := onlineconf.MakePath(serviceName, configPath, "buffer_size")
+
+	updateTgToken := func(ctx context.Context) error {
+		err := updateTgSHA(ctx, serviceName)
+		if err != nil {
+			return err
+		}
+
+		botToken, err := GetTgToken(ctx, serviceName)
+		if err != nil {
+			return err
+		}
+
+		bot, err := tgbotapi.NewBotAPI(botToken)
+		if err != nil {
+			return err
+		}
+
+		if tg.startUpdatePoller {
+			bufferSize, err := onlineconf.GetInt(ctx, bufferSizeConfigPath, defaultBufferSize)
+			if err != nil {
+				zlog.Ctx(ctx).Error().Err(err).Msg("Error getting buffer_size")
+
+				bufferSize = 0
+			}
+
+			if bufferSize < 1 {
+				zlog.Ctx(ctx).Error().Int64("buffer_size", bufferSize).Msg("buffer_size is less than 1")
+
+				bufferSize = 0
+			}
+
+			if bufferSize > defaultChannelSize {
+				zlog.Ctx(ctx).Error().Int64("buffer_size", bufferSize).Msg("buffer_size is more than 100")
+
+				bufferSize = 0
+			}
+
+			if bufferSize != 0 {
+				bot.Buffer = int(bufferSize)
+			}
+		}
+
+		tg.bot = bot
+
+		return nil
+	}
+
+	err := onlineconf.RegisterSubscription(ctx, "TREE", []string{GetTgTokenPath(ctx, serviceName), bufferSizeConfigPath},
+		func() error {
+			zlog.Ctx(ctx).Info().Msg("tg_token updated")
+
+			return updateTgToken(ctx)
+		})
+
+	if err != nil {
+		return err
+	}
+
+	err = updateTgToken(ctx)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error updating tg_token")
+
+		return err
+	}
+
+	return nil
+}
+
+// Run - start transport
+func (tg *Telegram) Run(_ context.Context, _ *errgroup.Group) {
+	if tg.startUpdatePoller {
+		config := tgbotapi.UpdateConfig{
+			Timeout: defaultWaitTimeout,
+		}
+
+		tg.Poller = tg.bot.GetUpdatesChan(config)
+	}
+}
+
+func (tg *Telegram) StopChannel(_ context.Context) {
+	if tg.startUpdatePoller {
+		tg.bot.StopReceivingUpdates()
+	}
+}
+
+// ShutdownHTTP shutting down transport
+func (tg *Telegram) Shutdown(ctx context.Context) error {
+	tg.StopChannel(ctx)
+
+	return nil
+}
+
+// GracefulStop do graceful stop transport
+func (tg *Telegram) GracefulStop(_ context.Context) (<-chan struct{}, error) {
+	stopped := make(chan struct{})
+	close(stopped)
+
+	return stopped, nil
+}
+
+func (tg *Telegram) StartUpdateListener(
+	ctx context.Context,
+	updateHandler func(ctx context.Context, update tgbotapi.Update) error,
+) error {
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+
+	updates := tg.bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		if err := updateHandler(ctx, update); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (tg *Telegram) CheckUserInChannel(_ context.Context, chatID int64, userID int64) (bool, error) {
+	member, err := tg.bot.GetChatMember(tgbotapi.GetChatMemberConfig{
+		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
+			UserID: userID,
+			ChatConfig: tgbotapi.ChatConfig{
+				ChatID: chatID,
+			},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	if member.IsMember || member.Status == "creator" || member.Status == "member" {
+		return true, nil
+	}
+
+	return false, nil
+}

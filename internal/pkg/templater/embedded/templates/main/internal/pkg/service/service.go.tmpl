@@ -1,0 +1,135 @@
+package service
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+
+	{{ .Logger.Import }}
+	"{{ .ProjectPath }}/internal/app/constant"
+	{{ range $_, $tr := .Applications.GetRestTransport }}
+	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ range $_, $imp := $tr.Import }}
+	{{ $imp }}
+	{{- end }}
+	{{- end }}
+	{{- end }}
+	
+	{{ range $_, $driver := .Drivers }}
+	"{{ $driver.Import }}"
+	{{ end }}
+	"{{ .ProjectPath }}/pkg/ds"
+	"{{ .ProjectPath }}/pkg/app/healthstate"
+	"{{ .ProjectPath }}/pkg/app/serviceauth"
+	"{{ .ProjectPath }}/pkg/servicemetrics"
+)
+
+type Service struct {
+	healthstate.Service
+	servicemetrics.EmptyMetrics
+	serviceauth.Authorizer
+	{{ range $_, $tr := .Applications.GetRestTransport }}
+	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ $tr.Name | ToLower }} *{{ $tr.PkgName }}.Client
+	{{ end }}
+	{{ end }}
+	{{ range $_, $driver := .Drivers }}
+	{{ $driver.Name | ToLower }} *{{ $driver.Package }}.{{ $driver.ObjName }}
+	{{ if ne $driver.ServiceInjection "" }}
+	$driver.ServiceInjection
+	{{ end }}
+	{{ end }}
+}
+
+func (s *Service) HitInfo(ctx context.Context, method string, u *url.URL, status int, contentLength int, ip string, contentType string, userAgent string, referer string, execTime float64) {
+} 
+
+func NewService(ctx context.Context) (ds.IService, error) {
+	srv := &Service{}
+
+	return srv.Init(ctx)
+}
+
+{{ if ne 0 ( len .Drivers ) }}
+func (s *Service) setDrivers(drvs []ds.Runnable) error {
+	for _, drv := range drvs {
+		switch d := drv.(type) {
+		{{ range $_, $driver := .Drivers }}
+		case *{{ $driver.Package }}.{{ $driver.ObjName }}:
+			s.{{ $driver.Name | ToLower }} = d
+		{{ end }}
+		default:
+			return errors.Errorf("unknown driver type: %T", drv)
+		}
+	}
+
+	return nil
+}
+{{ end }}
+
+{{ if not .SkipServiceInit }}
+var (
+	errAppReadyNil = errors.New("app ready pointer can't be nil")
+	errAppInfoNil  = errors.New("app info pointer can't be nil")
+)
+
+func (s *Service) Init(_ context.Context) (*EmptyService, error) {
+	return &EmptyService{
+		Service: s,
+	}, nil
+}
+
+//nolint:decorder
+type EmptyService struct {
+	*Service
+}
+
+func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, bucket ds.ServerBucket, m *prometheus.Registry) error {
+	err := s.InitState(ctx, drvs, bucket, m)
+	if err != nil {
+		return errors.Wrap(err, "error init state")
+	}
+
+	err = s.InitMetrics(ctx, constant.ServiceName, m)
+	if err != nil {
+		return errors.Wrap(err, "error init metrics")
+	}
+	
+	{{ $logger := .Logger }}
+
+	{{ range $_, $tr := .Applications.GetRestTransport }}
+	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ $tr.PkgName }}_url, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ $tr.PkgName }}", "host"))
+	if err != nil {
+		return errors.Wrap(err, "error getting {{ $tr.PkgName }} url")
+	}
+	
+	if !ex {
+		return errors.New("{{ $tr.PkgName }} url not found")
+	} else {
+		if {{ $tr.PkgName }}_url != "" {
+			timeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ $tr.PkgName }}", "timeout"), time.Millisecond * 200)
+			if err != nil {
+				return errors.Wrap(err, "error getting {{ $tr.PkgName }} timeout")
+			}
+
+			s.stat, err = {{ $tr.PkgName }}.NewClient({{ $tr.PkgName }}_url, {{ $tr.PkgName }}.WithClient(&http.Client{Timeout: timeout}))
+			if err != nil {
+				return errors.Wrap(err, "error creating stat client")
+			}
+		} else {
+			{{ $logger.WarnMsg "ctx" "client url not set" }}
+		}
+	}
+	{{- end }}
+	{{- end }}
+
+	{{ if ne 0 ( len .Drivers ) }}
+	s.setDrivers(drvs)
+	{{ end }}
+
+	return nil
+}
+{{ end }}

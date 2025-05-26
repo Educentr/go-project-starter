@@ -1,0 +1,76 @@
+{{ $applicationName := .Application.Name }}
+services:
+  traefik-{{ .Application.Name }}:
+    image: traefik:latest
+    restart: always
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.traefik.address=:8080"
+{{- range $i, $t := .Applications.GetRestTransport }}
+      - "--entrypoints.ep{{ $i }}.address=:{{ $t.Handler.Port }}"
+{{- end }}
+    ports:
+      - "${INTERNAL_LAN}:${PORT_PREFIX_{{ .Application.Name | ToUpper | ReplaceDash }}_TRAEFIK}:8080"
+{{- range $_, $t := .Applications.GetRestTransport }}
+      - "{{ if not $t.PublicService }}${INTERNAL_LAN}:{{ end }}${PORT_PREFIX_{{ $applicationName | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}:{{ $t.Handler.Port }}"
+{{- end }}
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+  onlineconf-updater-{{ .Application.Name }}:
+    image: ghcr.io/nikolo/onlineconf-updater:5ee228a # ToDo: move to config
+    volumes:
+      - ./data-{{ .Application.Name }}${ENV_TYPE}:/usr/local/etc/onlineconf
+    environment:
+      ONLINECONF_ADMIN_HOST: ${OC_HOST}
+      ONLINECONF_ADMIN_PORT: 443
+      ONLINECONF_UPDATER_USER: ${OC_USER}
+      ONLINECONF_UPDATER_PASSWORD: ${OC_PASSWORD}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/local/etc/onlineconf/TREE.cdb"]
+      timeout: 10s
+      interval: 1s
+      retries: 60
+
+  {{ .Application.Name }}:
+    image: ${REGISTRY_SERVER}/{{ .ProjectName }}-{{ $applicationName }}:${APP_VERSION}
+    volumes:
+      - ./data-{{ .Application.Name }}${ENV_TYPE}:/etc/onlineconf
+    depends_on:
+      onlineconf-updater-{{ .Application.Name }}:
+        condition: service_healthy
+      traefik-{{ .Application.Name }}:
+        condition: service_started
+    restart: always
+    {{ if .Deploy.LogCollector.Enabled }}
+      {{ if eq .Deploy.LogCollector.Type "loki" }}
+      logging:
+        driver: .Deploy.LogCollector.Type
+        options:
+          {{ range $k, $v := .Deploy.LogCollector.Driver.Parameters }}
+          {{ $k }}: {{ $v }}
+          {{ end -}}
+      {{ else }}
+      {{ .ErrorLogCollector .Deploy.LogCollector.Type }}
+      {{ end }}
+    {{ end }}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.my-traefik-get-real-ip.plugin.traefik-get-real-ip.Proxy[0].proxyHeadername=*"
+      - "traefik.http.middlewares.my-traefik-get-real-ip.plugin.traefik-get-real-ip.Proxy[0].realIP=X-Forwarded-For"
+      {{- range $i, $t := .Applications.GetRestTransport }}
+      - "traefik.http.services.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.loadbalancer.server.port={{ $t.Handler.Port }}"
+        {{- if $t.HealthCheckPath }}
+      - "traefik.http.services.svc${ENV_TYPE}-{{ $t.Name }}.loadbalancer.healthcheck.path={{ $t.HealthCheckPath }}"
+      - "traefik.http.services.svc${ENV_TYPE}-{{ $t.Name }}.loadbalancer.healthcheck.interval=2s"
+        {{- end -}}
+      {{- if $t.PublicService -}}
+      - "traefik.http.routers.router-svc${ENV_TYPE}-{{ $t.Name }}.middlewares=my-traefik-get-real-ip"
+      {{- end }}
+      - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.service={{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}"      
+      - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.rule=Host(`{{ if $t.PublicService }}${DOMAIN}{{ else }}${INTERNAL_LAN}{{ end }}`)"
+      - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.entrypoints=ep{{ $i }}"        
+      {{- end }}

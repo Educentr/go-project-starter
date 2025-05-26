@@ -1,0 +1,32 @@
+package mw
+
+import (
+	"context"
+	"net/http"
+
+	"{{ .ProjectPath }}/pkg/ds"
+	"{{ .ProjectPath }}/pkg/app/rest"
+	"{{ .ProjectPath }}/pkg/reqctx"
+)
+
+func HTTPServerMiddlewareAuth(ctx context.Context, authorizer ds.Authorizer, _ rest.RestErrorHandler) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            actor, err := authorizer.AuthRest(r)
+            if err != nil {
+                http.Error(w, err.Error(), http.StatusUnauthorized)
+
+                return
+            }
+
+			ctx, err := reqctx.SetActor(r.Context(), actor)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+
+				return
+			}
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

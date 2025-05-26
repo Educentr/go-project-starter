@@ -1,0 +1,296 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+
+jobs:
+  prepare-env:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{"{{"}} steps.vars.outputs.skip {{"}}"}}
+      DEPLOY_ENVS: ${{"{{"}} steps.vars.outputs.DEPLOY_ENVS {{"}}"}}
+      OC_HOST: ${{"{{"}} steps.vars.outputs.OC_HOST {{"}}"}}
+      DOMAIN: ${{"{{"}} steps.set_env_main.outputs.DOMAIN {{"}}"}}
+      ENV_TYPE: ${{"{{"}} steps.set_env_main.outputs.ENV_TYPE {{"}}"}}
+      OC_USER: ${{"{{"}} steps.set_env_main.outputs.OC_USER {{"}}"}}
+      OC_PASSWORD: ${{"{{"}} steps.set_env_main.outputs.OC_PASSWORD {{"}}"}}
+      SSH_HOST_MATRIX: ${{"{{"}} steps.vars.outputs.SSH_HOST_MATRIX {{"}}"}}
+      RELEASE: ${{"{{"}} steps.vers_and_containers.outputs.RELEASE {{"}}"}}
+      CONTAINERS: ${{"{{"}} steps.vers_and_containers.outputs.CONTAINERS {{"}}"}}
+      {{- range $_, $a := .Applications }}
+        {{ $applicationName := $a.Name | ReplaceDash }}
+        {{- range $_, $t := $a.GetRestTransport }}
+      PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }} {{"}}"}}
+        {{ end }}
+      {{ end }}
+
+    steps:
+      - name: Get branch
+        uses: noliran/branch-based-secrets@v1
+        with:
+          secrets: ENABLED,DEPLOY_ENVS,DOMAIN,ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,{{- range $_, $a := .Applications }}{{ range $_, $t := $a.GetRestTransport }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ end }}{{ end }}SSH_HOST
+
+      - name: Use vars
+        id: vars
+        run: |
+          if [ "${{"{{"}} vars[env.ENABLED_NAME] {{"}}"}}" != "ENABLED" ]; then
+            echo "Skip branch ${GITHUB_REF}"
+            echo "skip=1" >> $GITHUB_OUTPUT
+            echo "DEPLOY_ENVS=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ -z "${{"{{"}} vars[env.SSH_HOST_NAME] {{"}}"}}" ]; then
+            echo "Empty SSH_HOST"
+            exit 1
+          fi
+
+          echo "SSH_HOST_MATRIX=${{"{{"}} vars[env.SSH_HOST_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+
+          if [ -z "${{"{{"}} vars[env.OC_HOST_NAME] {{"}}"}}" ]; then
+            echo "Empty OC_HOST"
+            exit 2
+          fi
+          echo "OC_HOST=${{"{{"}} vars[env.OC_HOST_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+
+          echo "skip=0" >> $GITHUB_OUTPUT
+
+          echo "DEPLOY_ENVS="`jq -cn "[range(0; ${{"{{"}} vars[env.DEPLOY_ENVS_NAME] || '1' {{"}}"}})]"` >> $GITHUB_OUTPUT
+
+      - name: Check and set vars for instances
+        id: set_env_main
+        if: steps.vars.outputs.skip == 0
+
+        run: |
+          LEN_EXPECTED=${{"{{"}} vars[env.DEPLOY_ENVS_NAME] || '1' {{"}}"}}
+
+          {{- range $_, $a := .Applications }}
+            {{- range $_, $t := $a.GetRestTransport }}
+          if [ -z "${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" ]; then
+            echo "Empty variable ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME {{"}}"}}"
+            exit 3
+          fi
+
+          LEN=$(echo ${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}} | jq '. | length')
+
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME {{"}}"}}: $LEN"
+            exit 4
+          fi
+
+          echo "PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+            {{ end -}}
+          {{ end -}}
+
+          if [ -z "${{"{{"}} vars[env.DOMAIN_NAME] {{"}}"}}" ]; then
+            echo "Empty variable ${{"{{"}} env.DOMAIN_NAME {{"}}"}}"
+            exit 5
+          fi
+
+          LEN=$(echo ${{"{{"}} vars[env.DOMAIN_NAME] {{"}}"}} | jq '. | length')
+
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.DOMAIN_NAME {{"}}"}}: $LEN"
+            exit 6
+          fi
+
+          echo "DOMAIN=${{"{{"}} vars[env.DOMAIN_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+
+          LEN=$(echo ${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}} | jq '. | length')
+
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.ENV_TYPE_NAME {{"}}"}}: $LEN"
+            exit 7
+          fi
+
+          echo "ENV_TYPE=${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+
+          if [ -z "${{"{{"}} secrets[env.OC_USER_NAME] {{"}}"}}" ]; then
+            echo "Empty secrets ${{"{{"}} env.OC_USER_NAME {{"}}"}}"
+            exit 8
+          fi
+
+          LEN=$(echo ${{"{{"}} secrets[env.OC_USER_NAME] {{"}}"}} | jq '. | length')
+
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.OC_USER_NAME {{"}}"}}: $LEN"
+            exit 9
+          fi
+
+          echo "OC_USER=${{"{{"}} secrets[env.OC_USER_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+
+          if [ -z "${{"{{"}} secrets[env.OC_PASSWORD_NAME] {{"}}"}}" ]; then
+            echo "Empty secrets ${{"{{"}} env.OC_PASSWORD_NAME {{"}}"}}"
+            exit 10
+          fi
+          LEN=$(echo ${{"{{"}} secrets[env.OC_PASSWORD_NAME] {{"}}"}} | jq '. | length')
+
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.OC_PASSWORD_NAME {{"}}"}}: $LEN"
+            exit 11
+          fi
+
+          echo "OC_PASSWORD=${{"{{"}} secrets[env.OC_PASSWORD_NAME] {{"}}"}}" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        if: steps.vars.outputs.skip == 0
+        uses: actions/checkout@v3
+
+      - name: "Version and containers"
+        id: vers_and_containers
+        if: steps.vars.outputs.skip == 0
+        run: |
+          vers=$(make release-tag)
+          containerList=$(make docker-list)
+
+          echo "RELEASE=$vers" >> $GITHUB_OUTPUT
+          echo "CONTAINERS=$containerList" >> $GITHUB_OUTPUT
+
+      - name: Upload env file
+        uses: actions/upload-artifact@v4
+        with:
+          name: envs-docker
+          path: docker-compose-*.yaml
+          retention-days: 1
+          overwrite: true
+
+  create_env_files:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        envs: ${{"{{"}} fromJSON(needs.prepare-env.outputs.DEPLOY_ENVS) {{"}}"}}
+    needs:
+      - prepare-env
+    if: needs.prepare-env.outputs.skip == 0
+    steps:
+      - name: Create env file
+        id: create_env_file
+        run: |
+          fname=".env."${{"{{"}} github.ref_name {{"}}"}}
+
+          ENV_TYPE=${{"{{"}} fromJSON(needs.prepare-env.outputs.ENV_TYPE)[matrix.envs] {{"}}"}}
+          if [ ! -z "$ENV_TYPE" ]; then
+            fname="$fname-$ENV_TYPE"
+          fi
+
+          echo 'DOMAIN="${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN)[matrix.envs] {{"}}"}}"' >> $fname
+          {{- range $_, $a := .Applications }}
+            {{- range $_, $t := $a.GetRestTransport }}
+          echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
+            {{- end }}
+          {{ end -}}
+          echo "ENV_TYPE=$ENV_TYPE" >> $fname
+          echo 'OC_HOST="${{"{{"}} needs.prepare-env.outputs.OC_HOST {{"}}"}}"' >> $fname
+          echo 'OC_USER="${{"{{"}} fromJson(needs.prepare-env.outputs.OC_USER)[matrix.envs] {{"}}"}}"' >> $fname
+          echo 'OC_PASSWORD="${{"{{"}} fromJson(needs.prepare-env.outputs.OC_PASSWORD)[matrix.envs] {{"}}"}}"' >> $fname
+          echo 'APP_VERSION="${{"{{"}} needs.prepare-env.outputs.RELEASE {{"}}"}}"' >> $fname
+          echo 'REGISTRY_SERVER=${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}' >> $fname
+
+          # ToDo add file encriptions
+          echo "Generated $fname"
+          echo "FNAME=$fname" >> $GITHUB_OUTPUT
+
+      - name: Upload env file
+        uses: actions/upload-artifact@v4
+        with:
+          name: envs-${{"{{"}} matrix.envs {{"}}"}}
+          path: ${{"{{"}} steps.create_env_file.outputs.FNAME {{"}}"}}
+          retention-days: 1
+          include-hidden-files: true
+          overwrite: true
+
+  build:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-env
+    strategy:
+      matrix:
+        containers: ${{"{{"}} fromJSON(needs.prepare-env.outputs.CONTAINERS) {{"}}"}}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      {{ if eq .RegistryType "digitalocean" }}
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+
+      - name: Log in to DO Container Registry
+        run: doctl registry login
+      {{ else if eq .RegistryType "github" }}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
+          password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
+      {{ else }}
+        {{ .UndefinedRegistryTypeError .RegistryType }}
+      {{ end }}
+      - name: "Build and push"
+        id: build_and_push
+        env:
+          REGISTRY_SERVER: ${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}
+        run: |
+          make ${{"{{"}} matrix.containers {{"}}"}}
+          make ${{"{{"}} matrix.containers {{"}}"}}-push
+
+      - name: Report Build status
+        uses: act10ns/slack@v2
+        if: failure()
+        with:
+          status: ${{"{{"}} job.status {{"}}"}}
+          steps: ${{"{{"}} toJson(steps) {{"}}"}}
+          matrix: ${{"{{"}} toJson(matrix) {{"}}"}}
+        env:
+          SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}
+
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ips: ${{"{{"}} fromJSON(needs.prepare-env.outputs.SSH_HOST_MATRIX) {{"}}"}}
+    needs:
+      - build
+      - create_env_files
+      - prepare-env
+    if: needs.prepare-env.outputs.skip == 0
+    steps:
+      - name: Download env file
+        uses: actions/download-artifact@v4
+
+      - name: Modify env file
+        run: |
+          for f in $(ls envs-*/.env.*); do
+            echo "Processing file: $f"
+            echo "INTERNAL_LAN=${{"{{"}} matrix.ips[1] {{"}}"}}" >> $f
+          done
+
+      - name: Deploy to Server
+        uses: easingthemes/ssh-deploy@main
+        with:
+          SSH_PRIVATE_KEY: ${{"{{"}} secrets.SSH_PRIVATE_KEY {{"}}"}}
+          ARGS: '-rlgoDzvcb -i --delete --backup-dir="../envs_bak" --suffix=`date "+%F_%R"`'
+          SOURCE: "./envs-*/"
+          REMOTE_HOST: ${{"{{"}} matrix.ips[0] {{"}}"}}
+          REMOTE_USER: ${{"{{"}} secrets.SSH_USER {{"}}"}}
+          TARGET: /opt/{{ .ProjectName }}-cd/envs
+          SCRIPT_AFTER_REQUIRED: true
+          SCRIPT_AFTER: |
+            cd /opt/{{ .ProjectName }}-cd;
+            ./deploy.sh || exit 1;
+            echo $RSYNC_STDOUT;
+
+      - name: Report Deploy status
+        uses: act10ns/slack@v2
+        with:
+          status: ${{"{{"}} job.status {{"}}"}}
+          steps: ${{"{{"}} toJson(steps) {{"}}"}}
+          matrix: ${{"{{"}} toJson(matrix) {{"}}"}}
+        env:
+          SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}

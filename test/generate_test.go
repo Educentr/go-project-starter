@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gitlab.educentr.info/golang/service-starter/pkg/tools"
+	"gitlab.educentr.info/golang/service-starter/internal/pkg/tools"
 )
 
 func ExecCommand(targetPath, command string, args []string, msg string) (string, error) {

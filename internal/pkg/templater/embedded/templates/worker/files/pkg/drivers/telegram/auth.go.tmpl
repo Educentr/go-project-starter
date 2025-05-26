@@ -1,0 +1,67 @@
+package telegram
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	zlog "github.com/rs/zerolog"
+)
+
+var (
+	tgSHA []byte
+)
+
+func GetTgTokenPath(_ context.Context, serviceName string) string {
+	return onlineconf.MakePath(serviceName, configPath, "tg_token")
+}
+
+func GetTgToken(ctx context.Context, serviceName string) (string, error) {
+	botToken, err := onlineconf.GetString(ctx, GetTgTokenPath(ctx, serviceName), "")
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting bot_token")
+
+		return "", ErrInvalidAuthConfig
+	}
+
+	if botToken == "" {
+		zlog.Ctx(ctx).Error().Msg("tg_token is empty")
+
+		return "", ErrInvalidAuthConfig
+	}
+
+	return botToken, nil
+}
+
+func updateTgSHA(ctx context.Context, serviceName string) error {
+	botToken, err := GetTgToken(ctx, serviceName)
+	if err != nil {
+		return err
+	}
+
+	tgSHA, err = MakeSHA256Hash(ctx, []byte("WebAppData"), []byte(botToken))
+
+	return err
+}
+
+func MakeSHA256Hash(ctx context.Context, key, data []byte) ([]byte, error) {
+	hashKey := hmac.New(sha256.New, key)
+
+	_, err := hashKey.Write(data)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error writing hash")
+
+		return nil, ErrInvalidAuthConfig
+	}
+
+	return hashKey.Sum(nil), nil
+}
+
+func GetTgTokenSHA(_ context.Context) ([]byte, error) {
+	if tgSHA == nil {
+		return nil, ErrTGConfiguration
+	}
+
+	return tgSHA, nil
+}

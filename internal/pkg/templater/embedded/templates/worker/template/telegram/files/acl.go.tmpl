@@ -1,0 +1,55 @@
+package telegrambot
+
+import (
+	"context"
+	"regexp"
+	"strconv"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/pkg/errors"
+	zlog "github.com/rs/zerolog"
+	"github.com/xvpn-one/backend/internal/app/constant"
+)
+
+var (
+	ErrAdminNotFound = errors.New("admin not found")
+	ErrAccessDenied  = errors.New("access denied")
+	ErrInternalError = errors.New("internal error")
+)
+
+func (h *Worker) CheckBotAdminACL(ctx context.Context, tgID int64, command Cmd) error {
+	paths := []string{
+		onlineconf.MakePath(constant.ServiceName, "bot", "admins", strconv.FormatInt(tgID, 10)),
+	}
+
+	if !command.NeedAdminAccess {
+		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users"))
+		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users", strconv.FormatInt(tgID, 10)))
+	}
+
+	for _, param := range paths {
+		acl, ex, err := onlineconf.GetStringIfExists(ctx, param)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Get onlineconf admin")
+
+			return ErrInternalError
+		}
+
+		if !ex {
+			continue
+		}
+
+		rxNew, err := regexp.Compile(`(^|,)(full|` + regexp.QuoteMeta(command.Name.String()) + `)(,|$)`)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
+
+			return ErrInternalError
+		}
+
+		if rxNew.MatchString(acl) {
+			return nil
+		}
+	}
+
+	return ErrAccessDenied
+}

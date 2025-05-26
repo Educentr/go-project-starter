@@ -1,0 +1,96 @@
+package mw
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	{{ .Logger.Import }}
+	"github.com/urfave/negroni"
+
+	"{{ .ProjectPath }}/pkg/reqctx"
+)
+
+type HitInfoCallback interface {
+	HitInfo(ctx context.Context, method string, u *url.URL, status int, contentLength int, ip string, contentType string, userAgent string, referer string, execTime float64)
+}
+
+func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *prometheus.Registry, dwm HitInfoCallback) func(http.Handler) http.Handler {
+	metricHTTP := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: appName,
+		Name:      "request_duration_seconds",
+		Help:      "The latency of the HTTP requests.",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"handler", "method", "code"})
+	metrics.MustRegister(metricHTTP)
+
+	requestCumulativeMetricsHist := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: appName,
+		Name:      "cumulative_per_request_hist",
+		Help:      "The cumulative latency metrics per request",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"requestName", "method", "code", "metric"})
+	metrics.MustRegister(requestCumulativeMetricsHist)
+
+	requestCumulativeMetricsCount := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: appName,
+		Name:      "cumulative_per_request_count",
+		Help:      "The cumulative count metrics per request",
+	}, []string{"requestName", "method", "code", "metric"})
+	metrics.MustRegister(requestCumulativeMetricsCount)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			{{ .Logger.InfoMsg "r.Context()" "Start request"
+				"Str(\"Content-Length\", r.Header.Get(\"content-length\"))"
+				"Str(\"X-Real-IP\", r.Header.Get(\"x-real-ip\"))"
+				"Str(\"Content-Type\", r.Header.Get(\"content-type\"))"
+				"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
+				"Str(\"Referer\", r.Header.Get(\"referer\"))"
+			}}
+
+			StartedAt := time.Now()
+
+			var err error
+
+			ctx, err = reqctx.CreateCumulativeMetric(r.Context(), requestCumulativeMetricsHist, requestCumulativeMetricsCount)
+			if err != nil {
+				{{ .Logger.ErrorMsg "r.Context()" "err" "can't init per request cumulative metrics"}}
+			}
+
+			// TODO Обновить negroni на https://pkg.go.dev/net/http#NewResponseController
+			rw := negroni.NewResponseWriter(w)
+			r = r.WithContext(ctx)
+			next.ServeHTTP(rw, r)
+
+			status := strconv.Itoa(rw.Status())
+
+			reqctx.FlushCumulativeMetric(r.Context(), r.URL.Path, r.Method, status)
+
+			execTime := time.Since(StartedAt).Seconds()
+			metricHTTP.WithLabelValues(r.URL.Path, r.Method, status).Observe(execTime)
+
+			userIP := ""
+			for _, ip := range []string{r.Header.Get("x-real-ip"), r.Header.Get("x-forwarded-for"), "0.0.0.0"} {
+				if ip != "" {
+					userIP = ip
+					break
+				}
+			}
+
+			dwm.HitInfo(r.Context(), r.Method, r.URL, rw.Status(), rw.Size(), userIP, rw.Header().Get("Content-Type"), r.Header.Get("user-agent"), r.Header.Get("referer"), execTime)
+
+			{{ .Logger.InfoMsg "r.Context()" "Done request"
+				"Int(\"Status\", rw.Status())"
+				"Str(\"Method\", r.Method)"
+				"Int(\"Content-Length\", rw.Size())"
+				"Str(\"X-Real-IP\", userIP)"
+				"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
+				"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
+				"Str(\"Referer\", r.Header.Get(\"referer\"))"
+			}}
+		})
+	}
+}

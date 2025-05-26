@@ -1,0 +1,23 @@
+// Сущность, которая не имеет своего состояния в БД
+// Создаётся из данных полученных при авторизации.
+// Имеет только RO интерфейс
+// Можно рассматривать его как эффимерного пользователя
+package actor
+
+import (
+	"{{ .ProjectPath }}/pkg/ds"
+)
+
+type Actor struct {
+	ID int64
+}
+
+func New(aData ds.AuthorizationData) *Actor {
+	return &Actor{
+		ID: aData.UserID,
+	}
+}
+
+func (a *Actor) GetID() int64 {
+	return a.ID
+}

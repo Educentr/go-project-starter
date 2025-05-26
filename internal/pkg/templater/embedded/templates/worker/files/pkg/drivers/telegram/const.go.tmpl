@@ -1,0 +1,39 @@
+package telegram
+
+import (
+	"context"
+	"errors"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+)
+
+type DefaultHandler struct{}
+
+func (DefaultHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) string {
+	return "unimplemented"
+}
+func (DefaultHandler) ProcessPayment(ctx context.Context, successfulPayment *tgbotapi.SuccessfulPayment) error {
+	return errors.New("unimplemented")
+}
+
+type UpdateHandler interface {
+	PreCheckout(ctx context.Context, update tgbotapi.Update) error
+	Purchase(ctx context.Context, update tgbotapi.Update) error
+}
+
+type Message struct {
+	Text string
+	Btn  [][]tgbotapi.InlineKeyboardButton
+}
+
+const (
+	configPath        = "security"
+	currency          = "XTR"
+	defaultBufferSize = 10
+)
+
+var (
+	ErrInvalidAuthConfig = errors.New("invalid auth config")
+	ErrTGConfiguration   = errors.New("tgSHA is nil")
+	ErrInvalidTgData     = errors.New("invalid telegram config data")
+)

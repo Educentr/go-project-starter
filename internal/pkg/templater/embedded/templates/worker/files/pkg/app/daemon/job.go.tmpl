@@ -1,0 +1,23 @@
+package daemon
+
+import (
+	"context"
+
+	"{{ .ProjectPath }}/pkg/ds"
+)
+
+type EmptyWorker struct {
+}
+
+type ITask interface {
+	GetID(ctx context.Context) string
+	Do(ctx context.Context, srv ds.IService) error
+}
+
+func (w *EmptyWorker) Initialization(ctx context.Context) error {
+	return nil
+}
+
+func (w *EmptyWorker) GetTasks(ctx context.Context, lastJobState any) ([]ITask, any, error) {
+	return nil, nil, nil
+}

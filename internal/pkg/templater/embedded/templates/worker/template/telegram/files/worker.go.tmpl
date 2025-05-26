@@ -1,0 +1,240 @@
+package telegrambot
+
+import (
+	"context"
+	"errors"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
+)
+
+type Cmd struct {
+	Name    handler.CommandName
+	NeedMsg bool
+	NeedAdminAccess bool
+	Handler func(ctx context.Context, h *handler.Handler, params string) (handler.Response, error)
+}
+
+var cmdMaps = make(map[handler.CommandName]Cmd)
+
+func (w *Worker) processRequest(ctx context.Context, tgID int64, callbackID string, command string, cmdParams string, message string) {
+	if command == "" {
+		zlog.Ctx(ctx).Error().Msg("Empty command")
+
+		return
+	}
+
+	srv, errSrv := w.GetEmptySrv()
+	if errSrv != nil {
+		zlog.Ctx(ctx).Error().Err(errSrv).Msg("Error getting service")
+
+		return
+	}
+
+	hdl := handler.NewHandler(srv, tgID)
+
+	c, ex := cmdMaps[handler.CommandName(command)]
+	if !ex {
+		zlog.Ctx(ctx).Info().Str("Cmd", command).Msg("Unknown command")
+		w.postProcessRequest(ctx, tgID, callbackID, handler.Response{}, errors.New("Unknown command"))
+
+		return
+	}
+
+	aclErr := w.CheckBotAdminACL(ctx, tgID, c)
+	if aclErr != nil {
+		if errors.Is(aclErr, ErrAdminNotFound) {
+			zlog.Ctx(ctx).Error().Err(aclErr).Msg("Admin not found. Skip")
+
+			w.postProcessRequest(ctx, tgID, callbackID, handler.Response{}, nil)
+
+			return
+		}
+
+		if errors.Is(aclErr, ErrAccessDenied) {
+			zlog.Ctx(ctx).Error().Err(aclErr).Msg("Access denied")
+			
+			w.postProcessRequest(ctx, tgID, callbackID, handler.Response{}, nil)
+
+			return
+		}
+
+		zlog.Ctx(ctx).Error().Err(aclErr).Msg("Error checking ACL")
+
+		w.postProcessRequest(ctx, tgID, callbackID, handler.Response{}, errors.New("Internal error"))
+		
+		return
+	}
+
+	pp := cmdParams
+
+	if c.NeedMsg {
+		if message == "" {
+			zlog.Ctx(ctx).Error().Msg("Empty message")
+			w.postProcessRequest(ctx, tgID, callbackID, handler.Response{}, errors.New("Empty message"))
+
+			return
+		}
+
+		pp = message
+	}
+
+	resp, err := c.Handler(ctx, hdl, pp)
+	w.postProcessRequest(ctx, tgID, callbackID, resp, err)
+
+	return
+}
+
+func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID string, resp handler.Response, err error) {
+	notifyMsg := resp.NotifyMsg
+
+	switch {
+	case err != nil:
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error processing command")
+
+		resp.Messages = []handler.RespMessage{ {
+			TmMsg:      err.Error(),
+		} }
+
+		if notifyMsg != "" {
+			notifyMsg = err.Error()
+		}
+
+	case resp.NextState != nil:
+		if err := w.NewUserState(ctx, tgID, *resp.NextState); err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting admin state")
+
+			resp.Messages = []handler.RespMessage{ {
+				TmMsg: "Internal error",
+			} }
+
+			if notifyMsg != "" {
+				notifyMsg = "Internal error"
+			}
+		}
+	}
+
+	srv, errSrv := w.GetEmptySrv()
+	if errSrv != nil {
+		zlog.Ctx(ctx).Error().Err(errSrv).Msg("Error getting service")
+
+		return
+	}
+
+	if resp.DeleteLastMsg {
+		msgID, err := w.GetLastMsgToUser(ctx, tgID)
+		if err != nil || msgID == 0 {
+			notifyMsg = "Error getting last message ID"
+
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting last message ID")
+		}
+
+		err = srv.TelegramDeleteMessage(ctx, tgID, msgID)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
+		}
+	}
+
+	if callbackID != "" {
+		_, err = srv.TelegramAnswerCallback(ctx, callbackID, notifyMsg)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error sending answer")
+		}
+	}
+
+	msgID := 0
+
+	for _, rMsg := range resp.Messages {
+		switch {
+		case rMsg.InvoiceData != nil:
+			msgID, err = srv.SendInvoice(ctx, tgID, *rMsg.InvoiceData)
+			if err != nil {
+				zlog.Ctx(ctx).Error().Err(err).Msg("Error sending invoice")
+				return
+			}
+
+		case rMsg.TmMsg != "":
+			btn, err := convertButtonCMDToTgButton(ctx, rMsg.ButtonCMDs)
+			if err != nil {
+				zlog.Ctx(ctx).Error().Err(err).Msg("Error converting button command to Telegram button")
+			}
+
+			tgMsg := telegram.Message{
+				Text: rMsg.TmMsg,
+				Btn: btn,
+			}
+
+			for i := range tgMsg.Btn {
+				for j := range tgMsg.Btn[i] {
+					if len(*tgMsg.Btn[i][j].CallbackData) > 64 {
+						zlog.Ctx(ctx).Error().Int("Len", len(*tgMsg.Btn[i][j].CallbackData)).Str("Text", tgMsg.Btn[i][j].Text).Str("Data", *tgMsg.Btn[i][j].CallbackData).Msg("Button text too long")
+					}
+				}
+			}
+
+			msgID, err = srv.TelegramSendMessageButtons(ctx, tgID, tgMsg)
+
+			if err != nil {
+				zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Err(err).Msg("Error sending message")
+
+				return
+			}
+		}
+		
+		err = w.SetLastMsgToUser(ctx, tgID, msgID)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting last message ID")
+
+			return
+		}
+	}
+}
+
+func convertButtonCMDToTgButton(ctx context.Context, btn [][]handler.ButtonCmd) ([][]tgbotapi.InlineKeyboardButton, error) {
+	tgBtn := make([][]tgbotapi.InlineKeyboardButton, len(btn))
+
+	for i := range btn {
+		tgBtn[i] = make([]tgbotapi.InlineKeyboardButton, 0, len(btn[i]))
+
+		for j := range btn[i] {
+			if btn[i][j].Name == handler.EmptyCommandName {
+				zlog.Ctx(ctx).Error().Msg("Empty button command name")
+
+				continue
+			}
+
+			if btn[i][j].Text == "" {
+				zlog.Ctx(ctx).Error().Msg("Empty button command text")
+
+				continue
+			}
+
+			c, ex := cmdMaps[btn[i][j].Name]
+			if !ex {
+				zlog.Ctx(ctx).Error().Str("Cmd", btn[i][j].Name.String()).Msg("Unknown command")
+
+				continue
+			}
+
+			if btn[i][j].Params == nil {
+				zlog.Ctx(ctx).Error().Msg("Button is nil")
+
+				continue
+			}
+
+			data := "/" + c.Name.String() + ":" + btn[i][j].Params.Pack()
+			if len(data) > 64 {
+				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
+
+				continue
+			}
+
+			tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonData(btn[i][j].Text, data))
+		}
+	}
+
+	return tgBtn, nil
+}

@@ -1,0 +1,62 @@
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+)
+
+type InvoiceData struct {
+	ProductName        string
+	ProductDescription string
+	ProductPhoto       string
+	ProductLink        string
+	Data               string
+	Price              int
+}
+
+var (
+	ErrNotInitialized = errors.New("telegram bot not initialized")
+)
+
+func (tg *Telegram) SendInvoice(ctx context.Context,
+	chatID int64,
+	invoice InvoiceData,
+) (int, error) {
+	if tg.bot == nil {
+		return 0, ErrNotInitialized
+	}
+
+	resp, err := tg.bot.RequestWithContext(ctx, tgbotapi.NewInvoice(
+		chatID,
+		invoice.ProductName,
+		invoice.ProductDescription,
+		invoice.Data,
+		"",
+		invoice.ProductLink,
+		currency,
+		[]tgbotapi.LabeledPrice{ {Label: invoice.ProductName, Amount: invoice.Price} },
+		[]int{},
+	))
+	if err != nil {
+		return 0, err
+	}
+
+	if resp == nil {
+		return 0, errors.New("no response from telegram")
+	}
+
+	if resp.ErrorCode != 0 {
+		return 0, errors.New(resp.Description)
+	}
+
+	if resp.Result != nil {
+		var message tgbotapi.Message
+
+		return message.MessageID, json.Unmarshal(resp.Result, &message)
+	}
+
+	return 0, errors.New("no message found")
+}

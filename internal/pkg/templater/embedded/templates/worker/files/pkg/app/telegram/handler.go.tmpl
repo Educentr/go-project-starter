@@ -1,0 +1,50 @@
+package telegram
+
+import (
+	"context"
+	"errors"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+)
+
+type UnimplementedAdminStatusHandler struct{}
+
+func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context, tgID int64) (string, error) {
+	return "", nil
+}
+
+func (UnimplementedAdminStatusHandler) SetLastMsgToUser(ctx context.Context, tgID int64, msg int) error {
+	return nil
+}
+
+func (UnimplementedAdminStatusHandler) GetLastMsgToUser(ctx context.Context, tgID int64) (int, error) {
+	return 0, nil
+}
+
+func (UnimplementedAdminStatusHandler) NewUserState(ctx context.Context, tgID int64, state string) error {
+	return errors.New("unimplemented")
+}
+
+type UnimplementedUpdateHandler struct{}
+
+func (UnimplementedUpdateHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) error {
+	return ErrUnimplementedHandler
+}
+
+func (UnimplementedUpdateHandler) Purchase(ctx context.Context, TgID int64, successfulPayment *tgbotapi.SuccessfulPayment) error {
+	return ErrUnimplementedHandler
+}
+
+func (UnimplementedUpdateHandler) TextMessage(ctx context.Context, message *tgbotapi.Message) error {
+	return ErrUnimplementedHandler
+}
+
+
+func (UnimplementedUpdateHandler)  CallbackQuery(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery) error {
+	return ErrUnimplementedHandler
+}
+
+var (
+	ErrUnimplementedHandler = errors.New("unimplemented handler")
+	ErrUnsupportedHandler = errors.New("unsupported handler")    
+)

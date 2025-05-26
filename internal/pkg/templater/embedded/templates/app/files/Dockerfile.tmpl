@@ -1,0 +1,24 @@
+FROM golang:1.23-alpine AS builder
+ARG binary=bin/{{ .Application.Name }}
+ARG GOPROXY
+
+RUN set -xe  && \
+    apk update && apk upgrade  && \
+    apk add --no-cache make git
+ENV CGO_ENABLED=0
+COPY . /go/src/app
+WORKDIR /go/src/app
+
+RUN make build_in_docker-{{ .Application.Name }} && \
+    cp ${binary} /service
+
+
+FROM alpine
+COPY --from=builder /service /service
+RUN mkdir -p /etc/onlineconf
+CMD ["/service"]
+
+{{- range $_, $t := .Applications.GetRestTransport }}
+# {{ $t.Handler.Name }}/{{ $t.Type }}
+EXPOSE {{ $t.Handler.Port }}
+{{- end }}

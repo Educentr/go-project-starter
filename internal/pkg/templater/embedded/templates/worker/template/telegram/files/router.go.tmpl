@@ -1,0 +1,102 @@
+package telegrambot
+
+import (
+	"context"
+	"strings"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"{{ .ProjectPath }}/internal/app/constant"
+	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
+	"github.com/pkg/errors"
+	{{ .Logger.Import }}
+)
+
+func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) error {
+	srv, err := w.GetEmptySrv()
+	if err != nil {
+		return errors.Wrap(err, "Internal error. Can't get service")
+	}
+
+	hdl := handler.NewHandler(srv, preCheckoutQuery.From.ID)
+	str := hdl.PreCheckout(ctx, preCheckoutQuery)
+
+	return srv.TelegramAnswerPreCheckout(ctx, preCheckoutQuery.ID, str)
+}
+
+func (w *Worker) Purchase(ctx context.Context, TgID int64, successfulPayment *tgbotapi.SuccessfulPayment) error {
+	srv, err := w.GetEmptySrv()
+	if err != nil {
+		return errors.Wrap(err, "Internal error. Can't get service")
+	}
+
+	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(constant.ServiceName, "devstand"), false)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Unexpected error from onlineconf")
+	}
+
+	defer func() {
+		if devstand {
+			err = srv.TelegramRefundPayment(ctx, TgID, successfulPayment.TelegramPaymentChargeID)
+			if err != nil {
+				zlog.Ctx(ctx).Error().Err(err).Msg("Error refunding payment")
+			}
+		}
+	}()
+
+	hdl := handler.NewHandler(srv, TgID)
+	return hdl.ProcessPayment(ctx, successfulPayment)
+}
+
+func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQuery) error {
+	zlog.Ctx(ctx).Info().Interface("text", callback).Msg("Text callback received")
+
+	data := strings.SplitN(callback.Data[1:], ":", 2)
+
+	cmd := data[0]
+
+	params := ""
+	if len(data) > 1 {
+		params = data[1]
+	}
+
+	w.processRequest(ctx, callback.From.ID, callback.ID, cmd, params, "")
+
+	return nil
+}
+
+func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) error {
+	zlog.Ctx(ctx).Info().Interface("text", message).Msg("Text message received")
+
+	if len(message.Entities) != 0 {
+		for _, entity := range message.Entities {
+			if entity.Type == "bot_command" {
+				w.processRequest(ctx, message.Chat.ID, "", message.Text[entity.Offset+1:entity.Offset+entity.Length], "", message.Text)
+
+				return nil
+			}
+		}
+	}
+
+	if message.Text != "" {
+		adminState, err := w.GetUserState(ctx, message.From.ID)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting admin state")
+
+			return nil
+		}
+
+		if adminState != "" {
+			stateParams := strings.SplitN(adminState, ":", 2)
+			if len(stateParams) != 2 {
+				stateParams = append(stateParams, "")
+			}
+
+			w.processRequest(ctx, message.Chat.ID, "", stateParams[0], stateParams[1], message.Text)
+		}
+	}
+
+	zlog.Ctx(ctx).Info().Msg("unknown message. Skip")
+
+	return nil
+}

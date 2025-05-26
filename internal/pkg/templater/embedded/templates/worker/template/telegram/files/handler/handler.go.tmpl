@@ -1,0 +1,55 @@
+package handler
+
+import (
+	"{{ .ProjectPath }}/internal/pkg/service"
+)
+
+type ParamI interface {
+	Pack() string
+	Unpack(ctx context.Context, params string) error
+}
+
+type CommandName string
+
+func (c CommandName) String() string {
+	return string(c)
+}
+
+type ButtonCmd struct {
+	Text   string
+	Name   CommandName
+	Params ParamI
+}
+
+type Handler struct {
+	telegram.DefaultHandler
+	srv  *service.EmptyService
+	tgID int64
+}
+
+func NewHandler(srv *service.EmptyService, tgID int64) *Handler {
+	return &Handler{
+		srv:  srv,
+		tgID: tgID,
+	}
+}
+
+type EmptyParams struct{}
+
+func (e *EmptyParams) Unpack(_ context.Context, _ string) error {
+	return nil
+}
+
+func (e *EmptyParams) Pack() string {
+	return ""
+}
+
+const (
+	EmptyCommandName CommandName = ""
+)
+
+var (
+	ErrEmptyParam              = errors.New("empty parameter")
+	ErrInvalidParam            = errors.New("invalid parameter")
+	ErrParamsNotEnough         = errors.New("not enough parameters")
+)

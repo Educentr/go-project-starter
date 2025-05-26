@@ -1,0 +1,97 @@
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	zlog "github.com/rs/zerolog"
+)
+
+var (
+	ErrCantRefund      = errors.New("cannot refund payment")
+	ErrCantGetPayments = errors.New("cannot get payments")
+	ErrEmptyPayments   = errors.New("no payments found")
+)
+
+func (tg *Telegram) CreateInvoice(
+	_ context.Context,
+	productName,
+	productDescription,
+	productPhoto,
+	data string,
+	price int) (string, error) {
+	return tg.bot.CreateInvoiceLink(tgbotapi.InvoiceLinkConfig{
+		Title:               productName,
+		Description:         productDescription,
+		Payload:             data,
+		Currency:            currency,
+		SuggestedTipAmounts: []int{},
+		PhotoURL:            productPhoto,
+		Prices: []tgbotapi.LabeledPrice{
+			{
+				Label:  productName,
+				Amount: price,
+			},
+		},
+	})
+}
+
+func (tg *Telegram) AnswerPreCheckout(_ context.Context, preCheckoutID string, errMsg string) error {
+	_, err := tg.bot.Request(tgbotapi.PreCheckoutConfig{
+		PreCheckoutQueryID: preCheckoutID,
+		OK:                 errMsg == "",
+		ErrorMessage:       errMsg,
+	})
+
+	return err
+}
+
+func (tg *Telegram) RefundPayment(ctx context.Context, userID int64, chargeID string) error {
+	zlog.Ctx(ctx).Info().Int64("user_id", userID).Str("charge_id", chargeID).Msg("Refunding payment")
+
+	ret, err := tg.bot.Request(tgbotapi.RefundStarPaymentConfig{
+		UserID:                  userID,
+		TelegramPaymentChargeID: chargeID,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if !ret.Ok {
+		return ErrCantRefund
+	}
+
+	return nil
+}
+
+func (tg *Telegram) GetPayments(ctx context.Context, skip int64) (*tgbotapi.StarTransactions, error) {
+	ret, err := tg.bot.Request(tgbotapi.GetStarTransactionsConfig{
+		Offset: skip,
+		Limit:  10,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if !ret.Ok {
+		return nil, ErrCantGetPayments
+	}
+
+	if ret.Result == nil {
+		return nil, ErrEmptyPayments
+	}
+
+	res := &tgbotapi.StarTransactions{}
+
+	zlog.Ctx(ctx).Info().Str("result", string(ret.Result)).Msg("GetPayments")
+
+	err = json.Unmarshal(ret.Result, res)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}

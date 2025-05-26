@@ -1,0 +1,359 @@
+PWD = $(CURDIR)
+# Service name
+SERVICE_NAME = {{ .ProjectName }}
+# 8 symbols of the last commit
+LAST_COMMIT_HASH = $(shell git rev-parse --short=8 HEAD)
+# Version of api/buf.yaml buf generator
+BUF_VERSION:=1.7.0
+# Test timeout
+TEST_TIMEOUT?=20s
+# golang-ci tag
+GOLANGCI_TAG:={{ .GolangciVersion }}
+# Path to the binary
+LOCAL_BIN:=$(CURDIR)/bin
+# Путь до бинарника golang-ci
+GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
+# Minimal Golang version
+MIN_GO_VERSION = 1.23.8
+# Ogen version
+OGENVERSION = {{ .OgenVersion }}
+{{ if .UseActiveRecord }}
+# activeRecord version
+ARGENVERSION = {{ .ArgenVersion }}
+{{ end }}
+# Onlineconf version
+ONLINECONF_UPDATER_VERSION = v3.6.2
+# Build datetime
+BUILD_DATE = $(shell TZ=UTC-3 date +%Y%m%d-%H%M)
+# Operation system
+OSNAME = $(shell uname)
+# Build version
+ifeq ($(OSNAME),Darwin)
+RELEASE ?= $(shell TZ=UTC-3 date -r $(shell git show -s --format=%ct $(shell git rev-parse HEAD) | head -1) '+%Y%m%d-%H%M')
+else
+RELEASE ?= $(shell git describe --exact-match --tags 2> /dev/null || TZ=UTC-3 date -d @$(shell git show -s --format=%ct $(shell git rev-parse HEAD) | head -1) '+%Y%m%d-%H%M')
+endif
+# ld flags
+LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)' -X 'main.BuildTime=$(BUILD_DATE)' -X 'main.BuildOS=$(OSNAME)'
+# GOPATH
+GOPATH = $(shell go env GOPATH)
+GOPROXY ?=https://proxy.golang.org,direct
+PACKAGE = $(shell go list -m)
+PKG_LIST_FOR_TEST = $(shell go list ./...)
+
+COMMIT_BRANCH = $(shell git branch --no-color --show-current)
+
+# Environment prefix (prod/alpha/beta)
+ENVIRONMENT_PREFIX = dev-
+ifeq ($(COMMIT_BRANCH), main)
+	ENVIRONMENT_PREFIX =
+else ifeq ($(COMMIT_BRANCH), alpha)
+	ENVIRONMENT_PREFIX = alpha-
+else ifeq ($(COMMIT_BRANCH), beta)
+	ENVIRONMENT_PREFIX = beta-
+endif
+
+# Docker variables
+REGISTRY_SERVER ?= {{ .DockerImagePrefix }}
+DOCKER_TAG ?= $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+
+# by default 'make' will build the service
+default: build
+
+# Add flag to test race condition
+ifdef GO_RACE_DETECTOR
+    FLAGS += -race
+endif
+
+##################### Checks to run golang-ci #####################
+# Local bin version check
+ifneq ($(wildcard $(GOLANGCI_BIN)),)
+GOLANGCI_BIN_VERSION:=$(shell $(GOLANGCI_BIN) --version)
+ifneq ($(GOLANGCI_BIN_VERSION),)
+GOLANGCI_BIN_VERSION_SHORT:=$(shell echo "$(GOLANGCI_BIN_VERSION)" | sed -E 's/.* version (.*) built from .* on .*/\1/g')
+else
+GOLANGCI_BIN_VERSION_SHORT:=0
+endif
+ifneq "$(GOLANGCI_TAG)" "$(word 1, $(sort $(GOLANGCI_TAG) $(GOLANGCI_BIN_VERSION_SHORT)))"
+GOLANGCI_BIN:=
+endif
+endif
+
+# Global bin version check
+ifneq (, $(shell which golangci-lint))
+GOLANGCI_VERSION:=$(shell golangci-lint --version 2> /dev/null )
+ifneq ($(GOLANGCI_VERSION),)
+GOLANGCI_VERSION_SHORT:=$(shell echo "$(GOLANGCI_VERSION)"|sed -E 's/.* version (.*) built from .* on .*/\1/g')
+else
+GOLANGCI_VERSION_SHORT:=0
+endif
+ifeq "$(GOLANGCI_TAG)" "$(word 1, $(sort $(GOLANGCI_TAG) $(GOLANGCI_VERSION_SHORT)))"
+GOLANGCI_BIN:=$(shell which golangci-lint)
+endif
+endif
+
+.PHONY: regenerate
+regenerate:
+	go-project-starter --target ${PWD}
+
+##################### End of golang-ci checks #####################
+.PHONY: git-repo
+git-repo:
+	@(git status >/dev/null 2>&1 || (git init && git remote add origin {{ .Repo }} && git fetch origin && git pull origin main))
+	@(git fetch origin)
+	@echo "Git repository fetch done"
+
+# Install linter
+.PHONY: install-lint
+install-lint:
+ifeq ($(wildcard $(GOLANGCI_BIN)),)
+	$(info "Downloading golangci-lint v$(GOLANGCI_TAG)")
+	tmp=$$(mktemp -d) && cd $$tmp && pwd && go mod init temp && go get -d github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_TAG) && \
+		go build -ldflags "-X 'main.version=$(GOLANGCI_TAG)' -X 'main.commit=test' -X 'main.date=test'" -o $(LOCAL_BIN)/golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint && \
+		rm -rf $$tmp
+GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
+endif
+
+.PHONY: go-get-u
+go-get-u:
+	@echo "go get -u all dependencies..."
+	@GOSUMDB=off go get -d -u ./...
+
+.PHONY: onlineconf-update
+onlineconf-update:
+	@echo "Update onlineconf..."
+	@onlineconf-updater -config etc/onlineconf-updater.conf -once
+
+# Linter will check only diffs with main branch (default)
+.PHONY: lint
+lint: install-lint
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME) --path-prefix='config/'
+
+# Run full code lint
+.PHONY: lint-full
+lint-full: lint
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME) --path-prefix='config/'
+
+# Linter will check only diffs with main branch (default)
+.PHONY: lint-fix
+lint-fix: lint
+	$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
+
+# Create test coverage report
+.PHONY: coverage
+coverage:
+	go test -timeout=$(TEST_TIMEOUT) -v -coverprofile=coverage.out $(PKG_LIST_FOR_TEST)  && go tool cover -html=coverage.out
+
+# Run an integration testing with all dependencies using a single command
+.PHONY: test-integration-with-deps
+test-integration-with-deps: test-int-up-deps test-integration
+
+# Up all dependencies required for an integration testing
+.PHONY: test-int-up-deps
+test-int-up-deps:
+	@echo "Up testing dependencies: \n"
+	docker-compose up -d --build --force-recreate wiremock
+	@echo "Successful up testing dependencies"
+
+# Run unit testing
+.PHONY: test
+test:
+	@echo "Start testing $(SERVICE_NAME) \n"
+	go test -race -parallel=10 $(PKG_LIST_FOR_TEST) -coverprofile=cover.out -timeout=$(TEST_TIMEOUT)
+
+.PHONY: dep-ci
+dep-ci: ## Install dependencies
+	go mod download
+
+{{ range $_, $a := .Applications }}
+# Build service {{ $a.Name }} in container
+.PHONY: build_in_docker-{{ $a.Name }}
+build_in_docker-{{ $a.Name }}:
+	go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
+
+# Build docker image for service {{ $a.Name }}
+.PHONY: docker-{{ $a.Name }}
+docker-{{ $a.Name }}:
+	docker build . -f ./Dockerfile-{{ $a.Name }} --rm -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+
+.PHONY: docker-{{ $a.Name }}-push
+docker-{{ $a.Name }}-push:
+	docker push $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+
+# Run service {{ $a.Name }}
+.PHONY: run-{{ $a.Name }}
+run-{{ $a.Name }}: onlineconf-update
+	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && OTEL_SERVICE_NAME="$(SERVICE_NAME)-devel" go run -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}/psg_main_gen.go
+
+# Build service {{ $a.Name }}
+.PHONY: build-{{ $a.Name }}
+build-{{ $a.Name }}:
+	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
+
+.PHONY: build_for_test-{{ $a.Name }}
+build_for_test-{{ $a.Name }}: download
+	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "all=-N -l" -o /tmp/{{ $a.Name }} ${PACKAGE}/cmd/{{ $a.Name }}
+{{ end }}
+
+.PHONY: docker-list
+docker-list: 
+	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"docker-{{ $a.Name }}"{{ end }}]'
+
+.PHONY: docker
+docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
+
+.PHONY: docker-push
+docker-push: {{ range $_, $a := .Applications }}docker-{{ $a.Name }}-push {{ end }}
+
+.PHONY: build
+build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
+
+.PHONE: build-for-test
+build-for-test: {{ range $_, $a := .Applications }}build_for_test-{{ $a.Name }} {{ end }}
+
+# Generate pb files from proto description
+.PHONY: proto
+proto:
+{{ $proto := false }}
+{{- range $_, $h := .Applications.GetGrpcTransport }}
+	{{ $proto = true }}
+	@echo "Generating gRPC code for {{ $h.Name }}..."
+	@docker run --rm -v "$(PWD):/${SERVICE_NAME}" -w "/${SERVICE_NAME}" bufbuild/buf generate --template "./configs/grpc.gen.yaml" --path ./api/grpc/{{ $h.Name }}
+{{- end }}
+{{- range $_, $h := .Applications.GetKafkaTransport }}
+	{{ $proto = true }}
+	@echo "Generating kafka structs..."
+	@docker run --rm -v "$(PWD):/${SERVICE_NAME}" -w "/${SERVICE_NAME}" bufbuild/buf generate --template "./configs/kafka.gen.yaml" --path ./api/kafka/{{ $h.Name }}
+{{- end }}
+{{ if eq $proto true }}
+	@echo "proto done"
+{{ else }}
+	@echo "No proto files found"
+{{ end }}
+
+{{- $ogen := false }}
+{{- range $_, $t := .Applications.GetRestTransport }}
+	{{ if eq $t.GeneratorType "ogen" }}
+		{{ if eq $ogen false }}
+			{{ $ogen = true }}
+# Generate oas files from all openapi specifications
+.PHONY: generate-ogen
+generate-ogen:
+		{{ end }}
+	# {{ $t.Handler.Name }}: {{ $t.Type }}
+	@echo "Generating REST code for {{ $t.Handler.Name }}..."
+		{{ if 0 }}# Why packagename == SERIVCE_NAME ???{{ end }}
+	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package $(SERVICE_NAME) {{ $t.Handler.GetTargetSpecFile }} && echo "Generated successfully"
+	{{ else if eq $t.GeneratorType "ogen_client" }}
+	@echo "Generating client REST code for {{ $t.Handler.Name }}..."
+	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package {{ $t.Handler.Name }} {{ $t.Handler.GetTargetSpecFile }} && echo "Generated successfully"
+	{{ else if eq $t.GeneratorType "template" }}
+	{{ if 0 }}Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
+	{{ else }}
+	# Unknown generator type {{ $t.GeneratorType }}
+		@echo "Unknown generator type {{ $t.GeneratorType }} {{ $t.Handler.Name }}"
+	{{ end }}
+{{ end }}
+
+{{ if .UseActiveRecord }}
+# Generate activerecord files from all openapi specifications
+.PHONY: generate-argen
+generate-argen:
+	argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
+
+.PHONY: install-argen
+install-argen:
+	go get github.com/Educentr/go-activerecord/v3@$(ARGENVERSION)
+	go install github.com/Educentr/go-activerecord/v3/cmd/argen@$(ARGENVERSION)
+{{ end }}
+
+{{ if eq $ogen true }}
+# ToDo нужно в каждом подключаемом сервисе хранить список необходимых для установки tools-ов и убрать тут проверку, что есто ogen
+# Install dependencies for Ogen generator
+.PHONY: install-ogen
+install-ogen:
+	go get github.com/ogen-go/ogen@$(OGENVERSION)
+	go install github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION)
+{{- end }}
+
+# Print release tag
+.PHONY: release-tag
+release-tag:
+	@echo $(DOCKER_TAG)
+
+{{ if eq $proto true }}
+# Install dependencies for protobuf generator
+.PHONY: install-buf
+install-buf:
+	mkdir -p "$(shell go env GOPATH)/bin"
+	curl -sSL \
+    	"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(shell uname -s)-$(shell uname -m)" \
+    	-o "$(shell go env GOPATH)/bin/buf" && \
+  	chmod +x "$(shell go env GOPATH)/bin/buf"
+{{- end }}
+
+# Install local git hooks
+.PHONY: install-hooks
+install-hooks:
+	cp ./scripts/githooks/pre-commit ./.git/hooks/
+
+# Generate mock packages
+.PHONY: mock
+mock:
+	@echo "Generating mocks..."
+	@go generate ./...
+
+
+.PHONY: tidy
+tidy:
+	@echo "go mod tidy..."
+	@go mod tidy
+
+
+.PHONY: clean-import
+clean-import:
+	@echo "cleaning imports..."
+	@goimports -w .
+
+{{- $pg := false }}
+{{- $sqlc := false }}
+
+# ToDo work with databases
+
+{{- if eq $pg true }}
+{{ if eq $sqlc true }}
+.PHONY: install-sqlc
+install-sqlc:
+	@go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+.PHONY: sqlc
+sqlc:
+	@$(shell go env GOPATH)/bin/sqlc generate -f $(SQLC_PATH)
+{{ else }}
+ToDo select driver for PG
+{{- end }}
+{{- end }}
+
+.PHONY: install-goimports
+install-goimports:
+	go install golang.org/x/tools/cmd/goimports@latest
+
+.PHONY: install-onlineconf-updater
+install-onlineconf-updater:
+	go install github.com/Nikolo/onlineconf/updater/v3@$(ONLINECONF_UPDATER_VERSION)
+
+# Install dependencies for tools
+.PHONY: install-tools
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+
+# Generate mock packages
+#TODO: enable ansible generator after debugging
+#generate-ansible
+.PHONY: generate
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}
+
+.PHONY: download
+download:
+	@go mod download
+
+#ToDo integration tests GITEF
