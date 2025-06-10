@@ -5,11 +5,13 @@ import (
 	"errors"
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"github.com/gofrs/uuid/v5"
+	"github.com/xvpn-one/backend/pkg/drivers/telegram"
 )
 
 type UnimplementedAdminStatusHandler struct{}
 
-func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context, tgID int64) (string, error) {
+func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context, tgActor telegram.Actor) (string, error) {
 	return "", nil
 }
 
@@ -48,3 +50,56 @@ var (
 	ErrUnimplementedHandler = errors.New("unimplemented handler")
 	ErrUnsupportedHandler = errors.New("unsupported handler")    
 )
+
+type ParamI interface {
+	Pack() string
+	Unpack(ctx context.Context, params string) error
+}
+
+type CommandName string
+
+func (c CommandName) String() string {
+	return string(c)
+}
+
+type ButtonCmd struct {
+	Text   string
+	URL    string
+	Name   CommandName
+	Params ParamI
+}
+
+type RespMessage struct {
+	TmMsg       string
+	InvoiceData *telegram.InvoiceData
+	Photos      string
+	ButtonCMDs  [][]ButtonCmd
+}
+
+type ResponseRedirect struct {
+	Cmd CommandName
+	Params string
+}
+
+type Response struct {
+	InternalRedirect *ResponseRedirect
+	Messages      []RespMessage
+	NextState     *string
+	NotifyMsg     string
+	DeleteLastMsg bool
+}
+
+
+type DefaultHandler struct{}
+
+func (DefaultHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) string {
+	return "unimplemented"
+}
+
+func (DefaultHandler) ProcessPayment(ctx context.Context, idempotency uuid.UUID, successfulPayment *tgbotapi.SuccessfulPayment) (Response, error) {
+	return Response{}, errors.New("unimplemented")
+}
+
+func (DefaultHandler) Authorization(ctx context.Context, tgActor telegram.Actor, cmd any, pp string) (context.Context, error) {
+	return ctx, nil
+}

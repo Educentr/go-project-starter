@@ -4,25 +4,27 @@ import (
 	"context"
 	"errors"
 
+	"github.com/gofrs/uuid/v5"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 )
-
-type DefaultHandler struct{}
-
-func (DefaultHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) string {
-	return "unimplemented"
-}
-func (DefaultHandler) ProcessPayment(ctx context.Context, successfulPayment *tgbotapi.SuccessfulPayment) error {
-	return errors.New("unimplemented")
-}
 
 type UpdateHandler interface {
 	PreCheckout(ctx context.Context, update tgbotapi.Update) error
 	Purchase(ctx context.Context, update tgbotapi.Update) error
 }
 
+type Actor struct {
+	ID           int64  `json:"id"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
+	Username     string `json:"username"`
+	LanguageCode string `json:"language_code"`
+	TgChatID     int64  `json:"chat_instance"`
+}
+
 type Message struct {
 	Text string
+	Images []tgbotapi.RequestFileData
 	Btn  [][]tgbotapi.InlineKeyboardButton
 }
 

@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:{{ .GoLangVersion }}-alpine AS builder
 ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
 
@@ -12,9 +12,13 @@ WORKDIR /go/src/app
 RUN make build_in_docker-{{ .Application.Name }} && \
     cp ${binary} /service
 
+RUN mkdir -p /public && \
+    cp -r public/* /public/ && \
+    chmod -R 755 /public
 
 FROM alpine
 COPY --from=builder /service /service
+COPY --from=builder /public /public
 RUN mkdir -p /etc/onlineconf
 CMD ["/service"]
 

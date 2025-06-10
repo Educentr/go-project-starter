@@ -1,10 +1,15 @@
 package telegram
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
+	"io"
 
+	"github.com/pkg/errors"
+	"github.com/gofrs/uuid/v5"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 )
 
@@ -16,6 +21,23 @@ type InvoiceData struct {
 	Data               string
 	Price              int
 }
+
+type InvoiceProduct interface {
+	Pack(w io.Writer) error
+	Unpack(data *bytes.Buffer) error
+}
+
+type TelegramInvoiceData struct {
+	UserID         int64
+	IdempotencyKey uuid.UUID
+	Products       InvoiceProduct
+	Created 	   time.Time
+}
+
+const (
+	invalidProductTypeMessage = "invalid product type"
+	productIDParamName        = "productID"
+)
 
 var (
 	ErrNotInitialized = errors.New("telegram bot not initialized")
@@ -59,4 +81,136 @@ func (tg *Telegram) SendInvoice(ctx context.Context,
 	}
 
 	return 0, errors.New("no message found")
+}
+
+func PackInvoiceData(ctx context.Context, invoiceData TelegramInvoiceData) (string, error) {
+	ret := bytes.Buffer{}
+	w := bufio.NewWriter(&ret)
+
+	err := PackNumber64(w, invoiceData.UserID)
+	if err != nil {
+		return "", err
+	}
+
+	idempotencyByte, err := invoiceData.IdempotencyKey.MarshalBinary()
+	if err != nil {
+		return "", err
+	}
+
+	_, err = w.Write(idempotencyByte)
+	if err != nil {
+		return "", err
+	}
+
+	cr, err := invoiceData.Created.MarshalBinary()
+	if err != nil {
+		return "", err
+	}
+
+	err = w.WriteByte(byte(len(cr)))
+	if err != nil {
+		return "", err
+	}
+
+	_, err = w.Write(cr)
+	if err != nil {
+		return "", err
+	}
+
+	err = invoiceData.Products.Pack(w)
+	if err != nil {
+		return "", err
+	}
+
+	err = w.Flush()
+	if err != nil {
+		return "", err
+	}
+
+	key, err := GetTgTokenSHA(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	sign, err := MakeSHA256Hash(ctx, key, ret.Bytes())
+	if err != nil {
+		return "", err
+	}
+
+	_, err = w.Write(sign[0:12])
+	if err != nil {
+		return "", err
+	}
+
+	err = w.Flush()
+	if err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(ret.Bytes()), nil
+}
+
+func UnpackInvoiceData(ctx context.Context, invoice *TelegramInvoiceData, data string) error {
+	dec, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return err
+	}
+
+	key, err := GetTgTokenSHA(ctx)
+	if err != nil {
+		return err
+	}
+
+	sign := dec[len(dec)-12:]
+
+	dec = dec[:len(dec)-12]
+
+	signCheck, err := MakeSHA256Hash(ctx, key, dec)
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Equal(sign, signCheck[0:12]) {
+		return errors.New("invalid sign")
+	}
+
+	decoder := bytes.NewBuffer(dec)
+
+	err = UnpackNumber64(decoder, &invoice.UserID)
+	if err != nil {
+		return err
+	}
+
+	idempotencyByte := make([]byte, uuid.Size)
+
+	_, err = decoder.Read(idempotencyByte)
+	if err != nil {
+		return err
+	}
+
+	err = invoice.IdempotencyKey.UnmarshalBinary(idempotencyByte)
+	if err != nil {
+		return err
+	}
+
+	lenByte, err := decoder.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	err = invoice.Created.UnmarshalBinary(decoder.Next(int(lenByte)))
+	if err != nil {
+		return err
+	}
+
+	err = invoice.Products.Unpack(decoder)
+	if err != nil {
+		return err
+	}
+
+	if decoder.Len() != 0 {
+		return errors.New("unpacked data is not empty")
+	}
+
+	return nil
 }

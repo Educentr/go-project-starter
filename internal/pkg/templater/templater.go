@@ -181,6 +181,7 @@ var (
 		"LICENSE.txt":          {},
 		"README.md":            {},
 		"etc/onlineconf/.keep": {},
+		"public/.keep":         {}, // ToDo ignore all keep files
 	}
 )
 

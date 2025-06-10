@@ -75,8 +75,6 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	ctxJob, cancel := reqctx.CreateContext(ctx, w.GetConfigPath(), "job")
 	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, w.Name())" }}
 
-	err := errors.New("unexpected error")
-
 	defer func() {
 		err := recover()
 		if err != nil {
@@ -86,11 +84,25 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 		cancel()
 	}()
 
+	srv, err := w.GetEmptySrv()
+	if err != nil {
+		zlog.Ctx(ctxJob).Error().Err(err).Msg("Failed to get service")
+
+		return err
+	}
+
 	switch {
 	case update.PreCheckoutQuery != nil:
+		str := ""
+
 		err = w.PreCheckout(ctxJob, update.PreCheckoutQuery)
+		if err != nil {
+			str = err.Error()
+		}
+
+		err = srv.TelegramAnswerPreCheckout(ctx, update.PreCheckoutQuery.ID, str)
 	case update.Message != nil && update.Message.SuccessfulPayment != nil:
-		err = w.Purchase(ctxJob, update.Message.From.ID, update.Message.SuccessfulPayment)
+		err = w.Purchase(ctxJob, update.Message)
 	case update.Message != nil && update.Message.Text != "":
 		err = w.TextMessage(ctxJob, update.Message)
 	case update.CallbackQuery != nil:

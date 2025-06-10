@@ -47,11 +47,21 @@ type Files struct {
 	Code        *bytes.Buffer
 }
 
+type DeployParams struct {
+	Volumes []DeployVolume
+}
+
+type DeployVolume struct {
+	Path  string // Путь к папке на хосте
+	Mount string // Путь к монтируемой папке в контейнере
+}
+
 type App struct {
 	Name       string
 	Transports Transports
 	Drivers    Drivers
 	Workers    Workers
+	Deploy     DeployParams
 }
 
 type Transports map[string]Transport

@@ -110,11 +110,21 @@ type (
 		Params []string `mapstructure:"params"`
 	}
 
+	DeployVolume struct {
+		Path  string `mapstructure:"path"`
+		Mount string `mapstructure:"mount"`
+	}
+
+	AppDeploy struct {
+		Volumes []DeployVolume `mapstructure:"volumes"`
+	}
+
 	Application struct {
 		Name          string      `mapstructure:"name"`
 		TransportList []string    `mapstructure:"transport"`
 		DriverList    []AppDriver `mapstructure:"driver"`
 		WorkerList    []string    `mapstructure:"worker"`
+		Deploy        AppDeploy   `mapstructure:"deploy"`
 	}
 
 	Docker struct {

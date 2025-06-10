@@ -1,0 +1,110 @@
+package telegram
+
+import (
+	"io"
+
+	"github.com/pkg/errors"
+)
+
+const (
+	maxStringLen = 128
+	bitsInByte   = 8
+	bytesInInt32 = 4
+	bytesInInt64 = 8
+)
+
+func PackNumber32[T int32 | uint32](w io.Writer, v T) error {
+	for i := range bytesInInt32 {
+		if _, err := w.Write([]byte{byte(v >> (i * bitsInByte))}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func PackNumber64[T int64 | uint64](w io.Writer, v T) error {
+	for i := range bytesInInt64 {
+		if _, err := w.Write([]byte{byte(v >> (i * bitsInByte))}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// PackString packs string length (according to mode) followed by string data.
+func PackString(w io.Writer, v string) error {
+	err := PackNumber32(w, uint32(len(v)))
+	if err != nil {
+		return errors.Wrap(err, "Can't pack string length")
+	}
+
+	_, err = w.Write([]byte(v))
+
+	return err
+}
+
+func UnpackNumber64[T int64 | uint64](r io.Reader, v *T) error {
+	var ret T
+
+	for i := range 8 {
+		b := make([]byte, 1)
+
+		_, err := r.Read(b)
+		if err != nil {
+			return err
+		}
+
+		ret |= T(b[0]) << (i * bitsInByte)
+	}
+
+	*v = ret
+
+	return nil
+}
+
+func UnpackNumber32[T int32 | uint32](r io.Reader, v *T) error {
+	var ret T
+
+	for i := range 4 {
+		b := make([]byte, 1)
+
+		_, err := r.Read(b)
+		if err != nil {
+			return err
+		}
+
+		ret |= T(b[0]) << (i * bitsInByte)
+	}
+
+	*v = ret
+
+	return nil
+}
+
+func UnpackString(r io.Reader) (string, error) {
+	var strLen uint32
+
+	err := UnpackNumber32(r, &strLen)
+	if err != nil {
+		return "", errors.Wrap(err, "Can't unpack string length")
+	}
+
+	if strLen > maxStringLen {
+		return "", errors.New("String length is too long")
+	}
+
+	str := make([]byte, strLen)
+
+	n, err := r.Read(str)
+	if err != nil {
+		return "", err
+	}
+
+	if n != int(strLen) {
+		return "", errors.New("Can't unpack string")
+	}
+
+	return string(str), nil
+}

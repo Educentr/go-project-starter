@@ -180,6 +180,16 @@ func (g *Generator) processConfig(config config.Config) error {
 			Drivers:    make(ds.Drivers),
 		}
 
+		if len(app.Deploy.Volumes) > 0 {
+			application.Deploy.Volumes = make([]ds.DeployVolume, 0, len(app.Deploy.Volumes))
+			for _, vol := range app.Deploy.Volumes {
+				application.Deploy.Volumes = append(application.Deploy.Volumes, ds.DeployVolume{
+					Path:  vol.Path,
+					Mount: vol.Mount,
+				})
+			}
+		}
+
 		for _, transport := range app.TransportList {
 			tr, ex := g.Transports[transport]
 			if !ex {
@@ -486,7 +496,7 @@ func (g *Generator) Generate() error {
 
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("Error run %s %s: %w (with output: %s)", procData.Cmd, strings.Join(procData.Arg, ", "), err, out)
+			return fmt.Errorf("error run %s %s: %w (with output: %s)", procData.Cmd, strings.Join(procData.Arg, ", "), err, out)
 		}
 
 		if len(out) > 0 {

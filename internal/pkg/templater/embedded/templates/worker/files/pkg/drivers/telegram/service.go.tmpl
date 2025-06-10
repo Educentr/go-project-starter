@@ -1,0 +1,27 @@
+package telegram
+
+import (
+	"context"
+	"errors"
+
+	"github.com/gofrs/uuid/v5"
+)
+
+type UnimplementedPayment struct {
+}
+
+func (UnimplementedPayment) CheckInvoiceProducts(ctx context.Context, invoice TelegramInvoiceData, totalAmount int) (string, bool) {
+	return "unimplemented", false
+}
+
+// This function should create a payment record in the database.
+// For now, we will just return nil to indicate success.
+func (UnimplementedPayment) CreateTelegramPayment(ctx context.Context, idempotencyKey uuid.UUID, products InvoiceProduct, amount int, description string) error {
+	return errors.New("unimplemented")
+}
+
+// This function should process the payment.
+// For now, we will just return nil to indicate success.
+func (UnimplementedPayment) ProcessPayment(ctx context.Context, idempotency uuid.UUID, paymentChargeID string) error {
+	return errors.New("unimplemented")
+}

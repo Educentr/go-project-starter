@@ -22,7 +22,7 @@ OGENVERSION = {{ .OgenVersion }}
 ARGENVERSION = {{ .ArgenVersion }}
 {{ end }}
 # Onlineconf version
-ONLINECONF_UPDATER_VERSION = v3.6.2
+ONLINECONF_UPDATER_VERSION = v3.6.4
 # Build datetime
 BUILD_DATE = $(shell TZ=UTC-3 date +%Y%m%d-%H%M)
 # Operation system
@@ -100,7 +100,7 @@ regenerate:
 .PHONY: git-repo
 git-repo:
 	@(git status >/dev/null 2>&1 || (git init && git remote add origin {{ .Repo }} && git fetch origin && git pull origin main))
-	@(git fetch origin)
+	@(git fetch origin || echo "Fetch fail. Skip")
 	@echo "Git repository fetch done"
 
 # Install linter
@@ -340,7 +340,7 @@ install-goimports:
 
 .PHONY: install-onlineconf-updater
 install-onlineconf-updater:
-	go install github.com/Nikolo/onlineconf/updater/v3@$(ONLINECONF_UPDATER_VERSION)
+	go install github.com/Nikolo/onlineconf/onlineconf-updater/v3@$(ONLINECONF_UPDATER_VERSION)
 
 # Install dependencies for tools
 .PHONY: install-tools

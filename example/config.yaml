@@ -101,6 +101,10 @@ applications:
       #- ExampleService
     driver:
       # - clickhouse_batcher
+    deploy:
+      - volumes:
+          - path: ./backupdata
+            mount: /backup
   # - name: internalApi
   #   transport:
   #     - AdminService

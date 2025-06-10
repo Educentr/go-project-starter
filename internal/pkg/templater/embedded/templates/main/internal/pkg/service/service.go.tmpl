@@ -38,7 +38,7 @@ type Service struct {
 	{{ range $_, $driver := .Drivers }}
 	{{ $driver.Name | ToLower }} *{{ $driver.Package }}.{{ $driver.ObjName }}
 	{{ if ne $driver.ServiceInjection "" }}
-	$driver.ServiceInjection
+	{{ $driver.ServiceInjection}}
 	{{ end }}
 	{{ end }}
 }

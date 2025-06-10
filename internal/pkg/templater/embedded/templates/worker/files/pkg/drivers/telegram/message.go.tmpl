@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 )
@@ -22,13 +23,27 @@ func (tg *Telegram) DeleteMessage(_ context.Context, chatID int64, msgID int) er
 }
 
 func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg Message) (int, error) {
-	msgTg := tgbotapi.NewMessage(chatID, msg.Text)
+	switch {
+	case len(msg.Images) > 0:
+		if len(msg.Images) > 1 {
+			return 0, errors.New("send message with more than one image is not supported")
+		}
 
-	if len(msg.Btn) != 0 {
-		msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
+		msgTg := tgbotapi.NewPhoto(chatID, msg.Images[0]);
+		msgTg.Caption = msg.Text
+		if len(msg.Btn) != 0 {
+			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
+		}
+
+		return tg.send(msgTg)
+	default:
+		msgTg := tgbotapi.NewMessage(chatID, msg.Text)		
+		if len(msg.Btn) != 0 {
+			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
+		}
+
+		return tg.send(msgTg)
 	}
-
-	return tg.send(msgTg)
 }
 
 func (tg *Telegram) send(msg tgbotapi.Chattable) (int, error) {

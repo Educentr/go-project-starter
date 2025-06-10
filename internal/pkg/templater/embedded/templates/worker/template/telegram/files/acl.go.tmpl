@@ -8,23 +8,23 @@ import (
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/pkg/errors"
 	zlog "github.com/rs/zerolog"
-	"github.com/xvpn-one/backend/internal/app/constant"
+	"{{ .ProjectPath }}/internal/app/constant"
 )
 
 var (
-	ErrAdminNotFound = errors.New("admin not found")
+	ErrUserNotFound = errors.New("admin not found")
 	ErrAccessDenied  = errors.New("access denied")
 	ErrInternalError = errors.New("internal error")
 )
 
-func (h *Worker) CheckBotAdminACL(ctx context.Context, tgID int64, command Cmd) error {
+func (h *Worker) Authorization(ctx context.Context, tgActor telegram.Actor, command Cmd) error {
 	paths := []string{
-		onlineconf.MakePath(constant.ServiceName, "bot", "admins", strconv.FormatInt(tgID, 10)),
+		onlineconf.MakePath(constant.ServiceName, "bot", "admins", strconv.FormatInt(tgActor.ID, 10)),
 	}
 
 	if !command.NeedAdminAccess {
 		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users"))
-		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users", strconv.FormatInt(tgID, 10)))
+		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users", strconv.FormatInt(tgActor.ID, 10)))
 	}
 
 	for _, param := range paths {
