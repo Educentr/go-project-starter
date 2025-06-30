@@ -243,10 +243,10 @@ generate-ogen:
 	# {{ $t.Handler.Name }}: {{ $t.Type }}
 	@echo "Generating REST code for {{ $t.Handler.Name }}..."
 		{{ if 0 }}# Why packagename == SERIVCE_NAME ???{{ end }}
-	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package $(SERVICE_NAME) {{ $t.Handler.GetTargetSpecFile }} && echo "Generated successfully"
+	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package $(SERVICE_NAME) {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
 	{{ else if eq $t.GeneratorType "ogen_client" }}
 	@echo "Generating client REST code for {{ $t.Handler.Name }}..."
-	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package {{ $t.Handler.Name }} {{ $t.Handler.GetTargetSpecFile }} && echo "Generated successfully"
+	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package {{ $t.Handler.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
 	{{ else if eq $t.GeneratorType "template" }}
 	{{ if 0 }}Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
 	{{ else }}

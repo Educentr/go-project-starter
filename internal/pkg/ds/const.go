@@ -136,6 +136,7 @@ type Transport struct {
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
+	SpecPath          []string
 }
 
 type Worker struct {
@@ -248,16 +249,14 @@ type Logger interface {
 type Handler struct {
 	Name       string
 	ApiVersion string
-	Port       string   //unused
-	SpecPath   []string // ToDo вынести из структуры Handler в структуру транспорта. Для клиентов мы генерируем транспорт, но не генерируем хендлеры
+	Port       string //unused
 }
 
-func NewHandler(name, apiVersion, port string, specPath []string) Handler {
+func NewHandler(name, apiVersion, port string) Handler {
 	return Handler{
 		Name:       name,
 		ApiVersion: apiVersion,
 		Port:       port,
-		SpecPath:   specPath,
 	}
 }
 
@@ -265,8 +264,8 @@ func (h Handler) GetTargetSpecDir(targetDir string) string {
 	return filepath.Join(targetDir, "api", "rest", h.Name, h.ApiVersion)
 }
 
-func (h Handler) GetTargetSpecFile() string {
-	_, file := filepath.Split(h.SpecPath[0])
+func (t Transport) GetTargetSpecFile() string {
+	_, file := filepath.Split(t.SpecPath[0])
 
 	return file
 }

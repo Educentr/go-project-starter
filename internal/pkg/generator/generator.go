@@ -124,11 +124,13 @@ func (g *Generator) processConfig(config config.Config) error {
 		if rest.GeneratorType == "ogen_client" {
 			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
 			// transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
-			transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10), paths)
+			transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10))
+			transport.SpecPath = paths
 		} else {
 			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/internal/app/transport/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
 			transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
-			transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10), paths)
+			transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10))
+			transport.SpecPath = paths
 		}
 
 		if err := g.Transports.Add(rest.Name, transport); err != nil {
@@ -355,7 +357,7 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 func (g *Generator) CopySpecs() error {
 	for _, app := range g.Applications {
 		for _, transport := range app.Transports {
-			for _, spec := range transport.Handler.SpecPath {
+			for _, spec := range transport.SpecPath {
 				if _, err := os.Stat(spec); err != nil {
 					return fmt.Errorf("spec file not found: %s", spec)
 				}
@@ -364,7 +366,7 @@ func (g *Generator) CopySpecs() error {
 
 				dest := filepath.Join(
 					transport.Handler.GetTargetSpecDir(g.TargetDir),
-					transport.Handler.GetTargetSpecFile(),
+					transport.GetTargetSpecFile(),
 				)
 
 				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
