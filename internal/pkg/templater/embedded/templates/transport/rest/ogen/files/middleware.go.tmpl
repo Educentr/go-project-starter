@@ -1,9 +1,9 @@
-package {{ .Transport.Handler.Name }}
+package {{ .Transport.Name }}
 
 import (
 	"context"
 	
-	oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+	oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
 )
 
 type DefaultOgenMiddlewares struct{}

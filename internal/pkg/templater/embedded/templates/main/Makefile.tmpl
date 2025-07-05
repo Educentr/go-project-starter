@@ -240,18 +240,18 @@ proto:
 .PHONY: generate-ogen
 generate-ogen:
 		{{ end }}
-	# {{ $t.Handler.Name }}: {{ $t.Type }}
-	@echo "Generating REST code for {{ $t.Handler.Name }}..."
+	# {{ $t.Name }}: {{ $t.Type }}
+	@echo "Generating REST code for {{ $t.Name }}..."
 		{{ if 0 }}# Why packagename == SERIVCE_NAME ???{{ end }}
-	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package $(SERVICE_NAME) {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
+	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package $(SERVICE_NAME) {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
 	{{ else if eq $t.GeneratorType "ogen_client" }}
-	@echo "Generating client REST code for {{ $t.Handler.Name }}..."
-	@cd {{ $t.Handler.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.Handler.GetTargetGeneratePath "" }} -package {{ $t.Handler.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
+	@echo "Generating client REST code for {{ $t.Name }}..."
+	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
 	{{ else if eq $t.GeneratorType "template" }}
 	{{ if 0 }}Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
 	{{ else }}
 	# Unknown generator type {{ $t.GeneratorType }}
-		@echo "Unknown generator type {{ $t.GeneratorType }} {{ $t.Handler.Name }}"
+		@echo "Unknown generator type {{ $t.GeneratorType }} {{ $t.Name }}"
 	{{ end }}
 {{ end }}
 

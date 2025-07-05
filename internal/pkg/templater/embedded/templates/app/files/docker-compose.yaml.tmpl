@@ -12,7 +12,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.traefik.address=:8080"
 {{- range $i, $t := $restTransport }} {{ $needRealIP = true}}{{ if ne $t.GeneratorType "ogen_client" }}
-      - "--entrypoints.{{ $applicationName }}ep{{ $i }}.address=:{{ $t.Handler.Port }}"
+      - "--entrypoints.{{ $applicationName }}ep{{ $i }}.address=:{{ $t.Port }}"
       - "--entryPoints.{{ $applicationName }}ep{{ $i }}.forwardedHeaders.trustedIPs=${INTERNAL_SUBNET}"
 {{- end }}{{- end }}
 {{ if $needRealIP}}
@@ -22,7 +22,7 @@ services:
     ports:
       - "${INTERNAL_LAN}:${PORT_PREFIX_{{ .Application.Name | ToUpper | ReplaceDash }}_TRAEFIK}:8080"
 {{- range $_, $t := $restTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
-      - "{{ if not $t.PublicService }}${INTERNAL_LAN}:{{ end }}${PORT_PREFIX_{{ $applicationName | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}:{{ $t.Handler.Port }}"
+      - "{{ if not $t.PublicService }}${INTERNAL_LAN}:{{ end }}${PORT_PREFIX_{{ $applicationName | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}:{{ $t.Port }}"
 {{- end }}{{- end }}
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
@@ -95,7 +95,7 @@ services:
       - "traefik.http.middlewares.my-traefik-get-real-ip.plugin.traefik-get-real-ip.Proxy[0].proxyHeadername=*"
       - "traefik.http.middlewares.my-traefik-get-real-ip.plugin.traefik-get-real-ip.Proxy[0].realIP=X-Forwarded-For"
       {{- range $i, $t := $restTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
-      - "traefik.http.services.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.loadbalancer.server.port={{ $t.Handler.Port }}"
+      - "traefik.http.services.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.loadbalancer.server.port={{ $t.Port }}"
         {{- if $t.HealthCheckPath }}
       - "traefik.http.services.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.loadbalancer.healthcheck.path={{ $t.HealthCheckPath }}"
       - "traefik.http.services.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.loadbalancer.healthcheck.interval=2s"

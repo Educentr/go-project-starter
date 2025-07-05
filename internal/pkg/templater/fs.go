@@ -156,7 +156,7 @@ func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorTyp
 
 var (
 	prefixDirs = map[string]string{
-		"transport": "internal/app/transport/{{ .Transport.Type }}/{{ .Transport.Handler.Name }}/{{ .Transport.Handler.ApiVersion }}",
+		"transport": "internal/app/transport/{{ .Transport.Type }}/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}",
 		"worker":    "internal/app/worker/{{ .Worker.Name }}",
 
 		"app": "cmd/{{ .Application.Name }}",
