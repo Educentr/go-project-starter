@@ -3,6 +3,7 @@ main:
   logger: zerolog
   author: educentr
   use_active_record: false
+  registry_type: "github"
 
 docker:
   image_prefix: registry.educentr.info

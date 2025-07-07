@@ -196,6 +196,15 @@ func (m Main) IsValid() (bool, string) {
 		return false, "invalid logger"
 	}
 
+	if len(m.RegistryType) == 0 {
+		return false, "RegistryType not set " + m.RegistryType
+	}
+
+	if string(m.RegistryType) != "digitalocean" && m.RegistryType != "github" {
+		// return false, "invalid RegistryType value " + m.RegistryType
+		return false, "RegistryType value can be either 'github' or 'digitalocean', invalid RegistryType value " + m.RegistryType
+	}
+
 	return true, ""
 }
 
