@@ -1,0 +1,41 @@
+package rest
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"{{ .ProjectPath }}/pkg/ds"
+)
+
+type RoundTripper struct {
+	Proxied func(req *http.Request) (*http.Response, error)
+}
+
+func (rt RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return rt.Proxied(req)
+}
+
+func RoundTripperFunc(f func(req *http.Request) (*http.Response, error)) RoundTripper {
+	return RoundTripper{
+		Proxied: f,
+	}
+}
+
+type Middleware func(http.RoundTripper) http.RoundTripper
+
+func Chain(rt http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		rt = middlewares[i](rt)
+	}
+	return rt
+}
+
+type DefaultClient struct{}
+
+func (c *DefaultClient) GetClientMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName string, errHdl RestErrorHandler) []Middleware {
+	return []Middleware{
+		// Add your middlewares here
+		// Example: logging, metrics, etc.
+	}
+}

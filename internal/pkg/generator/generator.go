@@ -122,7 +122,10 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		if rest.GeneratorType == "ogen_client" {
-			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
+			transport.Import = []string{
+				fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version),
+				fmt.Sprintf(`"%s/internal/app/transport/rest/%s/%s"`, g.ProjectPath, rest.Name, rest.Version),
+			}
 			// transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
 			transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10), paths)
 		} else {
@@ -534,19 +537,19 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 			files = append(files, filesTrT...)
 
 			for _, transport := range tr {
-				if transport.GeneratorType != "ogen_client" {
-					dirsH, filesH, err := templater.GetTransportHandlerTemplates(
-						transport.Type,
-						filepath.Join(transport.GeneratorType, transport.GeneratorTemplate),
-						g.GetTmplHandlerParams(transport),
-					)
-					if err != nil {
-						return nil, nil, errors.Wrapf(err, "failed to get transport handler templates: `%s`, `%s`, `%s`", transport.Type, transport.GeneratorType, transport.GeneratorTemplate)
-					}
-
-					dirs = append(dirs, dirsH...)
-					files = append(files, filesH...)
+				//if transport.GeneratorType != "ogen_client" {
+				dirsH, filesH, err := templater.GetTransportHandlerTemplates(
+					transport.Type,
+					filepath.Join(transport.GeneratorType, transport.GeneratorTemplate),
+					g.GetTmplHandlerParams(transport),
+				)
+				if err != nil {
+					return nil, nil, errors.Wrapf(err, "failed to get transport handler templates: `%s`, `%s`, `%s`", transport.Type, transport.GeneratorType, transport.GeneratorTemplate)
 				}
+
+				dirs = append(dirs, dirsH...)
+				files = append(files, filesH...)
+				//}
 			}
 		}
 	}

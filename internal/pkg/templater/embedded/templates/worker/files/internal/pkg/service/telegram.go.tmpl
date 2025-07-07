@@ -13,8 +13,8 @@ func (s *Service) StopChannel(ctx context.Context) {
     s.telegram.StopChannel(ctx)
 }
 
-func (s *Service) TelegramGetPayments(ctx context.Context, skip int64) (*tgbotapi.StarTransactions, error) {
-	return s.telegram.GetPayments(ctx, skip)
+func (s *Service) TelegramGetPayments(ctx context.Context, skip, limit int64) (*tgbotapi.StarTransactions, error) {
+	return s.telegram.GetPayments(ctx, skip, limit)
 }
 
 func (s *Service) TelegramAnswerCallback(ctx context.Context, callbackID string, text string) (bool, error) {

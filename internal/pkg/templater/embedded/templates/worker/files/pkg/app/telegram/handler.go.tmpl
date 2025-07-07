@@ -6,7 +6,7 @@ import (
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/gofrs/uuid/v5"
-	"github.com/xvpn-one/backend/pkg/drivers/telegram"
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
 type UnimplementedAdminStatusHandler struct{}
@@ -66,11 +66,12 @@ type ButtonCmd struct {
 	Text   string
 	URL    string
 	Name   CommandName
-	Params ParamI
+	Params string
 }
 
 type RespMessage struct {
 	TmMsg       string
+	TgFormat    string
 	InvoiceData *telegram.InvoiceData
 	Photos      string
 	ButtonCMDs  [][]ButtonCmd
@@ -87,6 +88,7 @@ type Response struct {
 	NextState     *string
 	NotifyMsg     string
 	DeleteLastMsg bool
+	DeleteCurMsg  bool
 }
 
 

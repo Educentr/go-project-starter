@@ -67,10 +67,10 @@ func (tg *Telegram) RefundPayment(ctx context.Context, userID int64, chargeID st
 	return nil
 }
 
-func (tg *Telegram) GetPayments(ctx context.Context, skip int64) (*tgbotapi.StarTransactions, error) {
+func (tg *Telegram) GetPayments(ctx context.Context, skip, limit int64) (*tgbotapi.StarTransactions, error) {
 	ret, err := tg.bot.Request(tgbotapi.GetStarTransactionsConfig{
 		Offset: skip,
-		Limit:  10,
+		Limit:  limit,
 	})
 	if err != nil {
 		return nil, err

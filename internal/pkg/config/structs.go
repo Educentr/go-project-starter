@@ -258,7 +258,16 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			return false, "Generator template not supported"
 		}
 		if len(r.GeneratorParams) != 0 {
-			return false, "Generator params not supported"
+			for k := range r.GeneratorParams {
+				switch k {
+				case "auth_type":
+					if r.GeneratorParams[k] != "apikey" {
+						return false, "Invalid auth type in generator params. Only 'apikey' is supported for ogen_client"
+					}
+				default:
+					return false, "Invalid generator params"
+				}
+			}
 		}
 	default:
 		return false, "Invalid generator type"

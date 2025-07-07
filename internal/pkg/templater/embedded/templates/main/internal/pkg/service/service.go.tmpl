@@ -2,12 +2,12 @@ package service
 
 import (
 	"context"
-	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 
-	{{ .Logger.Import }}
 	"{{ .ProjectPath }}/internal/app/constant"
 	{{ range $_, $tr := .Applications.GetRestTransport }}
 	{{ if eq $tr.GeneratorType "ogen_client" }}
@@ -20,6 +20,8 @@ import (
 	{{ range $_, $driver := .Drivers }}
 	"{{ $driver.Import }}"
 	{{ end }}
+
+	"{{ .ProjectPath }}/pkg/app/rest"
 	"{{ .ProjectPath }}/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/healthstate"
 	"{{ .ProjectPath }}/pkg/app/serviceauth"
@@ -101,35 +103,30 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 
 	{{ range $_, $tr := .Applications.GetRestTransport }}
 	{{ if eq $tr.GeneratorType "ogen_client" }}
-	{{ $tr.PkgName }}_url, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ $tr.PkgName }}", "host"))
-	if err != nil {
-		return errors.Wrap(err, "error getting {{ $tr.PkgName }} url")
-	}
-	
-	if !ex {
-		return errors.New("{{ $tr.PkgName }} url not found")
-	} else {
-		if {{ $tr.PkgName }}_url != "" {
-			timeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ $tr.PkgName }}", "timeout"), time.Millisecond * 200)
-			if err != nil {
-				return errors.Wrap(err, "error getting {{ $tr.PkgName }} timeout")
-			}
+	{{ $tr.Name }}Cln := {{ $tr.Name }}.NewClient()
 
-			s.stat, err = {{ $tr.PkgName }}.NewClient({{ $tr.PkgName }}_url, {{ $tr.PkgName }}.WithClient(&http.Client{Timeout: timeout}))
-			if err != nil {
-				return errors.Wrap(err, "error creating stat client")
-			}
-		} else {
-			{{ $logger.WarnMsg "ctx" "client url not set" }}
-		}
+	s.{{ $tr.Name }}, err = {{ $tr.Name }}Cln.GetClient{{ $tr.Name }}(ctx)
+	if err != nil {
+		return errors.Wrap(err, "error init {{ $tr.Name }} client")
 	}
 	{{- end }}
 	{{- end }}
 
 	{{ if ne 0 ( len .Drivers ) }}
-	s.setDrivers(drvs)
-	{{ end }}
-
+	return s.setDrivers(drvs)
+	{{ else }}
 	return nil
+	{{ end }}
 }
 {{ end }}
+
+type EmptyServiceToHandle struct{}
+
+func (h *EmptyServiceToHandle) GetEmptySrv(aSrv any) (*EmptyService, error) {
+	srv, ok := aSrv.(*EmptyService)
+	if !ok {
+		return nil, rest.ErrServiceType
+	}
+
+	return srv, nil
+}

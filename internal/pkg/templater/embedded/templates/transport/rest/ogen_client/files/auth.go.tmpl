@@ -1,0 +1,36 @@
+package {{ .Transport.Handler.Name }}
+
+import (
+	"context"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/pkg/errors"
+    
+	{{ range $_, $imp := .Transport.Import }}
+	{{ $imp }}
+	{{- end }}
+	"{{ .ProjectPath }}/internal/app/constant"
+)
+
+{{ if eq .Transport.GeneratorParams.auth_type "apikey" }}
+type ApiKey struct {}
+
+func (ak *ApiKey) ApiKeyAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.ApiKeyAuth, error) {
+    key, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.Handler.Name }}", "apikey"))
+    if err != nil {
+        return {{ .Transport.PkgName }}.ApiKeyAuth{}, errors.Wrap(err, "error getting API key")
+    }
+
+    if key == "" {
+        return {{ .Transport.PkgName }}.ApiKeyAuth{}, errors.New("API key not set")
+    }
+
+
+    return {{ .Transport.PkgName }}.ApiKeyAuth{
+        APIKey: key,
+        Roles:  []string{"default"}, // You can modify this to include specific roles if needed
+    }, nil
+}
+{{ else if and .Transport.GeneratorParams.auth_type (ne .Transport.GeneratorParams.auth_type "") }}
+    {{- errorf "Unsupported auth type: %s" .Transport.GeneratorParams.auth_type -}}
+{{- end }}

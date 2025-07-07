@@ -13,7 +13,6 @@ jobs:
       skip: ${{"{{"}} steps.vars.outputs.skip {{"}}"}}
       DEPLOY_ENVS: ${{"{{"}} steps.vars.outputs.DEPLOY_ENVS {{"}}"}}
       OC_HOST: ${{"{{"}} steps.vars.outputs.OC_HOST {{"}}"}}
-      DOMAIN: ${{"{{"}} steps.set_env_main.outputs.DOMAIN {{"}}"}}
       ENV_TYPE: ${{"{{"}} steps.set_env_main.outputs.ENV_TYPE {{"}}"}}
       OC_USER: ${{"{{"}} steps.set_env_main.outputs.OC_USER {{"}}"}}
       LEN_EXPECTED: ${{"{{"}} steps.vars.outputs.LEN_EXPECTED {{"}}"}}
@@ -26,6 +25,9 @@ jobs:
         {{ $applicationName := $a.Name | ReplaceDash }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK {{"}}"}}
         {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
+        {{ if $t.PublicService }}
+      DOMAIN_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.DOMAIN_{{ $t.Name | ToUpper }} {{"}}"}}
+        {{ end }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }} {{"}}"}}
         {{ end }}{{ end }}
       {{ end }}
@@ -34,7 +36,7 @@ jobs:
       - name: Get branch
         uses: noliran/branch-based-secrets@v1
         with:
-          secrets: ENABLED,DOMAIN,ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,{{- range $_, $a := .Applications }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET
+          secrets: ENABLED,ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,{{- range $_, $a := .Applications }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET
 
       - name: Use vars
         id: vars
@@ -98,6 +100,21 @@ jobs:
             echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_TRAEFIK_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
 
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
+            {{ if $t.PublicService }}
+          if [ -z "${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" ]; then
+            echo "Empty variable ${{"{{"}} env.DOMAIN_{{ $t.Name | ToUpper }}_NAME {{"}}"}}"
+            exit 5
+          fi
+
+          LEN=$(echo '${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' | jq '. | length')
+
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.DOMAIN_{{ $t.Name | ToUpper }}_NAME {{"}}"}}: $LEN"
+            exit 6
+          fi
+
+          echo 'DOMAIN_{{ $t.Name | ToUpper }}=${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+            {{ end }}
           if [ -z "${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" ]; then
             echo "Empty variable ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME {{"}}"}}"
             exit 3
@@ -113,20 +130,6 @@ jobs:
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
             {{ end -}}{{ end -}}
           {{ end -}}
-
-          if [ -z "${{"{{"}} vars[env.DOMAIN_NAME] {{"}}"}}" ]; then
-            echo "Empty variable ${{"{{"}} env.DOMAIN_NAME {{"}}"}}"
-            exit 5
-          fi
-
-          LEN=$(echo '${{"{{"}} vars[env.DOMAIN_NAME] {{"}}"}}' | jq '. | length')
-
-          if [ "$LEN" != "$LEN_EXPECTED" ]; then
-            echo "Invalid array size ${{"{{"}} env.DOMAIN_NAME {{"}}"}}: $LEN"
-            exit 6
-          fi
-
-          echo 'DOMAIN=${{"{{"}} vars[env.DOMAIN_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
 
           LEN=$(echo '${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}' | jq '. | length')
 
@@ -205,10 +208,12 @@ jobs:
             fname="$fname-$ENV_TYPE"
           fi
 
-          echo 'DOMAIN="${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN)[matrix.envs] {{"}}"}}"' >> $fname
           {{- range $_, $a := .Applications }}
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK)[matrix.envs] {{"}}"}}"' >> $fname
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
+              {{ if $t.PublicService }}
+          echo 'DOMAIN_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
+              {{ end }} 
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
             {{- end }}{{- end }}
           {{- end }}

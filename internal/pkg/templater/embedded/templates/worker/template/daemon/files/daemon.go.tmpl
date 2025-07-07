@@ -76,10 +76,17 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, w.Name())" }}
 
 		timer := time.NewTimer(time.Millisecond * 500)
+		iterNum := 1
+
 	JOB:
 		for {
 			select {
 			case <-timer.C:
+				iterNum++
+				if iterNum % 100 == 0 {
+					{{ .Logger.InfoMsg "ctx" "worker iteration" "Int(\"iterNum\", iterNum)" "Str(nameFieldLogger, w.Name())" }}
+				}
+
 				tasks, jobState, err := w.GetTasks(ctx, w.jobState)
 				if err != nil {
 					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "Str(nameFieldLogger, w.Name())" }}
@@ -89,16 +96,38 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 				w.jobState = jobState
 
-				if len(tasks) == 0 {
+				if tasks == nil {
+					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "Str(nameFieldLogger, w.Name())" }}
 					timer = time.NewTimer(worker.NewCycleTimeout)
 					continue
 				}
 
+				MaxWorkers, err := onlineconf.GetInt(ctx, w.GetConfigPath("max_workers"), 5)
+
+				var wgWorkers errgroup.Group
+
+				tasksChan := make(chan daemon.ITask)
+
+				for i := 0; i < int(MaxWorkers); i++ {
+					wgWorkers.Go(func() error {
+						for task := range tasksChan {
+							if err := w.JobStarter(ctx, task); err != nil {
+								{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "Str(nameFieldLogger, w.Name())" "Str(\"taskID\", task.GetID(ctx))"}}
+							}
+						}
+
+						return nil
+					})
+				}
+
 				for _, task := range tasks {
-					err = w.JobStarter(ctx, task)
-					if err != nil {
-						{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "Str(\"taskID\", task.GetID(ctx))" "Str(nameFieldLogger, w.Name())"}}
-					}
+					tasksChan <- task
+				}
+
+				close(tasksChan)
+
+				if err := wgWorkers.Wait(); err != nil {
+					{{ .Logger.ErrorMsg "ctx" "err" "Worker pool error" "Str(nameFieldLogger, w.Name())" }}
 				}
 
 				{{ .Logger.DebugMsg "ctx" "worker finished cycle" }}

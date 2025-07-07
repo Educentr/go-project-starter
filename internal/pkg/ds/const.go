@@ -174,6 +174,10 @@ func (app App) getTransport(t TransportType) []Transport {
 		}
 	}
 
+	sort.Slice(retTransports, func(i, j int) bool {
+		return strings.Compare(retTransports[i].Handler.Port, retTransports[j].Handler.Port) < 0
+	})
+
 	return retTransports
 }
 
@@ -192,8 +196,7 @@ func (a Apps) getTransport(t TransportType) []Transport {
 	}
 
 	sort.Slice(listTransports, func(i, j int) bool {
-		return strings.Compare(listTransports[i].GeneratorType, listTransports[j].GeneratorType) < 0 &&
-			strings.Compare(listTransports[i].Handler.Port, listTransports[j].Handler.Port) < 0
+		return strings.Compare(listTransports[i].Handler.Port, listTransports[j].Handler.Port) < 0
 	})
 
 	return listTransports

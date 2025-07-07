@@ -1,0 +1,50 @@
+package {{ .Transport.Name }}
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/pkg/errors"
+	"{{ .ProjectPath }}/internal/app/constant"
+	"{{ .ProjectPath }}/pkg/app/rest"
+	{{ .Transport.PkgName }} "{{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/v1"
+)
+
+type Client struct {
+	rest.DefaultClient
+}
+
+func NewClient() Client {
+	return Client{}
+}
+
+func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Transport.PkgName }}.Client, error) {
+	url, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "host"))
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting {{ .Transport.PkgName }} url")
+	}
+
+	if !ex || url == "" {
+		return nil, nil
+	}
+
+	timeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "timeout"), time.Second * 2)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting {{ .Transport.PkgName }} url")
+	}
+
+	return {{ .Transport.PkgName }}.NewClient(
+		url,
+        {{ if eq .Transport.GeneratorParams.auth_type "apikey" }}
+		&ApiKey{},
+        {{ end }}
+		{{ .Transport.PkgName }}.WithClient(&http.Client{
+			Timeout: timeout,
+			Transport: rest.Chain(http.DefaultTransport,
+				c.GetClientMiddlewares(ctx, constant.ServiceName, nil, nil, "{{ .Transport.PkgName }}", nil)...,
+			),
+		}),
+	)
+}

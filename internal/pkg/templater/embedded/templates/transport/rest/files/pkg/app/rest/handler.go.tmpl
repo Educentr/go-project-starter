@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"{{ .ProjectPath }}/pkg/ds"
-	"{{ .ProjectPath }}/internal/pkg/service"
 )
 
 var (
@@ -20,13 +19,4 @@ type DefaultServiceHandler struct {
 func (sh *DefaultServiceHandler) InitHandler(_ context.Context, srv ds.IService) error {
 	sh.Srv = srv
 	return nil
-}
-
-func (sh *DefaultServiceHandler) GetSrv() (*service.EmptyService, error) {
-	srv, ok := sh.Srv.(*service.EmptyService)
-	if !ok {
-		return nil, ErrServiceType
-	}
-
-	return srv, nil
 }

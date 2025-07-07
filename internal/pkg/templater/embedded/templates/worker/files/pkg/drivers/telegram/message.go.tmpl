@@ -31,6 +31,11 @@ func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg M
 
 		msgTg := tgbotapi.NewPhoto(chatID, msg.Images[0]);
 		msgTg.Caption = msg.Text
+
+		if msg.TextFormat != "" {
+			msgTg.ParseMode = msg.TextFormat
+		}
+
 		if len(msg.Btn) != 0 {
 			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
 		}
@@ -38,15 +43,24 @@ func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg M
 		return tg.send(msgTg)
 	default:
 		msgTg := tgbotapi.NewMessage(chatID, msg.Text)		
+
 		if len(msg.Btn) != 0 {
 			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
 		}
 
+		if msg.TextFormat != "" {
+			msgTg.ParseMode = msg.TextFormat
+		}
+		
 		return tg.send(msgTg)
 	}
 }
 
 func (tg *Telegram) send(msg tgbotapi.Chattable) (int, error) {
+	if tg.bot == nil {
+		return 0, errors.New("telegram bot is not initialized")
+	}
+	
 	tgMsg, err := tg.bot.Send(msg)
 	if err != nil {
 		return 0, err

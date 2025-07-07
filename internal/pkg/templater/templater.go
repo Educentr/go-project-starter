@@ -340,6 +340,7 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		"ToUpper":     strings.ToUpper,
 		"ReplaceDash": func(s string) string { return strings.ReplaceAll(s, "-", "_") },
 		"Capitalize":  cases.Title(language.Und).String,
+		"errorf":      func(format string, args ...any) error { return fmt.Errorf(format, args...) },
 	}
 
 	buf := &bytes.Buffer{}

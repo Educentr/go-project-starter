@@ -10,6 +10,11 @@ import (
 	"{{ .ProjectPath }}/pkg/ds"
 )
 
+//type Client interface {
+//	GetHTTPClient(timeout time.Duration) *http.Client
+//	GetMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName string, errHdl RestErrorHandler) ([]func(next http.Handler) http.Handler, error)
+//}
+
 type Router interface {
 	InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.IService, metrics *prometheus.Registry) error
 	GetMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName string, errHdl RestErrorHandler) ([]func(next http.Handler) http.Handler, error)

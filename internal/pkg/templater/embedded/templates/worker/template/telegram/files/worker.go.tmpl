@@ -13,15 +13,16 @@ import (
 )
 
 type Cmd struct {
-	Name    apptg.CommandName
-	NeedMsg bool
+	Name            apptg.CommandName
+	NeedMsg         bool
 	NeedAdminAccess bool
-	Handler func(ctx context.Context, h *handler.Handler, params string) (apptg.Response, error)
+	Handler         func(ctx context.Context, h *handler.Handler, params string) (apptg.Response, error)
+	Params          apptg.ParamI
 }
 
 var cmdMaps = make(map[apptg.CommandName]Cmd)
 
-func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd, callbackID string, pp string) {
+func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd, callbackID string, curMsgID int, pp string) {
 	actor, err := reqctx.GetActor(ctx)
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting actor from context")
@@ -56,7 +57,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 			if !ok {
 				zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Unknown command for internal redirect")
 
-				w.postProcessRequest(ctx, appActor.TgActor.ID, callbackID, apptg.Response{}, ErrInternalError)
+				w.postProcessRequest(ctx, appActor.TgActor.ID, callbackID, curMsgID, apptg.Response{}, ErrInternalError)
 
 				return
 			}
@@ -65,7 +66,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 			continue
 		}
 
-		w.postProcessRequest(ctx, appActor.TgActor.ID, callbackID, resp, err)
+		w.postProcessRequest(ctx, appActor.TgActor.ID, callbackID, curMsgID, resp, err)
 		
 		break
 	}
@@ -77,7 +78,7 @@ func (w *Worker) HandleAuthError(ctx context.Context, tgID int64, callbackID str
 	if errors.Is(aclErr, ErrUserNotFound) {
 		zlog.Ctx(ctx).Error().Err(aclErr).Msg("Admin not found. Skip")
 
-		w.postProcessRequest(ctx, tgID, callbackID, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, tgID, callbackID, 0, apptg.Response{}, nil)
 
 		return
 	}
@@ -85,19 +86,19 @@ func (w *Worker) HandleAuthError(ctx context.Context, tgID int64, callbackID str
 	if errors.Is(aclErr, ErrAccessDenied) {
 		zlog.Ctx(ctx).Error().Err(aclErr).Msg("Access denied")
 
-		w.postProcessRequest(ctx, tgID, callbackID, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, tgID, callbackID, 0, apptg.Response{}, nil)
 
 		return
 	}
 
 	zlog.Ctx(ctx).Error().Err(aclErr).Msg("Error checking ACL")
 
-	w.postProcessRequest(ctx, tgID, callbackID, apptg.Response{}, ErrInternalError)
+	w.postProcessRequest(ctx, tgID, callbackID, 0, apptg.Response{}, ErrInternalError)
 
 	return
 }
 
-func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID string, resp apptg.Response, err error) {
+func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID string, curMsgID int, resp apptg.Response, err error) {
 	notifyMsg := resp.NotifyMsg
 
 	switch {
@@ -147,6 +148,13 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 		}
 	}
 
+	if resp.DeleteCurMsg {
+		err = srv.TelegramDeleteMessage(ctx, tgID, curMsgID)
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
+		}
+	}
+
 	if callbackID != "" {
 		_, err = srv.TelegramAnswerCallback(ctx, callbackID, notifyMsg)
 		if err != nil {
@@ -176,6 +184,10 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 				Btn: btn,
 			}
 
+			if rMsg.TgFormat != "" {
+				tgMsg.TextFormat = rMsg.TgFormat
+			}
+
 			if rMsg.Photos != "" {
 				tgMsg.Images = []tgbotapi.RequestFileData{tgbotapi.FilePath(rMsg.Photos)}
 			}
@@ -192,6 +204,44 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 
 			if err != nil {
 				zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Err(err).Msg("Error sending message")
+
+				origErr := err
+
+				actor, err := reqctx.GetActor(ctx)
+				if err != nil {
+					zlog.Ctx(ctx).Error().Err(err).Msg("Error getting actor from context")
+
+					return
+				}
+
+				appActor, ok := actor.(*ds.Actor)
+				if !ok {
+					zlog.Ctx(ctx).Error().Msg("Actor is not of type ds.Actor")
+
+					return
+				}
+
+				if appActor == nil || appActor.GetID() == 0 || appActor.TgActor.ID == 0 {
+					zlog.Ctx(ctx).Error().Msg("Actor is nil")
+
+					return
+				}
+
+				adm, err := w.IsActorAdmin(ctx, appActor.TgActor)
+				if err != nil {
+					zlog.Ctx(ctx).Error().Err(err).Msg("Error checking if actor is admin")
+
+					return
+				}
+
+				if adm {
+					_, err = srv.TelegramSendMessageButtons(ctx, tgID, telegram.Message{
+						Text: "Error sending message: " + origErr.Error(),
+					})
+					if err != nil {
+						zlog.Ctx(ctx).Error().Err(err).Msg("Error sending error message to admin")
+					}
+				}
 
 				return
 			}
@@ -214,7 +264,7 @@ func convertButtonCMDToTgButton(ctx context.Context, btn [][]apptg.ButtonCmd) ([
 
 		for j := range btn[i] {
 			if btn[i][j].URL != "" {
-				if len(btn[i][j].URL) > 64 {
+				if len(btn[i][j].URL) > 256 {
 					zlog.Ctx(ctx).Error().Int("Len", len(btn[i][j].URL)).Str("Text", btn[i][j].Text).Str("URL", btn[i][j].URL).Msg("Button URL too long")
 					
 					continue
@@ -244,13 +294,7 @@ func convertButtonCMDToTgButton(ctx context.Context, btn [][]apptg.ButtonCmd) ([
 				continue
 			}
 
-			if btn[i][j].Params == nil {
-				zlog.Ctx(ctx).Error().Msg("Button is nil")
-
-				continue
-			}
-
-			data := "/" + c.Name.String() + ":" + btn[i][j].Params.Pack()
+			data := "/" + c.Name.String() + ":" + btn[i][j].Params
 			if len(data) > 64 {
 				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
 

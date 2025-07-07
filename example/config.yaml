@@ -28,7 +28,6 @@ post_generate:
 git:
   repo: git@gitlab.educentr.info:golang/projects/example.git
   module_path: gitlab.educentr.info/golang/projects/example
-  # projectId: 1
 
 tools:
   protobuf_version: 1.7.0

@@ -41,6 +41,7 @@ func (h *ogenDefaultError) NewError(ctx context.Context, err error) *oas.ErrorDe
 type Handler struct {
 	rest.DefaultServiceHandler
 	ogenDefaultError
+	service.EmptyServiceToHandle
 }
 
 // Compile-time check for Handler.

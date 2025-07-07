@@ -126,7 +126,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 		for {
 			select {
 			case update := <- w.tgSrv.GetUpdateChannel(ctx):
-				{{ .Logger.InfoMsg "ctx" "worker get update" "Str(nameFieldLogger, w.Name())" }}
+				{{ .Logger.InfoMsg "ctx" "worker get update" "Int(\"updateID\", update.UpdateID)" "Interface(\"update\", update)" "Str(nameFieldLogger, w.Name())" }}
 
 				err := w.JobStarter(ctx, update)
 				if err != nil {

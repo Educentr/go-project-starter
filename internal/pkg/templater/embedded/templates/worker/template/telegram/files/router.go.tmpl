@@ -132,7 +132,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) error 
 	}()
 
 	resp, err := hdl.ProcessPayment(ctx, invoice.IdempotencyKey, message.SuccessfulPayment)
-	w.postProcessRequest(ctx, message.From.ID, "", resp, err)
+	w.postProcessRequest(ctx, message.From.ID, "", message.MessageID, resp, err)
 		
 	return nil
 }
@@ -166,7 +166,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, tgActor.ID, callback.ID, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, tgActor.ID, callback.ID,  callback.Message.MessageID, apptg.Response{}, errors.New("Unknown command"))
 
 		return nil
 	}
@@ -178,7 +178,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 		return nil
 	}
 
-	w.processRequest(ctx, hdl, c, callback.ID, params)
+	w.processRequest(ctx, hdl, c, callback.ID, callback.Message.MessageID, params)
 
 	return nil
 }
@@ -246,7 +246,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) err
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, tgActor.ID, "", apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, tgActor.ID, "",  message.MessageID, apptg.Response{}, errors.New("Unknown command"))
 
 		return nil
 	}
@@ -256,12 +256,15 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) err
 	if c.NeedMsg {
 		if message.Text == "" {
 			zlog.Ctx(ctx).Error().Msg("Empty message")
-			w.postProcessRequest(ctx, tgActor.ID, "", apptg.Response{}, errors.New("Empty message"))
+			w.postProcessRequest(ctx, tgActor.ID, "",  message.MessageID, apptg.Response{}, errors.New("Empty message"))
 
 			return nil
 		}
 
-		pp = message.Text[startParam:]
+		pp = ""
+		if len(message.Text) > startParam {
+			pp = message.Text[startParam:]
+		}
 	}
 
 	ctx, aclErr := hdl.Authorization(ctx, tgActor, command, pp)
@@ -271,7 +274,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) err
 		return nil
 	}
 
-	w.processRequest(ctx, hdl, c, "", pp)
+	w.processRequest(ctx, hdl, c, "", message.MessageID, pp)
 
 	return nil
 }

@@ -104,6 +104,6 @@ services:
       - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.middlewares=my-traefik-get-real-ip"
       {{- end }}
       - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.service={{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}"
-      - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.rule=Host(`{{ if $t.PublicService }}${DOMAIN}{{ else }}${INTERNAL_LAN}{{ end }}`)"
+      - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.rule=Host(`{{ if $t.PublicService }}${DOMAIN_{{ $t.Name | ToUpper }}}{{ else }}${INTERNAL_LAN}{{ end }}`)"
       - "traefik.http.routers.{{ $applicationName }}${ENV_TYPE}-{{ $t.Name }}.entrypoints={{ $applicationName }}ep{{ $i }}"
       {{- end }}{{- end }}

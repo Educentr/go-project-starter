@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"strings"
+	"context"
+	
 	"{{ .ProjectPath }}/internal/pkg/service"
 	apptg "{{ .ProjectPath }}/pkg/app/telegram"
 )
@@ -26,6 +29,41 @@ func (e *EmptyParams) Unpack(_ context.Context, _ string) error {
 
 func (e *EmptyParams) Pack() string {
 	return ""
+}
+
+type BackButtonParams struct {
+	Back apptg.ButtonCmd
+	Del bool
+}
+
+func (p *BackButtonParams) Pack() string {
+	if p.Back.Name == "" {
+		return ""
+	}
+
+	return strings.Join([]string{string(p.Back.Name), p.Back.Text, p.Back.URL, p.Back.Params}, "\x00")
+}
+
+func (p *BackButtonParams) Unpack(_ context.Context, params string) error {
+	if params == "" {
+		return nil
+	}
+
+	parts := strings.SplitN(params, "\x00", 4)
+	if len(parts) != 4 {
+		return fmt.Errorf("invalid params format: %s", params)
+	}
+
+	if parts[0] == "" {
+		return fmt.Errorf("empty command name in params: %s", params)
+	}
+
+	p.Back.Name = apptg.CommandName(parts[0])
+	p.Back.Text = parts[1]
+	p.Back.URL = parts[2]
+	p.Back.Params = parts[3]
+
+	return nil
 }
 
 const (

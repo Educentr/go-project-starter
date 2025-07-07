@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/pkg/errors"
 	"gitlab.educentr.info/golang/service-starter/internal/pkg/ds"
@@ -163,21 +162,22 @@ var (
 	}
 )
 
-type MapTemplateFileName struct {
-	dirs  []ds.Files
-	files []ds.Files
-}
+// ToDo добавить кеширование шаблонов
+// type MapTemplateFileName struct {
+// 	dirs  []ds.Files
+// 	files []ds.Files
+// }
 
-type TemplateFileNameCache struct {
-	sync.Mutex
-	cache map[string]MapTemplateFileName
-}
+// type TemplateFileNameCache struct {
+// 	sync.Mutex
+// 	cache map[string]MapTemplateFileName
+// }
 
-var (
-	templateFileNameCache = TemplateFileNameCache{
-		cache: make(map[string]MapTemplateFileName),
-	}
-)
+// var (
+// 	templateFileNameCache = TemplateFileNameCache{
+// 		cache: make(map[string]MapTemplateFileName),
+// 	}
+// )
 
 func GetWorkerRunnerTemplates(template string, params GeneratorRunnerParams) (dirs, files []ds.Files, err error) {
 	cacheKey := filepath.Join("embedded/templates/worker", template, "files")

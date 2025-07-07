@@ -12,9 +12,9 @@ WORKDIR /go/src/app
 RUN make build_in_docker-{{ .Application.Name }} && \
     cp ${binary} /service
 
-RUN mkdir -p /public && \
-    cp -r public/* /public/ && \
-    chmod -R 755 /public
+RUN mkdir -p /public 
+ADD public /public
+RUN chmod -R 755 /public
 
 FROM alpine
 COPY --from=builder /service /service
