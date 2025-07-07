@@ -23,6 +23,6 @@ RUN mkdir -p /etc/onlineconf
 CMD ["/service"]
 
 {{- range $_, $t := .Applications.GetRestTransport }}
-# {{ $t.Handler.Name }}/{{ $t.Type }}
-EXPOSE {{ $t.Handler.Port }}
+# {{ $t.Name }}/{{ $t.Type }}
+EXPOSE {{ $t.Port }}
 {{- end }}

@@ -1,4 +1,4 @@
-package {{ .Transport.Handler.Name }}
+package {{ .Transport.Name }}
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"{{ .ProjectPath }}/internal/app/transport/rest/{{ .Transport.Handler.Name }}/{{ .Transport.Handler.ApiVersion }}/handler"
+	"{{ .ProjectPath }}/internal/app/transport/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}/handler"
 	"{{ .ProjectPath }}/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/rest"
 	"{{ .ProjectPath }}/pkg/app/rest/mw"

@@ -1,4 +1,4 @@
-package {{ .Transport.Handler.Name }}
+package {{ .Transport.Name }}
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 type ApiKey struct {}
 
 func (ak *ApiKey) ApiKeyAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.ApiKeyAuth, error) {
-    key, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.Handler.Name }}", "apikey"))
+    key, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.Name }}", "apikey"))
     if err != nil {
         return {{ .Transport.PkgName }}.ApiKeyAuth{}, errors.Wrap(err, "error getting API key")
     }

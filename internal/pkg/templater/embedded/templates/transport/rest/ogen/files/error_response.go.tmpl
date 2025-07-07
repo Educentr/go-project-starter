@@ -1,4 +1,4 @@
-package {{ .Transport.Handler.Name }}
+package {{ .Transport.Name }}
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	{{ .Logger.Import }}
 
 	"{{ .ProjectPath }}/pkg/app/rest"
-	oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+	oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
 )
 
 type OgenErrorHandler struct {

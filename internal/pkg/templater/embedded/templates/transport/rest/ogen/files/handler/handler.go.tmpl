@@ -8,7 +8,7 @@ import (
 
 	"{{ .ProjectPath }}/pkg/app/rest"
 
-	oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+	oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
 )
 
 type ogenDefaultError struct {

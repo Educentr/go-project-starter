@@ -125,17 +125,20 @@ type Driver struct {
 }
 
 type Transport struct {
-	Name              string
-	PkgName           string
-	Import            []string // ToDo точно ли нужен срез?
-	PublicService     bool
-	Init              string
-	HealthCheckPath   string
-	Handler           Handler
+	Name            string
+	PkgName         string
+	Import          []string // ToDo точно ли нужен срез?
+	PublicService   bool
+	Init            string
+	HealthCheckPath string
+	// Handler        Handler
 	Type              TransportType
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
+	SpecPath          []string
+	ApiVersion        string // перенесено из Hendler
+	Port              string // перенесено из Hendler
 }
 
 type Worker struct {
@@ -175,7 +178,7 @@ func (app App) getTransport(t TransportType) []Transport {
 	}
 
 	sort.Slice(retTransports, func(i, j int) bool {
-		return strings.Compare(retTransports[i].Handler.Port, retTransports[j].Handler.Port) < 0
+		return strings.Compare(retTransports[i].Port, retTransports[j].Port) < 0
 	})
 
 	return retTransports
@@ -196,7 +199,8 @@ func (a Apps) getTransport(t TransportType) []Transport {
 	}
 
 	sort.Slice(listTransports, func(i, j int) bool {
-		return strings.Compare(listTransports[i].Handler.Port, listTransports[j].Handler.Port) < 0
+		return strings.Compare(listTransports[i].GeneratorType, listTransports[j].GeneratorType) < 0 &&
+			strings.Compare(listTransports[i].Port, listTransports[j].Port) < 0
 	})
 
 	return listTransports
@@ -247,35 +251,36 @@ type Logger interface {
 	InitLogger(ctx string, serviceName string) string
 }
 
+/*
 // ToDo кажется, что тип Handler не нужен и надо объединить его с Transport
-type Handler struct {
-	Name       string
-	ApiVersion string
-	Port       string   //unused
-	SpecPath   []string // ToDo вынести из структуры Handler в структуру транспорта. Для клиентов мы генерируем транспорт, но не генерируем хендлеры
-}
 
-func NewHandler(name, apiVersion, port string, specPath []string) Handler {
-	return Handler{
-		Name:       name,
-		ApiVersion: apiVersion,
-		Port:       port,
-		SpecPath:   specPath,
+	type Handler struct {
+		Name       string
+		ApiVersion string
+		Port       string //unused
 	}
+
+	func NewHandler(name, apiVersion, port string) Handler {
+		return Handler{
+			Name:       name,
+			ApiVersion: apiVersion,
+			Port:       port,
+		}
+	}
+*/
+
+func (t Transport) GetTargetSpecDir(targetDir string) string {
+	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 
-func (h Handler) GetTargetSpecDir(targetDir string) string {
-	return filepath.Join(targetDir, "api", "rest", h.Name, h.ApiVersion)
-}
-
-func (h Handler) GetTargetSpecFile() string {
-	_, file := filepath.Split(h.SpecPath[0])
+func (t Transport) GetTargetSpecFile() string {
+	_, file := filepath.Split(t.SpecPath[0])
 
 	return file
 }
 
-func (h Handler) GetTargetGeneratePath(targetDir string) string {
-	return filepath.Join(targetDir, "pkg", "rest", h.Name, h.ApiVersion)
+func (t Transport) GetTargetGeneratePath(targetDir string) string {
+	return filepath.Join(targetDir, "pkg", "rest", t.Name, t.ApiVersion)
 }
 
 type FilesDiff struct {

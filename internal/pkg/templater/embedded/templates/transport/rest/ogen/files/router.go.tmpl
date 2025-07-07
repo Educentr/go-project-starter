@@ -1,4 +1,4 @@
-package {{ .Transport.Handler.Name }}
+package {{ .Transport.Name }}
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 	"github.com/rs/cors"
 	"github.com/go-faster/jx"
 
-	"{{ .ProjectPath }}/internal/app/transport/rest/{{ .Transport.Handler.Name }}/{{ .Transport.Handler.ApiVersion }}/handler"
+	"{{ .ProjectPath }}/internal/app/transport/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}/handler"
 	"{{ .ProjectPath }}/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/rest"
 	"{{ .ProjectPath }}/pkg/app/rest/mw"
-	oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+	oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
 )
 
 // API exists all methods that can help you up your http server for business logic

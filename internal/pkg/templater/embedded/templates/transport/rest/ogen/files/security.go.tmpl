@@ -1,10 +1,10 @@
-package {{ .Transport.Handler.Name }}
+package {{ .Transport.Name }}
 {{ if ne "off" ( index .TransportParams "auth_handler" ) }}
 
 import (
     "context"
 
-    oas "{{ .Transport.Handler.GetTargetGeneratePath .ProjectPath }}"
+    oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
 )
 
 type DefaultOgenSecurityHandler struct{}
