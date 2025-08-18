@@ -233,7 +233,7 @@ proto:
 
 {{- $ogen := false }}
 {{- range $_, $t := .Applications.GetRestTransport }}
-	{{ if eq $t.GeneratorType "ogen" }}
+	{{ if or (eq $t.GeneratorType "ogen") (eq $t.GeneratorType "ogen_client") }}
 		{{ if eq $ogen false }}
 			{{ $ogen = true }}
 # Generate oas files from all openapi specifications
@@ -242,13 +242,12 @@ generate-ogen:
 		{{ end }}
 	# {{ $t.Name }}: {{ $t.Type }}
 	@echo "Generating REST code for {{ $t.Name }}..."
-		{{ if 0 }}# Why packagename == SERIVCE_NAME ???{{ end }}
-	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package $(SERVICE_NAME) {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
+	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
 	{{ else if eq $t.GeneratorType "ogen_client" }}
 	@echo "Generating client REST code for {{ $t.Name }}..."
 	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
 	{{ else if eq $t.GeneratorType "template" }}
-	{{ if 0 }}Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
+	{{ if 0 }}ToDo Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
 	{{ else }}
 	# Unknown generator type {{ $t.GeneratorType }}
 		@echo "Unknown generator type {{ $t.GeneratorType }} {{ $t.Name }}"
@@ -350,7 +349,7 @@ install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $p
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}
 
 .PHONY: download
 download:

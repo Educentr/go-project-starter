@@ -36,7 +36,7 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				ctx, cancel := reqctx.CreateContext(ctx, onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler"), r.URL.Path)
+				ctx, cancel := reqctx.CreateContext(ctx, ctx, onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler"), r.URL.Path)
 				{{ .Logger.UpdateContext "ctx" "Str(\"Method\", r.Method)" "Str(\"URI\", r.RequestURI)" }}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				cancel()

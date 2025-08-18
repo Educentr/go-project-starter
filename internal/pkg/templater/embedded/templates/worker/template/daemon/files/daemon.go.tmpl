@@ -50,7 +50,7 @@ func (w *Worker) GetConfigPath(key ...string) string{
 }
 
 func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) {
-	ctxJob, cancel := reqctx.CreateContext(ctx, w.GetConfigPath(),  "job")
+	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, w.GetConfigPath(),  "job")
 	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, w.Name())" }}
 
 	err = errors.New("unexpected error")
@@ -65,6 +65,9 @@ func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) 
 	}()
 
 	err = task.Do(ctxJob, w.Srv)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctxJob" "err" "Error job starter" "Str(nameFieldLogger, w.Name())" "Str(\"taskID\", task.GetID(ctxJob))"}}
+	}
 
 	return
 }
@@ -103,6 +106,10 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				}
 
 				MaxWorkers, err := onlineconf.GetInt(ctx, w.GetConfigPath("max_workers"), 5)
+				if err != nil {
+					{{ .Logger.ErrorMsg "ctx" "err" "Error get max_workers config" "Str(nameFieldLogger, w.Name())" }}
+					MaxWorkers = 5 // default value
+				}
 
 				var wgWorkers errgroup.Group
 

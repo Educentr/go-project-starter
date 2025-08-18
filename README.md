@@ -88,3 +88,14 @@ Dockerfile          Makefile            api                 cmd                 
   hint: You can disable this warning with `git config advice.ignoredHook false`.
 - сделать функцию, которая позволит добираться до нужного раздела конфига из API и Handler-ов
 - разделить actor-а и subject-а в системе авторизации. Actor - это инициатор запроса, subject - тот по отношению к кому выполняется действие. Для запросов от имени пользователя actor всегда == subject. Для от имени админа actor == админ, subject == пользователь по отношению к которому выполняется действие.
+- добавить генерацию .gitattributes для возможности исключения сгенерированных файлов из git diff. Рецепт для пользователя как настроить исключение 
+  ```
+     [diff "none"]
+     command = /bin/true
+  ```
+  Содержимое файла:
+  ```
+  internal/pkg/model/repository/cmpl/*/* diff=none
+  *_gen.go diff=none
+  ```
+  Собственно содержимое должно быть разным в зависимости от подключенных генераторов.

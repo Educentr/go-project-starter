@@ -41,7 +41,10 @@ func ReWrapZlog(source context.Context, destination context.Context, ocPrefix, o
 		return destination
 	}
 
-	return FromContextLoggerZlog(nCtx).zlogCreator(ocPrefix, ocPath).WithContext(nCtx)
+	nCtx = FromContextLoggerZlog(nCtx).WrapZlog(source, ocPrefix, ocPath)
+	zlog.Ctx(nCtx).UpdateContext(func(c zlog.Context) zlog.Context { return zlog.Ctx(source).With() })
+
+	return nCtx
 }
 
 // Создание zlog-а в контексте

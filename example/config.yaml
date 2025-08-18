@@ -5,6 +5,9 @@ main:
   use_active_record: false
   registry_type: "github"
 
+config:
+  image: ghcr.io/nikolo/onlineconf-updater:5ee228a
+
 docker:
   image_prefix: registry.educentr.info
 

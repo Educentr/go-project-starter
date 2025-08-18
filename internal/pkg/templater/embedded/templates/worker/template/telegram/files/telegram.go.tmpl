@@ -72,7 +72,7 @@ func (w *Worker) GetConfigPath(key ...string) string{
 }
 
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
-	ctxJob, cancel := reqctx.CreateContext(ctx, w.GetConfigPath(), "job")
+	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, w.GetConfigPath(), "job")
 	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, w.Name())" }}
 
 	defer func() {

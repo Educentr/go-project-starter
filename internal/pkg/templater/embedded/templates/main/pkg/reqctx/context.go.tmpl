@@ -32,17 +32,18 @@ var (
 	errInvalidRequestID          = fmt.Errorf("invalid RequestID value type")
 )
 
-func CreateContext(mainCtx context.Context, configPathPrefix, configPath string) (context.Context, context.CancelFunc) {
+func CreateContext(mainCtx, configCtx context.Context, configPathPrefix, configPath string) (context.Context, context.CancelFunc) {
 	// Создаём новый контекст, что бы в него перенести данные из
 	// контекста приложения (конфиг, логгер, ...)
 	// Перекладываем конфиг из основного контекста
-	pCtx, err := onlineconf.Clone(mainCtx, context.Background())
+	cpCtx, err := onlineconf.Clone(configCtx, mainCtx)
 	if err != nil {
-		{{ .Logger.WarnMsg "pCtx" "failed to clone global context" "Err(err)" }}
+		{{ .Logger.ErrorMsg "mainCtx" "err" "failed to clone global context" }}
+		return mainCtx, func() {}
 	}
 
 	// Перекладываем логгер из основного контекста
-	pCtx = logger.ReWrapZlog(mainCtx, pCtx, configPathPrefix, configPath)
+	pCtx := logger.ReWrapZlog(mainCtx, cpCtx, configPathPrefix, configPath)
 
 	ocDefaultPath := onlineconf.MakePath(configPathPrefix, "default/timeout")
 	ocPath := onlineconf.MakePath(configPathPrefix, configPath, "timeout")
@@ -69,7 +70,7 @@ func CreateContext(mainCtx context.Context, configPathPrefix, configPath string)
 
 	return pCtx, func(){ 
 		cancel();
-		err := onlineconf.Release(mainCtx, pCtx);
+		err := onlineconf.Release(configCtx, cpCtx);
 		if err != nil {
 			{{ .Logger.WarnMsg "pCtx" "failed to release onlineconf" "Err(err)" }}
 		}

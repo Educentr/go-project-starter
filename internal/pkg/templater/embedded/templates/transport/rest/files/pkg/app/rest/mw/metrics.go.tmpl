@@ -44,6 +44,7 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			{{ .Logger.InfoMsg "r.Context()" "Start request"
+				"Str(\"Method\", r.Method)"
 				"Str(\"Content-Length\", r.Header.Get(\"content-length\"))"
 				"Str(\"X-Real-IP\", r.Header.Get(\"x-real-ip\"))"
 				"Str(\"Content-Type\", r.Header.Get(\"content-type\"))"
@@ -55,14 +56,14 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 
 			var err error
 
-			ctx, err = reqctx.CreateCumulativeMetric(r.Context(), requestCumulativeMetricsHist, requestCumulativeMetricsCount)
+			workCtx, err := reqctx.CreateCumulativeMetric(r.Context(), requestCumulativeMetricsHist, requestCumulativeMetricsCount)
 			if err != nil {
 				{{ .Logger.ErrorMsg "r.Context()" "err" "can't init per request cumulative metrics"}}
 			}
 
 			// TODO Обновить negroni на https://pkg.go.dev/net/http#NewResponseController
 			rw := negroni.NewResponseWriter(w)
-			r = r.WithContext(ctx)
+			r = r.WithContext(workCtx)
 			next.ServeHTTP(rw, r)
 
 			status := strconv.Itoa(rw.Status())
@@ -80,7 +81,14 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 				}
 			}
 
-			dwm.HitInfo(r.Context(), r.Method, r.URL, rw.Status(), rw.Size(), userIP, rw.Header().Get("Content-Type"), r.Header.Get("user-agent"), r.Header.Get("referer"), execTime)
+			// ToDo сделать колбек для создания новых контекстов по коду, где это может быть надо
+			// либо сделать отдельную очередь на выпоплнение отложенных заданий после обработки пользовательских запросов
+			// что бы не держать пользователя пока мы отправляем статистику
+			mwCtx, cancel := reqctx.CreateContext(r.Context(), ctx, onlineconf.MakePath(appName, "/transport/rest/", constant.ServiceName, "mw/metrics"), r.URL.Path)
+
+			dwm.HitInfo(mwCtx, r.Method, r.URL, rw.Status(), rw.Size(), userIP, rw.Header().Get("Content-Type"), r.Header.Get("user-agent"), r.Header.Get("referer"), execTime)
+
+			cancel()
 
 			{{ .Logger.InfoMsg "r.Context()" "Done request"
 				"Int(\"Status\", rw.Status())"

@@ -20,8 +20,6 @@ type OgenErrorHandler struct {
 }
 
 func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseWriter, _ *http.Request, errHdl error) {
-	{{ .Logger.ErrorMsg "ctx" "errHdl" "Unexpected error from handler"}}
-	
 	userErr := "UnexpectedError"
 
 	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath("{{ .ProjectName }}", "devstand"), false)
@@ -44,12 +42,16 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 	case errors.As(errHdl, &decodeParamErr):
 		fallthrough
 	case errors.As(errHdl, &decodeRequestErr):
+		{{ .Logger.WarnMsg "ctx" "Error decode params" "Err(errHdl)"}}
+	
 		errResp = oas.ErrorDefault{
 			Code:  http.StatusBadRequest,
 			Error: fmt.Sprintf("bad request, message: %s", errHdl.Error()),
 		}
 
 	default:
+		{{ .Logger.ErrorMsg "ctx" "errHdl" "Unexpected error from handler"}}
+	
 		errResp = oas.ErrorDefault{
 			Code:  http.StatusInternalServerError,
 			Error: fmt.Sprintf("error type: %T, message: %s", errHdl, userErr),

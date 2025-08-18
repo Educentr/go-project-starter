@@ -15,7 +15,7 @@ var ErrLoggerNotFoundInContext = errors.New("logger not found in context")
 
 func CopyLoggerContext(source context.Context, destination context.Context) (context.Context, error) {
 	ILogg := source.Value(loggerContextKey)
-	if ILogg == nil {
+	if ILogg == nil { // ToDo эта проверка с any не работает. Надо пробовать приводить к нужному типу и смотреть на результат
 		return destination, ErrLoggerNotFoundInContext
 	}
 

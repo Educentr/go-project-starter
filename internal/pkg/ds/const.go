@@ -185,18 +185,20 @@ func (app App) getTransport(t TransportType) []Transport {
 }
 
 func (a Apps) getTransport(t TransportType) []Transport {
-	retTransports := map[string]Transport{}
+	// retTransports := map[string]Transport{}
+
+	listTransports := make([]Transport, 0)
 
 	for _, app := range a {
 		for _, transport := range app.getTransport(t) {
-			retTransports[transport.GeneratorType+"/"+transport.GeneratorTemplate] = transport
+			// retTransports[transport.GeneratorType+"/"+transport.GeneratorTemplate] = transport
+			listTransports = append(listTransports, transport)
 		}
 	}
 
-	listTransports := make([]Transport, 0, len(retTransports))
-	for _, transport := range retTransports {
-		listTransports = append(listTransports, transport)
-	}
+	// for _, transport := range retTransports {
+	// 	listTransports = append(listTransports, transport)
+	// }
 
 	sort.Slice(listTransports, func(i, j int) bool {
 		return strings.Compare(listTransports[i].GeneratorType, listTransports[j].GeneratorType) < 0 &&
