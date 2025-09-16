@@ -17,7 +17,29 @@ var (
 	ErrInternalError = errors.New("internal error")
 )
 
-func (h *Worker) Authorization(ctx context.Context, tgActor telegram.Actor, command Cmd) error {
+func (h *Worker) Authorization(ctx context.Context, command Cmd) error {
+	tgActor, err := reqctx.GetTgActor(ctx)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Get tgActor")
+
+		return ErrInternalError
+	}
+
+	chatID, err := reqctx.GetChatID(ctx)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Get chatID")
+
+		return ErrInternalError
+	}
+	
+	if !command.Group && chatID != tgActor.ID {
+		return ErrAccessDenied
+	}
+
+	if !command.Private && chatID == tgActor.ID {
+		return ErrAccessDenied
+	}
+
 	paths := []string{
 		onlineconf.MakePath(constant.ServiceName, "bot", "admins", strconv.FormatInt(tgActor.ID, 10)),
 	}

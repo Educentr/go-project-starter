@@ -39,6 +39,12 @@ type TelegramInvoiceData struct {
 	Created 	   time.Time
 }
 
+type PaymentType string
+
+const (
+	PaymentTypeStars PaymentType = "stars"
+)
+
 const (
 	invalidProductTypeMessage = "invalid product type"
 	productIDParamName        = "productID"

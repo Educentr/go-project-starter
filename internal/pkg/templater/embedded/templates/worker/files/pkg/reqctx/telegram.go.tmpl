@@ -1,0 +1,165 @@
+package reqctx
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/pkg/errors"
+	{{ .Logger.Import }}
+)
+
+type ctxTelegramKey int
+
+const (
+	chatIDField ctxTelegramKey = iota
+	msgIDField
+	tgActorField
+	callbackIDField
+	processInfo ctxTelegramKey = iota
+)
+
+var (
+	ErrUndefinedChatID     = errors.New("undefined chat ID")
+	ErrUndefinedMsgID      = errors.New("undefined message ID")
+	ErrUndefinedTgActor    = errors.New("undefined tg actor")
+	ErrUndefinedCallbackID = errors.New("undefined callback ID")
+)
+
+func SetProcessInfo(ctx context.Context, info *RequestProcessInfo) context.Context {
+	return context.WithValue(ctx, processInfo, info)
+}
+
+func GetProcessInfo(ctx context.Context) (*RequestProcessInfo, error) {
+	pii := ctx.Value(processInfo)
+
+	pi, ok := pii.(*RequestProcessInfo)
+	if !ok {
+		return nil, errors.New("invalid processInfo object")
+	}
+
+	return pi, nil
+}
+
+func SetMsgContext(ctx context.Context, tgctor *telegram.Actor, chatID int64, msgID int, callbackID string) (context.Context, error) {
+	var err error
+
+	ctx, err = SetTgActor(ctx, tgctor)
+	if err != nil {
+		return ctx, errors.Wrap(err, "SetTgActor error")
+	}
+
+	if chatID != 0 {
+		ctx, err = SetChatID(ctx, chatID)
+		if err != nil {
+			return ctx, errors.Wrap(err, "SetChatID error")
+		}
+	}
+
+	if msgID != 0 {
+		ctx, err = SetMsgID(ctx, msgID)
+		if err != nil {
+			return ctx, errors.Wrap(err, "SetMsgID error")
+		}
+	}
+
+	if callbackID != "" {
+		ctx, err = SetCallbackID(ctx, callbackID)
+		if err != nil {
+			return ctx, errors.Wrap(err, "SetCallbackID error")
+		}
+	}
+	
+	return ctx, nil
+}
+
+func GetCallbackID(ctx context.Context) (string, error) {
+	ac := ctx.Value(callbackIDField)
+	if ac == nil {
+		return "", ErrUndefinedCallbackID
+	}
+
+	curCallbackID, ok := ac.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid callbackID value type: `%T`", ac)
+	}
+
+	return curCallbackID, nil
+}
+
+func SetCallbackID(ctx context.Context, callbackID string) (context.Context, error) {
+	zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
+		return c.Str("CallbackID", callbackID)
+	})
+
+	return context.WithValue(ctx, callbackIDField, callbackID), nil
+}
+
+func GetTgActor(ctx context.Context) (*telegram.Actor, error) {
+	ac := ctx.Value(tgActorField)
+	if ac == nil {
+		return nil, ErrUndefinedTgActor
+	}
+
+	curActor, ok := ac.(*telegram.Actor)
+	if !ok {
+		return nil, fmt.Errorf("invalid tgActor value type: `%T`", ac)
+	}
+
+	return curActor, nil
+}
+
+func SetTgActor(ctx context.Context, act *telegram.Actor) (context.Context, error) {
+	if act.ID == 0 {
+		return nil, fmt.Errorf("invalid tgActor: %v", act)
+	}
+
+	zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
+		return c.Int64("TgActorID", act.ID)
+	})
+
+	return context.WithValue(ctx, tgActorField, act), nil
+}
+
+func GetChatID(ctx context.Context) (int64, error) {
+	ac := ctx.Value(chatIDField)
+	if ac == nil {
+		return 0, ErrUndefinedChatID
+	}
+
+	curChatID, ok := ac.(int64)
+	if !ok {
+		return 0, fmt.Errorf("invalid chatID value type: `%T`", ac)
+	}
+
+	return curChatID, nil
+}
+
+func SetChatID(ctx context.Context, chatID int64) (context.Context, error) {
+	zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
+		return c.Int64("ChatID", chatID)
+	})
+
+	return context.WithValue(ctx, chatIDField, chatID), nil
+}
+
+func GetMsgID(ctx context.Context) (int, error) {
+	ac := ctx.Value(msgIDField)
+	if ac == nil {
+		return 0, ErrUndefinedMsgID
+	}
+
+	curMsgID, ok := ac.(int)
+	if !ok {
+		return 0, fmt.Errorf("invalid msgID value type: `%T`", ac)
+	}
+
+	return curMsgID, nil
+}
+
+func SetMsgID(ctx context.Context, msgID int) (context.Context, error) {
+	zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
+		return c.Int("MsgID", msgID)
+	})
+
+	return context.WithValue(ctx, msgIDField, msgID), nil
+}

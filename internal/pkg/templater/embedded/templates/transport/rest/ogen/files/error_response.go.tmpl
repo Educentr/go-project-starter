@@ -34,11 +34,24 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 	var (
 		decodeParamErr   *ogenerrors.DecodeParamsError
 		decodeRequestErr *ogenerrors.DecodeRequestError
+		decodeBodyErr    *ogenerrors.DecodeBodyError
 	)
 
 	var errResp oas.ErrorDefault
 
 	switch {
+	case errors.As(errHdl, &decodeBodyErr):
+		body := decodeBodyErr.Body
+		if len(body) > 1024 {
+			body = body[:1024]
+		}
+
+		zlog.Ctx(ctx).Warn().Str("Body", string(body)).Err(errHdl).Msg("Error decode body")
+
+		errResp = oas.ErrorDefault{
+			Code:  http.StatusBadRequest,
+			Error: fmt.Sprintf("bad request, error: %s", errHdl.Error()),
+		}
 	case errors.As(errHdl, &decodeParamErr):
 		fallthrough
 	case errors.As(errHdl, &decodeRequestErr):
@@ -46,7 +59,7 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 	
 		errResp = oas.ErrorDefault{
 			Code:  http.StatusBadRequest,
-			Error: fmt.Sprintf("bad request, message: %s", errHdl.Error()),
+			Error: fmt.Sprintf("bad request, error: %s", errHdl.Error()),
 		}
 
 	default:

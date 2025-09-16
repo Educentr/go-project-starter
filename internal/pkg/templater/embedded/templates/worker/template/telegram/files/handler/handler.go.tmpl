@@ -10,14 +10,12 @@ import (
 
 type Handler struct {
 	apptg.DefaultHandler
-	srv  *service.EmptyService
-	tgID int64
+	srv    *service.EmptyService
 }
 
-func NewHandler(srv *service.EmptyService, tgID int64) *Handler {
+func NewHandler(srv *service.EmptyService) *Handler {
 	return &Handler{
-		srv:  srv,
-		tgID: tgID,
+		srv:    srv,
 	}
 }
 

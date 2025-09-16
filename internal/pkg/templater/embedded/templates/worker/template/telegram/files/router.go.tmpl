@@ -6,26 +6,31 @@ import (
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"github.com/pkg/errors"
+	{{ .Logger.Import }}
+
 	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
 	"{{ .ProjectPath }}/internal/pkg/ds"
-	"github.com/pkg/errors"
-	{{ .Logger.Import }}
+	"{{ .ProjectPath }}/internal/pkg/service"
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
+	"{{ .ProjectPath }}/pkg/reqctx"
 	apptg "{{ .ProjectPath }}/pkg/app/telegram"
 )
 
-func (w *Worker) GetServiceAndHandler(ctx context.Context, tgID int64) (*service.EmptyService, *handler.Handler, error) {
+// ToDo бесполезная функция надо от неё избавиться и handler вузде создавать по месту а сервис получать как w.GetEmptySrv()
+func (w *Worker) GetServiceAndHandler(ctx context.Context) (*service.EmptyService, *handler.Handler, error) {
 	srv, err := w.GetEmptySrv()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
-	return srv, handler.NewHandler(srv, tgID), nil
+	return srv, handler.NewHandler(srv), nil
 }
 
-func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) error {
+func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) (context.Context, error) {
 	if preCheckoutQuery == nil {
-		return errors.New("preCheckout is empty")
+		return ctx, errors.New("preCheckout is empty")
 	}
 
 	tgActor := telegram.Actor{
@@ -36,18 +41,25 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 		LanguageCode: preCheckoutQuery.From.LanguageCode,
 	}
 
-	srv, hdl, err := w.GetServiceAndHandler(ctx, tgActor.ID)
+	ctx, err := reqctx.SetTgActor(ctx, &tgActor)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
+
+		return ctx, errors.Wrap(err, "Internal error")
+	}
+
+	srv, hdl, err := w.GetServiceAndHandler(ctx)
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting service and handler")
 
-		return errors.Wrap(err, "Internal error")
+		return ctx, errors.Wrap(err, "Internal error")
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, tgActor, "PreCheckout", "")
+	ctx, aclErr := hdl.Authorization(ctx, "PreCheckout", "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, tgActor.ID, "", aclErr)
+		w.HandleAuthError(ctx, aclErr)
 
-		return errors.Wrap(err, "Internal error")
+		return ctx, errors.Wrap(err, "Internal error")
 	}
 
 	invoice := telegram.TelegramInvoiceData{
@@ -58,52 +70,58 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("error unpacking invoice data")
 
-		return errors.New("Invalid invoice")
+		return ctx, errors.New("Invalid invoice")
 	}
 
-	desc, ok := srv.CheckInvoiceProducts(ctx, invoice, preCheckoutQuery.TotalAmount)
+	desc, ok := srv.CheckInvoiceProducts(ctx, invoice, telegram.PaymentTypeStars, preCheckoutQuery.TotalAmount)
 	if !ok {
 		zlog.Ctx(ctx).Error().Msg("invalid invoice products")
 
-		return errors.New("Invalid invoice")
+		return ctx, errors.New("Invalid invoice")
 	}
 	
 	if tgActor.ID != invoice.UserID {
 		zlog.Ctx(ctx).Error().Msg("userID mismatch")
 
-		return errors.New("User ID mismatch")
+		return ctx, errors.New("User ID mismatch")
 	}
 
 	err = srv.CreateTelegramPayment(ctx, invoice.IdempotencyKey, invoice.Products, preCheckoutQuery.TotalAmount, desc)
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("error inserting payment")
 
-		return ErrInternalError
+		return ctx, ErrInternalError
 	}
 
-	return nil
+	return ctx, nil
 }
 
-func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) error {
+func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
 	tgActor := telegram.Actor{
 		ID:           message.From.ID,
 		Username:     message.From.UserName,
 		FirstName:    message.From.FirstName,
 		LastName:     message.From.LastName,
 		LanguageCode: message.From.LanguageCode,
-		TgChatID:     message.Chat.ID,
 	}
 
-	srv, hdl, err := w.GetServiceAndHandler(ctx, tgActor.ID)
+	ctx, err := reqctx.SetMsgContext(ctx, &tgActor, message.Chat.ID, message.MessageID, "")
 	if err != nil {
-		return errors.Wrap(err, "Internal error. Can't get service")
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
+
+		return ctx, errors.Wrap(err, "Internal error")
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, tgActor, "Purchase", "")
-	if aclErr != nil {
-		w.HandleAuthError(ctx, tgActor.ID, "", aclErr)
+	srv, hdl, err := w.GetServiceAndHandler(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Internal error. Can't get service")
+	}
 
-		return errors.Wrap(err, "Internal error")
+	ctx, aclErr := hdl.Authorization(ctx, "Purchase", "")
+	if aclErr != nil {
+		w.HandleAuthError(ctx, aclErr)
+
+		return ctx, errors.Wrap(err, "Internal error")
 	}
 
 	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(constant.ServiceName, "devstand"), false)
@@ -119,7 +137,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) error 
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("error unpacking invoice data")
 
-		return errors.New("Invalid invoice")
+		return ctx, errors.New("Invalid invoice")
 	}
 
 	defer func() {
@@ -132,12 +150,12 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) error 
 	}()
 
 	resp, err := hdl.ProcessPayment(ctx, invoice.IdempotencyKey, message.SuccessfulPayment)
-	w.postProcessRequest(ctx, message.From.ID, "", message.MessageID, resp, err)
+	w.postProcessRequest(ctx, resp, err)
 		
-	return nil
+	return ctx, nil
 }
 
-func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQuery) error {
+func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQuery) (context.Context, error) {
 	zlog.Ctx(ctx).Info().Interface("text", callback).Msg("Text callback received")
 
 	data := strings.SplitN(callback.Data[1:], ":", 2)
@@ -153,37 +171,53 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 		FirstName:    callback.From.FirstName,
 		LastName:     callback.From.LastName,
 		LanguageCode: callback.From.LanguageCode,
-		TgChatID:     callback.Message.Chat.ID,
 	}
 
-	_, hdl, err := w.GetServiceAndHandler(ctx, tgActor.ID)
+	ctx, err := reqctx.SetMsgContext(ctx, &tgActor, callback.Message.Chat.ID, callback.Message.MessageID, callback.ID)
 	if err != nil {
-		return errors.Wrap(err, "Internal error. Can't get service")
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
+
+		return ctx, errors.Wrap(err, "Internal error")
+	}
+
+	_, hdl, err := w.GetServiceAndHandler(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
 	command := apptg.CommandName(data[0])
 
+	pi, err := reqctx.GetProcessInfo(ctx)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting process info")
+	}
+
+	if pi != nil {
+		pi.Command = string(command)
+		pi.Params = params
+	}
+
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, tgActor.ID, callback.ID,  callback.Message.MessageID, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, apptg.Response{}, errors.New("Unknown command"))
 
-		return nil
+		return ctx, nil
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, tgActor, command, params)
+	ctx, aclErr := hdl.Authorization(ctx, command, params)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, tgActor.ID, callback.ID, aclErr)
+		w.HandleAuthError(ctx, aclErr)
 
-		return nil
+		return ctx, nil
 	}
 
-	w.processRequest(ctx, hdl, c, callback.ID, callback.Message.MessageID, params)
+	w.processRequest(ctx, hdl, c, params)
 
-	return nil
+	return ctx, nil
 }
 
-func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) error {
+func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
 	zlog.Ctx(ctx).Info().Interface("text", message).Msg("Text message received")
 
 	tgActor := telegram.Actor{
@@ -192,95 +226,113 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) err
 		FirstName:    message.From.FirstName,
 		LastName:     message.From.LastName,
 		LanguageCode: message.From.LanguageCode,
-		TgChatID:     message.Chat.ID,
 	}
 
-	_, hdl, err := w.GetServiceAndHandler(ctx, tgActor.ID)
+	ctx, err := reqctx.SetMsgContext(ctx, &tgActor, message.Chat.ID, message.MessageID, "")
 	if err != nil {
-		return errors.Wrap(err, "Internal error. Can't get service")
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
+
+		return ctx, errors.Wrap(err, "Internal error")
 	}
 
-	stateParams := []string{}
+	_, hdl, err := w.GetServiceAndHandler(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Internal error. Can't get service")
+	}
+
+	var command apptg.CommandName
 
 	startParam := 0
+
+	pp := ""
 
 	switch {
 	case len(message.Entities) != 0:
 		for _, entity := range message.Entities {
 			if entity.Type == "bot_command" {
-				stateParams = []string{
-					message.Text[entity.Offset+1:entity.Offset+entity.Length],
-					"",
-				}
-				
+				command = apptg.CommandName(message.Text[entity.Offset+1 : entity.Offset+entity.Length])
+
 				startParam = entity.Offset + entity.Length + 1
 
 				break
 			}
 		}
-		
-		if len(stateParams) != 0 {
+
+		if command != "" {
 			break
 		}
 
 		fallthrough
-	
+
 	case message.Text != "":
-		userState, err := w.GetUserState(ctx, tgActor)
+		userState, err := w.GetUserState(ctx)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting admin state")
 
-			return nil
+			return ctx, nil
 		}
 
 		if userState != "" {
-			stateParams = strings.SplitN(userState, ":", 2)
-			if len(stateParams) != 2 {
-				stateParams = append(stateParams, "")
+			stateParams := strings.SplitN(userState, ":", 2)
+			command = apptg.CommandName(stateParams[0])
+			if len(stateParams) == 2 {
+				pp = stateParams[1]
 			}
 		}
 	}
 
-	if len(stateParams) == 0 {
+	if command == "" {
 		zlog.Ctx(ctx).Info().Msg("unknown message. Skip")
 
-		return nil
+		return ctx, nil
 	}
 
-	command := apptg.CommandName(stateParams[0])
+	pi, err := reqctx.GetProcessInfo(ctx)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting process info")
+	}
+
+	if pi != nil {
+		pi.Command = string(command)
+	}
 
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, tgActor.ID, "",  message.MessageID, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, apptg.Response{}, errors.New("Unknown command"))
 
-		return nil
+		return ctx, nil
 	}
-
-	pp := stateParams[1]
 
 	if c.NeedMsg {
 		if message.Text == "" {
 			zlog.Ctx(ctx).Error().Msg("Empty message")
-			w.postProcessRequest(ctx, tgActor.ID, "",  message.MessageID, apptg.Response{}, errors.New("Empty message"))
+			w.postProcessRequest(ctx, apptg.Response{}, errors.New("Empty message"))
 
-			return nil
+			return ctx, nil
 		}
 
-		pp = ""
 		if len(message.Text) > startParam {
-			pp = message.Text[startParam:]
+			if pp != "" {
+				pp += ":"
+			}
+
+			pp += message.Text[startParam:]
 		}
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, tgActor, command, pp)
-	if aclErr != nil {
-		w.HandleAuthError(ctx, tgActor.ID, "", aclErr)
-
-		return nil
+	if pi != nil {
+		pi.Params = pp
 	}
 
-	w.processRequest(ctx, hdl, c, "", message.MessageID, pp)
+	ctx, aclErr := hdl.Authorization(ctx, command, pp)
+	if aclErr != nil {
+		w.HandleAuthError(ctx, aclErr)
 
-	return nil
+		return ctx, nil
+	}
+
+	w.processRequest(ctx, hdl, c, pp)
+
+	return ctx, nil
 }

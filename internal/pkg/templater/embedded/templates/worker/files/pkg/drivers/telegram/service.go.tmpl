@@ -10,7 +10,7 @@ import (
 type UnimplementedPayment struct {
 }
 
-func (UnimplementedPayment) CheckInvoiceProducts(ctx context.Context, invoice TelegramInvoiceData, totalAmount int) (string, bool) {
+func (UnimplementedPayment) CheckInvoiceProducts(ctx context.Context, invoice TelegramInvoiceData, paymentType PaymentType, totalAmount int) (string, bool) {
 	return "unimplemented", false
 }
 

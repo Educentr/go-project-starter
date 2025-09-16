@@ -75,10 +75,13 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, w.GetConfigPath(), "job")
 	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, w.Name())" }}
 
+	pi := reqctx.RequestProcessInfo{}
+	ctxJob = reqctx.SetProcessInfo(ctxJob, &pi)
+
 	defer func() {
 		err := recover()
 		if err != nil {
-			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "Interface(\"panic error\", err)" "Str(\"Stack\", strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1))" }}
+			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "Interface(\"panic error\", err)" "Str(\"Stack\", strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), \"\\n\\t/\", \" --> /\"), \"\\n\", \" => \"))" }}
 		}
 
 		cancel()
@@ -91,27 +94,40 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 		return err
 	}
 
+	startTime := time.Now()
+
 	switch {
 	case update.PreCheckoutQuery != nil:
 		str := ""
 
-		err = w.PreCheckout(ctxJob, update.PreCheckoutQuery)
+		pi.Command = "PreCheckout"
+
+		ctxJob, err = w.PreCheckout(ctxJob, update.PreCheckoutQuery)
 		if err != nil {
 			str = err.Error()
 		}
 
 		err = srv.TelegramAnswerPreCheckout(ctx, update.PreCheckoutQuery.ID, str)
 	case update.Message != nil && update.Message.SuccessfulPayment != nil:
-		err = w.Purchase(ctxJob, update.Message)
+		pi.Command = "Purchase"
+
+		ctxJob, err = w.Purchase(ctxJob, update.Message)
 	case update.Message != nil && update.Message.Text != "":
-		err = w.TextMessage(ctxJob, update.Message)
+		ctxJob, err = w.TextMessage(ctxJob, update.Message)
 	case update.CallbackQuery != nil:
-		err = w.CallbackQuery(ctxJob, update.CallbackQuery)
+		ctxJob, err = w.CallbackQuery(ctxJob, update.CallbackQuery)
 	default:
 		zlog.Ctx(ctxJob).Info().Interface("Update", update).Msg("Skipping update")
 		
 		err = telegram.ErrUnsupportedHandler
 	}
+
+	status := "Ok"
+	if err != nil {
+		status = err.Error()
+	}
+
+	srv.BotHitInfo(ctxJob, pi, status, pi.ContentLength, time.Since(startTime))
 
 	return err
 }

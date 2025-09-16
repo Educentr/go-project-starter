@@ -6,7 +6,7 @@ import (
 	"errors"
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
-	zlog "github.com/rs/zerolog"
+	{{ .Logger.Import }}
 )
 
 var (

@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 
+	{{ .Logger.Import }}
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/gofrs/uuid/v5"
+
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
 type UnimplementedAdminStatusHandler struct{}
 
-func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context, tgActor telegram.Actor) (string, error) {
+func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context) (string, error) {
 	return "", nil
 }
 
@@ -29,21 +31,21 @@ func (UnimplementedAdminStatusHandler) NewUserState(ctx context.Context, tgID in
 
 type UnimplementedUpdateHandler struct{}
 
-func (UnimplementedUpdateHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) error {
-	return ErrUnimplementedHandler
+func (UnimplementedUpdateHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) (context.Context, error) {
+	return ctx, ErrUnimplementedHandler
 }
 
-func (UnimplementedUpdateHandler) Purchase(ctx context.Context, TgID int64, successfulPayment *tgbotapi.SuccessfulPayment) error {
-	return ErrUnimplementedHandler
+func (UnimplementedUpdateHandler) Purchase(ctx context.Context, TgID int64, successfulPayment *tgbotapi.SuccessfulPayment) (context.Context, error) {
+	return ctx, ErrUnimplementedHandler
 }
 
-func (UnimplementedUpdateHandler) TextMessage(ctx context.Context, message *tgbotapi.Message) error {
-	return ErrUnimplementedHandler
+func (UnimplementedUpdateHandler) TextMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
+	return ctx, ErrUnimplementedHandler
 }
 
 
-func (UnimplementedUpdateHandler)  CallbackQuery(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery) error {
-	return ErrUnimplementedHandler
+func (UnimplementedUpdateHandler)  CallbackQuery(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery) (context.Context, error) {
+	return ctx, ErrUnimplementedHandler
 }
 
 var (
@@ -61,6 +63,10 @@ type CommandName string
 func (c CommandName) String() string {
 	return string(c)
 }
+
+const (
+	EmptyCommandName CommandName = ""
+)
 
 type ButtonCmd struct {
 	Text   string
@@ -94,14 +100,67 @@ type Response struct {
 
 type DefaultHandler struct{}
 
-func (DefaultHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) string {
-	return "unimplemented"
+func (DefaultHandler) HandleBack(ctx context.Context) (Response, error) {
+	emptyState := ""
+	return Response{
+		NextState:    &emptyState,
+		DeleteCurMsg: true,
+	}, nil
+}
+
+func (DefaultHandler) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) (context.Context, string) {
+	return ctx, "unimplemented"
 }
 
 func (DefaultHandler) ProcessPayment(ctx context.Context, idempotency uuid.UUID, successfulPayment *tgbotapi.SuccessfulPayment) (Response, error) {
 	return Response{}, errors.New("unimplemented")
 }
 
-func (DefaultHandler) Authorization(ctx context.Context, tgActor telegram.Actor, cmd any, pp string) (context.Context, error) {
+func (DefaultHandler) Authorization(ctx context.Context, cmd any, pp string) (context.Context, error) {
 	return ctx, nil
+}
+
+func ConvertButtonCMDToTgButton(ctx context.Context, btn [][]ButtonCmd) ([][]tgbotapi.InlineKeyboardButton, error) {
+	tgBtn := make([][]tgbotapi.InlineKeyboardButton, len(btn))
+
+	for i := range btn {
+		tgBtn[i] = make([]tgbotapi.InlineKeyboardButton, 0, len(btn[i]))
+
+		for j := range btn[i] {
+			if btn[i][j].URL != "" {
+				if len(btn[i][j].URL) > 256 {
+					zlog.Ctx(ctx).Error().Int("Len", len(btn[i][j].URL)).Str("Text", btn[i][j].Text).Str("URL", btn[i][j].URL).Msg("Button URL too long")
+					
+					continue
+				}
+
+				tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonURL(btn[i][j].Text, btn[i][j].URL))
+
+				continue
+			}
+
+			if btn[i][j].Name == EmptyCommandName {
+				zlog.Ctx(ctx).Error().Msg("Empty button command name")
+
+				continue
+			}
+
+			if btn[i][j].Text == "" {
+				zlog.Ctx(ctx).Error().Msg("Empty button command text")
+
+				continue
+			}
+
+			data := "/" + string(btn[i][j].Name) + ":" + btn[i][j].Params
+			if len(data) > 64 {
+				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
+
+				continue
+			}
+
+			tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonData(btn[i][j].Text, data))
+		}
+	}
+
+	return tgBtn, nil
 }

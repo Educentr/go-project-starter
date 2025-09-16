@@ -7,7 +7,7 @@ import (
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"{{ .ProjectPath }}/pkg/ds"
 	"github.com/prometheus/client_golang/prometheus"
-	zlog "github.com/rs/zerolog"
+	{{ .Logger.Import }}
 	"golang.org/x/sync/errgroup"
 )
 

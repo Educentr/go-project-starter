@@ -16,7 +16,6 @@ import (
 	"{{ .ProjectPath }}/pkg/ds"
 	"{{ .ProjectPath }}/pkg/reqctx"
 	"{{ .ProjectPath }}/internal/app/constant"
-	"{{ .ProjectPath }}/internal/app/worker"
 )
 
 type Worker struct {
@@ -24,6 +23,13 @@ type Worker struct {
 	Srv ds.IService
 	jobState any
 }
+
+const (
+	DefaultBatchSize     = 100
+	ErrorTimeout         = time.Second * 10
+	NextIterationTimeout = time.Millisecond * 1
+	NewCycleTimeout      = time.Second * 10
+)
 
 const (
 	nameFieldLogger = "Name"
@@ -40,6 +46,23 @@ func (w *Worker) Name() string {
 func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prometheus.Registry, srv ds.IService) error {
 	w.Srv = srv
 	return nil
+}
+
+func GetBatchSize(ctx context.Context, jobName string) uint32 {
+	batchSize, err := onlineconf.GetInt(ctx, onlineconf.MakePath(constant.ServiceName, "workers", jobName, "batch_size"), DefaultBatchSize)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("get batch size")
+
+		return DefaultBatchSize
+	}
+
+	if batchSize <= 0 || batchSize > math.MaxUint32 {
+		zlog.Ctx(ctx).Error().Err(err).Msg("invalid batch size")
+
+		return DefaultBatchSize
+	}
+
+	return uint32(batchSize)
 }
 
 func (w *Worker) GetConfigPath(key ...string) string{
@@ -93,7 +116,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				tasks, jobState, err := w.GetTasks(ctx, w.jobState)
 				if err != nil {
 					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "Str(nameFieldLogger, w.Name())" }}
-					timer = time.NewTimer(worker.ErrorTimeout)
+					timer = time.NewTimer(ErrorTimeout)
 					continue
 				}
 
@@ -101,7 +124,13 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 				if tasks == nil {
 					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "Str(nameFieldLogger, w.Name())" }}
-					timer = time.NewTimer(worker.NewCycleTimeout)
+					timer = time.NewTimer(NewCycleTimeout)
+					continue
+				}
+
+				if len(tasks) == 0 {
+					{{ .Logger.InfoMsg "ctx" "no tasks to run" "Str(nameFieldLogger, w.Name())" }}
+					timer = time.NewTimer(NextIterationTimeout)
 					continue
 				}
 
@@ -138,7 +167,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				}
 
 				{{ .Logger.DebugMsg "ctx" "worker finished cycle" }}
-				timer = time.NewTimer(worker.NextIterationTimeout)
+				timer = time.NewTimer(NextIterationTimeout)
 			case <-ctx.Done():
 				break JOB
 			}

@@ -21,6 +21,15 @@ func (s *Service) TelegramAnswerCallback(ctx context.Context, callbackID string,
 	return s.telegram.SendAnswerCallback(ctx, callbackID, text)
 }
 
+func (s *Service) TelegramUpdateMessageButtons(ctx context.Context, chatID int64, msgID int, msg telegram.Message) (int, error) {
+	msgID, err := s.telegram.UpdateMessageWithButton(ctx, chatID, msgID, msg)
+	if err != nil {
+		return 0, errors.Wrap(err, "can't send message")
+	}
+
+	return msgID, nil
+}
+
 func (s *Service) TelegramSendMessageButtons(ctx context.Context, chatID int64, msg telegram.Message) (int, error) {
 	msgID, err := s.telegram.SendMessageWithButton(ctx, chatID, msg)
 	if err != nil {

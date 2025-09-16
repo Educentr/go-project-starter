@@ -21,7 +21,10 @@ import (
 	"{{ $driver.Import }}"
 	{{ end }}
 
+	{{ .Logger.Import }}
+
 	"{{ .ProjectPath }}/pkg/app/rest"
+	"{{ .ProjectPath }}/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/healthstate"
 	"{{ .ProjectPath }}/pkg/app/serviceauth"
@@ -45,8 +48,47 @@ type Service struct {
 	{{ end }}
 }
 
+type ActionEnableUsers string
+
+const (
+	LoginAction ActionEnableUsers = "login"
+)
+
 func (s *Service) HitInfo(ctx context.Context, method string, u *url.URL, status int, contentLength int, ip string, contentType string, userAgent string, referer string, execTime float64) {
 } 
+
+func (s *Service) BotHitInfo(ctx context.Context, processInfo reqctx.RequestProcessInfo, status string, contentLength int, execTime time.Duration) {
+}
+
+func UserEnabled(ctx context.Context, tgID int64, action ActionEnableUsers) (bool, error) {
+	enabledUsers, err := onlineconf.GetStrings(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "enabled", string(action)), []string{})
+	if err != nil {
+		return false, err
+	}
+
+	if len(enabledUsers) == 0 {
+		return true, nil
+	}
+
+	enableUsersInt := make(map[int64]struct{}, len(enabledUsers))
+
+	for _, eu := range enabledUsers {
+		uID, err := strconv.ParseInt(eu, 10, 64)
+		if err != nil {
+			{{ .Logger.ErrorMsg "ctx" "err" "error parse user_id" "Str(\"user_id\", eu)"}}
+
+			continue
+		}
+
+		enableUsersInt[uID] = struct{}{}
+	}
+
+	if _, ex := enableUsersInt[tgID]; ex {
+		return true, nil
+	}
+
+	return false, nil
+}
 
 func NewService(ctx context.Context) (ds.IService, error) {
 	srv := &Service{}
@@ -99,8 +141,6 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 		return errors.Wrap(err, "error init metrics")
 	}
 	
-	{{ $logger := .Logger }}
-
 	{{ range $_, $tr := .Applications.GetRestTransport }}
 	{{ if eq $tr.GeneratorType "ogen_client" }}
 	{{ $tr.Name }}Cln := {{ $tr.Name }}.NewClient()

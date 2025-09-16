@@ -44,7 +44,7 @@ services:
       - ./data-{{ .Application.Name }}${ENV_TYPE}:/usr/local/etc/onlineconf
     environment:
       ONLINECONF_ADMIN_HOST: ${OC_HOST}
-      ONLINECONF_ADMIN_PORT: 443
+      ONLINECONF_ADMIN_PORT: ${OC_PORT}
       ONLINECONF_UPDATER_USER: ${OC_USER}
       ONLINECONF_UPDATER_PASSWORD: ${OC_PASSWORD}
     restart: always

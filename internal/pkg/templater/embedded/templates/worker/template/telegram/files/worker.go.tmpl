@@ -16,23 +16,29 @@ type Cmd struct {
 	Name            apptg.CommandName
 	NeedMsg         bool
 	NeedAdminAccess bool
+	Private     	bool
+	Group	  		bool
 	Handler         func(ctx context.Context, h *handler.Handler, params string) (apptg.Response, error)
 	Params          apptg.ParamI
 }
 
 var cmdMaps = make(map[apptg.CommandName]Cmd)
 
-func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd, callbackID string, curMsgID int, pp string) {
+var CustomError = map[error]func(ctx context.Context) (apptg.Response, error){}
+
+func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd, pp string) {
 	actor, err := reqctx.GetActor(ctx)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting actor from context")
-
+		if !errors.Is(err, reqctx.ErrUndefinedActor) {
+			{{ .Logger.ErrorMsg "ctx" "err" "Error getting actor from context" }}
+		}
+		
 		return
 	}
 
 	appActor, ok := actor.(*ds.Actor)
 	if !ok {
-		zlog.Ctx(ctx).Error().Msg("Actor is not of type ds.Actor")
+		{{ .Logger.ErrorMsg "ctx" "err" "Actor is not of type ds.Actor" }}
 
 		return
 	}
@@ -44,9 +50,9 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 	}
 
 	for {
-		aclErr := w.Authorization(ctx, appActor.TgActor, c)
+		aclErr := w.Authorization(ctx, c)
 		if aclErr != nil {
-			w.HandleAuthError(ctx, appActor.TgActor.ID, callbackID, aclErr)
+			w.HandleAuthError(ctx, aclErr)
 
 			return
 		}
@@ -57,7 +63,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 			if !ok {
 				zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Unknown command for internal redirect")
 
-				w.postProcessRequest(ctx, appActor.TgActor.ID, callbackID, curMsgID, apptg.Response{}, ErrInternalError)
+				w.postProcessRequest(ctx, apptg.Response{}, ErrInternalError)
 
 				return
 			}
@@ -66,7 +72,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 			continue
 		}
 
-		w.postProcessRequest(ctx, appActor.TgActor.ID, callbackID, curMsgID, resp, err)
+		w.postProcessRequest(ctx, resp, err)
 		
 		break
 	}
@@ -74,31 +80,59 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 	return
 }
 
-func (w *Worker) HandleAuthError(ctx context.Context, tgID int64, callbackID string, aclErr error) {
-	if errors.Is(aclErr, ErrUserNotFound) {
-		zlog.Ctx(ctx).Error().Err(aclErr).Msg("Admin not found. Skip")
+func (w *Worker) HandleAuthError(ctx context.Context, aclErr error) {
+	for cErr, cFunc := range CustomError {
+		if errors.Is(aclErr, cErr) {
+			resp, err := cFunc(ctx)
+			w.postProcessRequest(ctx, resp, err)
 
-		w.postProcessRequest(ctx, tgID, callbackID, 0, apptg.Response{}, nil)
+			return
+		}
+	}
+
+	if errors.Is(aclErr, ErrUserNotFound) {
+		{{ .Logger.ErrorMsg "ctx" "aclErr" "Admin not found. Skip" }}
+
+		w.postProcessRequest(ctx, apptg.Response{}, nil)
 
 		return
 	}
 
 	if errors.Is(aclErr, ErrAccessDenied) {
-		zlog.Ctx(ctx).Error().Err(aclErr).Msg("Access denied")
+		{{ .Logger.ErrorMsg "ctx" "aclErr" "Access denied" }}
 
-		w.postProcessRequest(ctx, tgID, callbackID, 0, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, apptg.Response{}, nil)
 
 		return
 	}
 
-	zlog.Ctx(ctx).Error().Err(aclErr).Msg("Error checking ACL")
+	{{ .Logger.ErrorMsg "ctx" "aclErr" "Error checking ACL" }}
 
-	w.postProcessRequest(ctx, tgID, callbackID, 0, apptg.Response{}, ErrInternalError)
+	w.postProcessRequest(ctx, apptg.Response{}, ErrInternalError)
 
 	return
 }
 
-func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID string, curMsgID int, resp apptg.Response, err error) {
+func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, err error) {
+	curMsgID, errCurMsg := reqctx.GetMsgID(ctx)
+	if errCurMsg != nil {
+		zlog.Ctx(ctx).Error().Err(errCurMsg).Msg("Error getting current message ID from context")
+	}
+
+	chatID, errChat := reqctx.GetChatID(ctx)
+	if errChat != nil {
+		zlog.Ctx(ctx).Error().Err(errChat).Msg("Error getting chat ID from context")
+
+		return
+	}
+
+	tgActor, errActor := reqctx.GetTgActor(ctx)
+	if errActor != nil {
+		zlog.Ctx(ctx).Error().Err(errActor).Msg("Error getting tg actor from context")
+
+		return
+	}
+	
 	notifyMsg := resp.NotifyMsg
 
 	switch {
@@ -114,7 +148,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 		}
 
 	case resp.NextState != nil:
-		if err := w.NewUserState(ctx, tgID, *resp.NextState); err != nil {
+		if err := w.NewUserState(ctx, tgActor.ID, *resp.NextState); err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting admin state")
 
 			resp.Messages = []apptg.RespMessage{ {
@@ -135,24 +169,29 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 	}
 
 	if resp.DeleteLastMsg {
-		msgID, err := w.GetLastMsgToUser(ctx, tgID)
+		msgID, err := w.GetLastMsgToUser(ctx, tgActor.ID)
 		if err != nil || msgID == 0 {
 			notifyMsg = "Error getting last message ID"
 
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting last message ID")
 		}
 
-		err = srv.TelegramDeleteMessage(ctx, tgID, msgID)
+		err = srv.TelegramDeleteMessage(ctx, tgActor.ID, msgID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
 		}
 	}
 
 	if resp.DeleteCurMsg {
-		err = srv.TelegramDeleteMessage(ctx, tgID, curMsgID)
+		err = srv.TelegramDeleteMessage(ctx, tgActor.ID, curMsgID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
 		}
+	}
+
+	callbackID, errCallback := reqctx.GetCallbackID(ctx)
+	if errCallback != nil && !errors.Is(errCallback, reqctx.ErrUndefinedCallbackID) {
+		zlog.Ctx(ctx).Error().Err(errCallback).Msg("Error getting callback ID from context")
 	}
 
 	if callbackID != "" {
@@ -167,14 +206,14 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 	for _, rMsg := range resp.Messages {
 		switch {
 		case rMsg.InvoiceData != nil:
-			msgID, err = srv.SendInvoice(ctx, tgID, *rMsg.InvoiceData)
+			msgID, err = srv.SendInvoice(ctx, chatID, *rMsg.InvoiceData)
 			if err != nil {
 				zlog.Ctx(ctx).Error().Err(err).Msg("Error sending invoice")
 				return
 			}
 
 		case rMsg.TmMsg != "" || len(rMsg.Photos) > 0:
-			btn, err := convertButtonCMDToTgButton(ctx, rMsg.ButtonCMDs)
+			btn, err := apptg.ConvertButtonCMDToTgButton(ctx, rMsg.ButtonCMDs)
 			if err != nil {
 				zlog.Ctx(ctx).Error().Err(err).Msg("Error converting button command to Telegram button")
 			}
@@ -200,7 +239,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 				}
 			}
 
-			msgID, err = srv.TelegramSendMessageButtons(ctx, tgID, tgMsg)
+			msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
 
 			if err != nil {
 				zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Err(err).Msg("Error sending message")
@@ -235,7 +274,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 				}
 
 				if adm {
-					_, err = srv.TelegramSendMessageButtons(ctx, tgID, telegram.Message{
+					_, err = srv.TelegramSendMessageButtons(ctx, chatID, telegram.Message{
 						Text: "Error sending message: " + origErr.Error(),
 					})
 					if err != nil {
@@ -247,63 +286,11 @@ func (w *Worker) postProcessRequest(ctx context.Context, tgID int64, callbackID 
 			}
 		}
 		
-		err = w.SetLastMsgToUser(ctx, tgID, msgID)
+		err = w.SetLastMsgToUser(ctx, tgActor.ID, msgID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting last message ID")
 
 			return
 		}
 	}
-}
-
-func convertButtonCMDToTgButton(ctx context.Context, btn [][]apptg.ButtonCmd) ([][]tgbotapi.InlineKeyboardButton, error) {
-	tgBtn := make([][]tgbotapi.InlineKeyboardButton, len(btn))
-
-	for i := range btn {
-		tgBtn[i] = make([]tgbotapi.InlineKeyboardButton, 0, len(btn[i]))
-
-		for j := range btn[i] {
-			if btn[i][j].URL != "" {
-				if len(btn[i][j].URL) > 256 {
-					zlog.Ctx(ctx).Error().Int("Len", len(btn[i][j].URL)).Str("Text", btn[i][j].Text).Str("URL", btn[i][j].URL).Msg("Button URL too long")
-					
-					continue
-				}
-
-				tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonURL(btn[i][j].Text, btn[i][j].URL))
-
-				continue
-			}
-
-			if btn[i][j].Name == handler.EmptyCommandName {
-				zlog.Ctx(ctx).Error().Msg("Empty button command name")
-
-				continue
-			}
-
-			if btn[i][j].Text == "" {
-				zlog.Ctx(ctx).Error().Msg("Empty button command text")
-
-				continue
-			}
-
-			c, ex := cmdMaps[btn[i][j].Name]
-			if !ex {
-				zlog.Ctx(ctx).Error().Str("Cmd", btn[i][j].Name.String()).Msg("Unknown command")
-
-				continue
-			}
-
-			data := "/" + c.Name.String() + ":" + btn[i][j].Params
-			if len(data) > 64 {
-				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
-
-				continue
-			}
-
-			tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonData(btn[i][j].Text, data))
-		}
-	}
-
-	return tgBtn, nil
 }

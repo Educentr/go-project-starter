@@ -9,8 +9,8 @@ import (
 )
 
 type UpdateHandler interface {
-	PreCheckout(ctx context.Context, update tgbotapi.Update) error
-	Purchase(ctx context.Context, update tgbotapi.Update) error
+	PreCheckout(ctx context.Context, update tgbotapi.Update) (context.Context, error)
+	Purchase(ctx context.Context, update tgbotapi.Update) (context.Context, error)
 }
 
 type Actor struct {
@@ -19,7 +19,6 @@ type Actor struct {
 	LastName     string `json:"last_name"`
 	Username     string `json:"username"`
 	LanguageCode string `json:"language_code"`
-	TgChatID     int64  `json:"chat_instance"`
 }
 
 type Message struct {
