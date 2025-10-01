@@ -1,6 +1,10 @@
 # Go project starter
 
-TODO name!!!
+## Docs
+
+```bash
+docker build -f docs/Dockerfile -t mkdocs-app . && docker run -p 8000:8000 -v $(pwd):/docs mkdocs-app
+```
 
 ## Generate you project
 

@@ -8,9 +8,6 @@ main:
 config:
   image: ghcr.io/nikolo/onlineconf-updater:5ee228a
 
-docker:
-  image_prefix: registry.educentr.info
-
 deploy:
   log_collector:
     type: loki
