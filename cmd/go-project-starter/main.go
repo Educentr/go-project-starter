@@ -7,9 +7,9 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/config"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/generator"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/config"
+	"github.com/Educentr/go-project-starter/internal/pkg/generator"
+	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 )
 
 const (

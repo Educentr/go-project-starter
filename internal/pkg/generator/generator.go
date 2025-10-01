@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/config"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/ds"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/meta"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/templater"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/tools"
+	"github.com/Educentr/go-project-starter/internal/pkg/config"
+	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/templater"
+	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 )
 
 type Generator struct {

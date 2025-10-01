@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 )
 
 //go:embed all:embedded

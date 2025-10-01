@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-git/go-git/v5"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 )
 
 const (

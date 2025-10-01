@@ -1,4 +1,4 @@
-module gitlab.educentr.info/golang/service-starter
+module github.com/Educentr/go-project-starter
 
 go 1.23
 

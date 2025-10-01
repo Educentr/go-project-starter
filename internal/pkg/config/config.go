@@ -6,7 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/loggers"
+	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 )
 
 func GetConfig(baseDir, configPath string) (Config, error) { // конструктор, принимает две строки конфигурации и отдает структуру Config и ошибку

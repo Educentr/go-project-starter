@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/ds"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/loggers"
-	"gitlab.educentr.info/golang/service-starter/internal/pkg/tools"
+	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
+	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 )
 
 type (
