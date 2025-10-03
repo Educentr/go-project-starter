@@ -13,7 +13,7 @@ import (
 )
 
 type Cmd struct {
-	Name            apptg.CommandName
+	Name            telegram.CommandName
 	NeedMsg         bool
 	NeedAdminAccess bool
 	Private     	bool
@@ -22,7 +22,7 @@ type Cmd struct {
 	Params          apptg.ParamI
 }
 
-var cmdMaps = make(map[apptg.CommandName]Cmd)
+var cmdMaps = make(map[telegram.CommandName]Cmd)
 
 var CustomError = map[error]func(ctx context.Context) (apptg.Response, error){}
 
@@ -139,8 +139,8 @@ func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, er
 	case err != nil:
 		zlog.Ctx(ctx).Error().Err(err).Msg("Error processing command")
 
-		resp.Messages = []apptg.RespMessage{ {
-			TmMsg:      err.Error(),
+		resp.Messages = []telegram.Message{ {
+			Text:      err.Error(),
 		} }
 
 		if notifyMsg != "" {
@@ -151,8 +151,8 @@ func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, er
 		if err := w.NewUserState(ctx, tgActor.ID, *resp.NextState); err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting admin state")
 
-			resp.Messages = []apptg.RespMessage{ {
-				TmMsg: "Internal error",
+			resp.Messages = []telegram.Message{ {
+				Text: "Internal error",
 			} }
 
 			if notifyMsg != "" {
@@ -203,42 +203,16 @@ func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, er
 
 	msgID := 0
 
-	for _, rMsg := range resp.Messages {
+	for _, tgMsg := range resp.Messages {
 		switch {
-		case rMsg.InvoiceData != nil:
-			msgID, err = srv.SendInvoice(ctx, chatID, *rMsg.InvoiceData)
+		case tgMsg.InvoiceData != nil:
+			msgID, err = srv.SendInvoice(ctx, chatID, *tgMsg.InvoiceData)
 			if err != nil {
 				zlog.Ctx(ctx).Error().Err(err).Msg("Error sending invoice")
 				return
 			}
 
-		case rMsg.TmMsg != "" || len(rMsg.Photos) > 0:
-			btn, err := apptg.ConvertButtonCMDToTgButton(ctx, rMsg.ButtonCMDs)
-			if err != nil {
-				zlog.Ctx(ctx).Error().Err(err).Msg("Error converting button command to Telegram button")
-			}
-
-			tgMsg := telegram.Message{
-				Text: rMsg.TmMsg,
-				Btn: btn,
-			}
-
-			if rMsg.TgFormat != "" {
-				tgMsg.TextFormat = rMsg.TgFormat
-			}
-
-			if rMsg.Photos != "" {
-				tgMsg.Images = []tgbotapi.RequestFileData{tgbotapi.FilePath(rMsg.Photos)}
-			}
-
-			for i := range tgMsg.Btn {
-				for j := range tgMsg.Btn[i] {
-					if tgMsg.Btn[i][j].CallbackData != nil && len(*tgMsg.Btn[i][j].CallbackData) > 64 {
-						zlog.Ctx(ctx).Error().Int("Len", len(*tgMsg.Btn[i][j].CallbackData)).Str("Text", tgMsg.Btn[i][j].Text).Str("Data", *tgMsg.Btn[i][j].CallbackData).Msg("Button text too long")
-					}
-				}
-			}
-
+		case tgMsg.Text != "" || len(tgMsg.Photos) > 0:
 			msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
 
 			if err != nil {
@@ -284,6 +258,10 @@ func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, er
 
 				return
 			}
+		default:
+			zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Msg("Empty message")
+
+			continue
 		}
 		
 		err = w.SetLastMsgToUser(ctx, tgActor.ID, msgID)

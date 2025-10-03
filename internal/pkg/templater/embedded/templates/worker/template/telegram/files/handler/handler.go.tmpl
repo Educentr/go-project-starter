@@ -30,7 +30,7 @@ func (e *EmptyParams) Pack() string {
 }
 
 type BackButtonParams struct {
-	Back apptg.ButtonCmd
+	Back telegram.ButtonCmd
 	Del bool
 }
 
@@ -56,17 +56,13 @@ func (p *BackButtonParams) Unpack(_ context.Context, params string) error {
 		return fmt.Errorf("empty command name in params: %s", params)
 	}
 
-	p.Back.Name = apptg.CommandName(parts[0])
+	p.Back.Name = telegram.CommandName(parts[0])
 	p.Back.Text = parts[1]
 	p.Back.URL = parts[2]
 	p.Back.Params = parts[3]
 
 	return nil
 }
-
-const (
-	EmptyCommandName apptg.CommandName = ""
-)
 
 var (
 	ErrEmptyParam              = errors.New("empty parameter")
@@ -76,10 +72,10 @@ var (
 
 var (
 	UnimplementedResponse = apptg.Response{
-		Messages: []apptg.RespMessage{
+		Messages: []telegram.Message{
 			{
-				TmMsg:      "Unimplemented command",
-				ButtonCMDs: [][]apptg.ButtonCmd{},
+				Text:   "Unimplemented command",
+				Btn:    [][]telegram.ButtonCmd{},
 			},
 		},
 	}

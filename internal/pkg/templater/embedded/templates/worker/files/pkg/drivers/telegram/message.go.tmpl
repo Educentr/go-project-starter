@@ -4,8 +4,55 @@ import (
 	"context"
 	"errors"
 
+	{{ .Logger.Import }}
+
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 )
+
+func ConvertButtonCMDToTgButton(ctx context.Context, btn [][]ButtonCmd) ([][]tgbotapi.InlineKeyboardButton, error) {
+	tgBtn := make([][]tgbotapi.InlineKeyboardButton, len(btn))
+
+	for i := range btn {
+		tgBtn[i] = make([]tgbotapi.InlineKeyboardButton, 0, len(btn[i]))
+
+		for j := range btn[i] {
+			if btn[i][j].URL != "" {
+				if len(btn[i][j].URL) > 256 {
+					zlog.Ctx(ctx).Error().Int("Len", len(btn[i][j].URL)).Str("Text", btn[i][j].Text).Str("URL", btn[i][j].URL).Msg("Button URL too long")
+					
+					continue
+				}
+
+				tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonURL(btn[i][j].Text, btn[i][j].URL))
+
+				continue
+			}
+
+			if btn[i][j].Name == EmptyCommandName {
+				zlog.Ctx(ctx).Error().Msg("Empty button command name")
+
+				continue
+			}
+
+			if btn[i][j].Text == "" {
+				zlog.Ctx(ctx).Error().Msg("Empty button command text")
+
+				continue
+			}
+
+			data := "/" + string(btn[i][j].Name) + ":" + btn[i][j].Params
+			if len(data) > 64 {
+				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
+
+				continue
+			}
+
+			tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonData(btn[i][j].Text, data))
+		}
+	}
+
+	return tgBtn, nil
+}
 
 func (tg *Telegram) SendAnswerCallback(_ context.Context, callbackID string, text string) (bool, error) {
 	tgMes, err := tg.bot.Request(tgbotapi.CallbackConfig{
@@ -22,14 +69,19 @@ func (tg *Telegram) DeleteMessage(_ context.Context, chatID int64, msgID int) er
 	return err
 }
 
-func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg Message) (int, error) {
+func (tg *Telegram) SendMessageWithButton(ctx context.Context, chatID int64, msg Message) (int, error) {
+	btn, err := ConvertButtonCMDToTgButton(ctx, msg.Btn)
+	if err != nil {
+		return 0, err
+	}
+
 	switch {
-	case len(msg.Images) > 0:
-		if len(msg.Images) > 1 {
+	case len(msg.Photos) > 0:
+		if len(msg.Photos) > 1 {
 			return 0, errors.New("send message with more than one image is not supported")
 		}
 
-		msgTg := tgbotapi.NewPhoto(chatID, msg.Images[0]);
+		msgTg := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(msg.Photos[0]));
 		msgTg.Caption = msg.Text
 
 		if msg.TextFormat != "" {
@@ -37,7 +89,7 @@ func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg M
 		}
 
 		if len(msg.Btn) != 0 {
-			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
+			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(btn...)
 		}
 
 		return tg.send(msgTg)
@@ -45,7 +97,7 @@ func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg M
 		msgTg := tgbotapi.NewMessage(chatID, msg.Text)		
 
 		if len(msg.Btn) != 0 {
-			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
+			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(btn...)
 		}
 
 		if msg.TextFormat != "" {
@@ -56,12 +108,17 @@ func (tg *Telegram) SendMessageWithButton(_ context.Context, chatID int64, msg M
 	}
 }
 
-func (tg *Telegram) UpdateMessageWithButton(_ context.Context, chatID int64, msgID int, msg Message) (int, error) {
+func (tg *Telegram) UpdateMessageWithButton(ctx context.Context, chatID int64, msgID int, msg Message) (int, error) {
+	btn, err := ConvertButtonCMDToTgButton(ctx, msg.Btn)
+	if err != nil {
+		return 0, err
+	}
+
 	msgTg := tgbotapi.NewEditMessageText(chatID, msgID, msg.Text)
 
-	if len(msg.Btn) != 0 {
-		btn := tgbotapi.NewInlineKeyboardMarkup(msg.Btn...)
-		msgTg.ReplyMarkup = &btn
+	if len(btn) != 0 {
+		btnMrkup := tgbotapi.NewInlineKeyboardMarkup(btn...)
+		msgTg.ReplyMarkup = &btnMrkup
 	}
 
 	if msg.TextFormat != "" {

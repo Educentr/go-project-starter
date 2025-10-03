@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	{{ .Logger.Import }}
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/gofrs/uuid/v5"
 
@@ -58,39 +57,14 @@ type ParamI interface {
 	Unpack(ctx context.Context, params string) error
 }
 
-type CommandName string
-
-func (c CommandName) String() string {
-	return string(c)
-}
-
-const (
-	EmptyCommandName CommandName = ""
-)
-
-type ButtonCmd struct {
-	Text   string
-	URL    string
-	Name   CommandName
-	Params string
-}
-
-type RespMessage struct {
-	TmMsg       string
-	TgFormat    string
-	InvoiceData *telegram.InvoiceData
-	Photos      string
-	ButtonCMDs  [][]ButtonCmd
-}
-
 type ResponseRedirect struct {
-	Cmd CommandName
+	Cmd telegram.CommandName
 	Params string
 }
 
 type Response struct {
 	InternalRedirect *ResponseRedirect
-	Messages      []RespMessage
+	Messages      []telegram.Message
 	NextState     *string
 	NotifyMsg     string
 	DeleteLastMsg bool
@@ -118,49 +92,4 @@ func (DefaultHandler) ProcessPayment(ctx context.Context, idempotency uuid.UUID,
 
 func (DefaultHandler) Authorization(ctx context.Context, cmd any, pp string) (context.Context, error) {
 	return ctx, nil
-}
-
-func ConvertButtonCMDToTgButton(ctx context.Context, btn [][]ButtonCmd) ([][]tgbotapi.InlineKeyboardButton, error) {
-	tgBtn := make([][]tgbotapi.InlineKeyboardButton, len(btn))
-
-	for i := range btn {
-		tgBtn[i] = make([]tgbotapi.InlineKeyboardButton, 0, len(btn[i]))
-
-		for j := range btn[i] {
-			if btn[i][j].URL != "" {
-				if len(btn[i][j].URL) > 256 {
-					zlog.Ctx(ctx).Error().Int("Len", len(btn[i][j].URL)).Str("Text", btn[i][j].Text).Str("URL", btn[i][j].URL).Msg("Button URL too long")
-					
-					continue
-				}
-
-				tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonURL(btn[i][j].Text, btn[i][j].URL))
-
-				continue
-			}
-
-			if btn[i][j].Name == EmptyCommandName {
-				zlog.Ctx(ctx).Error().Msg("Empty button command name")
-
-				continue
-			}
-
-			if btn[i][j].Text == "" {
-				zlog.Ctx(ctx).Error().Msg("Empty button command text")
-
-				continue
-			}
-
-			data := "/" + string(btn[i][j].Name) + ":" + btn[i][j].Params
-			if len(data) > 64 {
-				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
-
-				continue
-			}
-
-			tgBtn[i] = append(tgBtn[i], tgbotapi.NewInlineKeyboardButtonData(btn[i][j].Text, data))
-		}
-	}
-
-	return tgBtn, nil
 }

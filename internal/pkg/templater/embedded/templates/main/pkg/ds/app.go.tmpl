@@ -39,7 +39,7 @@ type OnlyRunnable interface {
 	GracefulStop(ctx context.Context) (<-chan struct{}, error)
 }
 
-// Todo избавиться от одного из интерфейсов
+// Todo возможно надо передавать appName в Init
 type Runnable interface {
 	Init(ctx context.Context, serviceName string, rb ServerBucket, metrics *prometheus.Registry) error
 	Namable

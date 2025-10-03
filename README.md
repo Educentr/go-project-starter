@@ -78,6 +78,12 @@ Dockerfile          Makefile            api                 cmd                 
       type: object
 ```
 
+## Naming
+
+- serviceName - название генерируемого проекта
+- serverName - название сервера в транспортном слое
+- appName - название пгенерируемого приложения
+
 ## Contributing
 
 ## ToDos

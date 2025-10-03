@@ -21,11 +21,30 @@ type Actor struct {
 	LanguageCode string `json:"language_code"`
 }
 
+type CommandName string
+
+func (c CommandName) String() string {
+	return string(c)
+}
+
+const (
+	EmptyCommandName CommandName = ""
+)
+
+type ButtonCmd struct {
+	Text   string
+	URL    string
+	Name   CommandName
+	Params string
+}
+
 type Message struct {
 	Text string
 	TextFormat string
-	Images []tgbotapi.RequestFileData
-	Btn  [][]tgbotapi.InlineKeyboardButton
+	//Images []tgbotapi.RequestFileData
+	Photos []string
+	Btn  [][]ButtonCmd
+	InvoiceData *InvoiceData
 }
 
 const (

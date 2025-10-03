@@ -185,7 +185,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 		return ctx, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
-	command := apptg.CommandName(data[0])
+	command := telegram.CommandName(data[0])
 
 	pi, err := reqctx.GetProcessInfo(ctx)
 	if err != nil {
@@ -240,7 +240,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 		return ctx, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
-	var command apptg.CommandName
+	var command telegram.CommandName
 
 	startParam := 0
 
@@ -250,7 +250,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	case len(message.Entities) != 0:
 		for _, entity := range message.Entities {
 			if entity.Type == "bot_command" {
-				command = apptg.CommandName(message.Text[entity.Offset+1 : entity.Offset+entity.Length])
+				command = telegram.CommandName(message.Text[entity.Offset+1 : entity.Offset+entity.Length])
 
 				startParam = entity.Offset + entity.Length + 1
 
@@ -274,7 +274,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 
 		if userState != "" {
 			stateParams := strings.SplitN(userState, ":", 2)
-			command = apptg.CommandName(stateParams[0])
+			command = telegram.CommandName(stateParams[0])
 			if len(stateParams) == 2 {
 				pp = stateParams[1]
 			}

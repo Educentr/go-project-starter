@@ -619,7 +619,7 @@ This guide is comprehensive. Complex flows are documented inline with sequence d
 **1. Install the tool:**
 
 ```bash
-go install gitlab.educentr.info/golang/service-starter/cmd/go-project-starter@latest
+go install github.com/Educentr/go-project-starter/cmd/go-project-starter@latest
 ```
 
 **2. Create configuration:**
