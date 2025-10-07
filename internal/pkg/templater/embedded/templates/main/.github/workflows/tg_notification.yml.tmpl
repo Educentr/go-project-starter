@@ -37,9 +37,9 @@ jobs:
 
           # Формирование сообщения
           if [[ "$STATUS" == "success" ]]; then
-            MESSAGE="✅ Успех: *${{ github.workflow }}* завершен на ветке *$BRANCH*\nКоммит: _${ESCAPED_COMMIT_MSG}_\n[Посмотреть билд](${RUN_URL})"
+            MESSAGE="✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*\nКоммит: _${ESCAPED_COMMIT_MSG}_\n[Посмотреть билд](${RUN_URL})"
           else
-            MESSAGE="❌ Ошибка: *${{ github.workflow }}* завершился с ошибкой на ветке *$BRANCH*\nКоммит: _${ESCAPED_COMMIT_MSG}_\n[Посмотреть билд](${RUN_URL})"
+            MESSAGE="❌ Ошибка: *${{"{{"}} github.workflow {{"}}"}}* завершился с ошибкой на ветке *$BRANCH*\nКоммит: _${ESCAPED_COMMIT_MSG}_\n[Посмотреть билд](${RUN_URL})"
           fi
 
           echo "MESSAGE=$MESSAGE" >> $GITHUB_ENV
