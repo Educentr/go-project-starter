@@ -33,6 +33,7 @@ const (
 
 const (
 	nameFieldLogger = "Name"
+	WorkerName      = "{{ .Worker.Name }}"
 )
 
 func Create() *Worker {
@@ -40,7 +41,7 @@ func Create() *Worker {
 }
 
 func (w *Worker) Name() string {
-	return "{{ .Worker.Name }}"
+	return WorkerName
 }
 
 func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prometheus.Registry, srv ds.IService) error {
@@ -48,8 +49,19 @@ func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prome
 	return nil
 }
 
-func GetBatchSize(ctx context.Context, jobName string) uint32 {
-	batchSize, err := onlineconf.GetInt(ctx, onlineconf.MakePath(constant.ServiceName, "workers", jobName, "batch_size"), DefaultBatchSize)
+func GetEnabledJobs(ctx context.Context) []string {
+	enabledJobs, err := onlineconf.GetStrings(ctx, GetConfigPath("jobs", "enabled"), []string{})
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("get enabled jobs")
+
+		return []string{}
+	}
+
+	return enabledJobs
+}
+
+func GetBatchSize(ctx context.Context) uint32 {
+	batchSize, err := onlineconf.GetInt(ctx, GetConfigPath("batch_size"), DefaultBatchSize)
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("get batch size")
 
@@ -65,16 +77,16 @@ func GetBatchSize(ctx context.Context, jobName string) uint32 {
 	return uint32(batchSize)
 }
 
-func (w *Worker) GetConfigPath(key ...string) string{
-	components := []string{constant.ServiceName, "worker", w.Name()}
+func GetConfigPath(key ...string) string{
+	components := []string{constant.ServiceName, "worker", WorkerName}
 	components = append(components, key...)
 
 	return onlineconf.MakePath(components...)
 }
 
 func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) {
-	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, w.GetConfigPath(),  "job")
-	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, w.Name())" }}
+	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, GetConfigPath(),  "job")
+	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, WorkerName)" }}
 
 	err = errors.New("unexpected error")
 
@@ -89,7 +101,7 @@ func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) 
 
 	err = task.Do(ctxJob, w.Srv)
 	if err != nil {
-		{{ .Logger.ErrorMsg "ctxJob" "err" "Error job starter" "Str(nameFieldLogger, w.Name())" "Str(\"taskID\", task.GetID(ctxJob))"}}
+		{{ .Logger.ErrorMsg "ctxJob" "err" "Error job starter" "Str(nameFieldLogger, WorkerName)" "Str(\"taskID\", task.GetID(ctxJob))"}}
 	}
 
 	return
@@ -99,7 +111,7 @@ func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) 
 func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 	// initialization worker
 	errGr.Go(func() error {
-		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, w.Name())" }}
+		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, WorkerName)" }}
 
 		timer := time.NewTimer(time.Millisecond * 500)
 		iterNum := 1
@@ -110,12 +122,12 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 			case <-timer.C:
 				iterNum++
 				if iterNum % 100 == 0 {
-					{{ .Logger.InfoMsg "ctx" "worker iteration" "Int(\"iterNum\", iterNum)" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.InfoMsg "ctx" "worker iteration" "Int(\"iterNum\", iterNum)" "Str(nameFieldLogger, WorkerName)" }}
 				}
 
 				tasks, jobState, err := w.GetTasks(ctx, w.jobState)
 				if err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "Str(nameFieldLogger, WorkerName)" }}
 					timer = time.NewTimer(ErrorTimeout)
 					continue
 				}
@@ -123,20 +135,20 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				w.jobState = jobState
 
 				if tasks == nil {
-					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "Str(nameFieldLogger, WorkerName)" }}
 					timer = time.NewTimer(NewCycleTimeout)
 					continue
 				}
 
 				if len(tasks) == 0 {
-					{{ .Logger.InfoMsg "ctx" "no tasks to run" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.InfoMsg "ctx" "no tasks to run" "Str(nameFieldLogger, WorkerName)" }}
 					timer = time.NewTimer(NextIterationTimeout)
 					continue
 				}
 
-				MaxWorkers, err := onlineconf.GetInt(ctx, w.GetConfigPath("max_workers"), 5)
+				MaxWorkers, err := onlineconf.GetInt(ctx, GetConfigPath("max_workers"), 5)
 				if err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Error get max_workers config" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "Error get max_workers config" "Str(nameFieldLogger, WorkerName)" }}
 					MaxWorkers = 5 // default value
 				}
 
@@ -148,7 +160,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 					wgWorkers.Go(func() error {
 						for task := range tasksChan {
 							if err := w.JobStarter(ctx, task); err != nil {
-								{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "Str(nameFieldLogger, w.Name())" "Str(\"taskID\", task.GetID(ctx))"}}
+								{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "Str(nameFieldLogger, WorkerName)" "Str(\"taskID\", task.GetID(ctx))"}}
 							}
 						}
 
@@ -163,7 +175,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				close(tasksChan)
 
 				if err := wgWorkers.Wait(); err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Worker pool error" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "Worker pool error" "Str(nameFieldLogger, WorkerName)" }}
 				}
 
 				{{ .Logger.DebugMsg "ctx" "worker finished cycle" }}
@@ -173,7 +185,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 			}
 		}
 
-		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, w.Name())" }}
+		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, WorkerName)" }}
 
 		return nil
 	})

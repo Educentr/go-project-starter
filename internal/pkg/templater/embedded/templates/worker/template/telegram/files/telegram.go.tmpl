@@ -37,6 +37,7 @@ type TelegramUpdateWorker interface {
 
 const (
 	nameFieldLogger = "Name"
+	WorkerName      = "{{ .Worker.Name }}"
 )
 
 var (
@@ -48,7 +49,7 @@ func Create() *Worker {
 }
 
 func (w *Worker) Name() string {
-	return "{{ .Worker.Name }}"
+	return WorkerName
 }
 
 func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prometheus.Registry, srv ds.IService) error {
@@ -64,16 +65,16 @@ func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prome
 	return nil
 }
 
-func (w *Worker) GetConfigPath(key ...string) string{
-	components := []string{constant.ServiceName, "worker", w.Name()}
+func GetConfigPath(key ...string) string{
+	components := []string{constant.ServiceName, "worker", WorkerName}
 	components = append(components, key...)
 
 	return onlineconf.MakePath(components...)
 }
 
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
-	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, w.GetConfigPath(), "job")
-	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, w.Name())" }}
+	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, WorkerName)" }}
 
 	pi := reqctx.RequestProcessInfo{}
 	ctxJob = reqctx.SetProcessInfo(ctxJob, &pi)
@@ -136,29 +137,29 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 	// initialization worker
 	errGr.Go(func() error {
-		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, w.Name())" }}
+		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, WorkerName)" }}
 
 	JOB:
 		for {
 			select {
 			case update := <- w.tgSrv.GetUpdateChannel(ctx):
-				{{ .Logger.InfoMsg "ctx" "worker get update" "Int(\"updateID\", update.UpdateID)" "Interface(\"update\", update)" "Str(nameFieldLogger, w.Name())" }}
+				{{ .Logger.InfoMsg "ctx" "worker get update" "Int(\"updateID\", update.UpdateID)" "Interface(\"update\", update)" "Str(nameFieldLogger, WorkerName)" }}
 
 				err := w.JobStarter(ctx, update)
 				if err != nil {
 					if errors.Is(err, telegram.ErrUnimplementedHandler) {
-						{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "Str(nameFieldLogger, w.Name())" }}
+						{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "Str(nameFieldLogger, WorkerName)" }}
 
 						continue
 					}
 
 					if errors.Is(err, telegram.ErrUnsupportedHandler) {
-						{{ .Logger.InfoMsg "ctx" "unsupported. skip" "Str(nameFieldLogger, w.Name())" }}
+						{{ .Logger.InfoMsg "ctx" "unsupported. skip" "Str(nameFieldLogger, WorkerName)" }}
 
 						continue
 					}
 
-					{{ .Logger.ErrorMsg "ctx" "err" "worker error" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "worker error" "Str(nameFieldLogger, WorkerName)" }}
 				}
 
 			case <-ctx.Done():
@@ -166,7 +167,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 			}
 		}
 
-		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, w.Name())" }}
+		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, WorkerName)" }}
 
 		return nil
 	})
@@ -179,21 +180,21 @@ func (w *Worker) Shutdown(_ context.Context) error {
 
 // GracefulStop do graceful stop telegram worker
 func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
-	{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+	{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
 	w.tgSrv.StopChannel(ctx)
 	stopped := make(chan struct{})
 
 	go func() {
-		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
 		// wait for all jobs to finish
 		// or timeout
 		c := time.NewTicker(time.Millisecond * 100)
-		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
 		for {
 			select {
 			case <-c.C:
 				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 {
-					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, w.Name())" }}
+					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
 
 					close(stopped)
 					
