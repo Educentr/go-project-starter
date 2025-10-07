@@ -67,7 +67,22 @@ func UserEnabled(ctx context.Context, tgID int64, action ActionEnableUsers) (boo
 	}
 
 	if len(enabledUsers) == 0 {
-		return true, nil
+		_, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "enabled", string(action)))
+		if err != nil {
+			return false, err
+		}
+
+		if !ex {
+			// если нету ключа значит включено для всех
+			return true, nil
+		}
+
+		_, ex, err = onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "enabled", string(action), strconv.FormatInt(tgID, 10)))
+		if err != nil {
+			return false, err
+		}
+
+		return ex, nil
 	}
 
 	enableUsersInt := make(map[int64]struct{}, len(enabledUsers))
