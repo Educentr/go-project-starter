@@ -66,6 +66,7 @@ type Response struct {
 	InternalRedirect *ResponseRedirect
 	Messages      []telegram.Message
 	NextState     *string
+	UpdateCurMsg  bool
 	NotifyMsg     string
 	DeleteLastMsg bool
 	DeleteCurMsg  bool

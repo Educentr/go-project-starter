@@ -57,7 +57,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 
 	ctx, aclErr := hdl.Authorization(ctx, "PreCheckout", "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, aclErr)
+		w.HandleAuthError(ctx, PreCheckoutRequest, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
@@ -119,7 +119,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 
 	ctx, aclErr := hdl.Authorization(ctx, "Purchase", "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, aclErr)
+		w.HandleAuthError(ctx, PurchaseRequest, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
@@ -150,7 +150,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 	}()
 
 	resp, err := hdl.ProcessPayment(ctx, invoice.IdempotencyKey, message.SuccessfulPayment)
-	w.postProcessRequest(ctx, resp, err)
+	w.postProcessRequest(ctx, PurchaseRequest, resp, err)
 		
 	return ctx, nil
 }
@@ -200,19 +200,19 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, PurchaseRequest, apptg.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
 	}
 
 	ctx, aclErr := hdl.Authorization(ctx, command, params)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, aclErr)
+		w.HandleAuthError(ctx, CallbackRequest, aclErr)
 
 		return ctx, nil
 	}
 
-	w.processRequest(ctx, hdl, c, params)
+	w.processRequest(ctx, CallbackRequest, hdl, c, params)
 
 	return ctx, nil
 }
@@ -299,7 +299,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, PurchaseRequest, apptg.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
 	}
@@ -307,7 +307,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	if c.NeedMsg {
 		if message.Text == "" {
 			zlog.Ctx(ctx).Error().Msg("Empty message")
-			w.postProcessRequest(ctx, apptg.Response{}, errors.New("Empty message"))
+			w.postProcessRequest(ctx, PurchaseRequest, apptg.Response{}, errors.New("Empty message"))
 
 			return ctx, nil
 		}
@@ -327,12 +327,12 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 
 	ctx, aclErr := hdl.Authorization(ctx, command, pp)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, aclErr)
+		w.HandleAuthError(ctx, TextRequest, aclErr)
 
 		return ctx, nil
 	}
 
-	w.processRequest(ctx, hdl, c, pp)
+	w.processRequest(ctx, TextRequest, hdl, c, pp)
 
 	return ctx, nil
 }

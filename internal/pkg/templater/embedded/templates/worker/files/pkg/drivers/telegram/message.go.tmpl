@@ -108,24 +108,46 @@ func (tg *Telegram) SendMessageWithButton(ctx context.Context, chatID int64, msg
 	}
 }
 
-func (tg *Telegram) UpdateMessageWithButton(ctx context.Context, chatID int64, msgID int, msg Message) (int, error) {
+func (tg *Telegram) EditMessageWithButton(ctx context.Context, chatID int64, msgID int, msg Message) error {
 	btn, err := ConvertButtonCMDToTgButton(ctx, msg.Btn)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	msgTg := tgbotapi.NewEditMessageText(chatID, msgID, msg.Text)
+	switch {
+	case len(msg.Photos) > 0:
+		if len(msg.Photos) > 1 {
+			return errors.New("send message with more than one image is not supported")
+		}
 
-	if len(btn) != 0 {
-		btnMrkup := tgbotapi.NewInlineKeyboardMarkup(btn...)
-		msgTg.ReplyMarkup = &btnMrkup
+		mediaPhoto := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(msg.Photos[0]))
+		mediaPhoto.Caption = msg.Text
+
+		if msg.TextFormat != "" {
+			mediaPhoto.ParseMode = msg.TextFormat
+		}
+
+		msgTg := tgbotapi.NewEditMessagePhoto(chatID, msgID, mediaPhoto)
+
+		if len(msg.Btn) != 0 {
+			markup := tgbotapi.NewInlineKeyboardMarkup(btn...)
+			msgTg.ReplyMarkup = &markup
+		}
+
+		_, err = tg.bot.Request(msgTg)
+
+		return err
+	default:
+		msgTg := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, msg.Text, tgbotapi.NewInlineKeyboardMarkup(btn...))
+
+		if msg.TextFormat != "" {
+			msgTg.ParseMode = msg.TextFormat
+		}
+
+		_, err = tg.bot.Request(msgTg)
+
+		return err
 	}
-
-	if msg.TextFormat != "" {
-		msgTg.ParseMode = msg.TextFormat
-	}
-
-	return tg.send(msgTg)
 }
 
 func (tg *Telegram) send(msg tgbotapi.Chattable) (int, error) {

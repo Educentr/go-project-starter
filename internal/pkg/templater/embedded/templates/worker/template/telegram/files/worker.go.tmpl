@@ -26,7 +26,7 @@ var cmdMaps = make(map[telegram.CommandName]Cmd)
 
 var CustomError = map[error]func(ctx context.Context) (apptg.Response, error){}
 
-func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd, pp string) {
+func (w *Worker) processRequest(ctx context.Context, requestType RequestType, hdl *handler.Handler, c Cmd, pp string) {
 	actor, err := reqctx.GetActor(ctx)
 	if err != nil {
 		if !errors.Is(err, reqctx.ErrUndefinedActor) {
@@ -52,7 +52,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 	for {
 		aclErr := w.Authorization(ctx, c)
 		if aclErr != nil {
-			w.HandleAuthError(ctx, aclErr)
+			w.HandleAuthError(ctx, requestType, aclErr)
 
 			return
 		}
@@ -63,7 +63,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 			if !ok {
 				zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Unknown command for internal redirect")
 
-				w.postProcessRequest(ctx, apptg.Response{}, ErrInternalError)
+				w.postProcessRequest(ctx, requestType, apptg.Response{}, ErrInternalError)
 
 				return
 			}
@@ -72,7 +72,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 			continue
 		}
 
-		w.postProcessRequest(ctx, resp, err)
+		w.postProcessRequest(ctx, requestType, resp, err)
 		
 		break
 	}
@@ -80,11 +80,11 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c Cmd
 	return
 }
 
-func (w *Worker) HandleAuthError(ctx context.Context, aclErr error) {
+func (w *Worker) HandleAuthError(ctx context.Context, requestType RequestType, aclErr error) {
 	for cErr, cFunc := range CustomError {
 		if errors.Is(aclErr, cErr) {
 			resp, err := cFunc(ctx)
-			w.postProcessRequest(ctx, resp, err)
+			w.postProcessRequest(ctx, requestType, resp, err)
 
 			return
 		}
@@ -93,7 +93,7 @@ func (w *Worker) HandleAuthError(ctx context.Context, aclErr error) {
 	if errors.Is(aclErr, ErrUserNotFound) {
 		{{ .Logger.ErrorMsg "ctx" "aclErr" "Admin not found. Skip" }}
 
-		w.postProcessRequest(ctx, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, requestType, apptg.Response{}, nil)
 
 		return
 	}
@@ -101,19 +101,19 @@ func (w *Worker) HandleAuthError(ctx context.Context, aclErr error) {
 	if errors.Is(aclErr, ErrAccessDenied) {
 		{{ .Logger.ErrorMsg "ctx" "aclErr" "Access denied" }}
 
-		w.postProcessRequest(ctx, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, requestType, apptg.Response{}, nil)
 
 		return
 	}
 
 	{{ .Logger.ErrorMsg "ctx" "aclErr" "Error checking ACL" }}
 
-	w.postProcessRequest(ctx, apptg.Response{}, ErrInternalError)
+	w.postProcessRequest(ctx, requestType, apptg.Response{}, ErrInternalError)
 
 	return
 }
 
-func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, err error) {
+func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType, resp apptg.Response, err error) {
 	curMsgID, errCurMsg := reqctx.GetMsgID(ctx)
 	if errCurMsg != nil {
 		zlog.Ctx(ctx).Error().Err(errCurMsg).Msg("Error getting current message ID from context")
@@ -213,7 +213,11 @@ func (w *Worker) postProcessRequest(ctx context.Context, resp apptg.Response, er
 			}
 
 		case tgMsg.Text != "" || len(tgMsg.Photos) > 0:
-			msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
+			if requestType == CallbackRequest && resp.UpdateCurMsg && curMsgID != 0 {
+				msgID, err = srv.TelegramUpdateMessageButtons(ctx, chatID, curMsgID, tgMsg)
+			} else {
+				msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
+			}
 
 			if err != nil {
 				zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Err(err).Msg("Error sending message")
