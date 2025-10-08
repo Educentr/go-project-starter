@@ -196,6 +196,10 @@ build_for_test-{{ $a.Name }}: download
 {{ end }}
 
 .PHONY: docker-list
+artifact-list: 
+	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}"{{ end }}]'
+
+.PHONY: docker-list
 docker-list: 
 	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"docker-{{ $a.Name }}"{{ end }}]'
 
