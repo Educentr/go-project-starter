@@ -2,9 +2,14 @@
 
 ## Docs
 
+For view local
+
 ```bash
-docker build -f docs/Dockerfile -t mkdocs-app . && docker run -p 8000:8000 -v $(pwd):/docs mkdocs-app
+docker build -f docs/Dockerfile -t mkdocs-app .
+docker run -p 8000:8000 -v $(pwd):/docs mkdocs-app
 ```
+
+[View in github](docs/index.md)
 
 ## Generate you project
 
@@ -17,7 +22,8 @@ docker build -f docs/Dockerfile -t mkdocs-app . && docker run -p 8000:8000 -v $(
 ### Run from source
 
 ```bash
-go run github.com/Nikolo/go-project-starter@latest --config=PATH_TO_MY_CONFIG.yaml
+go install github.com/Educentr/go-project-starter/cmd/go-project-starter@latest
+go-project-starter --config=PATH_TO_MY_CONFIG.yaml
 ```
 
 ## Manual code support
