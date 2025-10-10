@@ -124,6 +124,11 @@ type Driver struct {
 	ServiceInjection string // Структура которая будет добавлена в Service
 }
 
+type AuthParams struct {
+	Transport string
+	Type      string
+}
+
 type Transport struct {
 	Name            string
 	PkgName         string
@@ -135,6 +140,7 @@ type Transport struct {
 	Type              TransportType
 	GeneratorType     string
 	GeneratorTemplate string
+	AuthParams        AuthParams
 	GeneratorParams   map[string]string
 	SpecPath          []string
 	ApiVersion        string // перенесено из Hendler

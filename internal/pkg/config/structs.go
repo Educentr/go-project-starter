@@ -3,10 +3,10 @@ package config
 import (
 	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
+	"github.com/pkg/errors"
 )
 
 type (
@@ -40,6 +40,11 @@ type (
 		GolangciVersion string `mapstructure:"golangci_version"`
 	}
 
+	AuthParams struct {
+		Transport string `mapstructure:"transport"`
+		Type      string `mapstructure:"type"`
+	}
+
 	Rest struct {
 		Name              string            `mapstructure:"name"`
 		Path              []string          `mapstructure:"path"`
@@ -51,6 +56,7 @@ type (
 		HealthCheckPath   string            `mapstructure:"health_check_path"`
 		GeneratorTemplate string            `mapstructure:"generator_template"`
 		GeneratorParams   map[string]string `mapstructure:"generator_params"`
+		AuthParams        AuthParams        `mapstructure:"auth_params"`
 	}
 
 	Worker struct {
@@ -270,13 +276,21 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			for k := range r.GeneratorParams {
 				switch k {
 				case "auth_type":
-					if r.GeneratorParams[k] != "apikey" {
-						return false, "Invalid auth type in generator params. Only 'apikey' is supported for ogen_client"
-					}
+					return false, "don't use auth_type in generator params. User auth_params instead"
 				default:
 					return false, "Invalid generator params"
 				}
 			}
+		}
+	case "auth_params":
+		if len(r.AuthParams.Transport) == 0 || len(r.AuthParams.Type) == 0 {
+			return false, "Empty transport or type"
+		}
+		if r.AuthParams.Transport != "header" {
+			return false, "Invalid transport"
+		}
+		if r.AuthParams.Type != "apikey" {
+			return false, "Invalid type"
 		}
 	default:
 		return false, "Invalid generator type"

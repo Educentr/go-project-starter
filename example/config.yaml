@@ -5,9 +5,6 @@ main:
   use_active_record: false
   registry_type: "github"
 
-config:
-  image: ghcr.io/nikolo/onlineconf-updater:5ee228a
-
 deploy:
   log_collector:
     type: loki

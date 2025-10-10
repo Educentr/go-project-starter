@@ -37,8 +37,8 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 
 	return {{ .Transport.PkgName }}.NewClient(
 		url,
-        {{ if eq .Transport.GeneratorParams.auth_type "apikey" }}
-		&ApiKey{},
+        {{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey")}}
+		&SecuritySource{},
         {{ end }}
 		{{ .Transport.PkgName }}.WithClient(&http.Client{
 			Timeout: timeout,
