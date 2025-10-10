@@ -119,6 +119,24 @@ REST-сервисы должны быть назначены на конкрет
 - Валидация:
   - Генерация должна падать/предупреждать, если REST описан, но не используется в application.
 
+#### Параметры аутентификации (auth_params)
+- Структура `auth_params` позволяет настроить аутентификацию для REST клиентов.
+- Параметры:
+  - `transport` — способ передачи аутентификационных данных (поддерживается: `header`).
+  - `type` — тип аутентификации (поддерживается: `apikey`).
+- Пример конфигурации в `config.yaml`:
+  ```yaml
+  rest:
+    - name: example_api
+      generator_type: ogen_client
+      auth_params:
+        transport: header
+        type: apikey
+  ```
+- Ключ API читается из OnlineConf по пути: `{service_name}/transport/rest/{rest_name}/auth_params/apikey`
+- **ВАЖНО**: Устаревший параметр `auth_type` в `generator_params` больше не поддерживается. Используйте вместо него `auth_params`.
+- Генерируемый код создаёт структуру `SecuritySource` с методом `AuthHeader` для передачи API ключа в заголовках запросов.
+
 ### Логирование
 - Интерфейс логгера:
   - Реализации взаимозаменяемы (The Logo, RusLogo и т. п.) через общий интерфейс.

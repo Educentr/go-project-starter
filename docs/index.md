@@ -431,6 +431,14 @@ type Actor struct {
 | **Generic HTTP** | Base HTTP client | `transport/rest/files/pkg/app/rest/client.go.tmpl:1-42` | Middleware support |
 | **Custom Clients** | Third-party APIs | User-defined | OnlineConf paths |
 
+**Ogen REST Client Authentication:**
+
+Generated clients support authentication via `auth_params` configuration:
+- **API Key Authentication**: Configured with `transport: header` and `type: apikey`
+- API key is read from OnlineConf: `{service}/transport/rest/{rest_pkg_name}/auth_params/apikey`
+- Authentication is handled by generated `SecuritySource` struct with `AuthHeader()` method
+- API key is passed in request headers automatically for all API calls
+
 ### Message Queues
 
 | Type | Purpose | Library | Configuration |
@@ -514,13 +522,24 @@ rest:
     port: 8081
     version: v1
     health_check_path: /health
+    auth_params:              # Authentication parameters (optional)
+      transport: header       # How to send auth data (currently only 'header')
+      type: apikey            # Type of authentication (currently only 'apikey')
 ```
 
 **Generator types:**
 
 - `ogen`: OpenAPI server generation
 - `template`: Custom template-based
-- `ogen_client`: OpenAPI client generation
+- `ogen_client`: OpenAPI client generation with optional authentication
+
+**Authentication (`auth_params`):**
+
+For `ogen_client` generator type, you can configure authentication:
+- `transport`: How authentication data is sent (`header` - via HTTP headers)
+- `type`: Authentication type (`apikey` - API key authentication)
+- API keys are read from OnlineConf path: `{service_name}/transport/rest/{rest_name}/auth_params/apikey`
+- **Note**: Old `auth_type` in `generator_params` is deprecated - use `auth_params` instead
 
 #### 5. gRPC Services
 
