@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
+	"github.com/pkg/errors"
 )
 
 type Generator struct {
@@ -118,7 +118,11 @@ func (g *Generator) processConfig(config config.Config) error {
 			HealthCheckPath:   rest.HealthCheckPath,
 			GeneratorTemplate: rest.GeneratorTemplate,
 			GeneratorParams:   rest.GeneratorParams,
-			PublicService:     rest.PublicService,
+			AuthParams: ds.AuthParams{
+				Transport: rest.AuthParams.Transport,
+				Type:      rest.AuthParams.Type,
+			},
+			PublicService: rest.PublicService,
 		}
 
 		if rest.GeneratorType == "ogen_client" {

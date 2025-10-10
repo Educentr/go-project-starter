@@ -12,25 +12,25 @@ import (
 	"{{ .ProjectPath }}/internal/app/constant"
 )
 
-{{ if eq .Transport.GeneratorParams.auth_type "apikey" }}
-type ApiKey struct {}
+{{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey") }}
+type SecuritySource struct {}
 
-func (ak *ApiKey) ApiKeyAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.ApiKeyAuth, error) {
-    key, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.Name }}", "apikey"))
+func (ak *SecuritySource) AuthHeader(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.AuthHeader, error) {
+    key, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "auth_params", "apikey"))
     if err != nil {
-        return {{ .Transport.PkgName }}.ApiKeyAuth{}, errors.Wrap(err, "error getting API key")
+        return {{ .Transport.PkgName }}.AuthHeader{}, errors.Wrap(err, "error getting API key")
     }
 
     if key == "" {
-        return {{ .Transport.PkgName }}.ApiKeyAuth{}, errors.New("API key not set")
+        return {{ .Transport.PkgName }}.AuthHeader{}, errors.New("API key not set")
     }
 
 
-    return {{ .Transport.PkgName }}.ApiKeyAuth{
+    return {{ .Transport.PkgName }}.AuthHeader{
         APIKey: key,
         Roles:  []string{"default"}, // You can modify this to include specific roles if needed
     }, nil
 }
-{{ else if and .Transport.GeneratorParams.auth_type (ne .Transport.GeneratorParams.auth_type "") }}
-    {{- errorf "Unsupported auth type: %s" .Transport.GeneratorParams.auth_type -}}
+{{ else if and .Transport.AuthParams.Type (ne .Transport.AuthParams.Type "") }}
+    {{- errorf "Unsupported auth type: %s" .Transport.AuthParams.Type -}}
 {{- end }}
