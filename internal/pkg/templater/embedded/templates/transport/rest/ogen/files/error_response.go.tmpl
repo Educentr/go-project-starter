@@ -35,6 +35,7 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 		decodeParamErr   *ogenerrors.DecodeParamsError
 		decodeRequestErr *ogenerrors.DecodeRequestError
 		decodeBodyErr    *ogenerrors.DecodeBodyError
+		securityError    *ogenerrors.SecurityError
 	)
 
 	var errResp oas.ErrorDefault
@@ -61,7 +62,20 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 			Code:  http.StatusBadRequest,
 			Error: fmt.Sprintf("bad request, error: %s", errHdl.Error()),
 		}
+	case errors.Is(errHdl, ogenerrors.ErrSecurityRequirementIsNotSatisfied):
+		zlog.Ctx(ctx).Warn().Err(errHdl).Msg("Auth error")
 
+		errResp = oas.ErrorDefault{
+				Code:  http.StatusUnauthorized,
+				Error: "not authorized",
+		}
+	case errors.As(errHdl, &securityError):
+		zlog.Ctx(ctx).Warn().Err(errHdl).Msg("Auth error")
+
+		errResp = oas.ErrorDefault{
+				Code:  http.StatusUnauthorized,
+				Error: "not authorized",
+		}
 	default:
 		{{ .Logger.ErrorMsg "ctx" "errHdl" "Unexpected error from handler"}}
 	

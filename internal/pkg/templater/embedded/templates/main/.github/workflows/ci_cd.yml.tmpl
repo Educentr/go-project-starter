@@ -366,7 +366,7 @@ jobs:
     needs:
       - prepare-env
       - build
-    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
+    if: always() && needs.prepare-env.outputs.ENABLE_BUILD == 'true'
     env:
       TELEGRAM_BOT_TOKEN: ${{"{{"}} secrets.TELEGRAM_BOT_TOKEN {{"}}"}}
       TELEGRAM_CHAT_ID: ${{"{{"}} secrets.TELEGRAM_CHAT_ID {{"}}"}}
@@ -395,17 +395,22 @@ jobs:
           ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | sed -e 's/[_*()~`>+=|{}.:-]\|]/\\&/g')
 
           # Формирование сообщения
+          MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed -e 's/[_*()~`>+=|{}.:-]\|]/\\&/g')*
+                   Коммит: _${ESCAPED_COMMIT_MSG}_"
+
           if [[ "$STATUS" == "success" ]]; then
             VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq '.[]' |  sed -e 's/[_*()~`>+=|{}.:-]\|]/\\&/g')
-            MESSAGE="✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*
-            Коммит: _${ESCAPED_COMMIT_MSG}_
-            [Посмотреть билд](${RUN_URL})
+            MESSAGE="$MESSAGE
+            ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*
+            Пакеты:
             ${VERS}"
           else
-            MESSAGE="❌ Ошибка: *${{"{{"}} github.workflow {{"}}"}}* завершился с ошибкой на ветке *$BRANCH*
-            Коммит: _${ESCAPED_COMMIT_MSG}_
-            [Посмотреть билд](${RUN_URL})"
+            MESSAGE="$MESSAGE
+            ❌ Ошибка: *${{"{{"}} github.workflow {{"}}"}}* завершился с ошибкой на ветке *$BRANCH*"
           fi
+
+          MESSAGE="$MESSAGE
+          [Посмотреть билд](${RUN_URL})"
 
           curl -s -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage \
             -d chat_id=$TELEGRAM_CHAT_ID \

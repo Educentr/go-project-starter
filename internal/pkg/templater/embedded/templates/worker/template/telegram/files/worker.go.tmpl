@@ -215,6 +215,10 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 		case tgMsg.Text != "" || len(tgMsg.Photos) > 0:
 			if requestType == CallbackRequest && resp.UpdateCurMsg && curMsgID != 0 {
 				msgID, err = srv.TelegramUpdateMessageButtons(ctx, chatID, curMsgID, tgMsg)
+				if err != nil {
+					zlog.Ctx(ctx).Error().Err(err).Msg("Error updating message")
+					msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
+				}
 			} else {
 				msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
 			}

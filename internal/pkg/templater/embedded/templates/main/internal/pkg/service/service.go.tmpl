@@ -85,6 +85,11 @@ func UserEnabled(ctx context.Context, tgID int64, action ActionEnableUsers) (boo
 		return ex, nil
 	}
 
+
+	if len(enabledUsers) == 1 && enabledUsers[0] == "full" {
+		return true, nil
+	}
+	
 	enableUsersInt := make(map[int64]struct{}, len(enabledUsers))
 
 	for _, eu := range enabledUsers {
