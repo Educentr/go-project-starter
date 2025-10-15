@@ -196,10 +196,7 @@ func (a Apps) getTransport(t TransportType) []Transport {
 	listTransports := make([]Transport, 0)
 
 	for _, app := range a {
-		for _, transport := range app.getTransport(t) {
-			// retTransports[transport.GeneratorType+"/"+transport.GeneratorTemplate] = transport
-			listTransports = append(listTransports, transport)
-		}
+		listTransports = append(listTransports, app.getTransport(t)...)
 	}
 
 	// for _, transport := range retTransports {
@@ -277,12 +274,23 @@ type Logger interface {
 	}
 */
 
+func (t Transport) GetOgenConfigPath(targetDir string) string {
+	switch t.GeneratorType {
+	case "ogen":
+		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_server.yaml")
+	case "ogen_client":
+		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_client.yaml")
+	default:
+		return ""
+	}
+}
+
 func (t Transport) GetTargetSpecDir(targetDir string) string {
 	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 
-func (t Transport) GetTargetSpecFile() string {
-	_, file := filepath.Split(t.SpecPath[0])
+func (t Transport) GetTargetSpecFile(num int) string {
+	_, file := filepath.Split(t.SpecPath[num])
 
 	return file
 }

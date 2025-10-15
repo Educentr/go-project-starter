@@ -235,6 +235,7 @@ proto:
 	@echo "No proto files found"
 {{ end }}
 
+{{- $projectPath := .ProjectPath }}
 {{- $ogen := false }}
 {{- range $_, $t := .Applications.GetRestTransport }}
 	{{ if or (eq $t.GeneratorType "ogen") (eq $t.GeneratorType "ogen_client") }}
@@ -244,17 +245,19 @@ proto:
 .PHONY: generate-ogen
 generate-ogen:
 		{{ end }}
+		{{ if eq $t.GeneratorType "ogen" }}
 	# {{ $t.Name }}: {{ $t.Type }}
 	@echo "Generating REST code for {{ $t.Name }}..."
-	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
-	{{ else if eq $t.GeneratorType "ogen_client" }}
+	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -config ../../../../{{ $t.GetOgenConfigPath "" }} -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile 0 }} && echo "Generated successfully"
+		{{ else if eq $t.GeneratorType "ogen_client" }}
 	@echo "Generating client REST code for {{ $t.Name }}..."
-	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile }} && echo "Generated successfully"
-	{{ else if eq $t.GeneratorType "template" }}
-	{{ if 0 }}ToDo Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
-	{{ else }}
+	@cd {{ $t.GetTargetSpecDir "" }} && go run github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION) -config ../../../../{{ $t.GetOgenConfigPath "" }} -target ../../../../{{ $t.GetTargetGeneratePath "" }} -package {{ $t.Name }} {{ $t.GetTargetSpecFile 0 }} && echo "Generated successfully"
+		{{ else if eq $t.GeneratorType "template" }}
+			{{ if 0 }}ToDo Возможно надо сделать возможость что то перегенерировать для темлейтов. Кажется, что нет но надо подумать{{ end }}
+		{{ else }}
 	# Unknown generator type {{ $t.GeneratorType }}
 		@echo "Unknown generator type {{ $t.GeneratorType }} {{ $t.Name }}"
+		{{ end }}
 	{{ end }}
 {{ end }}
 

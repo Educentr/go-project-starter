@@ -1,0 +1,5 @@
+parser:
+  {{ if gt (len .Transport.SpecPath) 1 }}
+  #  enables remote references resolving. See https://github.com/ogen-go/ogen/issues/385.
+  allow_remote: true
+  {{ end }}

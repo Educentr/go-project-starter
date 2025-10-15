@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/pkg/errors"
 )
 
 //go:embed all:embedded
@@ -136,7 +136,7 @@ func GetTransportTemplates(transportType ds.TransportType, params GeneratorParam
 	return
 }
 
-func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorType string, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorType string, params GeneratorHandlerParams) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/transport", string(transportType), generatorType, "config"), params)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -150,13 +150,22 @@ func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorTyp
 		return
 	}
 
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(prefixDirs["transportConfig"], dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(prefixDirs["transportConfig"], files[i].DestName)
+	}
+
 	return
 }
 
 var (
 	prefixDirs = map[string]string{
-		"transport": "internal/app/transport/{{ .Transport.Type }}/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}",
-		"worker":    "internal/app/worker/{{ .Worker.Name }}",
+		"transportConfig": "configs/transport/{{ .Transport.Type }}/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}",
+		"transport":       "internal/app/transport/{{ .Transport.Type }}/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}",
+		"worker":          "internal/app/worker/{{ .Worker.Name }}",
 
 		"app": "cmd/{{ .Application.Name }}",
 	}

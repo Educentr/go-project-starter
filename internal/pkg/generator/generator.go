@@ -370,7 +370,7 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 func (g *Generator) CopySpecs() error {
 	for _, app := range g.Applications {
 		for _, transport := range app.Transports {
-			for _, spec := range transport.SpecPath {
+			for specNum, spec := range transport.SpecPath {
 				if _, err := os.Stat(spec); err != nil {
 					return fmt.Errorf("spec file not found: %s", spec)
 				}
@@ -379,7 +379,7 @@ func (g *Generator) CopySpecs() error {
 
 				dest := filepath.Join(
 					transport.GetTargetSpecDir(g.TargetDir),
-					transport.GetTargetSpecFile(),
+					transport.GetTargetSpecFile(specNum),
 				)
 
 				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
@@ -540,16 +540,15 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 		files = append(files, filesTr...)
 
 		for tmplType, tr := range templateType {
-			dirsTrT, filesTrT, err := templater.GetTransportGeneratorTemplates(transportType, tmplType, g.GetTmplParams())
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to get transport generator templates: %w", err)
-			}
-
-			dirs = append(dirs, dirsTrT...)
-			files = append(files, filesTrT...)
-
 			for _, transport := range tr {
-				//if transport.GeneratorType != "ogen_client" {
+				dirsTrT, filesTrT, err := templater.GetTransportGeneratorTemplates(transportType, tmplType, g.GetTmplHandlerParams(transport))
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to get transport generator templates: %w", err)
+				}
+
+				dirs = append(dirs, dirsTrT...)
+				files = append(files, filesTrT...)
+
 				dirsH, filesH, err := templater.GetTransportHandlerTemplates(
 					transport.Type,
 					filepath.Join(transport.GeneratorType, transport.GeneratorTemplate),
@@ -561,7 +560,6 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 				dirs = append(dirs, dirsH...)
 				files = append(files, filesH...)
-				//}
 			}
 		}
 	}

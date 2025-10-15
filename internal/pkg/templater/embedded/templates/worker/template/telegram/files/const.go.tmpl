@@ -1,0 +1,10 @@
+package telegrambot
+
+type RequestType string
+
+const (
+    CallbackRequest RequestType = "callback"
+    TextRequest RequestType     = "text"
+    PurchaseRequest RequestType = "purchase"
+    PreCheckoutRequest RequestType = "pre_checkout"
+)
