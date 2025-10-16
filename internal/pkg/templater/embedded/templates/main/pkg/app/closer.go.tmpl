@@ -21,6 +21,8 @@ const (
 	loggerObjectName        = "object"
 )
 
+var Interrupt os.Signal = syscall.SIGINT | syscall.SIGTERM | syscall.SIGKILL
+
 func gracefullyShutdown(shutdownCtx context.Context, closer IGracefulShuhtdown, name string) {
 	{{ .Logger.InfoMsg "shutdownCtx" "graceful shutdown" "Str(\"Name\", name)"}}
 	stopped, err := closer.GracefulStop(shutdownCtx)
@@ -51,7 +53,7 @@ func gracefullyShutdown(shutdownCtx context.Context, closer IGracefulShuhtdown, 
 
 func (a *App) InitGracefulStop(ctx context.Context) context.Context {
 	// graceful shutdown
-	ctx, a.ctxStop = signal.NotifyContext(ctx, os.Interrupt)
+	ctx, a.ctxStop = signal.NotifyContext(ctx, Interrupt)
 
 	// init error group
 	a.errGr, ctx = errgroup.WithContext(ctx)
