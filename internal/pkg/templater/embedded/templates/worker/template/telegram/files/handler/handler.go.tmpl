@@ -5,21 +5,44 @@ import (
 	"context"
 	
 	"{{ .ProjectPath }}/internal/pkg/service"
-	apptg "{{ .ProjectPath }}/pkg/app/telegram"
 )
 
 type Handler struct {
-	apptg.DefaultHandler
-	srv    *service.EmptyService
-}
-
-func NewHandler(srv *service.EmptyService) *Handler {
-	return &Handler{
-		srv:    srv,
-	}
+	telegram.DefaultHandler
+	srv    *service.EmptyService // ToDo надо сделать интерфейс а не ссылку на конкретную структуру
+	Rd    	telegram.RequestData
 }
 
 type EmptyParams struct{}
+
+type BackButtonParams struct {
+	Back telegram.ButtonCmd
+	Del bool
+}
+
+var (
+	ErrEmptyParam              = errors.New("empty parameter")
+	ErrInvalidParam            = errors.New("invalid parameter")
+	ErrParamsNotEnough         = errors.New("not enough parameters")
+)
+
+var (
+	UnimplementedResponse = telegram.Response{
+		Messages: []telegram.Message{
+			{
+				Text:   "Unimplemented command",
+				Btn:    [][]telegram.ButtonCmd{},
+			},
+		},
+	}
+)
+
+func NewHandler(srv *service.EmptyService, rd telegram.RequestData) *Handler {
+	return &Handler{
+		srv:    srv,
+		Rd: 	rd,
+	}
+}
 
 func (e *EmptyParams) Unpack(_ context.Context, _ string) error {
 	return nil
@@ -27,11 +50,6 @@ func (e *EmptyParams) Unpack(_ context.Context, _ string) error {
 
 func (e *EmptyParams) Pack() string {
 	return ""
-}
-
-type BackButtonParams struct {
-	Back telegram.ButtonCmd
-	Del bool
 }
 
 func (p *BackButtonParams) Pack() string {
@@ -63,20 +81,3 @@ func (p *BackButtonParams) Unpack(_ context.Context, params string) error {
 
 	return nil
 }
-
-var (
-	ErrEmptyParam              = errors.New("empty parameter")
-	ErrInvalidParam            = errors.New("invalid parameter")
-	ErrParamsNotEnough         = errors.New("not enough parameters")
-)
-
-var (
-	UnimplementedResponse = apptg.Response{
-		Messages: []telegram.Message{
-			{
-				Text:   "Unimplemented command",
-				Btn:    [][]telegram.ButtonCmd{},
-			},
-		},
-	}
-)

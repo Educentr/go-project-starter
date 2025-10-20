@@ -6,13 +6,11 @@ import (
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/gofrs/uuid/v5"
-
-	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
 type UnimplementedAdminStatusHandler struct{}
 
-func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context) (string, error) {
+func (UnimplementedAdminStatusHandler) GetUserState(ctx context.Context, userID int64) (string, error) {
 	return "", nil
 }
 
@@ -58,13 +56,13 @@ type ParamI interface {
 }
 
 type ResponseRedirect struct {
-	Cmd telegram.CommandName
+	Cmd CommandName
 	Params string
 }
 
 type Response struct {
 	InternalRedirect *ResponseRedirect
-	Messages      []telegram.Message
+	Messages      []Message
 	NextState     *string
 	UpdateCurMsg  bool
 	NotifyMsg     string
@@ -91,6 +89,6 @@ func (DefaultHandler) ProcessPayment(ctx context.Context, idempotency uuid.UUID,
 	return Response{}, errors.New("unimplemented")
 }
 
-func (DefaultHandler) Authorization(ctx context.Context, cmd any, pp string) (context.Context, error) {
+func (DefaultHandler) Authorization(ctx context.Context, requestData RequestData, pp string) (context.Context, error) {
 	return ctx, nil
 }

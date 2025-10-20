@@ -15,17 +15,16 @@ import (
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
 	"{{ .ProjectPath }}/pkg/reqctx"
-	apptg "{{ .ProjectPath }}/pkg/app/telegram"
 )
 
 // ToDo бесполезная функция надо от неё избавиться и handler вузде создавать по месту а сервис получать как w.GetEmptySrv()
-func (w *Worker) GetServiceAndHandler(ctx context.Context) (*service.EmptyService, *handler.Handler, error) {
+func (w *Worker) GetServiceAndHandler(ctx context.Context, rd telegram.RequestData) (*service.EmptyService, *handler.Handler, error) {
 	srv, err := w.GetEmptySrv()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
-	return srv, handler.NewHandler(srv), nil
+	return srv, handler.NewHandler(srv, rd), nil
 }
 
 func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.PreCheckoutQuery) (context.Context, error) {
@@ -33,31 +32,28 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 		return ctx, errors.New("preCheckout is empty")
 	}
 
-	tgActor := telegram.Actor{
-		ID:           preCheckoutQuery.From.ID,
-		Username:     preCheckoutQuery.From.UserName,
-		FirstName:    preCheckoutQuery.From.FirstName,
-		LastName:     preCheckoutQuery.From.LastName,
-		LanguageCode: preCheckoutQuery.From.LanguageCode,
+	requestData := telegram.RequestData{
+		Type:      telegram.PreCheckoutRequest,
+		Actor: telegram.Actor{
+			ID:           preCheckoutQuery.From.ID,
+			FirstName:    preCheckoutQuery.From.FirstName,
+			LastName:     preCheckoutQuery.From.LastName,
+			Username:     preCheckoutQuery.From.UserName,
+			LanguageCode: preCheckoutQuery.From.LanguageCode,
+		},
+		Commands:  w.getCommandList(),
 	}
 
-	ctx, err := reqctx.SetTgActor(ctx, &tgActor)
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
-
-		return ctx, errors.Wrap(err, "Internal error")
-	}
-
-	srv, hdl, err := w.GetServiceAndHandler(ctx)
+	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting service and handler")
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, "PreCheckout", "")
+	ctx, aclErr := hdl.Authorization(ctx, requestData, "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, PreCheckoutRequest, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
@@ -80,7 +76,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 		return ctx, errors.New("Invalid invoice")
 	}
 	
-	if tgActor.ID != invoice.UserID {
+	if preCheckoutQuery.From.ID != invoice.UserID {
 		zlog.Ctx(ctx).Error().Msg("userID mismatch")
 
 		return ctx, errors.New("User ID mismatch")
@@ -90,36 +86,35 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 	if err != nil {
 		zlog.Ctx(ctx).Error().Err(err).Msg("error inserting payment")
 
-		return ctx, ErrInternalError
+		return ctx, telegram.ErrInternalError
 	}
 
 	return ctx, nil
 }
 
 func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
-	tgActor := telegram.Actor{
-		ID:           message.From.ID,
-		Username:     message.From.UserName,
-		FirstName:    message.From.FirstName,
-		LastName:     message.From.LastName,
-		LanguageCode: message.From.LanguageCode,
+	requestData := telegram.RequestData{
+		Type:      telegram.PurchaseRequest,
+		ChatID:    message.Chat.ID,
+		Actor: telegram.Actor{
+			ID:           message.From.ID,
+			FirstName:    message.From.FirstName,
+			LastName:     message.From.LastName,
+			Username:     message.From.UserName,
+			LanguageCode: message.From.LanguageCode,
+		},
+		MessageID: message.MessageID,
+		Commands:  w.getCommandList(),
 	}
 
-	ctx, err := reqctx.SetMsgContext(ctx, &tgActor, message.Chat.ID, message.MessageID, "")
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
-
-		return ctx, errors.Wrap(err, "Internal error")
-	}
-
-	srv, hdl, err := w.GetServiceAndHandler(ctx)
+	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
 	if err != nil {
 		return ctx, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, "Purchase", "")
+	ctx, aclErr := hdl.Authorization(ctx, requestData, "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, PurchaseRequest, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
@@ -150,7 +145,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 	}()
 
 	resp, err := hdl.ProcessPayment(ctx, invoice.IdempotencyKey, message.SuccessfulPayment)
-	w.postProcessRequest(ctx, PurchaseRequest, resp, err)
+	w.postProcessRequest(ctx, requestData, resp, err)
 		
 	return ctx, nil
 }
@@ -165,26 +160,6 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 		params = data[1]
 	}
 
-	tgActor := telegram.Actor{
-		ID:           callback.From.ID,
-		Username:     callback.From.UserName,
-		FirstName:    callback.From.FirstName,
-		LastName:     callback.From.LastName,
-		LanguageCode: callback.From.LanguageCode,
-	}
-
-	ctx, err := reqctx.SetMsgContext(ctx, &tgActor, callback.Message.Chat.ID, callback.Message.MessageID, callback.ID)
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
-
-		return ctx, errors.Wrap(err, "Internal error")
-	}
-
-	_, hdl, err := w.GetServiceAndHandler(ctx)
-	if err != nil {
-		return ctx, errors.Wrap(err, "Internal error. Can't get service")
-	}
-
 	command := telegram.CommandName(data[0])
 
 	pi, err := reqctx.GetProcessInfo(ctx)
@@ -197,48 +172,50 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 		pi.Params = params
 	}
 
+	requestData := telegram.RequestData{
+		Type:       telegram.PurchaseRequest,
+		ChatID:     callback.Message.Chat.ID,
+		Actor: telegram.Actor{
+			ID:           callback.From.ID,
+			FirstName:    callback.From.FirstName,
+			LastName:     callback.From.LastName,
+			Username:     callback.From.UserName,
+			LanguageCode: callback.From.LanguageCode,
+		},
+		CallbackID: callback.ID,
+		MessageID:  callback.Message.MessageID,
+		Commands:   w.getCommandList(),
+	}
+
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, PurchaseRequest, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, command, params)
+	requestData.Command = c
+
+	_, hdl, err := w.GetServiceAndHandler(ctx, requestData)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Internal error. Can't get service")
+	}
+
+	ctx, aclErr := hdl.Authorization(ctx, requestData, params)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, CallbackRequest, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
 
-	w.processRequest(ctx, CallbackRequest, hdl, c, params)
+	w.processRequest(ctx, hdl, c, params)
 
 	return ctx, nil
 }
 
 func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
 	zlog.Ctx(ctx).Info().Interface("text", message).Msg("Text message received")
-
-	tgActor := telegram.Actor{
-		ID:           message.From.ID,
-		Username:     message.From.UserName,
-		FirstName:    message.From.FirstName,
-		LastName:     message.From.LastName,
-		LanguageCode: message.From.LanguageCode,
-	}
-
-	ctx, err := reqctx.SetMsgContext(ctx, &tgActor, message.Chat.ID, message.MessageID, "")
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error setting request context")
-
-		return ctx, errors.Wrap(err, "Internal error")
-	}
-
-	_, hdl, err := w.GetServiceAndHandler(ctx)
-	if err != nil {
-		return ctx, errors.Wrap(err, "Internal error. Can't get service")
-	}
 
 	var command telegram.CommandName
 
@@ -265,7 +242,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 		fallthrough
 
 	case message.Text != "":
-		userState, err := w.GetUserState(ctx)
+		userState, err := w.GetUserState(ctx, message.From.ID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting admin state")
 
@@ -296,18 +273,34 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 		pi.Command = string(command)
 	}
 
+	requestData := telegram.RequestData{
+		Type:      telegram.TextRequest,
+		ChatID:    message.Chat.ID,
+		Actor: telegram.Actor{
+			ID:           message.From.ID,
+			FirstName:    message.From.FirstName,
+			LastName:     message.From.LastName,
+			Username:     message.From.UserName,
+			LanguageCode: message.From.LanguageCode,
+		},
+		MessageID: message.MessageID,
+		Commands:  w.getCommandList(),
+	}
+
 	c, ex := cmdMaps[command]
 	if !ex {
 		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
-		w.postProcessRequest(ctx, PurchaseRequest, apptg.Response{}, errors.New("Unknown command"))
+		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
 	}
 
+	requestData.Command = c
+
 	if c.NeedMsg {
 		if message.Text == "" {
 			zlog.Ctx(ctx).Error().Msg("Empty message")
-			w.postProcessRequest(ctx, PurchaseRequest, apptg.Response{}, errors.New("Empty message"))
+			w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Empty message"))
 
 			return ctx, nil
 		}
@@ -325,14 +318,19 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 		pi.Params = pp
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, command, pp)
+	_, hdl, err := w.GetServiceAndHandler(ctx, requestData)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Internal error. Can't get service")
+	}
+
+	ctx, aclErr := hdl.Authorization(ctx, requestData, pp)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, TextRequest, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
 
-	w.processRequest(ctx, TextRequest, hdl, c, pp)
+	w.processRequest(ctx, hdl, c, pp)
 
 	return ctx, nil
 }

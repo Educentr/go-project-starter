@@ -4,29 +4,18 @@ import (
 	"context"
 	"errors"
 
-	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	{{ .Logger.Import }}
 
+	"{{ .ProjectPath }}/pkg/reqctx"
 	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
-	apptg "{{ .ProjectPath }}/pkg/app/telegram"
 )
 
-type Cmd struct {
-	Name            telegram.CommandName
-	NeedMsg         bool
-	NeedAdminAccess bool
-	Private     	bool
-	Group	  		bool
-	Handler         func(ctx context.Context, h *handler.Handler, params string) (apptg.Response, error)
-	Params          apptg.ParamI
-}
+var cmdMaps = make(map[telegram.CommandName]telegram.Cmd)
 
-var cmdMaps = make(map[telegram.CommandName]Cmd)
+var CustomError = map[error]func(ctx context.Context) (telegram.Response, error){}
 
-var CustomError = map[error]func(ctx context.Context) (apptg.Response, error){}
-
-func (w *Worker) processRequest(ctx context.Context, requestType RequestType, hdl *handler.Handler, c Cmd, pp string) {
+func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c telegram.Cmd, pp string) {
 	actor, err := reqctx.GetActor(ctx)
 	if err != nil {
 		if !errors.Is(err, reqctx.ErrUndefinedActor) {
@@ -50,9 +39,9 @@ func (w *Worker) processRequest(ctx context.Context, requestType RequestType, hd
 	}
 
 	for {
-		aclErr := w.Authorization(ctx, c)
+		aclErr := w.Authorization(ctx, hdl.Rd)
 		if aclErr != nil {
-			w.HandleAuthError(ctx, requestType, aclErr)
+			w.HandleAuthError(ctx, hdl.Rd, aclErr)
 
 			return
 		}
@@ -63,7 +52,7 @@ func (w *Worker) processRequest(ctx context.Context, requestType RequestType, hd
 			if !ok {
 				zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Unknown command for internal redirect")
 
-				w.postProcessRequest(ctx, requestType, apptg.Response{}, ErrInternalError)
+				w.postProcessRequest(ctx, hdl.Rd, telegram.Response{}, telegram.ErrInternalError)
 
 				return
 			}
@@ -72,7 +61,7 @@ func (w *Worker) processRequest(ctx context.Context, requestType RequestType, hd
 			continue
 		}
 
-		w.postProcessRequest(ctx, requestType, resp, err)
+		w.postProcessRequest(ctx, hdl.Rd, resp, err)
 		
 		break
 	}
@@ -80,53 +69,41 @@ func (w *Worker) processRequest(ctx context.Context, requestType RequestType, hd
 	return
 }
 
-func (w *Worker) HandleAuthError(ctx context.Context, requestType RequestType, aclErr error) {
+func (w *Worker) HandleAuthError(ctx context.Context, requestData telegram.RequestData, aclErr error) {
 	for cErr, cFunc := range CustomError {
 		if errors.Is(aclErr, cErr) {
 			resp, err := cFunc(ctx)
-			w.postProcessRequest(ctx, requestType, resp, err)
+			w.postProcessRequest(ctx, requestData, resp, err)
 
 			return
 		}
 	}
 
-	if errors.Is(aclErr, ErrUserNotFound) {
+	if errors.Is(aclErr, telegram.ErrUserNotFound) {
 		{{ .Logger.ErrorMsg "ctx" "aclErr" "Admin not found. Skip" }}
 
-		w.postProcessRequest(ctx, requestType, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, requestData, telegram.Response{}, nil)
 
 		return
 	}
 
-	if errors.Is(aclErr, ErrAccessDenied) {
+	if errors.Is(aclErr, telegram.ErrAccessDenied) {
 		{{ .Logger.ErrorMsg "ctx" "aclErr" "Access denied" }}
 
-		w.postProcessRequest(ctx, requestType, apptg.Response{}, nil)
+		w.postProcessRequest(ctx, requestData, telegram.Response{}, nil)
 
 		return
 	}
 
 	{{ .Logger.ErrorMsg "ctx" "aclErr" "Error checking ACL" }}
 
-	w.postProcessRequest(ctx, requestType, apptg.Response{}, ErrInternalError)
+	w.postProcessRequest(ctx, requestData, telegram.Response{}, telegram.ErrInternalError)
 
 	return
 }
 
-func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType, resp apptg.Response, err error) {
-	curMsgID, errCurMsg := reqctx.GetMsgID(ctx)
-	if errCurMsg != nil {
-		zlog.Ctx(ctx).Error().Err(errCurMsg).Msg("Error getting current message ID from context")
-	}
-
-	chatID, errChat := reqctx.GetChatID(ctx)
-	if errChat != nil {
-		zlog.Ctx(ctx).Error().Err(errChat).Msg("Error getting chat ID from context")
-
-		return
-	}
-
-	tgActor, errActor := reqctx.GetTgActor(ctx)
+func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.RequestData, resp telegram.Response, err error) {
+	tgActor, errActor := reqctx.GetActor(ctx)
 	if errActor != nil {
 		zlog.Ctx(ctx).Error().Err(errActor).Msg("Error getting tg actor from context")
 
@@ -148,7 +125,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 		}
 
 	case resp.NextState != nil:
-		if err := w.NewUserState(ctx, tgActor.ID, *resp.NextState); err != nil {
+		if err := w.NewUserState(ctx, tgActor.GetID(), *resp.NextState); err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting admin state")
 
 			resp.Messages = []telegram.Message{ {
@@ -169,33 +146,28 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 	}
 
 	if resp.DeleteLastMsg {
-		msgID, err := w.GetLastMsgToUser(ctx, tgActor.ID)
+		msgID, err := w.GetLastMsgToUser(ctx, tgActor.GetID())
 		if err != nil || msgID == 0 {
 			notifyMsg = "Error getting last message ID"
 
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting last message ID")
 		}
 
-		err = srv.TelegramDeleteMessage(ctx, tgActor.ID, msgID)
+		err = srv.TelegramDeleteMessage(ctx, tgActor.GetID(), msgID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
 		}
 	}
 
 	if resp.DeleteCurMsg {
-		err = srv.TelegramDeleteMessage(ctx, tgActor.ID, curMsgID)
+		err = srv.TelegramDeleteMessage(ctx, tgActor.GetID(), requestData.MessageID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
 		}
 	}
 
-	callbackID, errCallback := reqctx.GetCallbackID(ctx)
-	if errCallback != nil && !errors.Is(errCallback, reqctx.ErrUndefinedCallbackID) {
-		zlog.Ctx(ctx).Error().Err(errCallback).Msg("Error getting callback ID from context")
-	}
-
-	if callbackID != "" {
-		_, err = srv.TelegramAnswerCallback(ctx, callbackID, notifyMsg)
+	if requestData.CallbackID != "" {
+		_, err = srv.TelegramAnswerCallback(ctx, requestData.CallbackID, notifyMsg)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error sending answer")
 		}
@@ -206,21 +178,21 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 	for _, tgMsg := range resp.Messages {
 		switch {
 		case tgMsg.InvoiceData != nil:
-			msgID, err = srv.SendInvoice(ctx, chatID, *tgMsg.InvoiceData)
+			msgID, err = srv.SendInvoice(ctx, requestData.ChatID, *tgMsg.InvoiceData)
 			if err != nil {
 				zlog.Ctx(ctx).Error().Err(err).Msg("Error sending invoice")
 				return
 			}
 
 		case tgMsg.Text != "" || len(tgMsg.Photos) > 0:
-			if requestType == CallbackRequest && resp.UpdateCurMsg && curMsgID != 0 {
-				msgID, err = srv.TelegramUpdateMessageButtons(ctx, chatID, curMsgID, tgMsg)
+			if requestData.Type == telegram.CallbackRequest && resp.UpdateCurMsg && requestData.MessageID != 0 {
+				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData.ChatID, requestData.MessageID, tgMsg)
 				if err != nil {
 					zlog.Ctx(ctx).Error().Err(err).Msg("Error updating message")
-					msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
+					msgID, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, tgMsg)
 				}
 			} else {
-				msgID, err = srv.TelegramSendMessageButtons(ctx, chatID, tgMsg)
+				msgID, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, tgMsg)
 			}
 
 			if err != nil {
@@ -248,7 +220,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 					return
 				}
 
-				adm, err := w.IsActorAdmin(ctx, appActor.TgActor)
+				adm, err := srv.IsUserAdmin(ctx, appActor.TgActor.ID)
 				if err != nil {
 					zlog.Ctx(ctx).Error().Err(err).Msg("Error checking if actor is admin")
 
@@ -256,7 +228,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 				}
 
 				if adm {
-					_, err = srv.TelegramSendMessageButtons(ctx, chatID, telegram.Message{
+					_, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, telegram.Message{
 						Text: "Error sending message: " + origErr.Error(),
 					})
 					if err != nil {
@@ -272,7 +244,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestType RequestType
 			continue
 		}
 		
-		err = w.SetLastMsgToUser(ctx, tgActor.ID, msgID)
+		err = w.SetLastMsgToUser(ctx, tgActor.GetID(), msgID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting last message ID")
 

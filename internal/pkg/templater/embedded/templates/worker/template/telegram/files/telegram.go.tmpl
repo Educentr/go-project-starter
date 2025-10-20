@@ -16,18 +16,25 @@ import (
 	"{{ .ProjectPath }}/pkg/app/daemon"
 	"{{ .ProjectPath }}/pkg/ds"
 	"{{ .ProjectPath }}/pkg/reqctx"
-	"{{ .ProjectPath }}/pkg/app/telegram"
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
 	"{{ .ProjectPath }}/internal/app/constant"	
 	"{{ .ProjectPath }}/internal/pkg/service"
 )
 
 type Worker struct {
+	EmptyCommands
 	telegram.UnimplementedUpdateHandler
 	telegram.UnimplementedAdminStatusHandler
 	daemon.EmptyWorker
 	Srv ds.IService
 	tgSrv TelegramUpdateWorker 
 	jobState any
+}
+
+type EmptyCommands struct{}
+
+func (e *EmptyCommands) GetCommandList() []telegram.CommandName {
+	return []telegram.CommandName{}
 }
 
 type TelegramUpdateWorker interface {

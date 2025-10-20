@@ -256,24 +256,6 @@ type Logger interface {
 	InitLogger(ctx string, serviceName string) string
 }
 
-/*
-// ToDo кажется, что тип Handler не нужен и надо объединить его с Transport
-
-	type Handler struct {
-		Name       string
-		ApiVersion string
-		Port       string //unused
-	}
-
-	func NewHandler(name, apiVersion, port string) Handler {
-		return Handler{
-			Name:       name,
-			ApiVersion: apiVersion,
-			Port:       port,
-		}
-	}
-*/
-
 func (t Transport) GetOgenConfigPath(targetDir string) string {
 	switch t.GeneratorType {
 	case "ogen":

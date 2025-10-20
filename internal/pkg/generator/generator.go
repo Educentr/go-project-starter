@@ -130,8 +130,6 @@ func (g *Generator) processConfig(config config.Config) error {
 				fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version),
 				fmt.Sprintf(`"%s/internal/app/transport/rest/%s/%s"`, g.ProjectPath, rest.Name, rest.Version),
 			}
-			// transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
-			// transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10))
 			transport.Name = rest.Name
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)
@@ -139,7 +137,6 @@ func (g *Generator) processConfig(config config.Config) error {
 		} else {
 			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/internal/app/transport/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
 			transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
-			// transport.Handler = ds.NewHandler(rest.Name, rest.Version, strconv.FormatUint(uint64(rest.Port), 10))
 			transport.Name = rest.Name
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)

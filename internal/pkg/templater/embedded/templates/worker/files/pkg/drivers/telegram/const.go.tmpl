@@ -31,6 +31,22 @@ const (
 	EmptyCommandName CommandName = ""
 )
 
+type AdminRole string
+
+const (
+	RootRole AdminRole = "root"
+)
+
+type Cmd struct {
+	Name            CommandName
+	NeedMsg         bool
+	NeedAdminAccess bool
+	AdminRole       AdminRole
+	Private     	bool
+	Group	  		bool
+	Handler         func(ctx context.Context, h any, params string) (Response, error)
+}
+
 type ButtonCmd struct {
 	Text   string
 	URL    string
@@ -46,6 +62,33 @@ type Message struct {
 	Btn  [][]ButtonCmd
 	InvoiceData *InvoiceData
 }
+
+type RequestType string
+
+type RequestData struct {
+	Type       RequestType
+	ChatID     int64
+	Actor      Actor
+	CallbackID string
+	MessageID  int
+	Commands   []Cmd
+	Command    Cmd
+}
+
+func (rd RequestData) ChatType() ChatType {
+	if rd.ChatID == rd.Actor.ID {
+		return PrivateChat
+	}
+
+	return GroupChat
+}
+
+const (
+    CallbackRequest RequestType = "callback"
+    TextRequest RequestType     = "text"
+    PurchaseRequest RequestType = "purchase"
+    PreCheckoutRequest RequestType = "pre_checkout"
+)
 
 const (
 	configPath        = "security"

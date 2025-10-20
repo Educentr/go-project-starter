@@ -11,92 +11,11 @@ import (
 	"{{ .ProjectPath }}/internal/app/constant"
 )
 
-var (
-	ErrUserNotFound = errors.New("admin not found")
-	ErrAccessDenied  = errors.New("access denied")
-	ErrInternalError = errors.New("internal error")
-)
-
-func (h *Worker) Authorization(ctx context.Context, command Cmd) error {
-	tgActor, err := reqctx.GetTgActor(ctx)
+func (w *Worker) Authorization(ctx context.Context, requestData telegram.RequestData) error {
+	srv, err := w.GetEmptySrv()
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Get tgActor")
-
-		return ErrInternalError
+		return err
 	}
 
-	chatID, err := reqctx.GetChatID(ctx)
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Get chatID")
-
-		return ErrInternalError
-	}
-	
-	if !command.Group && chatID != tgActor.ID {
-		return ErrAccessDenied
-	}
-
-	if !command.Private && chatID == tgActor.ID {
-		return ErrAccessDenied
-	}
-
-	paths := []string{
-		onlineconf.MakePath(constant.ServiceName, "bot", "admins", strconv.FormatInt(tgActor.ID, 10)),
-	}
-
-	if !command.NeedAdminAccess {
-		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users"))
-		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users", strconv.FormatInt(tgActor.ID, 10)))
-	}
-
-	for _, param := range paths {
-		acl, ex, err := onlineconf.GetStringIfExists(ctx, param)
-		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Get onlineconf admin")
-
-			return ErrInternalError
-		}
-
-		if !ex {
-			continue
-		}
-
-		rxNew, err := regexp.Compile(`(^|,)(full|` + regexp.QuoteMeta(command.Name.String()) + `)(,|$)`)
-		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
-
-			return ErrInternalError
-		}
-
-		if rxNew.MatchString(acl) {
-			return nil
-		}
-	}
-
-	return ErrAccessDenied
-}
-
-func (w *Worker) IsActorAdmin(ctx context.Context, actor telegram.Actor) (bool, error) {
-	if actor.ID == 0 {
-		return false, errors.New("actor is nil or has no Telegram ID")
-	}
-
-	acl, exists, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "bot", "admins", strconv.FormatInt(actor.ID, 10)))
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Failed to get admin ACL from onlineconf")
-		return false, err
-	}
-
-	if !exists {
-		return false, nil
-	}
-
-	rxNew, err := regexp.Compile(`full`)
-	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex for full access check")
-
-		return false, err
-	}
-
-	return rxNew.MatchString(acl), nil
+	return srv.TgBotAuthorization(ctx, requestData.Command, requestData.ChatType(), requestData.Actor.ID)
 }
