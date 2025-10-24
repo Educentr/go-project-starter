@@ -173,7 +173,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 	}
 
 	requestData := telegram.RequestData{
-		Type:       telegram.PurchaseRequest,
+		Type:       telegram.CallbackRequest,
 		ChatID:     callback.Message.Chat.ID,
 		Actor: telegram.Actor{
 			ID:           callback.From.ID,
