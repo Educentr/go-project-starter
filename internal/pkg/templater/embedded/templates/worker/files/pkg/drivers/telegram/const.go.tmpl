@@ -41,7 +41,7 @@ type Cmd struct {
 	Name            CommandName
 	NeedMsg         bool
 	NeedAdminAccess bool
-	AdminRole       AdminRole
+	AdminRole       []AdminRole
 	Private     	bool
 	Group	  		bool
 	Handler         func(ctx context.Context, h any, params string) (Response, error)

@@ -78,19 +78,48 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 
 	strTgID := strconv.FormatInt(tgID, 10)
 
+	if cmd.NeedAdminAccess {
+		acl, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "bot", "admins", strTgID))
+		if err != nil {
+			zlog.Ctx(ctx).Error().Err(err).Msg("Get onlineconf admin")
+
+			return ErrInternalError
+		}
+
+		if ex {
+			// Any admin has access
+			if len(cmd.AdminRole) == 0 {
+				return nil
+			}
+
+			rxStr := `(^|,)(role:(`
+
+			quotedRoles := []string{}
+			for _, r := range cmd.AdminRole {
+				quotedRoles = append(quotedRoles, regexp.QuoteMeta(string(r)))
+			}
+
+			rxStr += strings.Join(quotedRoles, "|") + `|root)|` + regexp.QuoteMeta(cmd.Name.String()) + `)(,|$)`
+
+			rxNew, err := regexp.Compile(rxStr)
+			if err != nil {
+				zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
+
+				return ErrInternalError
+			}
+
+			// Check specific role or command access
+			if rxNew.MatchString(acl) {
+				return nil
+			}
+		}
+
+		return ErrAccessDenied
+	}
+
 	paths := []string{
-		onlineconf.MakePath(constant.ServiceName, "bot", "admins", strTgID),
-	}
-
-	cmdRole := RootRole
-
-	if cmd.AdminRole != "" {
-		cmdRole = cmd.AdminRole
-	}
-
-	if !cmd.NeedAdminAccess {
-		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users"))
-		paths = append(paths, onlineconf.MakePath(constant.ServiceName, "bot", "users", strTgID))
+		onlineconf.MakePath(constant.ServiceName, "bot", "users"),
+		onlineconf.MakePath(constant.ServiceName, "bot", "users", strTgID),
 	}
 
 	for _, param := range paths {
@@ -105,20 +134,7 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 			continue
 		}
 
-		rxNew, err := regexp.Compile(`(^|,)(full)(,|$)`)
-		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
-
-			return ErrInternalError
-		}
-
-		if rxNew.MatchString(acl) {
-			zlog.Ctx(ctx).Warn().Msg("Deprecated: full access check, use roles instead")
-
-			return nil
-		}
-
-		rxNew, err = regexp.Compile(`(^|,)(role:` + string(cmdRole) + `|` + regexp.QuoteMeta(cmd.Name.String()) + `)(,|$)`)
+		rxNew, err := regexp.Compile(`(^|,)(full|` + regexp.QuoteMeta(cmd.Name.String()) + `)(,|$)`)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
 
