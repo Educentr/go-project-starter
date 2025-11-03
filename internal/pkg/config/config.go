@@ -50,6 +50,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config main section: "+msg)
 	}
 
+	// Валидация ArgenVersion когда use_active_record включен
+	if config.Main.UseActiveRecord && len(config.Tools.ArgenVersion) == 0 {
+		return config, errors.WithMessage(ErrInvalidConfig, "ArgenVersion required when use_active_record is true")
+	}
+
 	config.Main.LoggerObj = loggers.LoggerMapping[config.Main.Logger]
 
 	// создаем мапки
@@ -101,6 +106,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	for _, app := range config.Applications {
 		if ok, msg := app.IsValid(); !ok {
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
+		}
+
+		// Валидация use_active_record: может быть только false (для отключения AR)
+		if app.UseActiveRecord != nil && *app.UseActiveRecord == true {
+			return config, errors.WithMessage(ErrInvalidConfig, "application '"+app.Name+"': use_active_record can only be set to false (to disable AR for specific app)")
 		}
 
 		for _, transport := range app.TransportList {

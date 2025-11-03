@@ -38,7 +38,8 @@ const (
 )
 
 const (
-	envFileName = ".env"
+	envFileName     = ".env"
+	UseActiveRecord = {{ .Application.UseActiveRecord }}
 )
 
 // ldflags
@@ -81,7 +82,7 @@ func main() {
 		os.Exit(ExitCodeErrorConfig)
     }
 
-	application, err := app.New(mainCtx, constant.ServiceName, "{{ .Application.Name }}", getAppInfo())
+	application, err := app.New(mainCtx, constant.ServiceName, "{{ .Application.Name }}", getAppInfo(), UseActiveRecord)
 	if err != nil {
 		log.Printf("can't create new application: %s", err)
 		os.Exit(ExitCodeErrorApp)
