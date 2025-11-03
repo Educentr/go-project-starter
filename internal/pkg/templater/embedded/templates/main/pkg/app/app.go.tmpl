@@ -254,12 +254,14 @@ func (a *App) Init(ctx context.Context) error {
 		return errors.Wrap(err, "can't initialize worker")
 	}
 
+	{{ if .UseActiveRecord }}
 	if a.useActiveRecord {
 		err = a.InitActiveRecord(logger.InfoLoggerLevel)
 		if err != nil {
 			return errors.Wrap(err, "can't initialize activerecord")
 		}
 	}
+	{{ end }}
 
 	return nil
 }
