@@ -57,11 +57,12 @@ type DeployVolume struct {
 }
 
 type App struct {
-	Name       string
-	Transports Transports
-	Drivers    Drivers
-	Workers    Workers
-	Deploy     DeployParams
+	Name            string
+	Transports      Transports
+	Drivers         Drivers
+	Workers         Workers
+	Deploy          DeployParams
+	UseActiveRecord bool
 }
 
 type Transports map[string]Transport

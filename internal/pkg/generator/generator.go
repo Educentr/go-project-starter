@@ -185,11 +185,19 @@ func (g *Generator) processConfig(config config.Config) error {
 	}
 
 	for _, app := range config.Applications {
+		// Вычисляем use_active_record для приложения
+		// Default из main, override может быть только false
+		useActiveRecord := config.Main.UseActiveRecord
+		if app.UseActiveRecord != nil {
+			useActiveRecord = *app.UseActiveRecord // будет только false (валидация проверила)
+		}
+
 		application := ds.App{
-			Name:       app.Name,
-			Transports: make(ds.Transports),
-			Workers:    make(ds.Workers),
-			Drivers:    make(ds.Drivers),
+			Name:            app.Name,
+			Transports:      make(ds.Transports),
+			Workers:         make(ds.Workers),
+			Drivers:         make(ds.Drivers),
+			UseActiveRecord: useActiveRecord,
 		}
 
 		if len(app.Deploy.Volumes) > 0 {
