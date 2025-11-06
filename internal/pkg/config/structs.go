@@ -27,8 +27,9 @@ type (
 	}
 
 	Git struct {
-		Repo       string `mapstructure:"repo"`
-		ModulePath string `mapstructure:"module_path"`
+		Repo         string `mapstructure:"repo"`
+		ModulePath   string `mapstructure:"module_path"`
+		PrivateRepos string `mapstructure:"private_repos"`
 		// ProjectID  uint   `mapstructure:"project_id"` // Todo
 	}
 

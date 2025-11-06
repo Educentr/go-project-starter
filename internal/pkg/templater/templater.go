@@ -28,6 +28,7 @@ type GeneratorParams struct {
 	RegistryType      string
 	UseActiveRecord   bool
 	Repo              string
+	PrivateRepos      string
 	DockerImagePrefix string
 	SkipServiceInit   bool
 	GoLangVersion     string

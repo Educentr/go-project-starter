@@ -31,6 +31,7 @@ type Generator struct {
 	ProjectPath       string
 	UseActiveRecord   bool
 	Repo              string
+	PrivateRepos      string
 	GoLangVersion     string
 	OgenVersion       string
 	ArgenVersion      string
@@ -79,6 +80,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.ProjectPath = config.Git.ModulePath
 	g.UseActiveRecord = config.Main.UseActiveRecord
 	g.Repo = config.Git.Repo
+	g.PrivateRepos = config.Git.PrivateRepos
 	g.GoLangVersion = config.Tools.GolangVersion
 	g.OgenVersion = config.Tools.OgenVersion
 	g.ArgenVersion = config.Tools.ArgenVersion
@@ -336,6 +338,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		ProjectPath:       g.ProjectPath,
 		UseActiveRecord:   g.UseActiveRecord,
 		Repo:              g.Repo,
+		PrivateRepos:      g.PrivateRepos,
 		DockerImagePrefix: g.DockerImagePrefix,
 		SkipServiceInit:   g.SkipInitService,
 		GoLangVersion:     g.GoLangVersion,
