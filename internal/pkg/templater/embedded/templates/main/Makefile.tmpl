@@ -174,7 +174,7 @@ build_in_docker-{{ $a.Name }}:
 # Build docker image for service {{ $a.Name }}
 .PHONY: docker-{{ $a.Name }}
 docker-{{ $a.Name }}:
-	docker build . -f ./Dockerfile-{{ $a.Name }} --rm -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
 
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:

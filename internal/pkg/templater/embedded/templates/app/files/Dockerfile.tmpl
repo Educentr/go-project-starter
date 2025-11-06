@@ -9,7 +9,14 @@ ENV CGO_ENABLED=0
 COPY . /go/src/app
 WORKDIR /go/src/app
 
-RUN make build_in_docker-{{ .Application.Name }} && \
+# Configure Git to use GitHub token for private repos
+RUN --mount=type=secret,id=github_token \
+    if [ -f /run/secrets/github_token ]; then \
+        export GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+        git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+        go env -w GOPRIVATE="github.com/xvpn-one/*"; \
+    fi && \
+    make build_in_docker-{{ .Application.Name }} && \
     cp ${binary} /service
 
 RUN mkdir -p /public 

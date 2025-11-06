@@ -70,6 +70,7 @@ services:
     image: ${REGISTRY_SERVER}/{{ .ProjectName }}-{{ $applicationName }}:${APP_VERSION}
     volumes:
       - ./data-{{ .Application.Name }}${ENV_TYPE}:/etc/onlineconf
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
       {{- range $_, $vol := .Application.Deploy.Volumes }}
       - {{ $vol.Path }}:{{ $vol.Mount }}
       {{ end }}

@@ -297,10 +297,17 @@ jobs:
       {{ else }}
         {{ .UndefinedRegistryTypeError .RegistryType }}
       {{ end }}
+      - name: Configure Git for private repos
+        env:
+          # Use PAT if available, otherwise use GITHUB_TOKEN
+          GITHUB_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+        run: |
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: "Build and push"
         id: build_and_push
         env:
           REGISTRY_SERVER: ${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}
+          GITHUB_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
         run: |
           make ${{"{{"}} matrix.containers {{"}}"}}
           make ${{"{{"}} matrix.containers {{"}}"}}-push
