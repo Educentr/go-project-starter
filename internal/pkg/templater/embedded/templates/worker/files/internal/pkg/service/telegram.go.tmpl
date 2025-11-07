@@ -9,6 +9,10 @@ func (s *Service) GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel 
     return s.telegram.Poller
 }
 
+func (s *Service) NeedStartHiddenMessageJob(ctx context.Context) bool {
+	return s.telegram.EnableHiddenMessage
+}
+
 func (s *Service) StopChannel(ctx context.Context) {
     s.telegram.StopChannel(ctx)
 }

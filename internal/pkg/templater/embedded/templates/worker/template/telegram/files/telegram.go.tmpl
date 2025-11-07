@@ -38,6 +38,7 @@ func (e *EmptyCommands) GetCommandList() []telegram.CommandName {
 }
 
 type TelegramUpdateWorker interface {
+	NeedStartHiddenMessageJob(ctx context.Context) bool
 	GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel
 	StopChannel(ctx context.Context)
 }
@@ -178,6 +179,214 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 		return nil
 	})
+
+	if w.tgSrv.NeedStartHiddenMessageJob(ctx) {
+		errGr.Go(func() error {
+			zlog.Ctx(ctx).Info().Str(nameFieldLogger, WorkerName).Msg("Run hidden message job")
+
+			timerDuration := time.Second * 1
+			iterNum := 1
+
+			ErrorTimeout := time.Minute
+
+		HIDDEN_JOB:
+			for {
+				timer := time.NewTimer(timerDuration)
+
+				timerDuration = ErrorTimeout
+
+				select {
+				case <-timer.C:
+					iterNum++
+					if iterNum%100 == 0 {
+						zlog.Ctx(ctx).Info().Int("iterNum", iterNum).Str(nameFieldLogger, WorkerName).Msg("worker iteration")
+					}
+
+					hiddenMessages, err := w.GetHiddenMessages(ctx)
+					if err != nil {
+						zlog.Ctx(ctx).Error().Str(nameFieldLogger, WorkerName).Err(err).Msg("Error get hidden message")
+
+						continue
+					}
+
+					for _, hm := range hiddenMessages {
+						srv, err := w.GetEmptySrv()
+						if err != nil {
+							zlog.Ctx(ctx).Error().Err(err).Msg("Failed to get service")
+
+							continue
+						}
+
+						switch hm.Action {
+						case telegram.DeleteHiddenAction:
+							timerDuration = time.Second
+
+							err := srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+							if err != nil {
+								zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+
+								err := w.DoneHiddenMessages(ctx, hm)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								}
+
+								continue
+							}
+						case telegram.UpdateHiddenAction:
+							c, ex := cmdMaps[hm.CmdName]
+							if !ex {
+								zlog.Ctx(ctx).Info().Str("Cmd", string(hm.CmdName)).Msg("Unknown command")
+
+								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								}
+
+								err = w.DoneHiddenMessages(ctx, hm)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								}
+
+								timerDuration = time.Second
+
+								continue
+							}
+
+							requestData := telegram.RequestData{
+								Type:   telegram.TextRequest,
+								ChatID: hm.ChatID,
+								Actor: telegram.Actor{
+									ID: hm.UserID,
+								},
+								MessageID: hm.MsgID,
+								Commands:  w.getCommandList(),
+								Command:   c,
+							}
+
+							_, hdl, err := w.GetServiceAndHandler(ctx, requestData)
+							if err != nil {
+								zlog.Ctx(ctx).Error().Err(err).Msg("Error getting handler")
+
+								continue
+							}
+
+							ctx, aclErr := hdl.Authorization(ctx, requestData, hm.Params)
+							if aclErr != nil {
+								zlog.Ctx(ctx).Error().Err(aclErr).Msg("Authorization error for hidden message")
+
+								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								}
+								err = w.DoneHiddenMessages(ctx, hm)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								}
+
+								timerDuration = time.Second
+
+								continue
+							}
+
+							aclErr = w.Authorization(ctx, hdl.Rd)
+							if aclErr != nil {
+								zlog.Ctx(ctx).Error().Err(aclErr).Msg("Authorization error for hidden message")
+
+								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								}
+
+								err = w.DoneHiddenMessages(ctx, hm)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								}
+
+								timerDuration = time.Second
+
+								continue
+							}
+
+							resp, err := c.Handler(ctx, hdl, hm.Params)
+							if err != nil {
+								zlog.Ctx(ctx).Error().Err(err).Msg("Error handling hidden message")
+
+								continue
+							}
+
+							if resp.InternalRedirect != nil {
+								zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Internal redirect not supported for hidden message")
+
+								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								}
+
+								err = w.DoneHiddenMessages(ctx, hm)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								}
+
+								timerDuration = time.Second
+
+								continue
+							}
+
+							if len(resp.Messages) == 0 {
+								zlog.Ctx(ctx).Error().Msg("No messages in response for hidden message")
+
+								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								}
+
+								err = w.DoneHiddenMessages(ctx, hm)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								}
+
+								timerDuration = time.Second
+
+								continue
+							}
+
+							timerDuration = time.Second
+
+							_, err = srv.TelegramUpdateMessageButtons(ctx, hm.ChatID, hm.MsgID, resp.Messages[0])
+							if err != nil {
+								zlog.Ctx(ctx).Error().Err(err).Msg("Can't update hidden message")
+
+								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								if err != nil {
+									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								}
+							}
+
+							err = w.DoneHiddenMessages(ctx, hm)
+							if err != nil {
+								zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+							}
+
+							continue
+
+						case telegram.NothingHiddenAction:
+							timerDuration = time.Second
+
+						default:
+							zlog.Ctx(ctx).Error().Str("Action", string(hm.Action)).Msg("Unknown hidden action")
+						}
+					}
+
+				case <-ctx.Done():
+					break HIDDEN_JOB
+				}
+			}
+
+			zlog.Ctx(ctx).Info().Str(nameFieldLogger, WorkerName).Msg("hidden message job stopped")
+
+			return nil
+		})
+	}
 }
 
 // Shutdown shutting down telegram worker

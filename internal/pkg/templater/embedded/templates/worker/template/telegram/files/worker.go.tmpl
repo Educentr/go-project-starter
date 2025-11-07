@@ -189,6 +189,12 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData.ChatID, requestData.MessageID, tgMsg)
 				if err != nil {
 					zlog.Ctx(ctx).Error().Err(err).Msg("Error updating message")
+
+					err = srv.TelegramDeleteMessage(ctx, requestData.ChatID, requestData.MessageID)
+					if err != nil {
+						zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message after failed update")
+					}
+
 					msgID, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, tgMsg)
 				}
 			} else {
@@ -244,6 +250,13 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 			continue
 		}
 		
+		if tgMsg.Hidden.Action != telegram.NothingHiddenAction {
+			err = w.ScheduleHideMessage(ctx, tgActor.GetID(), requestData.ChatID, msgID, tgMsg.Hidden)
+			if err != nil {
+				zlog.Ctx(ctx).Error().Err(err).Msg("Error scheduling hide message")
+			}
+		}
+
 		err = w.SetLastMsgToUser(ctx, tgActor.GetID(), msgID)
 		if err != nil {
 			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting last message ID")

@@ -18,6 +18,18 @@ func (UnimplementedAdminStatusHandler) SetLastMsgToUser(ctx context.Context, tgI
 	return nil
 }
 
+func (UnimplementedAdminStatusHandler) ScheduleHideMessage(ctx context.Context, tgID, chatID int64, msgID int, hidden HiddenParam) error {
+	return errors.New("unimplemented")
+}
+
+func (UnimplementedAdminStatusHandler) GetHiddenMessages(ctx context.Context) ([]HiddenMessage, error) {
+	return nil, errors.New("unimplemented")
+}
+
+func (UnimplementedAdminStatusHandler) DoneHiddenMessages(ctx context.Context, hm HiddenMessage) error {
+	return errors.New("unimplemented")
+}
+
 func (UnimplementedAdminStatusHandler) GetLastMsgToUser(ctx context.Context, tgID int64) (int, error) {
 	return 0, nil
 }

@@ -54,6 +54,23 @@ type ButtonCmd struct {
 	Params string
 }
 
+type HiddenAction string
+
+type HiddenParam struct {
+	Timer   time.Duration
+	Action  HiddenAction
+	CmdName CommandName
+	Params  string
+}
+
+type HiddenMessage struct {
+	ID     int64
+	UserID int64
+	ChatID int64
+	MsgID  int
+	HiddenParam
+}
+
 type Message struct {
 	Text string
 	TextFormat string
@@ -61,6 +78,7 @@ type Message struct {
 	Photos []string
 	Btn  [][]ButtonCmd
 	InvoiceData *InvoiceData
+	Hidden HiddenParam
 }
 
 type RequestType string
@@ -74,6 +92,12 @@ type RequestData struct {
 	Commands   []Cmd
 	Command    Cmd
 }
+
+const (
+	NothingHiddenAction HiddenAction = ""
+	DeleteHiddenAction HiddenAction = "delete"
+	UpdateHiddenAction HiddenAction = "update"
+)
 
 func (rd RequestData) ChatType() ChatType {
 	if rd.ChatID == rd.Actor.ID {

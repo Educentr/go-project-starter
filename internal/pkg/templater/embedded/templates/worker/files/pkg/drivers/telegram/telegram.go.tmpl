@@ -12,9 +12,10 @@ import (
 )
 
 type Telegram struct {
-	bot               *tgbotapi.BotAPI
-	startUpdatePoller bool
-	Poller            tgbotapi.UpdatesChannel
+	bot                 *tgbotapi.BotAPI
+	startUpdatePoller   bool
+	EnableHiddenMessage bool
+	Poller              tgbotapi.UpdatesChannel
 }
 
 const (
@@ -85,7 +86,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		return nil
 	}
 
-	err := onlineconf.RegisterSubscription(ctx, "TREE", []string{GetTgTokenPath(ctx, serviceName), bufferSizeConfigPath},
+	err := onlineconf.RegisterSubscription(ctx, "TREE", []string{GetTgTokenPath(ctx, serviceName)},
 		func() error {
 			zlog.Ctx(ctx).Info().Msg("tg_token updated")
 
