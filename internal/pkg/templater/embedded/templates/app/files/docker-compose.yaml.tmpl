@@ -10,6 +10,7 @@ services:
       - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.constraints=Label(`traefik.instance`, `{{ $applicationName }}${ENV_TYPE}`)"
       - "--entrypoints.traefik.address=:8080"
 {{- range $i, $t := $restTransport }} {{ $needRealIP = true}}{{ if ne $t.GeneratorType "ogen_client" }}
       - "--entrypoints.{{ $applicationName }}ep{{ $i }}.address=:{{ $t.Port }}"
@@ -93,6 +94,7 @@ services:
     {{ end }}
     labels:
       - "traefik.enable=true"
+      - "traefik.instance={{ $applicationName }}${ENV_TYPE}"
       - "traefik.http.middlewares.my-traefik-get-real-ip.plugin.traefik-get-real-ip.Proxy[0].proxyHeadername=*"
       - "traefik.http.middlewares.my-traefik-get-real-ip.plugin.traefik-get-real-ip.Proxy[0].realIP=X-Forwarded-For"
       {{- range $i, $t := $restTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
