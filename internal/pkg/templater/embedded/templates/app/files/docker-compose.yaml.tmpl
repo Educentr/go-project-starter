@@ -66,6 +66,13 @@ services:
       timeout: 10s
       interval: 1s
       retries: 60
+{{- range $_, $image := .Application.DependsOnDockerImages }}
+
+  {{ $image | ImageNameToPullerService }}:
+    image: {{ $image }}
+    pull_policy: always
+    restart: "no"
+{{- end }}
 
   {{ .Application.Name }}:
     image: ${REGISTRY_SERVER}/{{ .ProjectName }}-{{ $applicationName }}:${APP_VERSION}
@@ -80,6 +87,10 @@ services:
         condition: service_healthy
       traefik-{{ .Application.Name }}:
         condition: service_started
+{{- range $_, $image := .Application.DependsOnDockerImages }}
+      {{ $image | ImageNameToPullerService }}:
+        condition: service_completed_successfully
+{{- end }}
     restart: always
     {{ if .Deploy.LogCollector.Enabled }}
       {{ if eq .Deploy.LogCollector.Type "loki" }}

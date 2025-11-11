@@ -580,7 +580,13 @@ application:
       grpc: [ExampleService]
     driver: [telegram_bot]
     worker: [telegram]
+    depends_on_docker_images:
+      - ghcr.io/some-app/some-app:latest
 ```
+
+**Docker Image Dependencies:**
+
+The `depends_on_docker_images` field creates image puller services that ensure required Docker images are pulled before the application starts. Each image in the list generates a dedicated puller service with `pull_policy: always` and the application waits for successful completion. This is useful for applications using Docker-in-Docker or requiring specific images to be available locally.
 
 ### Environment Variables
 
@@ -614,8 +620,19 @@ OC_{ProjectName}__security__httpAuth__enabled=0
 - **Traefik**: Reverse proxy with dynamic service discovery
 - **OnlineConf Updater**: Configuration synchronization
 - **Application containers**: Generated microservices
+- **Image Puller Services**: (optional) Pre-pull required Docker images with `depends_on_docker_images`
 
 **Template:** `app/files/docker-compose.yaml.tmpl:1-109`
+
+**Example generated puller service:**
+```yaml
+cool-app-image-puller:
+  image: ghcr.io/some-app/cool-app:latest
+  pull_policy: always
+  restart: "no"
+```
+
+Applications configured with `depends_on_docker_images` will have `depends_on` entries with `condition: service_completed_successfully` for each puller service.
 
 ---
 

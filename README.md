@@ -446,6 +446,7 @@ applications:
     transport: []           # REST/gRPC transports to include
     workers: []             # Workers to include
     drivers: []             # External drivers to include
+    depends_on_docker_images: []  # Docker images to pull before starting
 ```
 
 ### Generator Types
@@ -499,6 +500,26 @@ steps:
   call_generate: true        # Run make generate
   go_mod_tidy: true          # Run go mod tidy
 ```
+
+**Docker Image Dependencies:**
+
+Ensure required Docker images are pulled before starting your application:
+
+```yaml
+applications:
+  - name: checker
+    transport: [sys]
+    workers: [checker]
+    depends_on_docker_images:
+      - ghcr.io/some-app/cool-app:latest
+      - postgres:15-alpine
+```
+
+This configuration:
+- Creates image puller services (e.g., `cool-app-image-puller`)
+- Each puller uses `pull_policy: always` to ensure fresh images
+- Application waits for pullers to complete (`service_completed_successfully`)
+- Useful for applications that use Docker-in-Docker or need specific images available
 
 ---
 

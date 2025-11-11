@@ -99,6 +99,8 @@ applications:
       #- ExampleService
     driver:
       # - clickhouse_batcher
+    # depends_on_docker_images:
+      # - ghcr.io/org/image:latest  # Docker images to pull before starting
     deploy:
       - volumes:
           - path: ./backupdata

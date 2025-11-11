@@ -195,11 +195,12 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		application := ds.App{
-			Name:            app.Name,
-			Transports:      make(ds.Transports),
-			Workers:         make(ds.Workers),
-			Drivers:         make(ds.Drivers),
-			UseActiveRecord: useActiveRecord,
+			Name:                  app.Name,
+			Transports:            make(ds.Transports),
+			Workers:               make(ds.Workers),
+			Drivers:               make(ds.Drivers),
+			UseActiveRecord:       useActiveRecord,
+			DependsOnDockerImages: app.DependsOnDockerImages,
 		}
 
 		if len(app.Deploy.Volumes) > 0 {

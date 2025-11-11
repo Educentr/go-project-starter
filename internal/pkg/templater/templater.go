@@ -342,6 +342,19 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		"ReplaceDash": func(s string) string { return strings.ReplaceAll(s, "-", "_") },
 		"Capitalize":  cases.Title(language.Und).String,
 		"errorf":      func(format string, args ...any) error { return fmt.Errorf(format, args...) },
+		"ImageNameToPullerService": func(image string) string {
+			// Extract image name from path like ghcr.io/org/name:tag -> name
+			lastSlash := strings.LastIndex(image, "/")
+			name := image
+			if lastSlash >= 0 {
+				name = image[lastSlash+1:]
+			}
+			// Remove tag
+			if colonIndex := strings.Index(name, ":"); colonIndex >= 0 {
+				name = name[:colonIndex]
+			}
+			return name + "-image-puller"
+		},
 	}
 
 	buf := &bytes.Buffer{}

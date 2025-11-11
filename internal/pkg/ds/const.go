@@ -57,12 +57,13 @@ type DeployVolume struct {
 }
 
 type App struct {
-	Name            string
-	Transports      Transports
-	Drivers         Drivers
-	Workers         Workers
-	Deploy          DeployParams
-	UseActiveRecord bool
+	Name                  string
+	Transports            Transports
+	Drivers               Drivers
+	Workers               Workers
+	Deploy                DeployParams
+	UseActiveRecord       bool
+	DependsOnDockerImages []string
 }
 
 type Transports map[string]Transport

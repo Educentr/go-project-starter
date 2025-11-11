@@ -127,12 +127,13 @@ type (
 	}
 
 	Application struct {
-		Name            string      `mapstructure:"name"`
-		TransportList   []string    `mapstructure:"transport"`
-		DriverList      []AppDriver `mapstructure:"driver"`
-		WorkerList      []string    `mapstructure:"worker"`
-		Deploy          AppDeploy   `mapstructure:"deploy"`
-		UseActiveRecord *bool       `mapstructure:"use_active_record"`
+		Name                   string      `mapstructure:"name"`
+		TransportList          []string    `mapstructure:"transport"`
+		DriverList             []AppDriver `mapstructure:"driver"`
+		WorkerList             []string    `mapstructure:"worker"`
+		Deploy                 AppDeploy   `mapstructure:"deploy"`
+		UseActiveRecord        *bool       `mapstructure:"use_active_record"`
+		DependsOnDockerImages  []string    `mapstructure:"depends_on_docker_images"`
 	}
 
 	Docker struct {
