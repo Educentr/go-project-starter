@@ -22,6 +22,10 @@ func (UnimplementedAdminStatusHandler) ScheduleHideMessage(ctx context.Context, 
 	return errors.New("unimplemented")
 }
 
+func (UnimplementedAdminStatusHandler) CancelHideMessage(ctx context.Context, tgID, chatID int64, msgID int) error {
+	return errors.New("unimplemented")
+}
+
 func (UnimplementedAdminStatusHandler) GetHiddenMessages(ctx context.Context) ([]HiddenMessage, error) {
 	return nil, errors.New("unimplemented")
 }

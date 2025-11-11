@@ -185,6 +185,13 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 			}
 
 		case tgMsg.Text != "" || len(tgMsg.Photos) > 0:
+			if w.tgSrv.NeedStartHiddenMessageJob(ctx) {
+				err = w.CancelHideMessage(ctx, tgActor.GetID(), requestData.ChatID, requestData.MessageID)
+				if err != nil {
+					zlog.Ctx(ctx).Error().Err(err).Msg("Error scheduling hide message")
+				}
+			}
+
 			if requestData.Type == telegram.CallbackRequest && resp.UpdateCurMsg && requestData.MessageID != 0 {
 				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData.ChatID, requestData.MessageID, tgMsg)
 				if err != nil {
