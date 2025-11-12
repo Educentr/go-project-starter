@@ -22,13 +22,53 @@ jobs:
           fi
 
           # Escape special characters for MarkdownV2
+          # Must escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
           escape_markdown() {
-            echo "$1" | sed -e 's/[_*[\]()~`>#+\-=|{}.!]/\\&/g'
+            local text="$1"
+            text="${text//\\/\\\\}"  # Backslash must be first
+            text="${text//_/\\_}"
+            text="${text//\*/\\*}"
+            text="${text//[/\\[}"
+            text="${text//]/\\]}"
+            text="${text//(/\\(}"
+            text="${text//)/\\)}"
+            text="${text//~/\\~}"
+            text="${text//\`/\\\`}"
+            text="${text//>/\\>}"
+            text="${text//#/\\#}"
+            text="${text//+/\\+}"
+            text="${text//-/\\-}"
+            text="${text//=/\\=}"
+            text="${text//|/\\|}"
+            text="${text//\{/\\\{}"
+            text="${text//\}/\\\}}"
+            text="${text//./\\.}"
+            text="${text//!/\\!}"
+            echo "$text"
           }
 
           # Escape for bold text (don't escape asterisks since we need them for bold)
           escape_for_bold() {
-            echo "$1" | sed -e 's/[_[\]()~`>#+\-=|{}.!]/\\&/g'
+            local text="$1"
+            text="${text//\\/\\\\}"  # Backslash must be first
+            text="${text//_/\\_}"
+            text="${text//[/\\[}"
+            text="${text//]/\\]}"
+            text="${text//(/\\(}"
+            text="${text//)/\\)}"
+            text="${text//~/\\~}"
+            text="${text//\`/\\\`}"
+            text="${text//>/\\>}"
+            text="${text//#/\\#}"
+            text="${text//+/\\+}"
+            text="${text//-/\\-}"
+            text="${text//=/\\=}"
+            text="${text//|/\\|}"
+            text="${text//\{/\\\{}"
+            text="${text//\}/\\\}}"
+            text="${text//./\\.}"
+            text="${text//!/\\!}"
+            echo "$text"
           }
 
           # Get release data using heredoc to safely handle multiline content
