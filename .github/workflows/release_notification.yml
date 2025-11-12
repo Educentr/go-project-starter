@@ -31,12 +31,37 @@ jobs:
             echo "$1" | sed -e 's/[_[\]()~`>#+\-=|{}.!]/\\&/g'
           }
 
-          # Get release data
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          RELEASE_NAME="${{ github.event.release.name }}"
-          RELEASE_BODY="${{ github.event.release.body }}"
-          RELEASE_URL="${{ github.event.release.html_url }}"
-          RELEASE_AUTHOR="${{ github.event.release.author.login }}"
+          # Get release data using heredoc to safely handle multiline content
+          RELEASE_TAG=$(cat <<'EOF'
+          ${{ github.event.release.tag_name }}
+          EOF
+          )
+
+          RELEASE_NAME=$(cat <<'EOF'
+          ${{ github.event.release.name }}
+          EOF
+          )
+
+          RELEASE_BODY=$(cat <<'EOF'
+          ${{ github.event.release.body }}
+          EOF
+          )
+
+          RELEASE_URL=$(cat <<'EOF'
+          ${{ github.event.release.html_url }}
+          EOF
+          )
+
+          RELEASE_AUTHOR=$(cat <<'EOF'
+          ${{ github.event.release.author.login }}
+          EOF
+          )
+
+          # Trim whitespace
+          RELEASE_TAG=$(echo "$RELEASE_TAG" | xargs)
+          RELEASE_NAME=$(echo "$RELEASE_NAME" | xargs)
+          RELEASE_URL=$(echo "$RELEASE_URL" | xargs)
+          RELEASE_AUTHOR=$(echo "$RELEASE_AUTHOR" | xargs)
 
           ESCAPED_TAG=$(escape_for_bold "$RELEASE_TAG")
           ESCAPED_NAME=$(escape_markdown "$RELEASE_NAME")
