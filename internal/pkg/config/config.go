@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -103,7 +104,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		config.DriverMap[driver.Name] = driver
 	}
 
-	for _, app := range config.Applications {
+	for i, app := range config.Applications {
 		if ok, msg := app.IsValid(); !ok {
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
 		}
@@ -111,6 +112,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		// Валидация use_active_record: может быть только false (для отключения AR)
 		if app.UseActiveRecord != nil && *app.UseActiveRecord == true {
 			return config, errors.WithMessage(ErrInvalidConfig, "application '"+app.Name+"': use_active_record can only be set to false (to disable AR for specific app)")
+		}
+
+		// Валидация use_envs: может быть только true или nil, false запрещен
+		if app.UseEnvs != nil && !*app.UseEnvs {
+			return config, errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("application[%d] '%s': use_envs can only be true or omitted, false is not allowed", i, app.Name))
 		}
 
 		for _, transport := range app.TransportList {

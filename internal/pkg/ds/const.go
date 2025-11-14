@@ -64,6 +64,7 @@ type App struct {
 	Deploy                DeployParams
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
+	UseEnvs               bool
 }
 
 type Transports map[string]Transport

@@ -331,6 +331,9 @@ jobs:
       - build
       - create_env_files
       - prepare-env
+{{- range $_, $a := .Applications }}{{ if $a.UseEnvs }}
+      - create_{{ $a.Name | ReplaceDash }}_env_files
+{{- end }}{{- end }}
     if: needs.prepare-env.outputs.ENABLE_DEPLOY == 'true'
     steps:
       - name: Download env file
@@ -348,7 +351,7 @@ jobs:
         with:
           SSH_PRIVATE_KEY: ${{"{{"}} secrets.SSH_PRIVATE_KEY {{"}}"}}
           ARGS: '-rlgoDzvcb -i --delete --backup-dir="../envs_bak" --suffix=`date "+%F_%R"`'
-          SOURCE: "./envs-*/"
+          SOURCE: "./envs*/"
           REMOTE_HOST: ${{"{{"}} matrix.ips[0] {{"}}"}}
           REMOTE_USER: ${{"{{"}} secrets.SSH_USER {{"}}"}}
           TARGET: /opt/{{ .ProjectName }}-cd/envs

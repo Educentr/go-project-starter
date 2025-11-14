@@ -194,6 +194,13 @@ func (g *Generator) processConfig(config config.Config) error {
 			useActiveRecord = *app.UseActiveRecord // будет только false (валидация проверила)
 		}
 
+		// Вычисляем use_envs для приложения
+		// Default false, может быть установлено в true
+		useEnvs := false
+		if app.UseEnvs != nil && *app.UseEnvs {
+			useEnvs = true
+		}
+
 		application := ds.App{
 			Name:                  app.Name,
 			Transports:            make(ds.Transports),
@@ -201,6 +208,7 @@ func (g *Generator) processConfig(config config.Config) error {
 			Drivers:               make(ds.Drivers),
 			UseActiveRecord:       useActiveRecord,
 			DependsOnDockerImages: app.DependsOnDockerImages,
+			UseEnvs:               useEnvs,
 		}
 
 		if len(app.Deploy.Volumes) > 0 {

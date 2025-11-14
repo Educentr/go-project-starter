@@ -134,6 +134,7 @@ type (
 		Deploy                 AppDeploy   `mapstructure:"deploy"`
 		UseActiveRecord        *bool       `mapstructure:"use_active_record"`
 		DependsOnDockerImages  []string    `mapstructure:"depends_on_docker_images"`
+		UseEnvs                *bool       `mapstructure:"use_envs"`
 	}
 
 	Docker struct {

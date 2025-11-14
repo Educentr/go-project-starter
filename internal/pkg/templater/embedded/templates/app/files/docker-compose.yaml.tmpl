@@ -76,6 +76,9 @@ services:
 
   {{ .Application.Name }}:
     image: ${REGISTRY_SERVER}/{{ .ProjectName }}-{{ $applicationName }}:${APP_VERSION}
+{{ if .Application.UseEnvs }}    
+    env_file: envs/.env.{{ .Application.Name }}
+{{ end }}    
     volumes:
       - ./data-{{ .Application.Name }}${ENV_TYPE}:/etc/onlineconf
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
