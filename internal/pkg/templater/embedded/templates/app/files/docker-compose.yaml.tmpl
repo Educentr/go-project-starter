@@ -89,8 +89,10 @@ services:
       - {{ $vol.Path }}:{{ $vol.Mount }}
       {{ end }}
     depends_on:
+    {{ if not .Application.UseEnvs }}
       onlineconf-updater-{{ .Application.Name }}:
         condition: service_healthy
+      {{ end }}
       traefik-{{ .Application.Name }}:
         condition: service_started
 {{- range $_, $image := .Application.DependsOnDockerImages }}
