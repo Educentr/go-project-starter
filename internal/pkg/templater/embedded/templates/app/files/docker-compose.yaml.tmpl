@@ -39,6 +39,7 @@ services:
       {{ end }}
     {{ end }}
 
+{{ if not .Application.UseEnvs }}
   onlineconf-updater-{{ .Application.Name }}:
     image: ghcr.io/nikolo/onlineconf-updater:5ee228a # ToDo: move to config
     volumes:
@@ -66,6 +67,8 @@ services:
       timeout: 10s
       interval: 1s
       retries: 60
+{{ end }}
+
 {{- range $_, $image := .Application.DependsOnDockerImages }}
 
   {{ $image | ImageNameToPullerService }}:
