@@ -10,8 +10,8 @@ import (
 type UnimplementedPayment struct {
 }
 
-func (UnimplementedPayment) CheckInvoiceProducts(ctx context.Context, invoice TelegramInvoiceData, paymentType PaymentType, totalAmount int) (string, bool) {
-	return "unimplemented", false
+func (UnimplementedPayment) CheckInvoiceProducts(ctx context.Context, invoice TelegramInvoiceData, paymentType PaymentType, totalAmount int) ([]any, string, bool) {
+	return nil, "unimplemented", false
 }
 
 // This function should create a payment record in the database.

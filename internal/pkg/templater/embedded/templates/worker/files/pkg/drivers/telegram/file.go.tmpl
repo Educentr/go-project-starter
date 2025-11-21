@@ -1,0 +1,12 @@
+package telegram
+
+import tgbotapi "github.com/OvyFlash/telegram-bot-api"
+
+func (tg *Telegram) GetFileDirectURL(fileID string) (string, error) {
+	file, err := tg.bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	if err != nil {
+		return "", err
+	}
+
+	return file.Link(tg.bot.Token), nil
+}

@@ -74,7 +74,14 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 			metricHTTP.WithLabelValues(r.URL.Path, r.Method, status).Observe(execTime)
 
 			userIP := ""
-			for _, ip := range []string{r.Header.Get("x-real-ip"), r.Header.Get("x-forwarded-for"), "0.0.0.0"} {
+
+			posibleAddresses := []string{
+				r.Header.Get("x-real-ip"),
+				strings.Split(r.Header.Get("x-forwarded-for"), ",")[0],
+				"0.0.0.0",
+			}
+
+			for _, ip := range posibleAddresses {
 				if ip != "" {
 					userIP = ip
 					break

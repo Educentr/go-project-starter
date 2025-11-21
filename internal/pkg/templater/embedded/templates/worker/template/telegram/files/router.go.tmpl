@@ -69,7 +69,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 		return ctx, errors.New("Invalid invoice")
 	}
 
-	desc, ok := srv.CheckInvoiceProducts(ctx, invoice, telegram.PaymentTypeStars, preCheckoutQuery.TotalAmount)
+	_, desc, ok := srv.CheckInvoiceProducts(ctx, invoice, telegram.PaymentTypeStars, preCheckoutQuery.TotalAmount)
 	if !ok {
 		zlog.Ctx(ctx).Error().Str("description", desc).Msg("invalid invoice products")
 

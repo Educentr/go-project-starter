@@ -1,0 +1,53 @@
+package telegram
+
+import (
+	"strings"
+)
+
+// FileParam представляет параметр файла в команде
+type FileParam struct {
+	URL      string
+	FileName string
+}
+
+// ParseFileParam парсит параметры и извлекает файл, если он есть
+func ParseFileParam(params string) (FileParam, string, bool) {
+	parts := strings.SplitN(params, "#", 2)
+	if len(parts) < 2 {
+		return FileParam{}, params, false
+	}
+
+	key := parts[0]
+	rest := parts[1]
+
+	if key != "file" {
+		return FileParam{}, params, false
+	}
+
+	// Формат: file=URL:filename:остальные_параметры
+	fileParts := strings.SplitN(rest, "#", 3)
+	if len(fileParts) < 2 {
+		return FileParam{}, params, false
+	}
+
+	fileParam := FileParam{
+		URL:      fileParts[0],
+		FileName: fileParts[1],
+	}
+
+	remainingParams := ""
+	if len(fileParts) == 3 {
+		remainingParams = fileParts[2]
+	}
+
+	return fileParam, remainingParams, true
+}
+
+// PackFileParam упаковывает файл в параметры
+func PackFileParam(fileURL, fileName, otherParams string) string {
+	if otherParams == "" {
+		return "file#" + fileURL + "#" + fileName
+	}
+
+	return "file#" + fileURL + "#" + fileName + "#" + otherParams
+}
