@@ -121,6 +121,8 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 		pi.Command = "Purchase"
 
 		ctxJob, err = w.Purchase(ctxJob, update.Message)
+	case update.Message != nil && update.Message.Document != nil:
+		ctxJob, err = w.DocumentMessage(ctxJob, update.Message)
 	case update.Message != nil && update.Message.Text != "":
 		ctxJob, err = w.TextMessage(ctxJob, update.Message)
 	case update.CallbackQuery != nil:
