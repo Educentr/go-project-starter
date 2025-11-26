@@ -212,6 +212,23 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 					}
 
 					for _, hm := range hiddenMessages {
+						ctx, cancel := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+						zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
+							return c.Int("hiddenMsgID", hm.MsgID).Str(nameFieldLogger, WorkerName)
+						})
+
+						defer func() {
+							err := recover()
+							if err != nil {
+								zlog.Ctx(ctx).Error().
+									Interface("panic error", err).
+									Str("Stack", strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), "\n\t/", " --> /"), "\n", " => ")).
+									Err(errors.New("panic catch")).Msg("panic")
+							}
+
+							cancel()
+						}()
+
 						srv, err := w.GetEmptySrv()
 						if err != nil {
 							zlog.Ctx(ctx).Error().Err(err).Msg("Failed to get service")
