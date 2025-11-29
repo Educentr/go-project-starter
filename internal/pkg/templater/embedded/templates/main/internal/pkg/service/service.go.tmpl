@@ -24,11 +24,11 @@ import (
 	{{ .Logger.Import }}
 
 	"{{ .ProjectPath }}/pkg/app/rest"
-	"{{ .ProjectPath }}/pkg/reqctx"
-	"{{ .ProjectPath }}/pkg/ds"
-	"{{ .ProjectPath }}/pkg/app/healthstate"
-	"{{ .ProjectPath }}/pkg/app/serviceauth"
-	"{{ .ProjectPath }}/pkg/servicemetrics"
+	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/healthstate"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/serviceauth"
+	"github.com/Educentr/go-project-starter-runtime/pkg/servicemetrics"
 )
 
 type Service struct {

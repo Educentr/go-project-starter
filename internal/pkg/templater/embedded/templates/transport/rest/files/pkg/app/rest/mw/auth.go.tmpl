@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"{{ .ProjectPath }}/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/rest"
-	"{{ .ProjectPath }}/pkg/reqctx"
+	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 )
 
 func HTTPServerMiddlewareAuth(ctx context.Context, authorizer ds.Authorizer, _ rest.RestErrorHandler) func(next http.Handler) http.Handler {

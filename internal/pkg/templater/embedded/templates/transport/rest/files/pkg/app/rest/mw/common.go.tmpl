@@ -6,7 +6,7 @@ import (
 	"time"
 	"os"
 
-	"{{ .ProjectPath }}/pkg/reqctx"
+	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 )
 
 func HTTPServerMiddlewareXServerHeader(_ context.Context, appName string) func(next http.Handler) http.Handler {

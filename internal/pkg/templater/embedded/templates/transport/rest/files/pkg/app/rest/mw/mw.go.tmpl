@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	{{ .Logger.Import }}
 
-	"{{ .ProjectPath }}/pkg/ds"
-	"{{ .ProjectPath }}/pkg/reqctx"
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/app/rest"
 )
 

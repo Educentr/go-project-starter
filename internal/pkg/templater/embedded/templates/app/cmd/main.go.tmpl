@@ -20,8 +20,8 @@ import (
 	{{ $wor.Name }} {{ $wor.Import }}
 	{{ end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
-	"{{ .ProjectPath }}/pkg/app"
-	"{{ .ProjectPath }}/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app"
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/logger"
 	"{{ .ProjectPath }}/pkg/app/rest"
 )
