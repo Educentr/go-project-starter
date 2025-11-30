@@ -314,7 +314,7 @@ mock:
 .PHONY: tidy
 tidy:
 	@echo "go mod tidy..."
-	@GOPRIVATE=$(GOPRIVATE) go mod tidy
+	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go mod tidy
 
 
 .PHONY: clean-import
@@ -361,6 +361,6 @@ generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{
 
 .PHONY: download
 download:
-	@GOPRIVATE=$(GOPRIVATE) go mod download
+	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go mod download
 
 #ToDo integration tests GITEF
