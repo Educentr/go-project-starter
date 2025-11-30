@@ -39,6 +39,7 @@ type (
 		OgenVersion     string `mapstructure:"ogen_version"`
 		ArgenVersion    string `mapstructure:"argen_version"`
 		GolangciVersion string `mapstructure:"golangci_version"`
+		RuntimeVersion  string `mapstructure:"runtime_version"`
 	}
 
 	AuthParams struct {

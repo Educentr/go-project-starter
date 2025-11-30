@@ -36,6 +36,7 @@ type Generator struct {
 	OgenVersion       string
 	ArgenVersion      string
 	GolangciVersion   string
+	RuntimeVersion    string
 	TargetDir         string
 	DockerImagePrefix string
 	SkipInitService   bool
@@ -85,6 +86,18 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.OgenVersion = config.Tools.OgenVersion
 	g.ArgenVersion = config.Tools.ArgenVersion
 	g.GolangciVersion = config.Tools.GolangciVersion
+
+	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
+	if config.Tools.RuntimeVersion != "" {
+		// Validate that config version >= MinRuntimeVersion
+		if config.Tools.RuntimeVersion < templater.MinRuntimeVersion {
+			return fmt.Errorf("runtime_version %s is lower than minimum required version %s", config.Tools.RuntimeVersion, templater.MinRuntimeVersion)
+		}
+		g.RuntimeVersion = config.Tools.RuntimeVersion
+	} else {
+		g.RuntimeVersion = templater.MinRuntimeVersion
+	}
+
 	g.TargetDir = "./"
 
 	if config.Deploy.LogCollector.Type != "" {
@@ -354,6 +367,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		OgenVersion:       g.OgenVersion,
 		ArgenVersion:      g.ArgenVersion,
 		GolangciVersion:   g.GolangciVersion,
+		RuntimeVersion:    g.RuntimeVersion,
 		Applications:      g.Applications,
 		Drivers:           g.Drivers,
 		Workers:           g.Workers,

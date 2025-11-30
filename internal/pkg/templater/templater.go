@@ -18,6 +18,10 @@ import (
 	"golang.org/x/text/language"
 )
 
+// MinRuntimeVersion is the minimum supported version of go-project-starter-runtime.
+// This should be updated when new runtime version is released.
+const MinRuntimeVersion = "v0.4.1"
+
 type GeneratorParams struct {
 	AppInfo           string
 	Logger            ds.Logger
@@ -35,6 +39,7 @@ type GeneratorParams struct {
 	OgenVersion       string
 	ArgenVersion      string
 	GolangciVersion   string
+	RuntimeVersion    string
 	Drivers           ds.Drivers
 	Workers           ds.Workers
 	// GRPCVersion   string
