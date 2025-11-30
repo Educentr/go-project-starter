@@ -8,6 +8,11 @@ import (
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/joho/godotenv"
 	{{ .Logger.Import }}
+	{{ if .Application.UseActiveRecord }}
+	"github.com/Educentr/go-activerecord/v3/pkg/activerecord"
+	arlogger "github.com/Educentr/go-activerecord/v3/pkg/logger"
+	"github.com/Educentr/go-activerecord/v3/pkg/logger/arzlog"
+	{{- end }}
 
 	"{{ .ProjectPath }}/internal/app/constant"
 	{{ range $_, $imp := .Application.TransportImports }}
@@ -38,8 +43,7 @@ const (
 )
 
 const (
-	envFileName     = ".env"
-	UseActiveRecord = {{ .Application.UseActiveRecord }}
+	envFileName = ".env"
 )
 
 // ldflags
@@ -82,7 +86,7 @@ func main() {
 		os.Exit(ExitCodeErrorConfig)
     }
 
-	application, err := app.New(mainCtx, constant.ServiceName, "{{ .Application.Name }}", getAppInfo(), UseActiveRecord)
+	application, err := app.New(mainCtx, constant.ServiceName, "{{ .Application.Name }}", getAppInfo())
 	if err != nil {
 		log.Printf("can't create new application: %s", err)
 		os.Exit(ExitCodeErrorApp)
@@ -147,6 +151,14 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize application" }}
 		os.Exit(ExitCodeInit)
 	}
+	{{ if .Application.UseActiveRecord }}
+	// Initialize ActiveRecord
+	activerecord.InitActiveRecord(
+		activerecord.WithLogger(arzlog.NewARLogger(arlogger.InfoLoggerLevel)),
+		activerecord.WithConfig(func(ctx context.Context) activerecord.ConfigInterface { return onlineconf.FromContext(ctx) }),
+		activerecord.WithMetrics(activerecord.NewARMetrics(application.GetMetrics(), nil)),
+	)
+	{{- end }}
 
 	err = application.Run(mainCtx)
 	if err != nil {
