@@ -71,7 +71,14 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 func GetLoggerTemplates(path string, dst string, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/logger", path), params)
 	if err != nil {
-		err = errors.Wrap(err, "error while get main templates")
+		if errors.Is(err, fs.ErrNotExist) {
+			// Logger templates moved to runtime, return empty
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get logger templates")
 	}
 
 	for i := range dirs {
