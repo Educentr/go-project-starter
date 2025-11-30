@@ -311,8 +311,13 @@ mock:
 	@go generate ./...
 
 
+.PHONY: get-runtime
+get-runtime:
+	@echo "Fetching go-project-starter-runtime..."
+	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/go-project-starter-runtime@{{ .RuntimeVersion }}
+
 .PHONY: tidy
-tidy:
+tidy: get-runtime
 	@echo "go mod tidy..."
 	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go mod tidy
 
