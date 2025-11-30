@@ -38,6 +38,7 @@ LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)
 # GOPATH
 GOPATH = $(shell go env GOPATH)
 GOPROXY ?=https://proxy.golang.org,direct
+GOPRIVATE ?=github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}
 PACKAGE = $(shell go list -m)
 PKG_LIST_FOR_TEST = $(shell go list ./...)
 
@@ -117,7 +118,7 @@ endif
 .PHONY: go-get-u
 go-get-u:
 	@echo "go get -u all dependencies..."
-	@GOSUMDB=off go get -d -u ./...
+	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go get -d -u ./...
 
 .PHONY: onlineconf-update
 onlineconf-update:
@@ -163,7 +164,7 @@ test:
 
 .PHONY: dep-ci
 dep-ci: ## Install dependencies
-	go mod download
+	GOPRIVATE=$(GOPRIVATE) go mod download
 
 {{ range $_, $a := .Applications }}
 # Build service {{ $a.Name }} in container
@@ -269,8 +270,8 @@ generate-argen:
 
 .PHONY: install-argen
 install-argen:
-	go get github.com/Educentr/go-activerecord/v3@$(ARGENVERSION)
-	go install github.com/Educentr/go-activerecord/v3/cmd/argen@$(ARGENVERSION)
+	GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/go-activerecord/v3@$(ARGENVERSION)
+	GOPRIVATE=$(GOPRIVATE) go install github.com/Educentr/go-activerecord/v3/cmd/argen@$(ARGENVERSION)
 {{ end }}
 
 {{ if eq $ogen true }}
@@ -278,8 +279,8 @@ install-argen:
 # Install dependencies for Ogen generator
 .PHONY: install-ogen
 install-ogen:
-	go get github.com/ogen-go/ogen@$(OGENVERSION)
-	go install github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION)
+	GOPRIVATE=$(GOPRIVATE) go get github.com/ogen-go/ogen@$(OGENVERSION)
+	GOPRIVATE=$(GOPRIVATE) go install github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION)
 {{- end }}
 
 # Print release tag
@@ -313,7 +314,7 @@ mock:
 .PHONY: tidy
 tidy:
 	@echo "go mod tidy..."
-	@go mod tidy
+	@GOPRIVATE=$(GOPRIVATE) go mod tidy
 
 
 .PHONY: clean-import
@@ -360,6 +361,6 @@ generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{
 
 .PHONY: download
 download:
-	@go mod download
+	@GOPRIVATE=$(GOPRIVATE) go mod download
 
 #ToDo integration tests GITEF
