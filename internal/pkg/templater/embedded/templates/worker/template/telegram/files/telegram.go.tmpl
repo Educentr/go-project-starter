@@ -81,7 +81,11 @@ func GetConfigPath(key ...string) string{
 }
 
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
-	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "Str(nameFieldLogger, WorkerName)" }}
+		return err
+	}
 	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, WorkerName)" }}
 
 	pi := reqctx.RequestProcessInfo{}
@@ -212,7 +216,11 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 					}
 
 					for _, hm := range hiddenMessages {
-						ctx, cancel := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+						ctx, cancel, err := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+						if err != nil {
+							zlog.Ctx(ctx).Error().Err(err).Str(nameFieldLogger, WorkerName).Msg("Failed to create context for hidden message")
+							continue
+						}
 						zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
 							return c.Int("hiddenMsgID", hm.MsgID).Str(nameFieldLogger, WorkerName)
 						})

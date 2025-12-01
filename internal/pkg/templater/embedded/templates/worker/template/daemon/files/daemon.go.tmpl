@@ -85,7 +85,11 @@ func GetConfigPath(key ...string) string{
 }
 
 func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) {
-	ctxJob, cancel := reqctx.CreateContext(ctx, ctx, GetConfigPath(),  "job")
+	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, GetConfigPath(),  "job")
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "Str(nameFieldLogger, WorkerName)" }}
+		return err
+	}
 	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, WorkerName)" }}
 
 	err = errors.New("unexpected error")
