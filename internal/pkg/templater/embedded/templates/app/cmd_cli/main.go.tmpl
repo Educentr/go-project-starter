@@ -1,0 +1,125 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/joho/godotenv"
+	{{ .Logger.Import }}
+	{{ if .Application.UseActiveRecord }}
+	"github.com/Educentr/go-activerecord/v3/pkg/activerecord"
+	arlogger "github.com/Educentr/go-activerecord/v3/pkg/logger"
+	"github.com/Educentr/go-activerecord/v3/pkg/logger/arzlog"
+	{{- end }}
+
+	"{{ .ProjectPath }}/internal/app/constant"
+	{{ range $_, $drv := .Application.Drivers }}
+	{{ $drv.Package }} "{{ $drv.Import }}"
+	{{ end }}
+	"{{ .ProjectPath }}/internal/pkg/service"
+	"{{ .ProjectPath }}/pkg/app/logger"
+	{{ .Application.CLI.Import }}
+)
+
+const (
+	ExitCodeOK = iota
+	ExitCodeErrorConfig
+	ExitCodeErrorDriver
+	ExitCodeErrorService
+	ExitCodeErrorRun
+)
+
+const (
+	envFileName = ".env"
+)
+
+// ldflags
+var (
+	Version     string
+	BuildTime   string
+	BuildOS     string
+	BuildCommit string
+)
+
+func main() {
+	exitCode := run()
+	os.Exit(exitCode)
+}
+
+func run() int {
+	// initialization parent background context
+	mainCtx := context.Background()
+
+	_, err := os.Lstat(envFileName)
+	if !os.IsNotExist(err) {
+		err := godotenv.Load(envFileName)
+		if err != nil {
+			log.Fatal("Error loading .env file")
+		}
+	}
+
+	// Initialize onlineconf
+	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir("etc/onlineconf"))
+	if err != nil {
+		log.Printf("failed to initialize onlineconf: %v", err)
+		return ExitCodeErrorConfig
+	}
+
+	// Инициализация логгера
+	mainCtx = {{ .Logger.InitLogger "mainCtx" "constant.ServiceName" }}
+
+	{{ .Logger.DebugMsg "mainCtx" "CLI application starting" }}
+
+	// Initialize drivers
+	{{ range $_, $drv := .Application.Drivers }}
+	drv{{ $drv.Package | Capitalize }}, err := {{ $drv.Package }}.Create( {{ range $_, $param := $drv.CreateParams }}{{ $drv.Package }}.{{ $param }}, {{ end }} ).Init(mainCtx, constant.ServiceName, nil, nil)
+	if err != nil {
+		{{ $.Logger.ErrorMsg "mainCtx" "err" "can't initialize driver" }}
+		return ExitCodeErrorDriver
+	}
+	defer drv{{ $drv.Package | Capitalize }}.Shutdown(mainCtx)
+	{{ end }}
+
+	{{ if .Application.UseActiveRecord }}
+	// Initialize ActiveRecord
+	activerecord.InitActiveRecord(
+		activerecord.WithLogger(arzlog.NewARLogger(arlogger.InfoLoggerLevel)),
+		activerecord.WithConfig(func(ctx context.Context) activerecord.ConfigInterface { return onlineconf.FromContext(ctx) }),
+	)
+	{{- end }}
+
+	// Create service
+	srv, err := service.NewService(mainCtx)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't create new service" }}
+		return ExitCodeErrorService
+	}
+
+	// Create CLI handler
+	cliHandler := {{ .Application.CLI.Init }}
+
+	// Parse command and arguments (shell-like: first word is command, rest are args)
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: %s <command> [arguments...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\nAvailable commands:\n")
+		cliHandler.PrintHelp(os.Stderr)
+		return ExitCodeErrorRun
+	}
+
+	command := os.Args[1]
+	args := os.Args[2:]
+
+	// Execute CLI command
+	err = cliHandler.Execute(mainCtx, command, args)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "CLI command failed" }}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return ExitCodeErrorRun
+	}
+
+	{{ .Logger.DebugMsg "mainCtx" "CLI command completed successfully" }}
+	return ExitCodeOK
+}

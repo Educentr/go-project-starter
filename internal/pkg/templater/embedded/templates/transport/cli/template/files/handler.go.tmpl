@@ -1,0 +1,196 @@
+package {{ .CLI.Name }}
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+
+	"{{ .ProjectPath }}/internal/pkg/service"
+)
+
+// Handler implements CLI command handling
+// CLI works like a shell: first argument is command, rest are arguments
+// Example: ./app user create --email admin@example.com
+type Handler struct {
+	srv      *service.Service
+	commands map[string]*Command
+}
+
+// Command represents a CLI command
+type Command struct {
+	Name        string
+	Description string
+	Usage       string
+	Run         func(ctx context.Context, args []string) error
+}
+
+// NewHandler creates a new CLI handler
+func NewHandler(srv *service.Service) *Handler {
+	h := &Handler{
+		srv:      srv,
+		commands: make(map[string]*Command),
+	}
+
+	// Register built-in commands
+	h.registerBuiltinCommands()
+
+	// Register application commands
+	// CLI commands call the same Service methods as REST/GRPC handlers
+	h.registerAppCommands()
+
+	return h
+}
+
+// registerBuiltinCommands registers help and version commands
+func (h *Handler) registerBuiltinCommands() {
+	h.Register(&Command{
+		Name:        "help",
+		Description: "Show help information",
+		Usage:       "help [command]",
+		Run: func(ctx context.Context, args []string) error {
+			if len(args) > 0 {
+				return h.showCommandHelp(args[0])
+			}
+			h.PrintHelp(os.Stdout)
+			return nil
+		},
+	})
+
+	h.Register(&Command{
+		Name:        "version",
+		Description: "Show version information",
+		Usage:       "version",
+		Run: func(ctx context.Context, args []string) error {
+			fmt.Println("{{ .ProjectName }} CLI")
+			return nil
+		},
+	})
+}
+
+// registerAppCommands registers application-specific commands
+// Add your commands here - they should call h.srv methods
+func (h *Handler) registerAppCommands() {
+	// Example command that calls Service method:
+	//
+	// h.Register(&Command{
+	//     Name:        "user",
+	//     Description: "User management commands",
+	//     Usage:       "user <subcommand> [options]",
+	//     Run:         h.runUserCommand,
+	// })
+	//
+	// h.Register(&Command{
+	//     Name:        "migrate",
+	//     Description: "Database migrations",
+	//     Usage:       "migrate [up|down|status]",
+	//     Run:         h.runMigrateCommand,
+	// })
+}
+
+// Register adds a command to the handler
+func (h *Handler) Register(cmd *Command) {
+	h.commands[cmd.Name] = cmd
+}
+
+// Execute runs the specified command with arguments
+func (h *Handler) Execute(ctx context.Context, command string, args []string) error {
+	cmd, exists := h.commands[command]
+	if !exists {
+		return fmt.Errorf("unknown command: %s\nRun 'help' to see available commands", command)
+	}
+
+	return cmd.Run(ctx, args)
+}
+
+// PrintHelp prints help information for all commands
+func (h *Handler) PrintHelp(w io.Writer) {
+	// Sort commands alphabetically
+	names := make([]string, 0, len(h.commands))
+	for name := range h.commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	fmt.Fprintln(w, "Available commands:")
+	for _, name := range names {
+		cmd := h.commands[name]
+		fmt.Fprintf(w, "  %-15s %s\n", name, cmd.Description)
+	}
+	fmt.Fprintln(w, "\nRun '<command> --help' for more information about a command.")
+}
+
+// showCommandHelp prints help for a specific command
+func (h *Handler) showCommandHelp(cmdName string) error {
+	cmd, exists := h.commands[cmdName]
+	if !exists {
+		return fmt.Errorf("unknown command: %s", cmdName)
+	}
+
+	fmt.Printf("Command: %s\n", cmd.Name)
+	fmt.Printf("Description: %s\n", cmd.Description)
+	fmt.Printf("Usage: %s\n", cmd.Usage)
+	return nil
+}
+
+// GetService returns the service instance for use in command handlers
+func (h *Handler) GetService() *service.Service {
+	return h.srv
+}
+
+// ParseFlags is a helper to parse command flags
+// Usage: fs, err := h.ParseFlags("mycommand", args)
+func (h *Handler) ParseFlags(cmdName string, args []string) (*flag.FlagSet, error) {
+	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	return fs, nil
+}
+
+// Example command implementation:
+//
+// func (h *Handler) runUserCommand(ctx context.Context, args []string) error {
+//     if len(args) == 0 {
+//         return fmt.Errorf("usage: user <create|list|delete> [options]")
+//     }
+//
+//     subcommand := args[0]
+//     subargs := args[1:]
+//
+//     switch subcommand {
+//     case "create":
+//         return h.userCreate(ctx, subargs)
+//     case "list":
+//         return h.userList(ctx, subargs)
+//     case "delete":
+//         return h.userDelete(ctx, subargs)
+//     default:
+//         return fmt.Errorf("unknown subcommand: %s", subcommand)
+//     }
+// }
+//
+// func (h *Handler) userCreate(ctx context.Context, args []string) error {
+//     fs := flag.NewFlagSet("user create", flag.ExitOnError)
+//     email := fs.String("email", "", "User email (required)")
+//     name := fs.String("name", "", "User name")
+//
+//     if err := fs.Parse(args); err != nil {
+//         return err
+//     }
+//
+//     if *email == "" {
+//         return fmt.Errorf("--email is required")
+//     }
+//
+//     // Call Service method - same method that REST handler would call
+//     user, err := h.srv.CreateUser(ctx, *email, *name)
+//     if err != nil {
+//         return fmt.Errorf("failed to create user: %w", err)
+//     }
+//
+//     fmt.Printf("User created: ID=%d, Email=%s\n", user.ID, user.Email)
+//     return nil
+// }
