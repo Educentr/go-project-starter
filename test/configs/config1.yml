@@ -1,21 +1,13 @@
 main:
   name: example
   logger: zerolog
+  registry_type: github
 
-post_generate:
-  - git_install
-  #- tools_install
-  - clean_imports
-  - executable_scripts
-  - call_generate
-  - go_mod_tidy
-  - call_generate_mock
-  #- go_get_u
-  #- echo "post generate last job"
-  
+post_generate: []
+
 git:
+  repo: git@gitlab.educentr.info:golang/projects/example.git
   module_path: gitlab.educentr.info/golang/projects/example
-  # projectId: 1
 
 tools:
   protobuf_version: 1.7.0

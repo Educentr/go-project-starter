@@ -319,21 +319,9 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 	return true, ""
 }
 
-func (w Worker) IsValid(baseConfigDir string) (bool, string) {
+func (w Worker) IsValid(_ string) (bool, string) {
 	if len(w.Name) == 0 {
 		return false, "Empty name"
-	}
-
-	if len(w.Path) == 0 {
-		return false, "Empty path"
-	}
-
-	for _, p := range w.Path {
-		absPath := filepath.Join(baseConfigDir, p)
-
-		if tools.FileExists(absPath) != tools.ErrExist {
-			return false, "Invalid path: " + p
-		}
 	}
 
 	switch w.GeneratorType {

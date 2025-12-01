@@ -52,7 +52,7 @@ func TestGenerateNew(t *testing.T) {
 		}
 	}
 
-	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "psg_main_gen.go"), "--target", tmpDir, "--configDir", filepath.Join(tmpDir, ".project-config")}, "Create project by file ("+tmpDir+")")
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"), "--target", tmpDir, "--configDir", filepath.Join(tmpDir, ".project-config")}, "Create project by file ("+tmpDir+")")
 	if err != nil {
 		t.Fatalf("Error creating project: %s\n%s", err, out)
 	}

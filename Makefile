@@ -1,5 +1,5 @@
 # golang-ci tag
-GOLANGCI_TAG:=1.52.2
+GOLANGCI_TAG:=1.64.8
 # Service name
 SERVICE_NAME = generator
 # Path to the binary
