@@ -38,7 +38,8 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ocPrefix := onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler")
-				reqCtx, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, r.URL.Path)
+				// r.Context() - контекст запроса (основной), ctx - контекст приложения (для onlineconf)
+				reqCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, ocPrefix, r.URL.Path)
 				if err != nil {
 					{{ .Logger.ErrorMsg "r.Context()" "err" "Failed to create request context" }}
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
