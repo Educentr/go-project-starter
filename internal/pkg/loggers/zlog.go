@@ -64,3 +64,8 @@ func (zl *ZlogLogger) DestDir() string {
 func (zl *ZlogLogger) InitLogger(ctx string, serviceName string) string {
 	return fmt.Sprintf("logger.InitZlog(%s, %s)", ctx, serviceName)
 }
+
+// ReWrap generates code to rewrap logger from source context to destination context
+func (zl *ZlogLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string {
+	return fmt.Sprintf("%s = logger.ReWrapZlog(%s, %s, %s, %s)", destCtx, sourceCtx, destCtx, ocPrefix, ocPath)
+}

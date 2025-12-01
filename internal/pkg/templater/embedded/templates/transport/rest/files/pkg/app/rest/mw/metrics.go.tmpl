@@ -3,14 +3,19 @@ package mw
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/prometheus/client_golang/prometheus"
 	{{ .Logger.Import }}
 	"github.com/urfave/negroni"
 
+	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
+	"{{ .ProjectPath }}/internal/app/constant"
 )
 
 type HitInfoCallback interface {
@@ -91,10 +96,12 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 			// ToDo сделать колбек для создания новых контекстов по коду, где это может быть надо
 			// либо сделать отдельную очередь на выпоплнение отложенных заданий после обработки пользовательских запросов
 			// что бы не держать пользователя пока мы отправляем статистику
-			mwCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, onlineconf.MakePath(appName, "/transport/rest/", constant.ServiceName, "mw/metrics"), r.URL.Path)
+			ocPrefix := onlineconf.MakePath(appName, "/transport/rest/", constant.ServiceName, "mw/metrics")
+			mwCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, ocPrefix, r.URL.Path)
 			if err != nil {
 				{{ .Logger.ErrorMsg "r.Context()" "err" "Failed to create context for HitInfo" }}
 			} else {
+				{{ .Logger.ReWrap "ctx" "mwCtx" "ocPrefix" "r.URL.Path" }}
 				dwm.HitInfo(mwCtx, r.Method, r.URL, rw.Status(), rw.Size(), userIP, rw.Header().Get("Content-Type"), r.Header.Get("user-agent"), r.Header.Get("referer"), execTime)
 				cancel()
 			}

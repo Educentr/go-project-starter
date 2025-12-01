@@ -14,6 +14,7 @@ import (
 
 	"{{ .ProjectPath }}/pkg/app/daemon"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/internal/app/constant"
 )
@@ -85,11 +86,13 @@ func GetConfigPath(key ...string) string{
 }
 
 func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) {
-	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, GetConfigPath(),  "job")
+	ocPrefix := GetConfigPath()
+	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "Str(nameFieldLogger, WorkerName)" }}
 		return err
 	}
+	{{ .Logger.ReWrap "ctx" "ctxJob" "ocPrefix" "\"job\"" }}
 	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, WorkerName)" }}
 
 	err = errors.New("unexpected error")

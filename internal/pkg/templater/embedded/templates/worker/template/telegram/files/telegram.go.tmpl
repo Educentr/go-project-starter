@@ -15,9 +15,10 @@ import (
 
 	"{{ .ProjectPath }}/pkg/app/daemon"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
-	"{{ .ProjectPath }}/internal/app/constant"	
+	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/pkg/service"
 )
 
@@ -81,11 +82,13 @@ func GetConfigPath(key ...string) string{
 }
 
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
-	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+	ocPrefix := GetConfigPath()
+	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "Str(nameFieldLogger, WorkerName)" }}
 		return err
 	}
+	{{ .Logger.ReWrap "ctx" "ctxJob" "ocPrefix" "\"job\"" }}
 	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, WorkerName)" }}
 
 	pi := reqctx.RequestProcessInfo{}
@@ -216,19 +219,21 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 					}
 
 					for _, hm := range hiddenMessages {
-						ctx, cancel, err := reqctx.CreateContext(ctx, ctx, GetConfigPath(), "job")
+						ocPrefix := GetConfigPath()
+						hmCtx, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
 						if err != nil {
 							zlog.Ctx(ctx).Error().Err(err).Str(nameFieldLogger, WorkerName).Msg("Failed to create context for hidden message")
 							continue
 						}
-						zlog.Ctx(ctx).UpdateContext(func(c zlog.Context) zlog.Context {
+						hmCtx = logger.ReWrapZlog(ctx, hmCtx, ocPrefix, "job")
+						zlog.Ctx(hmCtx).UpdateContext(func(c zlog.Context) zlog.Context {
 							return c.Int("hiddenMsgID", hm.MsgID).Str(nameFieldLogger, WorkerName)
 						})
 
 						defer func() {
 							err := recover()
 							if err != nil {
-								zlog.Ctx(ctx).Error().
+								zlog.Ctx(hmCtx).Error().
 									Interface("panic error", err).
 									Str("Stack", strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), "\n\t/", " --> /"), "\n", " => ")).
 									Err(errors.New("panic catch")).Msg("panic")
@@ -239,7 +244,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 						srv, err := w.GetEmptySrv()
 						if err != nil {
-							zlog.Ctx(ctx).Error().Err(err).Msg("Failed to get service")
+							zlog.Ctx(hmCtx).Error().Err(err).Msg("Failed to get service")
 
 							continue
 						}
@@ -248,13 +253,13 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 						case telegram.DeleteHiddenAction:
 							timerDuration = time.Second
 
-							err := srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+							err := srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 							if err != nil {
-								zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 
-								err := w.DoneHiddenMessages(ctx, hm)
+								err := w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 								}
 
 								continue
@@ -262,16 +267,16 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 						case telegram.UpdateHiddenAction:
 							c, ex := cmdMaps[hm.CmdName]
 							if !ex {
-								zlog.Ctx(ctx).Info().Str("Cmd", string(hm.CmdName)).Msg("Unknown command")
+								zlog.Ctx(hmCtx).Info().Str("Cmd", string(hm.CmdName)).Msg("Unknown command")
 
-								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 								}
 
-								err = w.DoneHiddenMessages(ctx, hm)
+								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 								}
 
 								timerDuration = time.Second
@@ -290,24 +295,24 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 								Command:   c,
 							}
 
-							_, hdl, err := w.GetServiceAndHandler(ctx, requestData)
+							_, hdl, err := w.GetServiceAndHandler(hmCtx, requestData)
 							if err != nil {
-								zlog.Ctx(ctx).Error().Err(err).Msg("Error getting handler")
+								zlog.Ctx(hmCtx).Error().Err(err).Msg("Error getting handler")
 
 								continue
 							}
 
-							ctx, aclErr := hdl.Authorization(ctx, requestData, hm.Params)
+							hmCtx, aclErr := hdl.Authorization(hmCtx, requestData, hm.Params)
 							if aclErr != nil {
-								zlog.Ctx(ctx).Error().Err(aclErr).Msg("Authorization error for hidden message")
+								zlog.Ctx(hmCtx).Error().Err(aclErr).Msg("Authorization error for hidden message")
 
-								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 								}
-								err = w.DoneHiddenMessages(ctx, hm)
+								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 								}
 
 								timerDuration = time.Second
@@ -315,18 +320,18 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 								continue
 							}
 
-							aclErr = w.Authorization(ctx, hdl.Rd)
+							aclErr = w.Authorization(hmCtx, hdl.Rd)
 							if aclErr != nil {
-								zlog.Ctx(ctx).Error().Err(aclErr).Msg("Authorization error for hidden message")
+								zlog.Ctx(hmCtx).Error().Err(aclErr).Msg("Authorization error for hidden message")
 
-								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 								}
 
-								err = w.DoneHiddenMessages(ctx, hm)
+								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 								}
 
 								timerDuration = time.Second
@@ -334,24 +339,24 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 								continue
 							}
 
-							resp, err := c.Handler(ctx, hdl, hm.Params)
+							resp, err := c.Handler(hmCtx, hdl, hm.Params)
 							if err != nil {
-								zlog.Ctx(ctx).Error().Err(err).Msg("Error handling hidden message")
+								zlog.Ctx(hmCtx).Error().Err(err).Msg("Error handling hidden message")
 
 								continue
 							}
 
 							if resp.InternalRedirect != nil {
-								zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Internal redirect not supported for hidden message")
+								zlog.Ctx(hmCtx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Internal redirect not supported for hidden message")
 
-								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 								}
 
-								err = w.DoneHiddenMessages(ctx, hm)
+								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 								}
 
 								timerDuration = time.Second
@@ -360,16 +365,16 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 							}
 
 							if len(resp.Messages) == 0 {
-								zlog.Ctx(ctx).Error().Msg("No messages in response for hidden message")
+								zlog.Ctx(hmCtx).Error().Msg("No messages in response for hidden message")
 
-								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 								}
 
-								err = w.DoneHiddenMessages(ctx, hm)
+								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 								}
 
 								timerDuration = time.Second
@@ -379,19 +384,19 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 							timerDuration = time.Second
 
-							_, err = srv.TelegramUpdateMessageButtons(ctx, hm.ChatID, hm.MsgID, resp.Messages[0])
+							_, err = srv.TelegramUpdateMessageButtons(hmCtx, hm.ChatID, hm.MsgID, resp.Messages[0])
 							if err != nil {
-								zlog.Ctx(ctx).Error().Err(err).Msg("Can't update hidden message")
+								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't update hidden message")
 
-								err = srv.TelegramDeleteMessage(ctx, hm.ChatID, hm.MsgID)
+								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(ctx).Error().Err(err).Msg("Can't delete hidden messge")
+									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
 								}
 							}
 
-							err = w.DoneHiddenMessages(ctx, hm)
+							err = w.DoneHiddenMessages(hmCtx, hm)
 							if err != nil {
-								zlog.Ctx(ctx).Error().Err(err).Msg("Can't mark hidden message as done")
+								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
 							}
 
 							continue
@@ -400,7 +405,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 							timerDuration = time.Second
 
 						default:
-							zlog.Ctx(ctx).Error().Str("Action", string(hm.Action)).Msg("Unknown hidden action")
+							zlog.Ctx(hmCtx).Error().Str("Action", string(hm.Action)).Msg("Unknown hidden action")
 						}
 					}
 

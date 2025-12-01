@@ -279,6 +279,12 @@ type Logger interface {
 	FilesToGenerate() string
 	DestDir() string
 	InitLogger(ctx string, serviceName string) string
+	// ReWrap generates code to rewrap logger from source context to destination context
+	// sourceCtx - source context variable name
+	// destCtx - destination context variable name
+	// ocPrefix - onlineconf prefix
+	// ocPath - onlineconf path
+	ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
 }
 
 func (t Transport) GetOgenConfigPath(targetDir string) string {

@@ -12,6 +12,7 @@ import (
 	{{ .Logger.Import }}
 
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/app/rest"
 )
@@ -36,14 +37,16 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				ctx, cancel, err := reqctx.CreateContext(ctx, ctx, onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler"), r.URL.Path)
+				ocPrefix := onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler")
+				reqCtx, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, r.URL.Path)
 				if err != nil {
 					{{ .Logger.ErrorMsg "r.Context()" "err" "Failed to create request context" }}
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					return
 				}
-				{{ .Logger.UpdateContext "ctx" "Str(\"Method\", r.Method)" "Str(\"URI\", r.RequestURI)" }}
-				next.ServeHTTP(w, r.WithContext(ctx))
+				{{ .Logger.ReWrap "ctx" "reqCtx" "ocPrefix" "r.URL.Path" }}
+				{{ .Logger.UpdateContext "reqCtx" "Str(\"Method\", r.Method)" "Str(\"URI\", r.RequestURI)" }}
+				next.ServeHTTP(w, r.WithContext(reqCtx))
 				cancel()
 			})
 		},
