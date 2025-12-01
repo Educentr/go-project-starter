@@ -155,21 +155,22 @@ type AuthParams struct {
 }
 
 type Transport struct {
-	Name            string
-	PkgName         string
-	Import          []string // ToDo точно ли нужен срез?
-	PublicService   bool
-	Init            string
-	HealthCheckPath string
+	Name                 string
+	PkgName              string
+	Import               []string // ToDo точно ли нужен срез?
+	PublicService        bool
+	Init                 string
+	HealthCheckPath      string
 	// Handler        Handler
-	Type              TransportType
-	GeneratorType     string
-	GeneratorTemplate string
-	AuthParams        AuthParams
-	GeneratorParams   map[string]string
-	SpecPath          []string
-	ApiVersion        string // перенесено из Hendler
-	Port              string // перенесено из Hendler
+	Type                 TransportType
+	GeneratorType        string
+	GeneratorTemplate    string
+	AuthParams           AuthParams
+	GeneratorParams      map[string]string
+	SpecPath             []string
+	ApiVersion           string // перенесено из Hendler
+	Port                 string // перенесено из Hendler
+	EmptyConfigAvailable bool
 }
 
 type Worker struct {

@@ -126,18 +126,19 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		transport := ds.Transport{
-			Name:              rest.Name,
-			PkgName:           fmt.Sprintf("%s_%s", rest.Name, rest.Version),
-			Type:              ds.RestTransportType,
-			GeneratorType:     rest.GeneratorType,
-			HealthCheckPath:   rest.HealthCheckPath,
-			GeneratorTemplate: rest.GeneratorTemplate,
-			GeneratorParams:   rest.GeneratorParams,
+			Name:                 rest.Name,
+			PkgName:              fmt.Sprintf("%s_%s", rest.Name, rest.Version),
+			Type:                 ds.RestTransportType,
+			GeneratorType:        rest.GeneratorType,
+			HealthCheckPath:      rest.HealthCheckPath,
+			GeneratorTemplate:    rest.GeneratorTemplate,
+			GeneratorParams:      rest.GeneratorParams,
 			AuthParams: ds.AuthParams{
 				Transport: rest.AuthParams.Transport,
 				Type:      rest.AuthParams.Type,
 			},
-			PublicService: rest.PublicService,
+			PublicService:        rest.PublicService,
+			EmptyConfigAvailable: rest.EmptyConfigAvailable,
 		}
 
 		if rest.GeneratorType == "ogen_client" {

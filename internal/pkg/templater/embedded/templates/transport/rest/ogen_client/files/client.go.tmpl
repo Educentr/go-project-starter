@@ -27,7 +27,11 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 	}
 
 	if !ex || url == "" {
+		{{ if .Transport.EmptyConfigAvailable -}}
 		return nil, nil
+		{{- else -}}
+		return nil, errors.New("{{ .Transport.PkgName }} client URL not configured")
+		{{- end }}
 	}
 
 	timeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "timeout"), time.Second * 2)

@@ -48,17 +48,18 @@ type (
 	}
 
 	Rest struct {
-		Name              string            `mapstructure:"name"`
-		Path              []string          `mapstructure:"path"`
-		APIPrefix         string            `mapstructure:"api_prefix"`
-		Port              uint              `mapstructure:"port"`
-		Version           string            `mapstructure:"version"`
-		PublicService     bool              `mapstructure:"public_service"`
-		GeneratorType     string            `mapstructure:"generator_type"`
-		HealthCheckPath   string            `mapstructure:"health_check_path"`
-		GeneratorTemplate string            `mapstructure:"generator_template"`
-		GeneratorParams   map[string]string `mapstructure:"generator_params"`
-		AuthParams        AuthParams        `mapstructure:"auth_params"`
+		Name                 string            `mapstructure:"name"`
+		Path                 []string          `mapstructure:"path"`
+		APIPrefix            string            `mapstructure:"api_prefix"`
+		Port                 uint              `mapstructure:"port"`
+		Version              string            `mapstructure:"version"`
+		PublicService        bool              `mapstructure:"public_service"`
+		GeneratorType        string            `mapstructure:"generator_type"`
+		HealthCheckPath      string            `mapstructure:"health_check_path"`
+		GeneratorTemplate    string            `mapstructure:"generator_template"`
+		GeneratorParams      map[string]string `mapstructure:"generator_params"`
+		AuthParams           AuthParams        `mapstructure:"auth_params"`
+		EmptyConfigAvailable bool              `mapstructure:"empty_config_available"`
 	}
 
 	Worker struct {
@@ -82,10 +83,13 @@ type (
 	}
 
 	Grpc struct {
-		Name  string `mapstructure:"name"`
-		Path  string `mapstructure:"path"`
-		Short string `mapstructure:"short"`
-		Port  uint   `mapstructure:"port"`
+		Name                 string `mapstructure:"name"`
+		Path                 string `mapstructure:"path"`
+		Short                string `mapstructure:"short"`
+		Port                 uint   `mapstructure:"port"`
+		GeneratorType        string `mapstructure:"generator_type"`
+		BufLocalPlugins      bool   `mapstructure:"buf_local_plugins"`
+		EmptyConfigAvailable bool   `mapstructure:"empty_config_available"`
 	}
 
 	Ws struct {
