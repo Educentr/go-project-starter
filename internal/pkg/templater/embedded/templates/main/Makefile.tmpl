@@ -118,7 +118,7 @@ endif
 .PHONY: go-get-u
 go-get-u:
 	@echo "go get -u all dependencies..."
-	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go get -d -u ./...
+	@GOPRIVATE=$(GOPRIVATE) go get -d -u ./...
 
 .PHONY: onlineconf-update
 onlineconf-update:
@@ -314,12 +314,12 @@ mock:
 .PHONY: get-runtime
 get-runtime:
 	@echo "Fetching go-project-starter-runtime..."
-	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/go-project-starter-runtime@{{ .RuntimeVersion }}
+	@GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/go-project-starter-runtime@{{ .RuntimeVersion }}
 
 .PHONY: tidy
 tidy: get-runtime
 	@echo "go mod tidy..."
-	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go mod tidy
+	@GOPRIVATE=$(GOPRIVATE) go mod tidy
 
 
 .PHONY: clean-import
@@ -366,6 +366,6 @@ generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{
 
 .PHONY: download
 download:
-	@GOSUMDB=off GOPRIVATE=$(GOPRIVATE) go mod download
+	@GOPRIVATE=$(GOPRIVATE) go mod download
 
 #ToDo integration tests GITEF
