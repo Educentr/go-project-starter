@@ -20,7 +20,7 @@ import (
 
 // MinRuntimeVersion is the minimum supported version of go-project-starter-runtime.
 // This should be updated when new runtime version is released.
-const MinRuntimeVersion = "v0.7.0"
+const MinRuntimeVersion = "v0.7.1"
 
 type GeneratorParams struct {
 	AppInfo           string
