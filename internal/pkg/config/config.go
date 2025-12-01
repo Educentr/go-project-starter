@@ -63,6 +63,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	config.GrpcMap = make(map[string]Grpc)
 	config.DriverMap = make(map[string]Driver)
 	config.WorkerMap = make(map[string]Worker)
+	config.CLIMap = make(map[string]CLI)
 
 	for i, rest := range config.RestList { // "rest" названия полей
 		if ok, msg := rest.IsValid(baseDir); !ok { // проверяем валидность конфигурации
@@ -104,6 +105,30 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		config.DriverMap[driver.Name] = driver
 	}
 
+	for _, worker := range config.WorkerList {
+		if ok, msg := worker.IsValid(baseDir); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig, "invalid config worker section: "+msg)
+		}
+
+		if _, ex := config.WorkerMap[worker.Name]; ex {
+			return config, errors.WithMessage(ErrInvalidConfig, "duplicate worker name: "+worker.Name)
+		}
+
+		config.WorkerMap[worker.Name] = worker
+	}
+
+	for _, cli := range config.CLIList {
+		if ok, msg := cli.IsValid(); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig, "invalid config cli section: "+msg)
+		}
+
+		if _, ex := config.CLIMap[cli.Name]; ex {
+			return config, errors.WithMessage(ErrInvalidConfig, "duplicate cli name: "+cli.Name)
+		}
+
+		config.CLIMap[cli.Name] = cli
+	}
+
 	for i, app := range config.Applications {
 		if ok, msg := app.IsValid(); !ok {
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
@@ -131,6 +156,19 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		for _, driver := range app.DriverList {
 			if _, ex := config.DriverMap[driver.Name]; !ex {
 				return config, errors.WithMessage(ErrInvalidConfig, "unknown driver: "+driver.Name+" in application: "+app.Name)
+			}
+		}
+
+		for _, worker := range app.WorkerList {
+			if _, ex := config.WorkerMap[worker]; !ex {
+				return config, errors.WithMessage(ErrInvalidConfig, "unknown worker: "+worker+" in application: "+app.Name)
+			}
+		}
+
+		// Validate CLI reference
+		if app.CLI != "" {
+			if _, ex := config.CLIMap[app.CLI]; !ex {
+				return config, errors.WithMessage(ErrInvalidConfig, "unknown cli: "+app.CLI+" in application: "+app.Name)
 			}
 		}
 	}

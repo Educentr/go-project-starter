@@ -192,13 +192,127 @@ REST-сервисы должны быть назначены на конкрет
 - Завершение:
   - Graceful shutdown: остановка воркеров/HTTP, shutdown драйверов.
 
+### CLI Transport
+
+CLI (Command Line Interface) — это **транспорт** для сервиса, аналогично REST и GRPC. Ключевое отличие: CLI требует интерактивной коммуникации с пользователем.
+
+#### CLI как транспорт
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Service                               │
+│                    (бизнес-логика)                          │
+└─────────────────────────────────────────────────────────────┘
+        ▲                    ▲                    ▲
+        │                    │                    │
+┌───────┴───────┐   ┌───────┴───────┐   ┌───────┴───────┐
+│  REST Transport│   │ GRPC Transport │   │ CLI Transport  │
+│  (HTTP/JSON)   │   │   (protobuf)   │   │  (shell-like)  │
+└───────────────┘   └───────────────┘   └───────────────┘
+        ▲                    ▲                    ▲
+        │                    │                    │
+   HTTP клиент          gRPC клиент         Пользователь
+```
+
+#### Принцип работы CLI
+
+CLI работает по принципу shell:
+- Первое слово — **команда** (command)
+- Остальные слова — **аргументы** (arguments)
+
+```bash
+./myapp <command> [arguments...]
+
+# Примеры:
+./myapp migrate up
+./myapp user create --email admin@example.com
+./myapp cache clear --all
+```
+
+#### Сравнение транспортов
+
+| Транспорт | Протокол | Жизненный цикл | Интерактивность |
+|-----------|----------|----------------|-----------------|
+| **REST** | HTTP/JSON | Слушает порт → обрабатывает запросы | Нет |
+| **GRPC** | HTTP2/protobuf | Слушает порт → обрабатывает запросы | Нет |
+| **CLI** | stdin/stdout | Получает команду → выполняет → завершается | Да |
+
+#### Архитектура CLI Handler
+
+CLI handler генерируется аналогично REST/GRPC handlers:
+
+```
+internal/app/transport/cli/{name}/
+├── handler.go      # CLI router - разбор команд
+├── commands/       # Реализация команд
+│   ├── migrate.go
+│   └── user.go
+└── handler/        # Handler implementations
+    └── handler.go
+```
+
+#### Структура конфигурации
+
+```yaml
+cli:
+  - name: admin
+    path:
+      - ./api/cli/admin.yaml   # Спецификация команд (опционально)
+    generator_type: template
+    generator_template: cli
+
+applications:
+  - name: admin-cli
+    cli: admin      # CLI транспорт (эксклюзивен с transport/worker)
+    driver:
+      - postgres
+```
+
+#### Правила использования CLI
+
+1. **CLI эксклюзивен** — приложение с CLI не может иметь REST/GRPC транспорты или workers
+2. **Один CLI на application** — только один CLI транспорт на приложение
+3. **Вызывает тот же Service** — CLI handlers вызывают те же методы сервиса, что и REST/GRPC
+4. **Может использовать драйверы** — подключение к БД, внешним API
+
+#### Отличие от Worker
+
+| CLI | Worker |
+|-----|--------|
+| Запускается пользователем | Запускается с приложением |
+| Выполняет одну команду | Работает непрерывно |
+| Интерактивный (stdin/stdout) | Автономный (без взаимодействия) |
+| Завершается после команды | Работает до shutdown |
+
+#### Примеры команд
+
+```bash
+# Миграции
+./migrate-cli migrate up
+./migrate-cli migrate down --steps 1
+./migrate-cli migrate status
+
+# Администрирование
+./admin-cli user create --email admin@example.com
+./admin-cli user list --role admin
+./admin-cli cache clear --prefix "session:*"
+
+# Утилиты
+./tools-cli report generate --date 2024-01-01
+./tools-cli backup create --output /backups/
+```
+
 ### Термины
 - Application — контейнеризуемая единица, атомарно масштабируемая.
 - Driver — адаптер для внешних API с Runnable.
 - Runnable — интерфейс жизненного цикла (init/run/shutdown/graceful).
+- Transport — слой доставки запросов к сервису (REST, GRPC, CLI).
 - Transport sys — метрик-сервер (Prometheus) из шаблона.
 - gen-client/gen-server — режимы генерации клиента/сервера.
-- REST — JSON RESTful API, не gRPC.
+- REST — JSON RESTful API транспорт.
+- GRPC — HTTP2/protobuf транспорт.
+- CLI — интерактивный транспорт командной строки (shell-like: command args...).
+- Worker — фоновая горутина, работающая непрерывно без интерактивной сессии.
 
 ### Риски и подводные камни
 - Смешение пакетов интеграций в разных слоях → сложные алиасы, повышенная связность.

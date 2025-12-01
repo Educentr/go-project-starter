@@ -268,6 +268,23 @@ func (g *Generator) processConfig(config config.Config) error {
 			}
 		}
 
+		// Set CLI if this is a CLI application
+		if app.CLI != "" {
+			cli, ex := config.CLIMap[app.CLI]
+			if !ex {
+				return fmt.Errorf("unknown cli: %s", app.CLI)
+			}
+
+			application.CLI = &ds.CLIApp{
+				Name:              cli.Name,
+				Import:            fmt.Sprintf(`"%s/internal/app/transport/cli/%s"`, g.ProjectPath, cli.Name),
+				Init:              fmt.Sprintf(`cli%s.NewHandler(srv)`, strings.Title(cli.Name)),
+				GeneratorType:     cli.GeneratorType,
+				GeneratorTemplate: cli.GeneratorTemplate,
+				GeneratorParams:   cli.GeneratorParams,
+			}
+		}
+
 		g.Applications = append(g.Applications, application)
 	}
 
@@ -644,6 +661,17 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 		dirs = append(dirs, dirApp...)
 		files = append(files, filesApp...)
+
+		// Generate CLI handler templates for CLI apps
+		if app.IsCLI() {
+			dirsCLI, filesCLI, err := templater.GetCLIHandlerTemplates(app.CLI, g.GetTmplParams())
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get CLI handler templates: %w", err)
+			}
+
+			dirs = append(dirs, dirsCLI...)
+			files = append(files, filesCLI...)
+		}
 	}
 
 	// ToDo check git status

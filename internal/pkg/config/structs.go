@@ -70,6 +70,17 @@ type (
 		GeneratorParams   map[string]string `mapstructure:"generator_params"`
 	}
 
+	// CLI represents a command-line interface transport configuration.
+	// CLI is a transport type like REST/GRPC, but requires interactive user communication.
+	// It works like a shell: first word is command, rest are arguments.
+	CLI struct {
+		Name              string            `mapstructure:"name"`
+		Path              []string          `mapstructure:"path"`              // Path to CLI spec files (optional)
+		GeneratorType     string            `mapstructure:"generator_type"`    // template
+		GeneratorTemplate string            `mapstructure:"generator_template"` // cli template name
+		GeneratorParams   map[string]string `mapstructure:"generator_params"`
+	}
+
 	Grpc struct {
 		Name  string `mapstructure:"name"`
 		Path  string `mapstructure:"path"`
@@ -110,6 +121,7 @@ type (
 	WsList         []Ws
 	RepositoryList []Repository
 	WorkerList     []Worker
+	CLIList        []CLI
 	ConsumerList   []Consumer
 	DriverList     []Driver
 
@@ -128,14 +140,15 @@ type (
 	}
 
 	Application struct {
-		Name                   string      `mapstructure:"name"`
-		TransportList          []string    `mapstructure:"transport"`
-		DriverList             []AppDriver `mapstructure:"driver"`
-		WorkerList             []string    `mapstructure:"worker"`
-		Deploy                 AppDeploy   `mapstructure:"deploy"`
-		UseActiveRecord        *bool       `mapstructure:"use_active_record"`
-		DependsOnDockerImages  []string    `mapstructure:"depends_on_docker_images"`
-		UseEnvs                *bool       `mapstructure:"use_envs"`
+		Name                  string      `mapstructure:"name"`
+		TransportList         []string    `mapstructure:"transport"`
+		DriverList            []AppDriver `mapstructure:"driver"`
+		WorkerList            []string    `mapstructure:"worker"`
+		CLI                   string      `mapstructure:"cli"` // CLI app name (only one per application, exclusive with transport/worker)
+		Deploy                AppDeploy   `mapstructure:"deploy"`
+		UseActiveRecord       *bool       `mapstructure:"use_active_record"`
+		DependsOnDockerImages []string    `mapstructure:"depends_on_docker_images"`
+		UseEnvs               *bool       `mapstructure:"use_envs"`
 	}
 
 	Docker struct {
@@ -162,6 +175,7 @@ type (
 		Scheduler      Scheduler      `mapstructure:"scheduler"`
 		RestList       RestList       `mapstructure:"rest"`
 		WorkerList     WorkerList     `mapstructure:"worker"`
+		CLIList        CLIList        `mapstructure:"cli"`
 		GrpcList       GrpcList       `mapstructure:"grpc"`
 		WsList         WsList         `mapstructure:"ws"`
 		ConsumerList   ConsumerList   `mapstructure:"consumer"`
@@ -173,6 +187,7 @@ type (
 		GrpcMap   map[string]Grpc
 		DriverMap map[string]Driver
 		WorkerMap map[string]Worker
+		CLIMap    map[string]CLI
 	}
 )
 
@@ -397,10 +412,30 @@ func (a Application) IsValid() (bool, string) {
 		return false, "Empty name"
 	}
 
-	if len(a.TransportList) == 0 {
-		return false, "Empty transport list"
+	// CLI apps are exclusive - cannot have transports or workers
+	if a.CLI != "" {
+		if len(a.TransportList) > 0 {
+			return false, "CLI application cannot have transports"
+		}
+		if len(a.WorkerList) > 0 {
+			return false, "CLI application cannot have workers"
+		}
+		return true, ""
 	}
 
+	// Non-CLI apps must have at least one transport
+	if len(a.TransportList) == 0 {
+		return false, "Application must have at least one transport or be a CLI app"
+	}
+
+	return true, ""
+}
+
+// CLI validation
+func (c CLI) IsValid() (bool, string) {
+	if len(c.Name) == 0 {
+		return false, "Empty name"
+	}
 	return true, ""
 }
 

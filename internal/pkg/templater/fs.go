@@ -274,7 +274,13 @@ func GetAppTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fil
 		files[i].DestName = fname + "-" + params.Application.Name + ext
 	}
 
-	dirsC, filesC, err := GetTemplates(templates, "embedded/templates/app/cmd", params)
+	// Select cmd template based on app type (CLI vs regular)
+	cmdTemplateDir := "embedded/templates/app/cmd"
+	if params.Application.IsCLI() {
+		cmdTemplateDir = "embedded/templates/app/cmd_cli"
+	}
+
+	dirsC, filesC, err := GetTemplates(templates, cmdTemplateDir, params)
 	if err != nil {
 		err = errors.Wrap(err, "error while get app templates")
 
@@ -291,6 +297,51 @@ func GetAppTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fil
 
 	dirs = append(dirs, dirsC...)
 	files = append(files, filesC...)
+
+	return
+}
+
+// GeneratorCLIParams holds parameters for CLI handler template generation
+type GeneratorCLIParams struct {
+	GeneratorParams
+	CLI *ds.CLIApp
+}
+
+// GetCLIHandlerTemplates returns templates for CLI handler
+func GetCLIHandlerTemplates(cli *ds.CLIApp, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	cliParams := GeneratorCLIParams{
+		GeneratorParams: params,
+		CLI:             cli,
+	}
+
+	// Use template generator type, default to "template"
+	generatorType := cli.GeneratorType
+	if generatorType == "" {
+		generatorType = "template"
+	}
+
+	templatePath := filepath.Join("embedded/templates/transport/cli", generatorType, "files")
+
+	dirs, files, err = GetTemplates(templates, templatePath, cliParams)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+			return
+		}
+		err = errors.Wrap(err, "error while get CLI handler templates")
+		return
+	}
+
+	// Set destination path for CLI handler files
+	cliPrefix := "internal/app/transport/cli/" + cli.Name
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(cliPrefix, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(cliPrefix, files[i].DestName)
+	}
 
 	return
 }

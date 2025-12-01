@@ -56,8 +56,16 @@ rest:
 #     generator_type: template
 #     generator_template: worker
 
-# cli:
-#   - name: example_cli
+# CLI transport - interactive command-line interface
+# Works like a shell: first word is command, rest are arguments
+# CLI is exclusive - application with CLI cannot have REST/GRPC transports or workers
+cli:
+  - name: admin
+    generator_type: template
+    generator_template: cli
+# - name: migrate
+#   generator_type: template
+#   generator_template: cli
 
 # driver:
 #   - name: clickhouse_batcher
@@ -109,9 +117,9 @@ applications:
   #   transport:
   #     - AdminService
   #     - sys
-  # - name: cli
-  #   transport:
-  #     - example_cli
-  # - name: worker
-  #   transport:
-  #     - worker
+  # CLI application example - uses cli field instead of transport
+  # CLI apps work like shell: ./admin-cli <command> [args...]
+  # - name: admin-cli
+  #   cli: admin
+  #   driver:
+  #     - name: postgres

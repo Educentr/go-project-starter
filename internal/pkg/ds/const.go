@@ -26,6 +26,7 @@ const (
 	RestTransportType  TransportType = "rest"
 	GrpcTransportType  TransportType = "grpc"
 	KafkaTransportType TransportType = "kafka"
+	CLITransportType   TransportType = "cli"
 
 //	WorkerDaemonType WorkerType = "daemon"
 
@@ -61,10 +62,31 @@ type App struct {
 	Transports            Transports
 	Drivers               Drivers
 	Workers               Workers
+	CLI                   *CLIApp // CLI app config (exclusive with Transports/Workers)
 	Deploy                DeployParams
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
 	UseEnvs               bool
+}
+
+// CLIApp represents a CLI transport configuration
+type CLIApp struct {
+	Name              string
+	Import            string            // Import path for the CLI handler
+	Init              string            // Initialization code
+	GeneratorType     string
+	GeneratorTemplate string
+	GeneratorParams   map[string]string
+}
+
+// IsCLI returns true if this is a CLI application
+func (a App) IsCLI() bool {
+	return a.CLI != nil
+}
+
+// GetCLITransport returns CLI transport if this is a CLI app
+func (a App) GetCLITransport() *CLIApp {
+	return a.CLI
 }
 
 type Transports map[string]Transport
