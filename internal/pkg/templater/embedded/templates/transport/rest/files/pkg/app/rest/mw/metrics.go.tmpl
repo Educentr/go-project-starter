@@ -101,7 +101,7 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 			if err != nil {
 				{{ .Logger.ErrorMsg "r.Context()" "err" "Failed to create context for HitInfo" }}
 			} else {
-				{{ .Logger.ReWrap "ctx" "mwCtx" "ocPrefix" "r.URL.Path" }}
+				{{ .Logger.ReWrap "r.Context()" "mwCtx" "ocPrefix" "r.URL.Path" }}
 				dwm.HitInfo(mwCtx, r.Method, r.URL, rw.Status(), rw.Size(), userIP, rw.Header().Get("Content-Type"), r.Header.Get("user-agent"), r.Header.Get("referer"), execTime)
 				cancel()
 			}
