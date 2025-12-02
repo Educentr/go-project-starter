@@ -72,5 +72,5 @@ func (zl *ZlogLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
 
 // SetLoggerUpdater generates code to set the global logger updater for reqctx
 func (zl *ZlogLogger) SetLoggerUpdater() string {
-	return "reqctx.SetLoggerUpdater(logger.NewZerologUpdater())"
+	return "reqctx.SetLoggerUpdater(runtimelogger.NewZerologUpdater())"
 }
