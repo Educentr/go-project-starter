@@ -172,7 +172,7 @@ func main() {
 	 
 	onlineconf.StopWatcher(mainCtx)
 
-	{{ .Logger.InfoMsg "mainCtx" "service has been successfully shutdown" }}
+	{{ .Logger.WarnMsg "mainCtx" "service has been successfully shutdown" }}
 }
 
 func getAppInfo() *ds.AppInfo {

@@ -106,15 +106,38 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, appName string, metrics *p
 				cancel()
 			}
 
-			{{ .Logger.InfoMsg "r.Context()" "Done request"
-				"Int(\"Status\", rw.Status())"
-				"Str(\"Method\", r.Method)"
-				"Int(\"Content-Length\", rw.Size())"
-				"Str(\"X-Real-IP\", userIP)"
-				"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
-				"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
-				"Str(\"Referer\", r.Header.Get(\"referer\"))"
-			}}
+			statusCode := rw.Status()
+			if statusCode >= 500 {
+				{{ .Logger.ErrorMsg "r.Context()" "nil" "Done request"
+					"Int(\"Status\", statusCode)"
+					"Str(\"Method\", r.Method)"
+					"Int(\"Content-Length\", rw.Size())"
+					"Str(\"X-Real-IP\", userIP)"
+					"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
+					"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
+					"Str(\"Referer\", r.Header.Get(\"referer\"))"
+				}}
+			} else if statusCode >= 400 {
+				{{ .Logger.WarnMsg "r.Context()" "Done request"
+					"Int(\"Status\", statusCode)"
+					"Str(\"Method\", r.Method)"
+					"Int(\"Content-Length\", rw.Size())"
+					"Str(\"X-Real-IP\", userIP)"
+					"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
+					"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
+					"Str(\"Referer\", r.Header.Get(\"referer\"))"
+				}}
+			} else {
+				{{ .Logger.InfoMsg "r.Context()" "Done request"
+					"Int(\"Status\", statusCode)"
+					"Str(\"Method\", r.Method)"
+					"Int(\"Content-Length\", rw.Size())"
+					"Str(\"X-Real-IP\", userIP)"
+					"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
+					"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
+					"Str(\"Referer\", r.Header.Get(\"referer\"))"
+				}}
+			}
 		})
 	}
 }

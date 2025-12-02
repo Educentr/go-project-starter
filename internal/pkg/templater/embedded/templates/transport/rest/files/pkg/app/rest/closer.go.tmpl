@@ -22,7 +22,7 @@ func (s *Server) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			{{ .Logger.ErrorMsg "ctx" "err" "server shutdown with error"}}
 		} else {
-			{{ .Logger.InfoMsg "ctx" "server \" + s.Name() + \" successfully shutdown"}}
+			{{ .Logger.WarnMsg "ctx" "server \" + s.Name() + \" successfully shutdown"}}
 		}
 
 		close(stopped)
