@@ -69,3 +69,8 @@ func (zl *ZlogLogger) InitLogger(ctx string, serviceName string) string {
 func (zl *ZlogLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string {
 	return fmt.Sprintf("%s = logger.ReWrapZlog(%s, %s, %s, %s)", destCtx, sourceCtx, destCtx, ocPrefix, ocPath)
 }
+
+// SetLoggerUpdater generates code to set the global logger updater for reqctx
+func (zl *ZlogLogger) SetLoggerUpdater() string {
+	return "reqctx.SetLoggerUpdater(logger.NewZerologUpdater())"
+}

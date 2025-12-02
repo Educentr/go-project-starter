@@ -288,6 +288,8 @@ type Logger interface {
 	// ocPrefix - onlineconf prefix
 	// ocPath - onlineconf path
 	ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
+	// SetLoggerUpdater generates code to set the global logger updater for reqctx
+	SetLoggerUpdater() string
 }
 
 func (t Transport) GetOgenConfigPath(targetDir string) string {
