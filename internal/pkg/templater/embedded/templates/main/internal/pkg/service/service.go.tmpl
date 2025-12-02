@@ -16,6 +16,13 @@ import (
 	{{- end }}
 	{{- end }}
 	{{- end }}
+	{{ range $_, $tr := .Applications.GetGrpcTransport }}
+	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ range $_, $imp := $tr.Import }}
+	{{ $imp }}
+	{{- end }}
+	{{- end }}
+	{{- end }}
 	
 	{{ range $_, $driver := .Drivers }}
 	"{{ $driver.Import }}"
@@ -38,6 +45,11 @@ type Service struct {
 	{{ range $_, $tr := .Applications.GetRestTransport }}
 	{{ if eq $tr.GeneratorType "ogen_client" }}
 	{{ $tr.Name | ToLower }} *{{ $tr.PkgName }}.Client
+	{{ end }}
+	{{ end }}
+	{{ range $_, $tr := .Applications.GetGrpcTransport }}
+	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ $tr.Name | ToLower }} *{{ $tr.Name }}.Client
 	{{ end }}
 	{{ end }}
 	{{ range $_, $driver := .Drivers }}
@@ -168,6 +180,15 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 	s.{{ $tr.Name }}, err = {{ $tr.Name }}Cln.GetClient{{ $tr.Name }}(ctx)
 	if err != nil {
 		return errors.Wrap(err, "error init {{ $tr.Name }} client")
+	}
+	{{- end }}
+	{{- end }}
+
+	{{ range $_, $tr := .Applications.GetGrpcTransport }}
+	{{ if eq $tr.GeneratorType "buf_client" }}
+	s.{{ $tr.Name }}, err = {{ $tr.Name }}.NewClient(ctx, constant.ServiceName)
+	if err != nil {
+		return errors.Wrap(err, "error init {{ $tr.Name }} gRPC client")
 	}
 	{{- end }}
 	{{- end }}

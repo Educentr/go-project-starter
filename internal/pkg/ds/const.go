@@ -171,6 +171,7 @@ type Transport struct {
 	ApiVersion           string // перенесено из Hendler
 	Port                 string // перенесено из Hendler
 	EmptyConfigAvailable bool
+	BufLocalPlugins      bool   // Use local buf instead of docker for proto generation
 }
 
 type Worker struct {
@@ -187,7 +188,8 @@ func (a App) TransportImports() []string {
 	imports := make([]string, 0)
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType != "ogen_client" {
+		// Skip client transports - they are initialized in service, not in main
+		if transport.GeneratorType != "ogen_client" && transport.GeneratorType != "buf_client" {
 			imports = append(imports, transport.Import...)
 		}
 	}
@@ -217,17 +219,17 @@ func (app App) getTransport(t TransportType) []Transport {
 }
 
 func (a Apps) getTransport(t TransportType) []Transport {
-	// retTransports := map[string]Transport{}
-
+	seen := make(map[string]struct{})
 	listTransports := make([]Transport, 0)
 
 	for _, app := range a {
-		listTransports = append(listTransports, app.getTransport(t)...)
+		for _, transport := range app.getTransport(t) {
+			if _, exists := seen[transport.Name]; !exists {
+				seen[transport.Name] = struct{}{}
+				listTransports = append(listTransports, transport)
+			}
+		}
 	}
-
-	// for _, transport := range retTransports {
-	// 	listTransports = append(listTransports, transport)
-	// }
 
 	sort.Slice(listTransports, func(i, j int) bool {
 		return strings.Compare(listTransports[i].GeneratorType, listTransports[j].GeneratorType) < 0 &&

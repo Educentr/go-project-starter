@@ -1,0 +1,95 @@
+package {{ .Transport.Name }}
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/pkg/errors"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	zlog "github.com/rs/zerolog"
+)
+
+type Client struct {
+	client *grpc.ClientConn
+}
+
+const (
+	defaultTimeout = 10 * time.Second
+)
+
+func NewClient(ctx context.Context, serviceName string) (*Client, error) {
+	var (
+		host string
+		port string
+	)
+
+	// Get configuration from OnlineConf
+	for _, path := range []string{
+		onlineconf.MakePath(serviceName, "transport/grpc/{{ .Transport.Name }}/host"),
+	} {
+		var ex bool
+		var err error
+		host, ex, err = onlineconf.GetStringIfExists(ctx, path)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get host from config")
+		}
+		if ex {
+			break
+		}
+	}
+
+	for _, path := range []string{
+		onlineconf.MakePath(serviceName, "transport/grpc/{{ .Transport.Name }}/port"),
+	} {
+		var ex bool
+		var err error
+		port, ex, err = onlineconf.GetStringIfExists(ctx, path)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get port from config")
+		}
+		if ex {
+			break
+		}
+	}
+{{ if .Transport.EmptyConfigAvailable }}
+	if host == "" || port == "" {
+		zlog.Ctx(ctx).Info().Msg("gRPC client {{ .Transport.Name }} not configured, skipping")
+		return nil, nil
+	}
+{{ else }}
+	if host == "" || port == "" {
+		return nil, errors.New("host or port not configured")
+	}
+{{ end }}
+	// ToDo timeout
+
+	// Create connection
+	address := fmt.Sprintf("%s:%s", host, port)
+	client, err := grpc.NewClient(address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create client for %s", address)
+	}
+
+	zlog.Ctx(ctx).Info().Str("address", address).Msg("Created gRPC client")
+
+	return &Client{
+		client: client,
+	}, nil
+}
+
+func (c *Client) GetClient() *grpc.ClientConn {
+	return c.client
+}
+
+func (c *Client) Close() error {
+	if c.client != nil {
+		return c.client.Close()
+	}
+	return nil
+}

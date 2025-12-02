@@ -4,7 +4,7 @@ SERVICE_NAME = {{ .ProjectName }}
 # 8 symbols of the last commit
 LAST_COMMIT_HASH = $(shell git rev-parse --short=8 HEAD)
 # Version of api/buf.yaml buf generator
-BUF_VERSION:=1.7.0
+BUF_VERSION:=1.47.2
 # Test timeout
 TEST_TIMEOUT?=20s
 # golang-ci tag
@@ -223,7 +223,11 @@ proto:
 {{- range $_, $h := .Applications.GetGrpcTransport }}
 	{{ $proto = true }}
 	@echo "Generating gRPC code for {{ $h.Name }}..."
+	{{ if $h.BufLocalPlugins -}}
+	@buf generate --template "./configs/transport/grpc/{{ $h.Name }}/buf.gen.yaml" --path ./api/grpc/{{ $h.Name }}
+	{{- else -}}
 	@docker run --rm -v "$(PWD):/${SERVICE_NAME}" -w "/${SERVICE_NAME}" bufbuild/buf generate --template "./configs/grpc.gen.yaml" --path ./api/grpc/{{ $h.Name }}
+	{{- end }}
 {{- end }}
 {{- range $_, $h := .Applications.GetKafkaTransport }}
 	{{ $proto = true }}

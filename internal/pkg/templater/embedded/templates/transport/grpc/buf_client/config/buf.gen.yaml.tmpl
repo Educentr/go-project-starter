@@ -1,0 +1,14 @@
+# Buf configuration for gRPC client code generation
+# If you get "403 Forbidden" error, see pkg/app/grpc/README.md
+version: v2
+plugins:
+  # Use local protoc plugins
+  - local: protoc-gen-go
+    out: pkg/grpc/{{ .Transport.Name }}
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: pkg/grpc/{{ .Transport.Name }}
+    opt:
+      - paths=source_relative
+      - require_unimplemented_servers=false

@@ -343,7 +343,6 @@ func (w Worker) IsValid(_ string) (bool, string) {
 	return true, ""
 }
 
-// ToDo GRPC
 func (g Grpc) IsValid(baseConfigDir string) (bool, string) {
 	if len(g.Name) == 0 {
 		return false, "Empty name"
@@ -357,6 +356,17 @@ func (g Grpc) IsValid(baseConfigDir string) (bool, string) {
 
 	if tools.FileExists(absPath) != tools.ErrExist {
 		return false, "Invalid path: " + g.Path
+	}
+
+	switch g.GeneratorType {
+	case "buf_client":
+		// valid
+	case "buf_server":
+		return false, "buf_server not yet implemented"
+	case "":
+		return false, "generator_type is required for gRPC"
+	default:
+		return false, "invalid generator_type: " + g.GeneratorType
 	}
 
 	return true, ""

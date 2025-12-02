@@ -197,7 +197,32 @@ func (g *Generator) processConfig(config config.Config) error {
 	}
 
 	for _, grpc := range config.GrpcList {
-		panic("Not implemented " + grpc.Name) //ToDo
+		if grpc.Name == "" {
+			return errors.New("grpc name is empty")
+		}
+
+		paths := []string{filepath.Join(config.BasePath, grpc.Path)}
+
+		transport := ds.Transport{
+			Name:                 grpc.Name,
+			PkgName:              grpc.Name,
+			Type:                 ds.GrpcTransportType,
+			GeneratorType:        grpc.GeneratorType,
+			Port:                 strconv.FormatUint(uint64(grpc.Port), 10),
+			SpecPath:             paths,
+			EmptyConfigAvailable: grpc.EmptyConfigAvailable,
+			BufLocalPlugins:      grpc.BufLocalPlugins,
+		}
+
+		if grpc.GeneratorType == "buf_client" {
+			transport.Import = []string{
+				fmt.Sprintf(`"%s/internal/app/transport/grpc/%s"`, g.ProjectPath, grpc.Name),
+			}
+		}
+
+		if err := g.Transports.Add(grpc.Name, transport); err != nil {
+			return err
+		}
 	}
 
 	for _, app := range config.Applications {

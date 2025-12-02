@@ -112,7 +112,7 @@ func main() {
 
 	err = application.SetTransport(
 		{{ range $_, $tr := .Application.Transports }}
-		{{ if ne $tr.GeneratorType "ogen_client" }}
+		{{ if and (ne $tr.GeneratorType "ogen_client") (ne $tr.GeneratorType "buf_client") }}
 		{{ $tr.Init }},
 		{{- end }}
 		{{- end }}
