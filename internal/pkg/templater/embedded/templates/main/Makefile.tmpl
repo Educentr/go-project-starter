@@ -318,6 +318,7 @@ mock:
 .PHONY: get-runtime
 get-runtime:
 	@echo "Fetching go-project-starter-runtime..."
+	@GOPROXY=https://proxy.golang.org go list -m github.com/Educentr/go-project-starter-runtime@{{ .RuntimeVersion }} > /dev/null 2>&1 || true
 	@GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/go-project-starter-runtime@{{ .RuntimeVersion }}
 
 .PHONY: tidy
