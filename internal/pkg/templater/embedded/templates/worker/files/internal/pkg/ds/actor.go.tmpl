@@ -1,0 +1,15 @@
+package ds
+
+import (
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
+)
+
+// Actor represents the user interacting with the telegram bot
+type Actor struct {
+	TgActor telegram.Actor
+}
+
+// GetID returns the telegram user ID
+func (a *Actor) GetID() int64 {
+	return a.TgActor.ID
+}

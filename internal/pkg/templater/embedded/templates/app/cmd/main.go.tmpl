@@ -22,6 +22,11 @@ import (
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
 	{{ range $_, $wor := .Application.Workers }}
+	{{ if eq $wor.GeneratorTemplate "telegram" }}
+	"{{ $.ProjectPath }}/pkg/drivers/telegram"
+	{{ end }}
+	{{ end }}
+	{{ range $_, $wor := .Application.Workers }}
 	{{ $wor.Name }} {{ $wor.Import }}
 	{{ end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
@@ -30,6 +35,9 @@ import (
 	runtimelogger "github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/app/logger"
+	{{- if .Application.GetRestTransport }}
+	"{{ .ProjectPath }}/pkg/app/rest"
+	{{- end }}
 )
 
 const (
@@ -112,6 +120,11 @@ func main() {
 	application.SetDriver(
 		{{ range $_, $drv := .Application.Drivers }}
 		{{ $drv.Package }}.Create( {{ range $_, $param := $drv.CreateParams }}{{ $drv.Package }}.{{ $param }}, {{ end }} ),
+		{{ end }}
+		{{ range $_, $wor := .Application.Workers }}
+		{{ if eq $wor.GeneratorTemplate "telegram" }}
+		telegram.Create(telegram.WithUpdatePoller()),
+		{{ end }}
 		{{ end }}
 	)
 

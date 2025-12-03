@@ -34,8 +34,8 @@ type Worker struct {
 
 type EmptyCommands struct{}
 
-func (e *EmptyCommands) GetCommandList() []telegram.CommandName {
-	return []telegram.CommandName{}
+func (e *EmptyCommands) GetCommandList() []telegram.Cmd {
+	return []telegram.Cmd{}
 }
 
 type TelegramUpdateWorker interface {
@@ -291,7 +291,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 									ID: hm.UserID,
 								},
 								MessageID: hm.MsgID,
-								Commands:  w.getCommandList(),
+								Commands:  w.GetCommandList(),
 								Command:   c,
 							}
 

@@ -2,7 +2,11 @@ package service
 
 import (
     "context"
+
+    "github.com/pkg/errors"
     tgbotapi "github.com/OvyFlash/telegram-bot-api"
+
+    "{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
 func (s *Service) GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel {

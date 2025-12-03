@@ -3,8 +3,15 @@ package telegram
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strconv"
+	"strings"
 
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/gofrs/uuid/v5"
+	zlog "github.com/rs/zerolog"
+
+	"{{ .ProjectPath }}/internal/app/constant"
 )
 
 type UnimplementedPayment struct {

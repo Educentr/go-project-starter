@@ -1,0 +1,61 @@
+main:
+  name: combined-test
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/combined-test.git
+  module_path: github.com/test/combined-test
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.8.1
+  golangci_version: 1.64.8
+  buf_version: 1.47.2
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+grpc:
+  - name: ItemService
+    short: item
+    path: ./item.proto
+    port: 8090
+    generator_type: buf_client
+
+worker:
+  - name: telegrambot
+    generator_type: template
+    generator_template: telegram
+  - name: daemon
+    generator_type: template
+    generator_template: daemon
+
+applications:
+  - name: apiServer
+    transport:
+      - api
+      - sys
+    worker:
+      - daemon
+  - name: botServer
+    transport:
+      - sys
+    worker:
+      - telegrambot

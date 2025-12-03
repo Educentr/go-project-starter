@@ -69,7 +69,8 @@ func NewClient(ctx context.Context, serviceName string) (*Client, error) {
 
 	// Create connection
 	address := fmt.Sprintf("%s:%s", host, port)
-	client, err := grpc.NewClient(address,
+	//nolint:staticcheck // grpc.DialContext is deprecated but provides better compatibility
+	client, err := grpc.DialContext(ctx, address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {

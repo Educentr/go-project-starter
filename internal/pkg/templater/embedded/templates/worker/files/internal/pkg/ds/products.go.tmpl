@@ -1,0 +1,31 @@
+package ds
+
+import (
+	"bytes"
+	"io"
+)
+
+// Products represents a collection of products for telegram invoice
+// This struct should be customized for the specific project's needs
+type Products struct {
+	// Add your product fields here
+	// Example:
+	// ProductID int64
+	// Quantity  int
+}
+
+// Pack serializes products to writer
+func (p *Products) Pack(w io.Writer) error {
+	// Implement your serialization logic here
+	// Example:
+	// return binary.Write(w, binary.BigEndian, p.ProductID)
+	return nil
+}
+
+// Unpack deserializes products from buffer
+func (p *Products) Unpack(data *bytes.Buffer) error {
+	// Implement your deserialization logic here
+	// Example:
+	// return binary.Read(data, binary.BigEndian, &p.ProductID)
+	return nil
+}

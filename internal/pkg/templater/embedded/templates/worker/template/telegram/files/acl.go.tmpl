@@ -2,13 +2,8 @@ package telegrambot
 
 import (
 	"context"
-	"regexp"
-	"strconv"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
-	"github.com/pkg/errors"
-	zlog "github.com/rs/zerolog"
-	"{{ .ProjectPath }}/internal/app/constant"
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
 func (w *Worker) Authorization(ctx context.Context, requestData telegram.RequestData) error {

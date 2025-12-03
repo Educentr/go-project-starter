@@ -3,8 +3,8 @@ package telegram
 import (
 	"context"
 	"errors"
+	"time"
 
-	"github.com/gofrs/uuid/v5"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 )
 
@@ -91,6 +91,7 @@ type RequestData struct {
 	MessageID  int
 	Commands   []Cmd
 	Command    Cmd
+	Document   *tgbotapi.Document
 }
 
 const (
@@ -110,6 +111,7 @@ func (rd RequestData) ChatType() ChatType {
 const (
     CallbackRequest RequestType = "callback"
     TextRequest RequestType     = "text"
+    DocumentRequest RequestType = "document"
     PurchaseRequest RequestType = "purchase"
     PreCheckoutRequest RequestType = "pre_checkout"
 )

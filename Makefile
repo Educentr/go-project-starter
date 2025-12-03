@@ -87,3 +87,40 @@ coverage:
 .PHONY: race
 race:
 	@go test ./... -race -parallel=10
+
+# Build binary for integration tests
+.PHONY: buildfortest
+buildfortest:
+	@mkdir -p bin
+	CGO_ENABLED=0 go build -o bin/go-project-starter ./cmd/go-project-starter
+
+# Integration tests (using testcontainers)
+# Requires GITHUB_TOKEN env var for private repos access
+.PHONY: integration-test
+integration-test: buildfortest
+	@echo "Running integration tests with testcontainers..."
+	@if [ -z "$$GITHUB_TOKEN" ]; then echo "Warning: GITHUB_TOKEN not set, private repos may fail"; fi
+	GOAT_DISABLE_STDOUT=true go test -v -timeout 30m ./test/docker-integration/...
+
+# Integration tests with verbose output
+.PHONY: integration-test-verbose
+integration-test-verbose: buildfortest
+	@echo "Running integration tests with verbose output..."
+	go test -v -timeout 30m ./test/docker-integration/...
+
+# Run single integration test
+.PHONY: integration-test-rest
+integration-test-rest: buildfortest
+	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationRESTOnly ./test/docker-integration/...
+
+.PHONY: integration-test-grpc
+integration-test-grpc: buildfortest
+	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGRPCOnly ./test/docker-integration/...
+
+.PHONY: integration-test-telegram
+integration-test-telegram: buildfortest
+	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationWorkerTelegram ./test/docker-integration/...
+
+.PHONY: integration-test-combined
+integration-test-combined: buildfortest
+	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationCombined ./test/docker-integration/...

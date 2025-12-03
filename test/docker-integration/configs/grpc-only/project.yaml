@@ -1,0 +1,36 @@
+main:
+  name: grpc-client-test
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/grpc-client-test.git
+  module_path: github.com/test/grpc-client-test
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.8.1
+  golangci_version: 1.64.8
+  buf_version: 1.47.2
+
+rest:
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+grpc:
+  - name: ItemService
+    short: item
+    path: ./item.proto
+    port: 8090
+    generator_type: buf_client
+
+applications:
+  - name: apiServer
+    transport:
+      - sys

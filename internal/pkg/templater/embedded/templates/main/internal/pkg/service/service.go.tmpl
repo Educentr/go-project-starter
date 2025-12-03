@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"net/url"
+	"strconv"
 	"time"
 
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -27,6 +29,11 @@ import (
 	{{ range $_, $driver := .Drivers }}
 	"{{ $driver.Import }}"
 	{{ end }}
+	{{ range $_, $worker := .Workers }}
+	{{ if eq $worker.GeneratorTemplate "telegram" }}
+	"{{ $.ProjectPath }}/pkg/drivers/telegram"
+	{{ end }}
+	{{ end }}
 
 	{{ .Logger.Import }}
 
@@ -42,6 +49,12 @@ type Service struct {
 	healthstate.Service
 	servicemetrics.EmptyMetrics
 	serviceauth.Authorizer
+	{{ range $_, $worker := .Workers }}
+	{{ if eq $worker.GeneratorTemplate "telegram" }}
+	telegram.BaseAuth
+	telegram.UnimplementedPayment
+	{{ end }}
+	{{ end }}
 	{{ range $_, $tr := .Applications.GetRestTransport }}
 	{{ if eq $tr.GeneratorType "ogen_client" }}
 	{{ $tr.Name | ToLower }} *{{ $tr.PkgName }}.Client
@@ -56,6 +69,11 @@ type Service struct {
 	{{ $driver.Name | ToLower }} *{{ $driver.Package }}.{{ $driver.ObjName }}
 	{{ if ne $driver.ServiceInjection "" }}
 	{{ $driver.ServiceInjection}}
+	{{ end }}
+	{{ end }}
+	{{ range $_, $worker := .Workers }}
+	{{ if eq $worker.GeneratorTemplate "telegram" }}
+	telegram *telegram.Telegram
 	{{ end }}
 	{{ end }}
 }
@@ -128,13 +146,25 @@ func NewService(ctx context.Context) (ds.IService, error) {
 	return srv.Init(ctx)
 }
 
-{{ if ne 0 ( len .Drivers ) }}
+{{ $hasTelegramWorker := false }}
+{{ range $_, $worker := .Workers }}
+{{ if eq $worker.GeneratorTemplate "telegram" }}
+{{ $hasTelegramWorker = true }}
+{{ end }}
+{{ end }}
+{{ if or (ne 0 ( len .Drivers )) $hasTelegramWorker }}
 func (s *Service) setDrivers(drvs []ds.Runnable) error {
 	for _, drv := range drvs {
 		switch d := drv.(type) {
 		{{ range $_, $driver := .Drivers }}
 		case *{{ $driver.Package }}.{{ $driver.ObjName }}:
 			s.{{ $driver.Name | ToLower }} = d
+		{{ end }}
+		{{ range $_, $worker := .Workers }}
+		{{ if eq $worker.GeneratorTemplate "telegram" }}
+		case *telegram.Telegram:
+			s.telegram = d
+		{{ end }}
 		{{ end }}
 		default:
 			return errors.Errorf("unknown driver type: %T", drv)
@@ -193,7 +223,13 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 	{{- end }}
 	{{- end }}
 
-	{{ if ne 0 ( len .Drivers ) }}
+	{{ $hasTgWorker := false }}
+	{{ range $_, $worker := .Workers }}
+	{{ if eq $worker.GeneratorTemplate "telegram" }}
+	{{ $hasTgWorker = true }}
+	{{ end }}
+	{{ end }}
+	{{ if or (ne 0 ( len .Drivers )) $hasTgWorker }}
 	return s.setDrivers(drvs)
 	{{ else }}
 	return nil

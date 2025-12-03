@@ -2,14 +2,15 @@ package {{ .Worker.Name }}
 
 import (
 	"context"
-	"time"
-	"golang.org/x/sync/errgroup"
-	"runtime/debug"
 	"errors"
+	"math"
+	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"golang.org/x/sync/errgroup"
 	{{ .Logger.Import }}
 
 	"{{ .ProjectPath }}/pkg/app/daemon"

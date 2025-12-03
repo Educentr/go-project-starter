@@ -1,0 +1,167 @@
+openapi: 3.0.2
+servers:
+  - url: http://localhost:{port}/{basePath}
+    description: The production API server
+    variables:
+      port:
+        enum:
+          - '8080'
+        default: '8080'
+      basePath:
+        default: v1
+info:
+  version: 1.0.0
+  title: Combined Test API
+tags:
+  - name: health
+    description: Health check endpoints
+  - name: items
+    description: Item management
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: Health check
+      description: Returns service health status
+      operationId: getHealth
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+  /items:
+    get:
+      tags:
+        - items
+      summary: List items
+      description: Returns all items
+      operationId: listItems
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemList'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+    post:
+      tags:
+        - items
+      summary: Create item
+      description: Creates a new item
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateItemRequest'
+      responses:
+        '201':
+          description: Item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+  /items/{id}:
+    get:
+      tags:
+        - items
+      summary: Get item
+      description: Returns item by ID
+      operationId: getItem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Item not found
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+components:
+  schemas:
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: "1.0.0"
+      type: object
+    Item:
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      type: object
+    ItemList:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+        total:
+          type: integer
+      type: object
+    CreateItemRequest:
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+      type: object

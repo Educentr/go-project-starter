@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package item.v1;
+
+option go_package = "item/v1";
+
+service ItemService {
+  rpc GetItem(GetItemRequest) returns (GetItemResponse) {}
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {}
+  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse) {}
+}
+
+message GetItemRequest {
+  int64 id = 1;
+}
+
+message GetItemResponse {
+  Item item = 1;
+}
+
+message ListItemsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message ListItemsResponse {
+  repeated Item items = 1;
+  int32 total = 2;
+}
+
+message CreateItemRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message CreateItemResponse {
+  Item item = 1;
+}
+
+message Item {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string created_at = 4;
+}

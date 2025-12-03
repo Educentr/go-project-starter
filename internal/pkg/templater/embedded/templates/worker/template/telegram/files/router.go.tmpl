@@ -41,7 +41,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 			Username:     preCheckoutQuery.From.UserName,
 			LanguageCode: preCheckoutQuery.From.LanguageCode,
 		},
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
@@ -104,7 +104,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
@@ -184,7 +184,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 		},
 		CallbackID: callback.ID,
 		MessageID:  callback.Message.MessageID,
-		Commands:   w.getCommandList(),
+		Commands:   w.GetCommandList(),
 	}
 
 	c, ex := cmdMaps[command]
@@ -284,7 +284,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	c, ex := cmdMaps[command]
@@ -317,6 +317,81 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	if pi != nil {
 		pi.Params = pp
 	}
+
+	_, hdl, err := w.GetServiceAndHandler(ctx, requestData)
+	if err != nil {
+		return ctx, errors.Wrap(err, "Internal error. Can't get service")
+	}
+
+	ctx, aclErr := hdl.Authorization(ctx, requestData, pp)
+	if aclErr != nil {
+		w.HandleAuthError(ctx, requestData, aclErr)
+
+		return ctx, nil
+	}
+
+	w.processRequest(ctx, hdl, c, pp)
+
+	return ctx, nil
+}
+
+func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
+	zlog.Ctx(ctx).Info().Interface("document", message.Document).Msg("Document message received")
+
+	userState, err := w.GetUserState(ctx, message.From.ID)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting user state")
+
+		return ctx, nil
+	}
+
+	if userState == "" {
+		zlog.Ctx(ctx).Info().Msg("No user state for document. Skip")
+
+		return ctx, nil
+	}
+
+	stateParams := strings.SplitN(userState, ":", 2)
+	command := telegram.CommandName(stateParams[0])
+	pp := ""
+	if len(stateParams) == 2 {
+		pp = stateParams[1]
+	}
+
+	pi, err := reqctx.GetProcessInfo(ctx)
+	if err != nil {
+		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting process info")
+	}
+
+	if pi != nil {
+		pi.Command = string(command)
+		pi.Params = pp
+	}
+
+	requestData := telegram.RequestData{
+		Type:      telegram.DocumentRequest,
+		ChatID:    message.Chat.ID,
+		Actor: telegram.Actor{
+			ID:           message.From.ID,
+			FirstName:    message.From.FirstName,
+			LastName:     message.From.LastName,
+			Username:     message.From.UserName,
+			LanguageCode: message.From.LanguageCode,
+		},
+		MessageID: message.MessageID,
+		Document:  message.Document,
+		Commands:  w.GetCommandList(),
+	}
+
+	c, ex := cmdMaps[command]
+	if !ex {
+		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command for document")
+		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
+
+		return ctx, nil
+	}
+
+	requestData.Command = c
 
 	_, hdl, err := w.GetServiceAndHandler(ctx, requestData)
 	if err != nil {

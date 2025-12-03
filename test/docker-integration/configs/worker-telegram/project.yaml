@@ -1,0 +1,35 @@
+main:
+  name: telegram-test
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/telegram-test.git
+  module_path: github.com/test/telegram-test
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.8.1
+  golangci_version: 1.64.8
+
+rest:
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+worker:
+  - name: telegrambot
+    generator_type: template
+    generator_template: telegram
+
+applications:
+  - name: botServer
+    transport:
+      - sys
+    worker:
+      - telegrambot
