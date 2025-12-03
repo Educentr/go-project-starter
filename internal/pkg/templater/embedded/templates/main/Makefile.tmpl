@@ -301,6 +301,12 @@ install-buf:
     	"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(shell uname -s)-$(shell uname -m)" \
     	-o "$(shell go env GOPATH)/bin/buf" && \
   	chmod +x "$(shell go env GOPATH)/bin/buf"
+
+# Install protoc-gen-go and protoc-gen-go-grpc
+.PHONY: install-protoc-gen-go-grpc
+install-protoc-gen-go-grpc:
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 {{- end }}
 
 # Install local git hooks
@@ -360,7 +366,7 @@ install-onlineconf-updater:
 
 # Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
 
 # Generate mock packages
 #TODO: enable ansible generator after debugging
