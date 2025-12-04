@@ -170,7 +170,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		worker := ds.Worker{
-			Import:            fmt.Sprintf(`"%s/internal/app/worker/%s"`, g.ProjectPath, w.Name),
+			Import:            []string{fmt.Sprintf(`"%s/internal/app/worker/%s"`, g.ProjectPath, w.Name)},
 			Name:              w.Name,
 			GeneratorType:     w.GeneratorType,
 			GeneratorTemplate: w.GeneratorTemplate,

@@ -11,13 +11,11 @@ import (
 
 	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
-	"{{ .ProjectPath }}/internal/pkg/ds"
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 )
 
-// ToDo бесполезная функция надо от неё избавиться и handler вузде создавать по месту а сервис получать как w.GetEmptySrv()
 func (w *Worker) GetServiceAndHandler(ctx context.Context, rd telegram.RequestData) (*service.EmptyService, *handler.Handler, error) {
 	srv, err := w.GetEmptySrv()
 	if err != nil {
@@ -41,50 +39,50 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 			Username:     preCheckoutQuery.From.UserName,
 			LanguageCode: preCheckoutQuery.From.LanguageCode,
 		},
-		Commands:  w.GetCommandList(),
+		Commands:  w.getCommandList(),
 	}
 
 	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting service and handler")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error getting service and handler" }}
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, requestData, aclErr)
+		w.handleAuthError(ctx, requestData, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
 
 	invoice := telegram.TelegramInvoiceData{
-		Products: &ds.Products{},
+		Products: &telegram.EmptyProducts{},
 	}
 
 	err = telegram.UnpackInvoiceData(ctx, &invoice, preCheckoutQuery.InvoicePayload)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("error unpacking invoice data")
+		{{ .Logger.ErrorMsg "ctx" "err" "error unpacking invoice data" }}
 
 		return ctx, errors.New("Invalid invoice")
 	}
 
 	_, desc, ok := srv.CheckInvoiceProducts(ctx, invoice, telegram.PaymentTypeStars, preCheckoutQuery.TotalAmount)
 	if !ok {
-		zlog.Ctx(ctx).Error().Str("description", desc).Msg("invalid invoice products")
+		{{ .Logger.ErrorMsg "ctx" "nil" "invalid invoice products" "Str(\"description\", desc)" }}
 
 		return ctx, errors.New("Invalid invoice")
 	}
 	
 	if preCheckoutQuery.From.ID != invoice.UserID {
-		zlog.Ctx(ctx).Error().Msg("userID mismatch")
+		{{ .Logger.ErrorMsg "ctx" "nil" "userID mismatch" }}
 
 		return ctx, errors.New("User ID mismatch")
 	}
 
 	err = srv.CreateTelegramPayment(ctx, invoice.IdempotencyKey, invoice.Products, preCheckoutQuery.TotalAmount, desc)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("error inserting payment")
+		{{ .Logger.ErrorMsg "ctx" "err" "error inserting payment" }}
 
 		return ctx, telegram.ErrInternalError
 	}
@@ -104,7 +102,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.GetCommandList(),
+		Commands:  w.getCommandList(),
 	}
 
 	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
@@ -114,23 +112,23 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, "")
 	if aclErr != nil {
-		w.HandleAuthError(ctx, requestData, aclErr)
+		w.handleAuthError(ctx, requestData, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
 
 	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(constant.ServiceName, "devstand"), false)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Unexpected error from onlineconf")
+		{{ .Logger.ErrorMsg "ctx" "err" "Unexpected error from onlineconf" }}
 	}
 
 	invoice := telegram.TelegramInvoiceData{
-		Products: &ds.Products{},
+		Products: &telegram.EmptyProducts{},
 	}
 
 	err = telegram.UnpackInvoiceData(ctx, &invoice, message.SuccessfulPayment.InvoicePayload)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("error unpacking invoice data")
+		{{ .Logger.ErrorMsg "ctx" "err" "error unpacking invoice data" }}
 
 		return ctx, errors.New("Invalid invoice")
 	}
@@ -139,7 +137,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 		if devstand {
 			err = srv.TelegramRefundPayment(ctx, message.From.ID, message.SuccessfulPayment.TelegramPaymentChargeID)
 			if err != nil {
-				zlog.Ctx(ctx).Error().Err(err).Msg("Error refunding payment")
+				{{ .Logger.ErrorMsg "ctx" "err" "Error refunding payment" }}
 			}
 		}
 	}()
@@ -151,7 +149,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 }
 
 func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQuery) (context.Context, error) {
-	zlog.Ctx(ctx).Info().Interface("text", callback).Msg("Text callback received")
+	{{ .Logger.DebugMsg "ctx" "Text callback received" "Interface(\"text\", callback)" }}
 
 	data := strings.SplitN(callback.Data[1:], ":", 2)
 
@@ -164,7 +162,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 
 	pi, err := reqctx.GetProcessInfo(ctx)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting process info")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error getting process info" }}
 	}
 
 	if pi != nil {
@@ -189,7 +187,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 
 	c, ex := cmdMaps[command]
 	if !ex {
-		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
+		{{ .Logger.InfoMsg "ctx" "Unknown command" "Str(\"Cmd\", string(command))" }}
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -204,7 +202,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, params)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, requestData, aclErr)
+		w.handleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
@@ -215,7 +213,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 }
 
 func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
-	zlog.Ctx(ctx).Info().Interface("text", message).Msg("Text message received")
+	{{ .Logger.DebugMsg "ctx" "Text message received" "Interface(\"text\", message)" }}
 
 	var command telegram.CommandName
 
@@ -244,7 +242,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	case message.Text != "":
 		userState, err := w.GetUserState(ctx, message.From.ID)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting admin state")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error getting admin state" }}
 
 			return ctx, nil
 		}
@@ -259,14 +257,14 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	}
 
 	if command == "" {
-		zlog.Ctx(ctx).Info().Msg("unknown message. Skip")
+		{{ .Logger.InfoMsg "ctx" "unknown message. Skip" }}
 
 		return ctx, nil
 	}
 
 	pi, err := reqctx.GetProcessInfo(ctx)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting process info")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error getting process info" }}
 	}
 
 	if pi != nil {
@@ -284,12 +282,12 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.GetCommandList(),
+		Commands:  w.getCommandList(),
 	}
 
 	c, ex := cmdMaps[command]
 	if !ex {
-		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command")
+		{{ .Logger.InfoMsg "ctx" "Unknown command" "Str(\"Cmd\", string(command))" }}
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -299,7 +297,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 
 	if c.NeedMsg {
 		if message.Text == "" {
-			zlog.Ctx(ctx).Error().Msg("Empty message")
+			{{ .Logger.ErrorMsg "ctx" "nil" "Empty message" }}
 			w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Empty message"))
 
 			return ctx, nil
@@ -325,7 +323,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, pp)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, requestData, aclErr)
+		w.handleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
@@ -336,17 +334,18 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 }
 
 func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
-	zlog.Ctx(ctx).Info().Interface("document", message.Document).Msg("Document message received")
+	{{ .Logger.DebugMsg "ctx" "Document message received" "Interface(\"document\", message.Document)" }}
 
+	// Получаем состояние пользователя для определения команды
 	userState, err := w.GetUserState(ctx, message.From.ID)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting user state")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error getting user state" }}
 
 		return ctx, nil
 	}
 
 	if userState == "" {
-		zlog.Ctx(ctx).Info().Msg("No user state for document. Skip")
+		{{ .Logger.InfoMsg "ctx" "No user state for document. Skip" }}
 
 		return ctx, nil
 	}
@@ -360,16 +359,31 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 
 	pi, err := reqctx.GetProcessInfo(ctx)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error getting process info")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error getting process info" }}
 	}
 
 	if pi != nil {
 		pi.Command = string(command)
-		pi.Params = pp
+	}
+
+	// Получаем сервис для доступа к telegram driver
+	srv, err := w.GetEmptySrv()
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to get service" }}
+
+		return ctx, err
+	}
+
+	// Загружаем URL файла через Bot API
+	fileURL, err := srv.GetFileDirectURL(message.Document.FileID)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to get file URL" }}
+
+		return ctx, err
 	}
 
 	requestData := telegram.RequestData{
-		Type:      telegram.DocumentRequest,
+		Type:      telegram.TextRequest,
 		ChatID:    message.Chat.ID,
 		Actor: telegram.Actor{
 			ID:           message.From.ID,
@@ -379,13 +393,12 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Document:  message.Document,
-		Commands:  w.GetCommandList(),
+		Commands:  w.getCommandList(),
 	}
 
 	c, ex := cmdMaps[command]
 	if !ex {
-		zlog.Ctx(ctx).Info().Str("Cmd", string(command)).Msg("Unknown command for document")
+		{{ .Logger.InfoMsg "ctx" "Unknown command" "Str(\"Cmd\", string(command))" }}
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -398,14 +411,19 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 		return ctx, errors.Wrap(err, "Internal error. Can't get service")
 	}
 
-	ctx, aclErr := hdl.Authorization(ctx, requestData, pp)
+	// Упаковываем файл в параметры: file:URL:filename:остальные_параметры
+	ppWithFile := telegram.PackFileParam(fileURL, message.Document.FileName, pp)
+
+	ctx, aclErr := hdl.Authorization(ctx, requestData, ppWithFile)
 	if aclErr != nil {
-		w.HandleAuthError(ctx, requestData, aclErr)
+		w.handleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
 
-	w.processRequest(ctx, hdl, c, pp)
+	// Передаем параметры с файлом
+	// Проверка наличия файла происходит в Unpack() метода соответствующих параметров
+	w.processRequest(ctx, hdl, c, ppWithFile)
 
 	return ctx, nil
 }

@@ -1,18 +1,32 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/gofrs/uuid/v5"
-	zlog "github.com/rs/zerolog"
+	{{ .Logger.Import }}
 
 	"{{ .ProjectPath }}/internal/app/constant"
 )
+
+// EmptyProducts is a default implementation of InvoiceProduct interface.
+// Projects should define their own Products type with actual fields.
+type EmptyProducts struct{}
+
+func (p *EmptyProducts) Pack(w io.Writer) error {
+	return nil
+}
+
+func (p *EmptyProducts) Unpack(data *bytes.Buffer) error {
+	return nil
+}
 
 type UnimplementedPayment struct {
 }
@@ -43,7 +57,7 @@ func (s *BaseAuth) HasAdminRole(ctx context.Context, tgID int64, role string) (b
 
 	acl, exists, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath("{{ .ProjectName }}", "bot", "admins", strconv.FormatInt(tgID, 10)))
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Failed to get admin ACL from onlineconf")
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to get admin ACL from onlineconf" }}
 		return false, err
 	}
 
@@ -53,7 +67,7 @@ func (s *BaseAuth) HasAdminRole(ctx context.Context, tgID int64, role string) (b
 
 	rxNew, err := regexp.Compile(role)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex for full access check")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error compiling regex for full access check" }}
 
 		return false, err
 	}
@@ -88,7 +102,7 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 	if cmd.NeedAdminAccess {
 		acl, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "bot", "admins", strTgID))
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Get onlineconf admin")
+			{{ .Logger.ErrorMsg "ctx" "err" "Get onlineconf admin" }}
 
 			return ErrInternalError
 		}
@@ -110,7 +124,7 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 
 			rxNew, err := regexp.Compile(rxStr)
 			if err != nil {
-				zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
+				{{ .Logger.ErrorMsg "ctx" "err" "Error compiling regex" }}
 
 				return ErrInternalError
 			}
@@ -132,7 +146,7 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 	for _, param := range paths {
 		acl, ex, err := onlineconf.GetStringIfExists(ctx, param)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Get onlineconf admin")
+			{{ .Logger.ErrorMsg "ctx" "err" "Get onlineconf admin" }}
 
 			return ErrInternalError
 		}
@@ -143,7 +157,7 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 
 		rxNew, err := regexp.Compile(`(^|,)(full|` + regexp.QuoteMeta(cmd.Name.String()) + `)(,|$)`)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error compiling regex")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error compiling regex" }}
 
 			return ErrInternalError
 		}

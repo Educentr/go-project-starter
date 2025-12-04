@@ -175,7 +175,7 @@ type Transport struct {
 }
 
 type Worker struct {
-	Import            string
+	Import            []string // Imports for main.go (worker initialization)
 	Name              string
 	GeneratorType     string
 	GeneratorTemplate string
@@ -200,6 +200,21 @@ func (a App) TransportImports() []string {
 
 	return imports
 }
+
+func (a App) WorkerImports() []string {
+	imports := make([]string, 0)
+
+	for _, worker := range a.Workers {
+		imports = append(imports, worker.Import...)
+	}
+
+	sort.Slice(imports, func(i, j int) bool {
+		return strings.Compare(imports[i], imports[j]) < 0
+	})
+
+	return imports
+}
+
 
 func (app App) getTransport(t TransportType) []Transport {
 	retTransports := []Transport{}

@@ -21,14 +21,9 @@ import (
 	{{ range $_, $drv := .Application.Drivers }}
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
-	{{ range $_, $wor := .Application.Workers }}
-	{{ if eq $wor.GeneratorTemplate "telegram" }}
-	"{{ $.ProjectPath }}/pkg/drivers/telegram"
-	{{ end }}
-	{{ end }}
-	{{ range $_, $wor := .Application.Workers }}
-	{{ $wor.Name }} {{ $wor.Import }}
-	{{ end }}
+	{{ range $_, $imp := .Application.WorkerImports }}
+	{{ $imp }}
+	{{- end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"github.com/Educentr/go-project-starter-runtime/pkg/app"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
@@ -120,11 +115,6 @@ func main() {
 	application.SetDriver(
 		{{ range $_, $drv := .Application.Drivers }}
 		{{ $drv.Package }}.Create( {{ range $_, $param := $drv.CreateParams }}{{ $drv.Package }}.{{ $param }}, {{ end }} ),
-		{{ end }}
-		{{ range $_, $wor := .Application.Workers }}
-		{{ if eq $wor.GeneratorTemplate "telegram" }}
-		telegram.Create(telegram.WithUpdatePoller()),
-		{{ end }}
 		{{ end }}
 	)
 
