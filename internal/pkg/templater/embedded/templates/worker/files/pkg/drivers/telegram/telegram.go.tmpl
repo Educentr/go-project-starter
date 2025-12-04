@@ -11,11 +11,15 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// OnSendErrorCallback вызывается при ошибке отправки сообщения
+type OnSendErrorCallback func(ctx context.Context, rd RequestData, err error)
+
 type Telegram struct {
 	bot                 *tgbotapi.BotAPI
 	startUpdatePoller   bool
 	EnableHiddenMessage bool
 	Poller              tgbotapi.UpdatesChannel
+	OnSendError         OnSendErrorCallback
 }
 
 const (

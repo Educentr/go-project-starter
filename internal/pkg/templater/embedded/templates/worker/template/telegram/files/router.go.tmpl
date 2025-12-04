@@ -39,7 +39,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 			Username:     preCheckoutQuery.From.UserName,
 			LanguageCode: preCheckoutQuery.From.LanguageCode,
 		},
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
@@ -102,7 +102,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	srv, hdl, err := w.GetServiceAndHandler(ctx, requestData)
@@ -282,7 +282,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	c, ex := cmdMaps[command]
@@ -393,7 +393,7 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 			LanguageCode: message.From.LanguageCode,
 		},
 		MessageID: message.MessageID,
-		Commands:  w.getCommandList(),
+		Commands:  w.GetCommandList(),
 	}
 
 	c, ex := cmdMaps[command]

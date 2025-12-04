@@ -384,7 +384,14 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 							timerDuration = time.Second
 
-							_, err = srv.TelegramUpdateMessageButtons(hmCtx, hm.ChatID, hm.MsgID, resp.Messages[0])
+							hmRequestData := telegram.RequestData{
+								Type:      telegram.HiddenMessageRequest,
+								ChatID:    hm.ChatID,
+								Actor:     telegram.Actor{ID: hm.UserID},
+								MessageID: hm.MsgID,
+								Commands:  w.GetCommandList(),
+							}
+							_, err = srv.TelegramUpdateMessageButtons(hmCtx, hmRequestData, hm.MsgID, resp.Messages[0])
 							if err != nil {
 								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't update hidden message")
 

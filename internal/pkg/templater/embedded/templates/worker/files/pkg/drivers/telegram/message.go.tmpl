@@ -69,7 +69,7 @@ func (tg *Telegram) DeleteMessage(_ context.Context, chatID int64, msgID int) er
 	return err
 }
 
-func (tg *Telegram) SendMessageWithButton(ctx context.Context, chatID int64, msg Message) (int, error) {
+func (tg *Telegram) SendMessageWithButton(ctx context.Context, rd RequestData, msg Message) (int, error) {
 	btn, err := ConvertButtonCMDToTgButton(ctx, msg.Btn)
 	if err != nil {
 		return 0, err
@@ -81,7 +81,7 @@ func (tg *Telegram) SendMessageWithButton(ctx context.Context, chatID int64, msg
 			return 0, errors.New("send message with more than one image is not supported")
 		}
 
-		msgTg := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(msg.Photos[0]));
+		msgTg := tgbotapi.NewPhoto(rd.ChatID, tgbotapi.FilePath(msg.Photos[0]))
 		msgTg.Caption = msg.Text
 
 		if msg.TextFormat != "" {
@@ -92,9 +92,14 @@ func (tg *Telegram) SendMessageWithButton(ctx context.Context, chatID int64, msg
 			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(btn...)
 		}
 
-		return tg.send(msgTg)
+		msgID, err := tg.send(msgTg)
+		if err != nil && tg.OnSendError != nil {
+			tg.OnSendError(ctx, rd, err)
+		}
+
+		return msgID, err
 	default:
-		msgTg := tgbotapi.NewMessage(chatID, msg.Text)		
+		msgTg := tgbotapi.NewMessage(rd.ChatID, msg.Text)
 
 		if len(msg.Btn) != 0 {
 			msgTg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(btn...)
@@ -103,12 +108,17 @@ func (tg *Telegram) SendMessageWithButton(ctx context.Context, chatID int64, msg
 		if msg.TextFormat != "" {
 			msgTg.ParseMode = msg.TextFormat
 		}
-		
-		return tg.send(msgTg)
+
+		msgID, err := tg.send(msgTg)
+		if err != nil && tg.OnSendError != nil {
+			tg.OnSendError(ctx, rd, err)
+		}
+
+		return msgID, err
 	}
 }
 
-func (tg *Telegram) EditMessageWithButton(ctx context.Context, chatID int64, msgID int, msg Message) error {
+func (tg *Telegram) EditMessageWithButton(ctx context.Context, rd RequestData, msgID int, msg Message) error {
 	btn, err := ConvertButtonCMDToTgButton(ctx, msg.Btn)
 	if err != nil {
 		return err
@@ -127,7 +137,7 @@ func (tg *Telegram) EditMessageWithButton(ctx context.Context, chatID int64, msg
 			mediaPhoto.ParseMode = msg.TextFormat
 		}
 
-		msgTg := tgbotapi.NewEditMessagePhoto(chatID, msgID, mediaPhoto)
+		msgTg := tgbotapi.NewEditMessagePhoto(rd.ChatID, msgID, mediaPhoto)
 
 		if len(msg.Btn) != 0 {
 			markup := tgbotapi.NewInlineKeyboardMarkup(btn...)
@@ -135,16 +145,22 @@ func (tg *Telegram) EditMessageWithButton(ctx context.Context, chatID int64, msg
 		}
 
 		_, err = tg.bot.Request(msgTg)
+		if err != nil && tg.OnSendError != nil {
+			tg.OnSendError(ctx, rd, err)
+		}
 
 		return err
 	default:
-		msgTg := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, msg.Text, tgbotapi.NewInlineKeyboardMarkup(btn...))
+		msgTg := tgbotapi.NewEditMessageTextAndMarkup(rd.ChatID, msgID, msg.Text, tgbotapi.NewInlineKeyboardMarkup(btn...))
 
 		if msg.TextFormat != "" {
 			msgTg.ParseMode = msg.TextFormat
 		}
 
 		_, err = tg.bot.Request(msgTg)
+		if err != nil && tg.OnSendError != nil {
+			tg.OnSendError(ctx, rd, err)
+		}
 
 		return err
 	}

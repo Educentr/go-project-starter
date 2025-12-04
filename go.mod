@@ -122,5 +122,3 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
-
-replace github.com/Educentr/goat => /home/nikolas/workspace/godev/goat

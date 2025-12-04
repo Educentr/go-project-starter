@@ -29,8 +29,8 @@ func (s *Service) TelegramAnswerCallback(ctx context.Context, callbackID string,
 	return s.telegram.SendAnswerCallback(ctx, callbackID, text)
 }
 
-func (s *Service) TelegramUpdateMessageButtons(ctx context.Context, chatID int64, msgID int, msg telegram.Message) (int, error) {
-	err := s.telegram.EditMessageWithButton(ctx, chatID, msgID, msg)
+func (s *Service) TelegramUpdateMessageButtons(ctx context.Context, rd telegram.RequestData, msgID int, msg telegram.Message) (int, error) {
+	err := s.telegram.EditMessageWithButton(ctx, rd, msgID, msg)
 	if err != nil {
 		return 0, errors.Wrap(err, "can't send message")
 	}
@@ -38,8 +38,8 @@ func (s *Service) TelegramUpdateMessageButtons(ctx context.Context, chatID int64
 	return msgID, nil
 }
 
-func (s *Service) TelegramSendMessageButtons(ctx context.Context, chatID int64, msg telegram.Message) (int, error) {
-	msgID, err := s.telegram.SendMessageWithButton(ctx, chatID, msg)
+func (s *Service) TelegramSendMessageButtons(ctx context.Context, rd telegram.RequestData, msg telegram.Message) (int, error) {
+	msgID, err := s.telegram.SendMessageWithButton(ctx, rd, msg)
 	if err != nil {
 		return 0, errors.Wrap(err, "can't send message")
 	}
@@ -65,4 +65,8 @@ func (s *Service) TelegramAnswerPreCheckout(ctx context.Context, channelID, text
 
 func (s *Service) SendInvoice(ctx context.Context, chatID int64, invoice telegram.InvoiceData) (int, error) {
 	return s.telegram.SendInvoice(ctx, chatID, invoice)
+}
+
+func (s *Service) GetFileDirectURL(fileID string) (string, error) {
+	return s.telegram.GetFileDirectURL(fileID)
 }

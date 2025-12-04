@@ -47,6 +47,15 @@ worker:
     generator_type: template
     generator_template: daemon
 
+driver:
+  - name: telegram
+    import: github.com/test/combined-test/pkg/drivers/telegram
+    package: telegram
+    obj_name: Telegram
+    service_injection: |
+      telegram.BaseAuth
+      telegram.UnimplementedPayment
+
 applications:
   - name: apiServer
     transport:
@@ -59,3 +68,7 @@ applications:
       - sys
     worker:
       - telegrambot
+    driver:
+      - name: telegram
+        params:
+          - WithUpdatePoller()

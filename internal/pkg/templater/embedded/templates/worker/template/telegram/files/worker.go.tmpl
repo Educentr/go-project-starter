@@ -6,9 +6,7 @@ import (
 
 	{{ .Logger.Import }}
 
-	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
-	"{{ .ProjectPath }}/internal/pkg/ds"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
@@ -17,24 +15,8 @@ var cmdMaps = make(map[telegram.CommandName]telegram.Cmd)
 var CustomError = map[error]func(ctx context.Context) (telegram.Response, error){}
 
 func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c telegram.Cmd, pp string) {
-	actor, err := reqctx.GetActor(ctx)
-	if err != nil {
-		if !errors.Is(err, reqctx.ErrUndefinedActor) {
-			{{ .Logger.ErrorMsg "ctx" "err" "Error getting actor from context" }}
-		}
-		
-		return
-	}
-
-	appActor, ok := actor.(*ds.Actor)
-	if !ok {
-		{{ .Logger.ErrorMsg "ctx" "err" "Actor is not of type ds.Actor" }}
-
-		return
-	}
-
-	if appActor == nil || appActor.GetID() == 0 || appActor.TgActor.ID == 0 {
-		zlog.Ctx(ctx).Error().Msg("Actor is nil")
+	if hdl.Rd.Actor.ID == 0 {
+		{{ .Logger.ErrorMsg "ctx" "nil" "Actor ID is zero" }}
 
 		return
 	}
@@ -49,9 +31,10 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c tel
 
 		resp, err := c.Handler(ctx, hdl, pp)
 		if resp.InternalRedirect != nil {
+			var ok bool
 			c, ok = cmdMaps[resp.InternalRedirect.Cmd]
 			if !ok {
-				zlog.Ctx(ctx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Unknown command for internal redirect")
+				{{ .Logger.ErrorMsg "ctx" "nil" "Unknown command for internal redirect" "Str(\"Cmd\", resp.InternalRedirect.Cmd.String())" }}
 
 				w.postProcessRequest(ctx, hdl.Rd, telegram.Response{}, telegram.ErrInternalError)
 
@@ -63,10 +46,10 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c tel
 		}
 
 		w.postProcessRequest(ctx, hdl.Rd, resp, err)
-		
+
 		break
 	}
-	
+
 	return
 }
 
@@ -104,18 +87,17 @@ func (w *Worker) HandleAuthError(ctx context.Context, requestData telegram.Reque
 }
 
 func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.RequestData, resp telegram.Response, err error) {
-	tgActor, errActor := reqctx.GetActor(ctx)
-	if errActor != nil {
-		zlog.Ctx(ctx).Error().Err(errActor).Msg("Error getting tg actor from context")
+	if requestData.Actor.ID == 0 {
+		{{ .Logger.ErrorMsg "ctx" "nil" "Actor ID is zero in postProcessRequest" }}
 
 		return
 	}
-	
+
 	notifyMsg := resp.NotifyMsg
 
 	switch {
 	case err != nil:
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error processing command")
+		{{ .Logger.ErrorMsg "ctx" "err" "Error processing command" }}
 
 		resp.Messages = []telegram.Message{ {
 			Text:      err.Error(),
@@ -126,8 +108,8 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 		}
 
 	case resp.NextState != nil:
-		if err := w.NewUserState(ctx, tgActor.GetID(), *resp.NextState); err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting admin state")
+		if err := w.NewUserState(ctx, requestData.Actor.ID, *resp.NextState); err != nil {
+			{{ .Logger.ErrorMsg "ctx" "err" "Error setting admin state" }}
 
 			resp.Messages = []telegram.Message{ {
 				Text: "Internal error",
@@ -141,36 +123,36 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 
 	srv, errSrv := w.GetEmptySrv()
 	if errSrv != nil {
-		zlog.Ctx(ctx).Error().Err(errSrv).Msg("Error getting service")
+		{{ .Logger.ErrorMsg "ctx" "errSrv" "Error getting service" }}
 
 		return
 	}
 
 	if resp.DeleteLastMsg {
-		msgID, err := w.GetLastMsgToUser(ctx, tgActor.GetID())
+		msgID, err := w.GetLastMsgToUser(ctx, requestData.Actor.ID)
 		if err != nil || msgID == 0 {
 			notifyMsg = "Error getting last message ID"
 
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error getting last message ID")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error getting last message ID" }}
 		}
 
-		err = srv.TelegramDeleteMessage(ctx, tgActor.GetID(), msgID)
+		err = srv.TelegramDeleteMessage(ctx, requestData.Actor.ID, msgID)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error deleting message" }}
 		}
 	}
 
 	if resp.DeleteCurMsg {
-		err = srv.TelegramDeleteMessage(ctx, tgActor.GetID(), requestData.MessageID)
+		err = srv.TelegramDeleteMessage(ctx, requestData.Actor.ID, requestData.MessageID)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error deleting message" }}
 		}
 	}
 
 	if requestData.CallbackID != "" {
 		_, err = srv.TelegramAnswerCallback(ctx, requestData.CallbackID, notifyMsg)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error sending answer")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error sending answer" }}
 		}
 	}
 
@@ -181,93 +163,73 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 		case tgMsg.InvoiceData != nil:
 			msgID, err = srv.SendInvoice(ctx, requestData.ChatID, *tgMsg.InvoiceData)
 			if err != nil {
-				zlog.Ctx(ctx).Error().Err(err).Msg("Error sending invoice")
+				{{ .Logger.ErrorMsg "ctx" "err" "Error sending invoice" }}
 				return
 			}
 
 		case tgMsg.Text != "" || len(tgMsg.Photos) > 0:
 			if w.tgSrv.NeedStartHiddenMessageJob(ctx) {
-				err = w.CancelHideMessage(ctx, tgActor.GetID(), requestData.ChatID, requestData.MessageID)
+				err = w.CancelHideMessage(ctx, requestData.Actor.ID, requestData.ChatID, requestData.MessageID)
 				if err != nil {
-					zlog.Ctx(ctx).Error().Err(err).Msg("Error scheduling hide message")
+					{{ .Logger.ErrorMsg "ctx" "err" "Error scheduling hide message" }}
 				}
 			}
 
 			if requestData.Type == telegram.CallbackRequest && resp.UpdateCurMsg && requestData.MessageID != 0 {
-				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData.ChatID, requestData.MessageID, tgMsg)
+				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData, requestData.MessageID, tgMsg)
 				if err != nil {
-					zlog.Ctx(ctx).Error().Err(err).Msg("Error updating message")
+					{{ .Logger.ErrorMsg "ctx" "err" "Error updating message" }}
 
 					err = srv.TelegramDeleteMessage(ctx, requestData.ChatID, requestData.MessageID)
 					if err != nil {
-						zlog.Ctx(ctx).Error().Err(err).Msg("Error deleting message after failed update")
+						{{ .Logger.ErrorMsg "ctx" "err" "Error deleting message after failed update" }}
 					}
 
-					msgID, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, tgMsg)
+					msgID, err = srv.TelegramSendMessageButtons(ctx, requestData, tgMsg)
 				}
 			} else {
-				msgID, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, tgMsg)
+				msgID, err = srv.TelegramSendMessageButtons(ctx, requestData, tgMsg)
 			}
 
 			if err != nil {
-				zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Err(err).Msg("Error sending message")
+				{{ .Logger.ErrorMsg "ctx" "err" "Error sending message" "Interface(\"Message\", tgMsg)" }}
 
 				origErr := err
 
-				actor, err := reqctx.GetActor(ctx)
+				adm, err := srv.IsUserAdmin(ctx, requestData.Actor.ID)
 				if err != nil {
-					zlog.Ctx(ctx).Error().Err(err).Msg("Error getting actor from context")
-
-					return
-				}
-
-				appActor, ok := actor.(*ds.Actor)
-				if !ok {
-					zlog.Ctx(ctx).Error().Msg("Actor is not of type ds.Actor")
-
-					return
-				}
-
-				if appActor == nil || appActor.GetID() == 0 || appActor.TgActor.ID == 0 {
-					zlog.Ctx(ctx).Error().Msg("Actor is nil")
-
-					return
-				}
-
-				adm, err := srv.IsUserAdmin(ctx, appActor.TgActor.ID)
-				if err != nil {
-					zlog.Ctx(ctx).Error().Err(err).Msg("Error checking if actor is admin")
+					{{ .Logger.ErrorMsg "ctx" "err" "Error checking if actor is admin" }}
 
 					return
 				}
 
 				if adm {
-					_, err = srv.TelegramSendMessageButtons(ctx, requestData.ChatID, telegram.Message{
+					_, err = srv.TelegramSendMessageButtons(ctx, requestData, telegram.Message{
 						Text: "Error sending message: " + origErr.Error(),
 					})
 					if err != nil {
-						zlog.Ctx(ctx).Error().Err(err).Msg("Error sending error message to admin")
+						{{ .Logger.ErrorMsg "ctx" "err" "Error sending error message to admin" }}
 					}
 				}
 
 				return
 			}
 		default:
-			zlog.Ctx(ctx).Error().Interface("Message", tgMsg).Msg("Empty message")
+			{{ .Logger.ErrorMsg "ctx" "nil" "Empty message" "Interface(\"Message\", tgMsg)" }}
 
 			continue
 		}
-		
+
 		if tgMsg.Hidden.Action != telegram.NothingHiddenAction {
-			err = w.ScheduleHideMessage(ctx, tgActor.GetID(), requestData.ChatID, msgID, tgMsg.Hidden)
+			err = w.ScheduleHideMessage(ctx, requestData.Actor.ID, requestData.ChatID, msgID, tgMsg.Hidden)
 			if err != nil {
-				zlog.Ctx(ctx).Error().Err(err).Msg("Error scheduling hide message")
+				{{ .Logger.ErrorMsg "ctx" "err" "Error scheduling hide message" }}
 			}
 		}
 
-		err = w.SetLastMsgToUser(ctx, tgActor.GetID(), msgID)
+		err = w.SetLastMsgToUser(ctx, requestData.Actor.ID, msgID)
 		if err != nil {
-			zlog.Ctx(ctx).Error().Err(err).Msg("Error setting last message ID")
+			{{ .Logger.ErrorMsg "ctx" "err" "Error setting last message ID" }}
 
 			return
 		}
