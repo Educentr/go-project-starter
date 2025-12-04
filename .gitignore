@@ -61,4 +61,5 @@ gott_cover
 steps
 check
 
-
+# Integration test image params marker file
+test/docker-integration/.image-params

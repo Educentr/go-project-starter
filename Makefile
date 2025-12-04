@@ -10,6 +10,13 @@ GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 MIN_GO_VERSION = 1.20.0
 BIN_NAME = scale
 
+# Integration test image parameters
+INTEGRATION_GO_VERSION := 1.24.4
+INTEGRATION_BUF_VERSION := 1.47.2
+INTEGRATION_IMAGE_NAME := go-project-starter-test
+INTEGRATION_PARAMS_FILE := test/docker-integration/.image-params
+INTEGRATION_CURRENT_PARAMS := $(INTEGRATION_GO_VERSION)-$(INTEGRATION_BUF_VERSION)-$(GITHUB_TOKEN)
+
 ##################### Checks to run golang-ci #####################
 # Local bin version check
 ifneq ($(wildcard $(GOLANGCI_BIN)),)
@@ -92,35 +99,55 @@ race:
 .PHONY: buildfortest
 buildfortest:
 	@mkdir -p bin
-	CGO_ENABLED=0 go build -o bin/go-project-starter ./cmd/go-project-starter
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/go-project-starter ./cmd/go-project-starter
+
+# Build test image (with marker file check for rebuild)
+.PHONY: build-test-image
+build-test-image:
+	@if [ ! -f $(INTEGRATION_PARAMS_FILE) ] || [ "$$(cat $(INTEGRATION_PARAMS_FILE))" != "$(INTEGRATION_CURRENT_PARAMS)" ]; then \
+		echo "Building integration test image..."; \
+		docker build \
+			--build-arg GO_VERSION=$(INTEGRATION_GO_VERSION) \
+			--build-arg BUF_VERSION=$(INTEGRATION_BUF_VERSION) \
+			--build-arg GITHUB_TOKEN=$(GITHUB_TOKEN) \
+			-t $(INTEGRATION_IMAGE_NAME):latest \
+			-f test/docker-integration/Dockerfile . && \
+		echo "$(INTEGRATION_CURRENT_PARAMS)" > $(INTEGRATION_PARAMS_FILE); \
+	else \
+		echo "Test image up to date, skipping build"; \
+	fi
 
 # Integration tests (using testcontainers)
 # Requires GITHUB_TOKEN env var for private repos access
 .PHONY: integration-test
-integration-test: buildfortest
+integration-test: buildfortest build-test-image
 	@echo "Running integration tests with testcontainers..."
 	@if [ -z "$$GITHUB_TOKEN" ]; then echo "Warning: GITHUB_TOKEN not set, private repos may fail"; fi
-	GOAT_DISABLE_STDOUT=true go test -v -timeout 30m ./test/docker-integration/...
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 30m ./test/docker-integration/...
 
 # Integration tests with verbose output
 .PHONY: integration-test-verbose
-integration-test-verbose: buildfortest
+integration-test-verbose: buildfortest build-test-image
 	@echo "Running integration tests with verbose output..."
-	go test -v -timeout 30m ./test/docker-integration/...
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest go test -v -timeout 30m ./test/docker-integration/...
 
 # Run single integration test
 .PHONY: integration-test-rest
-integration-test-rest: buildfortest
-	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationRESTOnly ./test/docker-integration/...
+integration-test-rest: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationRESTOnly ./test/docker-integration/...
 
 .PHONY: integration-test-grpc
-integration-test-grpc: buildfortest
-	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGRPCOnly ./test/docker-integration/...
+integration-test-grpc: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGRPCOnly ./test/docker-integration/...
 
 .PHONY: integration-test-telegram
-integration-test-telegram: buildfortest
-	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationWorkerTelegram ./test/docker-integration/...
+integration-test-telegram: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationWorkerTelegram ./test/docker-integration/...
 
 .PHONY: integration-test-combined
-integration-test-combined: buildfortest
-	GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationCombined ./test/docker-integration/...
+integration-test-combined: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationCombined ./test/docker-integration/...
+
+.PHONY: integration-test-grafana
+integration-test-grafana: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGrafana ./test/docker-integration/...
