@@ -51,7 +51,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, "")
 	if aclErr != nil {
-		w.handleAuthError(ctx, requestData, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
@@ -112,7 +112,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, "")
 	if aclErr != nil {
-		w.handleAuthError(ctx, requestData, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, errors.Wrap(err, "Internal error")
 	}
@@ -202,7 +202,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, params)
 	if aclErr != nil {
-		w.handleAuthError(ctx, requestData, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
@@ -323,7 +323,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, pp)
 	if aclErr != nil {
-		w.handleAuthError(ctx, requestData, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
@@ -416,7 +416,7 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 
 	ctx, aclErr := hdl.Authorization(ctx, requestData, ppWithFile)
 	if aclErr != nil {
-		w.handleAuthError(ctx, requestData, aclErr)
+		w.HandleAuthError(ctx, requestData, aclErr)
 
 		return ctx, nil
 	}
