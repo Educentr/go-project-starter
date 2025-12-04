@@ -401,8 +401,8 @@ jobs:
             exit 0
           fi
 
-          # Экранируем commit message для MarkdownV2
-          ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | sed -e 's/[#_*()~`>+=|{}.:-]\|]/\\&/g')
+          # Экранируем commit message для MarkdownV2 (берём только первую строку)
+          ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed -e 's/[#_*()~`>+=|{}.:-]\|]/\\&/g')
 
           # Формирование сообщения
           MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed -e 's/[#_*()~`>+=|{}.:-]\|]/\\&/g')*
