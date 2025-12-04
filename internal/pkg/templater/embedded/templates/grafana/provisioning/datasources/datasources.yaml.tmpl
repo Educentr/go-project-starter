@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+{{- range .Grafana.Datasources }}
+  - name: {{ .Name }}
+    type: {{ .Type }}
+    access: {{ if .Access }}{{ .Access }}{{ else }}proxy{{ end }}
+    url: {{ .URL }}
+    isDefault: {{ .IsDefault }}
+    editable: {{ .Editable }}
+    uid: {{ .UID }}
+{{- end }}

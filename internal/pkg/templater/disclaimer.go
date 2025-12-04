@@ -17,6 +17,7 @@ const (
 	extTxt  = ".txt"
 	extSh   = ".sh"
 	extDot  = "."
+	extJSON = ".json"
 )
 
 func isFileIgnored(fName string) bool {
@@ -29,6 +30,9 @@ func isFileIgnored(fName string) bool {
 
 	switch filepath.Ext(fName) {
 	case extMod:
+		return true
+	case extJSON:
+		// JSON doesn't support comments, skip disclaimer
 		return true
 	}
 

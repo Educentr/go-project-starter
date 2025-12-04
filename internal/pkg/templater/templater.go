@@ -46,6 +46,7 @@ type GeneratorParams struct {
 	// Transports ds.Transtorts
 	// Models ???
 	Applications ds.Apps
+	Grafana      ds.GrafanaConfig
 }
 
 // type GeneratorParamDriver struct {
@@ -269,6 +270,14 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 
 		if _, ex := filesDiff.NewFiles[newFile]; ex {
 			delete(filesDiff.NewFiles, newFile)
+
+			// Files without disclaimer support (e.g., JSON) are fully overwritten
+			// No user code to preserve, just continue
+			_, fname := filepath.Split(path)
+			if isFileIgnored(fname) {
+				return nil
+			}
+
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
 				return err
@@ -284,6 +293,14 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 				filesDiff.UserContent[newFile] = []byte(userData)
 			}
 		} else {
+			// Files without disclaimer support (e.g., JSON) - just mark as other files
+			_, fname := filepath.Split(path)
+			if isFileIgnored(fname) {
+				filesDiff.OtherFiles[path] = struct{}{}
+
+				return nil
+			}
+
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
 				return err
@@ -347,6 +364,7 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		"ReplaceDash": func(s string) string { return strings.ReplaceAll(s, "-", "_") },
 		"Capitalize":  cases.Title(language.Und).String,
 		"errorf":      func(format string, args ...any) error { return fmt.Errorf(format, args...) },
+		"add":         func(a, b int) int { return a + b },
 		"ImageNameToPullerService": func(image string) string {
 			// Extract image name from path like ghcr.io/org/name:tag -> name
 			lastSlash := strings.LastIndex(image, "/")

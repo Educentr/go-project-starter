@@ -22,6 +22,26 @@ type (
 		ConfigDir       string
 	}
 
+	// GrafanaDatasource represents a single Grafana datasource configuration
+	GrafanaDatasource struct {
+		Name      string `mapstructure:"name"`
+		Type      string `mapstructure:"type"`      // prometheus, loki
+		Access    string `mapstructure:"access"`    // proxy, direct
+		URL       string `mapstructure:"url"`
+		IsDefault bool   `mapstructure:"isDefault"`
+		Editable  bool   `mapstructure:"editable"`
+	}
+
+	// Grafana represents global Grafana configuration
+	Grafana struct {
+		Datasources []GrafanaDatasource `mapstructure:"datasources"`
+	}
+
+	// AppGrafana represents per-application Grafana settings
+	AppGrafana struct {
+		Datasources []string `mapstructure:"datasources"` // references by name
+	}
+
 	Scheduler struct {
 		Enabled bool `mapstructure:"enabled"`
 	}
@@ -153,6 +173,7 @@ type (
 		UseActiveRecord       *bool       `mapstructure:"use_active_record"`
 		DependsOnDockerImages []string    `mapstructure:"depends_on_docker_images"`
 		UseEnvs               *bool       `mapstructure:"use_envs"`
+		Grafana               AppGrafana  `mapstructure:"grafana"`
 	}
 
 	Docker struct {
@@ -186,12 +207,14 @@ type (
 		DriverList     DriverList     `mapstructure:"driver"`
 		Applications   []Application  `mapstructure:"applications"`
 		Docker         Docker         `mapstructure:"docker"`
+		Grafana        Grafana        `mapstructure:"grafana"`
 
-		RestMap   map[string]Rest
-		GrpcMap   map[string]Grpc
-		DriverMap map[string]Driver
-		WorkerMap map[string]Worker
-		CLIMap    map[string]CLI
+		RestMap              map[string]Rest
+		GrpcMap              map[string]Grpc
+		DriverMap            map[string]Driver
+		WorkerMap            map[string]Worker
+		CLIMap               map[string]CLI
+		GrafanaDatasourceMap map[string]GrafanaDatasource
 	}
 )
 
@@ -462,6 +485,64 @@ func (c Consumer) IsValid() (bool, string) {
 
 	if len(c.Path) == 0 || len(c.Backend) == 0 || len(c.Group) == 0 || len(c.Topic) == 0 {
 		return false, "Empty path, backend, group or topic"
+	}
+
+	return true, ""
+}
+
+// IsValid validates Grafana datasource configuration
+func (d GrafanaDatasource) IsValid() (bool, string) {
+	if len(d.Name) == 0 {
+		return false, "Empty datasource name"
+	}
+
+	if len(d.Type) == 0 {
+		return false, "Empty datasource type for " + d.Name
+	}
+
+	switch d.Type {
+	case "prometheus", "loki":
+		// valid types
+	default:
+		return false, "Invalid datasource type: " + d.Type + " (supported: prometheus, loki)"
+	}
+
+	if d.Access != "" && d.Access != "proxy" && d.Access != "direct" {
+		return false, "Invalid access mode: " + d.Access + " (supported: proxy, direct)"
+	}
+
+	if len(d.URL) == 0 {
+		return false, "Empty URL for datasource " + d.Name
+	}
+
+	return true, ""
+}
+
+// IsValid validates Grafana configuration
+func (g Grafana) IsValid() (bool, string) {
+	if len(g.Datasources) == 0 {
+		return true, "" // Empty grafana config is valid
+	}
+
+	seenNames := make(map[string]struct{})
+	hasDefault := false
+
+	for _, ds := range g.Datasources {
+		if ok, msg := ds.IsValid(); !ok {
+			return false, msg
+		}
+
+		if _, exists := seenNames[ds.Name]; exists {
+			return false, "Duplicate datasource name: " + ds.Name
+		}
+		seenNames[ds.Name] = struct{}{}
+
+		if ds.IsDefault {
+			if hasDefault {
+				return false, "Only one datasource can be default"
+			}
+			hasDefault = true
+		}
 	}
 
 	return true, ""

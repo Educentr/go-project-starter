@@ -345,3 +345,68 @@ func GetCLIHandlerTemplates(cli *ds.CLIApp, params GeneratorParams) (dirs []ds.F
 
 	return
 }
+
+const (
+	grafanaProvisioningPath = "configs/grafana/provisioning"
+	grafanaDashboardsPath   = "configs/grafana/dashboards"
+)
+
+// GetGrafanaProvisioningTemplates returns Grafana provisioning templates (datasources and dashboard provider config)
+func GetGrafanaProvisioningTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, "embedded/templates/grafana/provisioning", params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get grafana provisioning templates")
+
+		return
+	}
+
+	// Set destination path
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(grafanaProvisioningPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(grafanaProvisioningPath, files[i].DestName)
+	}
+
+	return
+}
+
+// GetGrafanaDashboardTemplates returns Grafana dashboard templates for an application
+func GetGrafanaDashboardTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, "embedded/templates/grafana/dashboards", params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get grafana dashboard templates")
+
+		return
+	}
+
+	// Set destination path and rename dashboard.json to {app_name}.json
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(grafanaDashboardsPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		destName := files[i].DestName
+		// Rename dashboard.json to {app_name}.json
+		if destName == "dashboard.json" {
+			destName = params.Application.Name + ".json"
+		}
+
+		files[i].DestName = filepath.Join(grafanaDashboardsPath, destName)
+	}
+
+	return
+}

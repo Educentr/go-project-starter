@@ -67,6 +67,7 @@ type App struct {
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
 	UseEnvs               bool
+	Grafana               GrafanaConfig
 }
 
 // CLIApp represents a CLI transport configuration
@@ -340,4 +341,63 @@ type FilesDiff struct {
 	OtherDirectory map[string]struct{}
 	UserContent    map[string][]byte
 	RenameFiles    map[string]string
+}
+
+// GrafanaDatasource represents a resolved Grafana datasource for templates
+type GrafanaDatasource struct {
+	Name      string
+	Type      string
+	Access    string
+	URL       string
+	IsDefault bool
+	Editable  bool
+	UID       string // generated: "ds-" + lowercase(name)
+}
+
+// GrafanaConfig holds resolved Grafana configuration
+type GrafanaConfig struct {
+	Datasources []GrafanaDatasource
+}
+
+// HasDatasourceType checks if config has a datasource of the given type
+func (g GrafanaConfig) HasDatasourceType(dsType string) bool {
+	for _, ds := range g.Datasources {
+		if ds.Type == dsType {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetDatasourceUID returns the UID of the first datasource of the given type
+func (g GrafanaConfig) GetDatasourceUID(dsType string) string {
+	for _, ds := range g.Datasources {
+		if ds.Type == dsType {
+			return ds.UID
+		}
+	}
+
+	return ""
+}
+
+// GetDatasourceByType returns the first datasource of the given type
+func (g GrafanaConfig) GetDatasourceByType(dsType string) *GrafanaDatasource {
+	for i, ds := range g.Datasources {
+		if ds.Type == dsType {
+			return &g.Datasources[i]
+		}
+	}
+
+	return nil
+}
+
+// HasDatasources returns true if there are any datasources configured
+func (g GrafanaConfig) HasDatasources() bool {
+	return len(g.Datasources) > 0
+}
+
+// GenerateDatasourceUID generates a deterministic UID from datasource name
+func GenerateDatasourceUID(name string) string {
+	return "ds-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 }
