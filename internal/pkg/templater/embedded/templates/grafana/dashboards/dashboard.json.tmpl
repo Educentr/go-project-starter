@@ -21,13 +21,11 @@
   "id": null,
   "links": [],
   "panels": [
-{{- $hasPrometheus := .Application.Grafana.HasDatasourceType "prometheus" }}
-{{- $hasLoki := .Application.Grafana.HasDatasourceType "loki" }}
-{{- $prometheusUID := .Application.Grafana.GetDatasourceUID "prometheus" }}
-{{- $lokiUID := .Application.Grafana.GetDatasourceUID "loki" }}
 {{- $panelId := 1 }}
 {{- $yPos := 0 }}
-{{- if $hasLoki }}
+{{- $rows := .Application.Grafana.GetDashboardRows .Application.Name }}
+{{- range $rowIdx, $row := $rows }}
+{{- if $rowIdx }},{{ end }}
     {
       "collapsed": true,
       "gridPos": {
@@ -39,610 +37,109 @@
       "id": {{ $panelId }},
 {{- $panelId = add $panelId 1 }}
       "panels": [
+{{- $innerY := add $yPos 1 }}
+{{- $xPos := 0 }}
+{{- range $i, $panel := $row.Panels }}
+{{- $dsUID := $.Application.Grafana.GetDatasourceUID $panel.Datasource }}
+{{- if $i }},{{ end }}
         {
           "datasource": {
-            "type": "loki",
-            "uid": "{{ $lokiUID }}"
+            "type": "{{ $panel.Datasource }}",
+            "uid": "{{ $dsUID }}"
           },
+{{- if eq $panel.Type "timeseries" }}
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": { "group": "A", "mode": "none" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
+            },
+            "overrides": []
+          },
+{{- else }}
           "fieldConfig": {
             "defaults": {},
             "overrides": []
           },
-          "gridPos": {
-            "h": 10,
-            "w": 24,
-            "x": 0,
-            "y": {{ add $yPos 1 }}
-          },
-          "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-          "options": {
-            "dedupStrategy": "none",
-            "enableLogDetails": true,
-            "prettifyLogMessage": false,
-            "showCommonLabels": false,
-            "showLabels": false,
-            "showTime": true,
-            "sortOrder": "Descending",
-            "wrapLogMessage": true
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "loki",
-                "uid": "{{ $lokiUID }}"
-              },
-              "expr": "{job=\"{{ .Application.Name }}\"}",
-              "refId": "A"
-            }
-          ],
-          "title": "Application Logs",
-          "type": "logs"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "{{ $lokiUID }}"
-          },
-          "fieldConfig": {
-            "defaults": {},
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 10,
-            "w": 24,
-            "x": 0,
-            "y": {{ add $yPos 11 }}
-          },
-          "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-          "options": {
-            "dedupStrategy": "none",
-            "enableLogDetails": true,
-            "prettifyLogMessage": false,
-            "showCommonLabels": false,
-            "showLabels": false,
-            "showTime": true,
-            "sortOrder": "Descending",
-            "wrapLogMessage": true
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "loki",
-                "uid": "{{ $lokiUID }}"
-              },
-              "expr": "{job=\"{{ .Application.Name }}\"} | json | level = `error`",
-              "refId": "A"
-            }
-          ],
-          "title": "Error Logs",
-          "type": "logs"
-        }
-      ],
-      "title": "Logs",
-      "type": "row"
-    },
-{{- $yPos = add $yPos 1 }}
 {{- end }}
-{{- if $hasPrometheus }}
-    {
-      "collapsed": true,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": {{ $yPos }}
-      },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "panels": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "{{ $prometheusUID }}"
+          "gridPos": {
+            "h": {{ $panel.Height }},
+            "w": {{ $panel.Width }},
+            "x": {{ $xPos }},
+            "y": {{ $innerY }}
           },
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "drawStyle": "line",
-                "fillOpacity": 0,
-                "gradientMode": "none",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": {{ add $yPos 1 }} },
           "id": {{ $panelId }},
 {{- $panelId = add $panelId 1 }}
+{{- if eq $panel.Type "logs" }}
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": {{ $panel.LogsOptions.ShowTime }},
+            "sortOrder": "{{ $panel.LogsOptions.SortOrder }}",
+            "wrapLogMessage": {{ $panel.LogsOptions.WrapMessage }}
+          },
+{{- else }}
           "options": {
             "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
             "tooltip": { "mode": "single", "sort": "none" }
           },
+{{- end }}
           "targets": [
+{{- range $ti, $target := $panel.Targets }}
+{{- if $ti }},{{ end }}
             {
-              "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-              "expr": "sum by(instance) (rate(go_gc_duration_seconds_sum[5m]))",
-              "legendFormat": "__auto",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "Go GC",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "{{ $prometheusUID }}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "drawStyle": "line",
-                "fillOpacity": 0,
-                "gradientMode": "none",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
+              "datasource": {
+                "type": "{{ $panel.Datasource }}",
+                "uid": "{{ $dsUID }}"
               },
-              "mappings": [],
-              "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": {{ add $yPos 1 }} },
-          "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-          "options": {
-            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-            "tooltip": { "mode": "single", "sort": "none" }
-          },
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-              "expr": "go_goroutines",
-              "legendFormat": "__auto",
+              "expr": "{{ $target.Expr | escapeJSON }}",
+{{- if $target.LegendFormat }}
+              "legendFormat": "{{ $target.LegendFormat | escapeJSON }}",
+{{- end }}
               "range": true,
-              "refId": "A"
+              "refId": "{{ $target.RefID }}"
             }
+{{- end }}
           ],
-          "title": "Goroutines",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "{{ $prometheusUID }}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "drawStyle": "line",
-                "fillOpacity": 0,
-                "gradientMode": "none",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": {{ add $yPos 9 }} },
-          "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-          "options": {
-            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-            "tooltip": { "mode": "single", "sort": "none" }
-          },
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-              "expr": "sum by(instance) (rate(process_cpu_seconds_total[5m]))",
-              "legendFormat": "__auto",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "CPU",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "{{ $prometheusUID }}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "palette-classic" },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "drawStyle": "line",
-                "fillOpacity": 0,
-                "gradientMode": "none",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": { "type": "linear" },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
-              },
-              "mappings": [],
-              "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": {{ add $yPos 9 }} },
-          "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-          "options": {
-            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-            "tooltip": { "mode": "single", "sort": "none" }
-          },
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-              "expr": "sum by(instance) (rate(go_memstats_alloc_bytes[5m]))",
-              "legendFormat": "__auto",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "Memory Alloc",
-          "type": "timeseries"
+          "title": "{{ $panel.Title }}",
+          "type": "{{ $panel.Type }}"
         }
+{{- if eq (add $xPos $panel.Width) 24 }}
+{{- $innerY = add $innerY $panel.Height }}
+{{- $xPos = 0 }}
+{{- else }}
+{{- $xPos = add $xPos $panel.Width }}
+{{- end }}
+{{- end }}
       ],
-      "title": "Go Runtime",
+      "title": "{{ $row.Title }}",
       "type": "row"
-    },
-{{- $yPos = add $yPos 1 }}
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": {{ $yPos }}
-      },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "panels": [],
-      "title": "HTTP Metrics",
-      "type": "row"
-    },
-{{- $yPos = add $yPos 1 }}
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "{{ $prometheusUID }}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": {{ $yPos }} },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "options": {
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "single", "sort": "none" }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-          "expr": "sum by(http_response_status_code) (increase(ogen_server_request_count_total[$__rate_interval]))",
-          "legendFormat": "{{`{{http_response_status_code}}`}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "HTTP Status Codes",
-      "type": "timeseries"
-    },
-{{- $yPos = add $yPos 10 }}
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "{{ $prometheusUID }}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": {{ $yPos }} },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "options": {
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "single", "sort": "none" }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-          "expr": "sum by(http_request_method, http_route) (increase(ogen_server_errors_count_total{http_response_status_code=\"500\"}[$__rate_interval]))",
-          "legendFormat": "{{`{{http_request_method}}`}} - {{`{{http_route}}`}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "500 Errors",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "{{ $prometheusUID }}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": {{ $yPos }} },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "options": {
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "single", "sort": "none" }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-          "expr": "sum by(http_request_method, http_route, http_response_status_code) (increase(ogen_server_errors_count_total{http_response_status_code=~\"4..\"}[$__rate_interval]))",
-          "legendFormat": "{{`{{http_request_method}}`}} - {{`{{http_route}}`}} {{`{{http_response_status_code}}`}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "4xx Errors",
-      "type": "timeseries"
-    },
-{{- $yPos = add $yPos 10 }}
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "{{ $prometheusUID }}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": {{ $yPos }} },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "options": {
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "single", "sort": "none" }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-          "expr": "sum by(http_request_method, http_route) (increase(ogen_server_request_count_total[$__rate_interval]))",
-          "legendFormat": "{{`{{http_request_method}}`}} - {{`{{http_route}}`}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Requests by Route",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "{{ $prometheusUID }}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "mappings": [],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": {{ $yPos }} },
-      "id": {{ $panelId }},
-{{- $panelId = add $panelId 1 }}
-      "options": {
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "single", "sort": "none" }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-          "expr": "histogram_quantile(0.99, sum by(le, http_route) (rate(ogen_server_duration_milliseconds_bucket[$__rate_interval])))",
-          "legendFormat": "p99 {{`{{http_route}}`}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "{{ $prometheusUID }}" },
-          "expr": "histogram_quantile(0.95, sum by(le, http_route) (rate(ogen_server_duration_milliseconds_bucket[$__rate_interval])))",
-          "legendFormat": "p95 {{`{{http_route}}`}}",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Request Latency (ms)",
-      "type": "timeseries"
     }
+{{- $yPos = add $yPos 1 }}
 {{- end }}
   ],
   "refresh": "5s",

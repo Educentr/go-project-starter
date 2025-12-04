@@ -12,8 +12,9 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/pkg/errors"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+	"github.com/pkg/errors"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -46,7 +47,7 @@ type GeneratorParams struct {
 	// Transports ds.Transtorts
 	// Models ???
 	Applications ds.Apps
-	Grafana      ds.GrafanaConfig
+	Grafana      grafana.Config
 }
 
 // type GeneratorParamDriver struct {
@@ -365,6 +366,12 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		"Capitalize":  cases.Title(language.Und).String,
 		"errorf":      func(format string, args ...any) error { return fmt.Errorf(format, args...) },
 		"add":         func(a, b int) int { return a + b },
+		"escapeJSON": func(s string) string {
+			// Escape special characters for JSON string
+			s = strings.ReplaceAll(s, `\`, `\\`)
+			s = strings.ReplaceAll(s, `"`, `\"`)
+			return s
+		},
 		"ImageNameToPullerService": func(image string) string {
 			// Extract image name from path like ghcr.io/org/name:tag -> name
 			lastSlash := strings.LastIndex(image, "/")
