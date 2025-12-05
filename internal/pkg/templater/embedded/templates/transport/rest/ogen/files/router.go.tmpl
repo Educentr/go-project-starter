@@ -8,7 +8,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/go-faster/jx"
+	"go.opentelemetry.io/otel/attribute"
 
+	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/app/transport/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}/handler"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 	"{{ .ProjectPath }}/pkg/app/rest"
@@ -51,6 +53,10 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 		oas.WithErrorHandler(a.UnexpectedError),
 		oas.WithNotFound(a.NotFoundError),
 		oas.WithMiddleware(a.GetOgenMiddlewares(ctx)...),
+		oas.WithAttributes(
+			attribute.String("server_name", "{{ .Transport.Name }}"),
+			attribute.String("service_name", constant.ServiceName),
+		),
 	)
 	if err != nil {
 		return errors.Wrap(err, "server initialization")

@@ -114,7 +114,7 @@ func DefaultHTTPServerPanels(serverName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `sum by(http_response_status_code) ` +
-						`(increase(ogen_server_request_count_total{server="` + serverName + `"}[$__rate_interval]))`,
+						`(increase(ogen_server_request_count_total{server_name="` + serverName + `"}[$__rate_interval]))`,
 					LegendFormat: "{{http_response_status_code}}",
 					RefID:        "A",
 				},
@@ -129,7 +129,7 @@ func DefaultHTTPServerPanels(serverName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `sum by(http_request_method, http_route) ` +
-						`(increase(ogen_server_errors_count_total{server="` + serverName + `",` +
+						`(increase(ogen_server_errors_count_total{server_name="` + serverName + `",` +
 						`http_response_status_code="500"}[$__rate_interval]))`,
 					LegendFormat: "{{http_request_method}} - {{http_route}}",
 					RefID:        "A",
@@ -145,7 +145,7 @@ func DefaultHTTPServerPanels(serverName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `sum by(http_request_method, http_route, http_response_status_code) ` +
-						`(increase(ogen_server_errors_count_total{server="` + serverName + `",` +
+						`(increase(ogen_server_errors_count_total{server_name="` + serverName + `",` +
 						`http_response_status_code=~"4.."}[$__rate_interval]))`,
 					LegendFormat: "{{http_request_method}} - {{http_route}} {{http_response_status_code}}",
 					RefID:        "A",
@@ -161,7 +161,7 @@ func DefaultHTTPServerPanels(serverName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `sum by(http_request_method, http_route) ` +
-						`(increase(ogen_server_request_count_total{server="` + serverName + `"}[$__rate_interval]))`,
+						`(increase(ogen_server_request_count_total{server_name="` + serverName + `"}[$__rate_interval]))`,
 					LegendFormat: "{{http_request_method}} - {{http_route}}",
 					RefID:        "A",
 				},
@@ -176,14 +176,14 @@ func DefaultHTTPServerPanels(serverName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `histogram_quantile(0.99, sum by(le, http_route) ` +
-						`(rate(ogen_server_duration_milliseconds_bucket{server="` + serverName +
+						`(rate(ogen_server_duration_milliseconds_bucket{server_name="` + serverName +
 						`"}[$__rate_interval])))`,
 					LegendFormat: "p99 {{http_route}}",
 					RefID:        "A",
 				},
 				{
 					Expr: `histogram_quantile(0.95, sum by(le, http_route) ` +
-						`(rate(ogen_server_duration_milliseconds_bucket{server="` + serverName +
+						`(rate(ogen_server_duration_milliseconds_bucket{server_name="` + serverName +
 						`"}[$__rate_interval])))`,
 					LegendFormat: "p95 {{http_route}}",
 					RefID:        "B",
@@ -205,7 +205,7 @@ func DefaultHTTPClientPanels(clientName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `sum by(http_response_status_code) ` +
-						`(increase(ogen_client_request_count_total{client="` + clientName + `"}[$__rate_interval]))`,
+						`(increase(ogen_client_request_count_total{client_name="` + clientName + `"}[$__rate_interval]))`,
 					LegendFormat: "{{http_response_status_code}}",
 					RefID:        "A",
 				},
@@ -220,7 +220,7 @@ func DefaultHTTPClientPanels(clientName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `sum by(http_request_method, http_response_status_code) ` +
-						`(increase(ogen_client_errors_count_total{client="` + clientName + `"}[$__rate_interval]))`,
+						`(increase(ogen_client_errors_count_total{client_name="` + clientName + `"}[$__rate_interval]))`,
 					LegendFormat: "{{http_request_method}} {{http_response_status_code}}",
 					RefID:        "A",
 				},
@@ -235,14 +235,14 @@ func DefaultHTTPClientPanels(clientName string) []Panel {
 			Targets: []PanelTarget{
 				{
 					Expr: `histogram_quantile(0.99, sum by(le) ` +
-						`(rate(ogen_client_duration_milliseconds_bucket{client="` + clientName +
+						`(rate(ogen_client_duration_milliseconds_bucket{client_name="` + clientName +
 						`"}[$__rate_interval])))`,
 					LegendFormat: "p99",
 					RefID:        "A",
 				},
 				{
 					Expr: `histogram_quantile(0.95, sum by(le) ` +
-						`(rate(ogen_client_duration_milliseconds_bucket{client="` + clientName +
+						`(rate(ogen_client_duration_milliseconds_bucket{client_name="` + clientName +
 						`"}[$__rate_interval])))`,
 					LegendFormat: "p95",
 					RefID:        "B",
