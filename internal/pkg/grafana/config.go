@@ -2,6 +2,12 @@ package grafana
 
 import "strings"
 
+// TransportInfo contains transport information for dashboard generation.
+type TransportInfo struct {
+	Name          string
+	GeneratorType string // "ogen", "ogen_client", "template"
+}
+
 // Datasource represents a resolved Grafana datasource for templates.
 type Datasource struct {
 	Name      string
@@ -17,6 +23,12 @@ type Datasource struct {
 type Config struct {
 	Datasources []Datasource
 }
+
+// Datasource type constants.
+const (
+	DatasourcePrometheus = "prometheus"
+	DatasourceLoki       = "loki"
+)
 
 // HasDatasourceType checks if config has a datasource of the given type.
 func (g Config) HasDatasourceType(dsType string) bool {
@@ -56,11 +68,12 @@ func (g Config) HasDatasources() bool {
 	return len(g.Datasources) > 0
 }
 
-// GetDashboardRows returns all dashboard rows based on configured datasources.
-func (g Config) GetDashboardRows(appName string) []Row {
+// GetDashboardRows returns all dashboard rows based on configured datasources and transports.
+func (g Config) GetDashboardRows(appName string, transports []TransportInfo) []Row {
 	var rows []Row
 
-	if g.HasDatasourceType("loki") {
+	// 1. Logs row (if Loki datasource exists)
+	if g.HasDatasourceType(DatasourceLoki) {
 		rows = append(rows, Row{
 			Title:     "Logs",
 			Collapsed: true,
@@ -68,17 +81,35 @@ func (g Config) GetDashboardRows(appName string) []Row {
 		})
 	}
 
-	if g.HasDatasourceType("prometheus") {
+	// 2. Go Runtime row (if Prometheus datasource exists)
+	if g.HasDatasourceType(DatasourcePrometheus) {
 		rows = append(rows, Row{
 			Title:     "Go Runtime",
 			Collapsed: true,
 			Panels:    DefaultGoRuntimePanels(),
 		})
-		rows = append(rows, Row{
-			Title:     "HTTP Metrics",
-			Collapsed: true,
-			Panels:    DefaultHTTPMetricsPanels(),
-		})
+
+		// 3. Http Server rows for each ogen transport (excluding template type)
+		for _, t := range transports {
+			if t.GeneratorType == "ogen" {
+				rows = append(rows, Row{
+					Title:     "Http Server: " + t.Name,
+					Collapsed: true,
+					Panels:    DefaultHTTPServerPanels(t.Name),
+				})
+			}
+		}
+
+		// 4. Http Client rows for each ogen_client transport
+		for _, t := range transports {
+			if t.GeneratorType == "ogen_client" {
+				rows = append(rows, Row{
+					Title:     "Http Client: " + t.Name,
+					Collapsed: true,
+					Panels:    DefaultHTTPClientPanels(t.Name),
+				})
+			}
+		}
 	}
 
 	return rows

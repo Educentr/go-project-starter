@@ -23,7 +23,7 @@
   "panels": [
 {{- $panelId := 1 }}
 {{- $yPos := 0 }}
-{{- $rows := .Application.Grafana.GetDashboardRows .Application.Name }}
+{{- $rows := .Application.Grafana.GetDashboardRows .Application.Name .Application.GetTransportInfos }}
 {{- range $rowIdx, $row := $rows }}
 {{- if $rowIdx }},{{ end }}
     {
