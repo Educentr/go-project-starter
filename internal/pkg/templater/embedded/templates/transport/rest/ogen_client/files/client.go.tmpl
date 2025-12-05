@@ -7,6 +7,8 @@ import (
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel/attribute"
+
 	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/pkg/app/rest"
 	{{ .Transport.PkgName }} "{{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/v1"
@@ -50,5 +52,9 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 				c.GetClientMiddlewares(ctx, constant.ServiceName, nil, nil, "{{ .Transport.PkgName }}", nil)...,
 			),
 		}),
+		{{ .Transport.PkgName }}.WithAttributes(
+			attribute.String("client_name", "{{ .Transport.Name }}"),
+			attribute.String("service_name", constant.ServiceName),
+		),
 	)
 }

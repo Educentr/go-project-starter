@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 )
 
 type TransportType string
@@ -67,6 +69,7 @@ type App struct {
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
 	UseEnvs               bool
+	Grafana               grafana.Config
 }
 
 // CLIApp represents a CLI transport configuration
@@ -215,6 +218,24 @@ func (a App) WorkerImports() []string {
 	return imports
 }
 
+// GetTransportInfos returns transport info for Grafana dashboard generation.
+func (a App) GetTransportInfos() []grafana.TransportInfo {
+	infos := make([]grafana.TransportInfo, 0, len(a.Transports))
+
+	for _, t := range a.Transports {
+		infos = append(infos, grafana.TransportInfo{
+			Name:          t.Name,
+			GeneratorType: t.GeneratorType,
+		})
+	}
+
+	sort.Slice(infos, func(i, j int) bool {
+		return strings.Compare(infos[i].Name, infos[j].Name) < 0
+	})
+
+	return infos
+}
+
 
 func (app App) getTransport(t TransportType) []Transport {
 	retTransports := []Transport{}
@@ -341,3 +362,4 @@ type FilesDiff struct {
 	UserContent    map[string][]byte
 	RenameFiles    map[string]string
 }
+

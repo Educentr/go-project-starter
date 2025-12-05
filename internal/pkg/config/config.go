@@ -64,6 +64,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	config.DriverMap = make(map[string]Driver)
 	config.WorkerMap = make(map[string]Worker)
 	config.CLIMap = make(map[string]CLI)
+	config.GrafanaDatasourceMap = make(map[string]GrafanaDatasource)
 
 	for i, rest := range config.RestList { // "rest" названия полей
 		if ok, msg := rest.IsValid(baseDir); !ok { // проверяем валидность конфигурации
@@ -129,6 +130,15 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		config.CLIMap[cli.Name] = cli
 	}
 
+	// Validate Grafana configuration
+	if ok, msg := config.Grafana.IsValid(); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config grafana section: "+msg)
+	}
+
+	for _, ds := range config.Grafana.Datasources {
+		config.GrafanaDatasourceMap[ds.Name] = ds
+	}
+
 	for i, app := range config.Applications {
 		if ok, msg := app.IsValid(); !ok {
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
@@ -169,6 +179,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		if app.CLI != "" {
 			if _, ex := config.CLIMap[app.CLI]; !ex {
 				return config, errors.WithMessage(ErrInvalidConfig, "unknown cli: "+app.CLI+" in application: "+app.Name)
+			}
+		}
+
+		// Validate Grafana datasource references
+		for _, dsName := range app.Grafana.Datasources {
+			if _, ex := config.GrafanaDatasourceMap[dsName]; !ex {
+				return config, errors.WithMessage(ErrInvalidConfig, "unknown grafana datasource: "+dsName+" in application: "+app.Name)
 			}
 		}
 	}

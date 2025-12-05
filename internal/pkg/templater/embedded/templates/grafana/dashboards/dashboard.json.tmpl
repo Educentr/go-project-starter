@@ -1,0 +1,162 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+{{- $panelId := 1 }}
+{{- $yPos := 0 }}
+{{- $rows := .Application.Grafana.GetDashboardRows .Application.Name .Application.GetTransportInfos }}
+{{- range $rowIdx, $row := $rows }}
+{{- if $rowIdx }},{{ end }}
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": {{ $yPos }}
+      },
+      "id": {{ $panelId }},
+{{- $panelId = add $panelId 1 }}
+      "panels": [
+{{- $innerY := add $yPos 1 }}
+{{- $xPos := 0 }}
+{{- range $i, $panel := $row.Panels }}
+{{- $dsUID := $.Application.Grafana.GetDatasourceUID $panel.Datasource }}
+{{- if $i }},{{ end }}
+        {
+          "datasource": {
+            "type": "{{ $panel.Datasource }}",
+            "uid": "{{ $dsUID }}"
+          },
+{{- if eq $panel.Type "timeseries" }}
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": { "group": "A", "mode": "none" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] }
+            },
+            "overrides": []
+          },
+{{- else }}
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+{{- end }}
+          "gridPos": {
+            "h": {{ $panel.Height }},
+            "w": {{ $panel.Width }},
+            "x": {{ $xPos }},
+            "y": {{ $innerY }}
+          },
+          "id": {{ $panelId }},
+{{- $panelId = add $panelId 1 }}
+{{- if eq $panel.Type "logs" }}
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": {{ $panel.LogsOptions.ShowTime }},
+            "sortOrder": "{{ $panel.LogsOptions.SortOrder }}",
+            "wrapLogMessage": {{ $panel.LogsOptions.WrapMessage }}
+          },
+{{- else }}
+          "options": {
+            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+{{- end }}
+          "targets": [
+{{- range $ti, $target := $panel.Targets }}
+{{- if $ti }},{{ end }}
+            {
+              "datasource": {
+                "type": "{{ $panel.Datasource }}",
+                "uid": "{{ $dsUID }}"
+              },
+              "expr": "{{ $target.Expr | escapeJSON }}",
+{{- if $target.LegendFormat }}
+              "legendFormat": "{{ $target.LegendFormat | escapeJSON }}",
+{{- end }}
+              "range": true,
+              "refId": "{{ $target.RefID }}"
+            }
+{{- end }}
+          ],
+          "title": "{{ $panel.Title }}",
+          "type": "{{ $panel.Type }}"
+        }
+{{- if eq (add $xPos $panel.Width) 24 }}
+{{- $innerY = add $innerY $panel.Height }}
+{{- $xPos = 0 }}
+{{- else }}
+{{- $xPos = add $xPos $panel.Width }}
+{{- end }}
+{{- end }}
+      ],
+      "title": "{{ $row.Title }}",
+      "type": "row"
+    }
+{{- $yPos = add $yPos 1 }}
+{{- end }}
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["{{ .Application.Name }}", "go", "auto-generated"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "{{ .Application.Name | Capitalize }} Dashboard",
+  "uid": "{{ .Application.Name }}-dashboard",
+  "version": 1,
+  "weekStart": ""
+}

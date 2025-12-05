@@ -13,6 +13,7 @@ import (
 
 	"github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
@@ -45,6 +46,7 @@ type Generator struct {
 	Workers           ds.Workers
 	Drivers           ds.Drivers
 	Applications      ds.Apps
+	Grafana           grafana.Config
 }
 
 type ExecCmd struct {
@@ -225,6 +227,19 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 	}
 
+	// Process Grafana datasources
+	for _, cfgDs := range config.Grafana.Datasources {
+		g.Grafana.Datasources = append(g.Grafana.Datasources, grafana.Datasource{
+			Name:      cfgDs.Name,
+			Type:      cfgDs.Type,
+			Access:    cfgDs.Access,
+			URL:       cfgDs.URL,
+			IsDefault: cfgDs.IsDefault,
+			Editable:  cfgDs.Editable,
+			UID:       grafana.GenerateDatasourceUID(cfgDs.Name),
+		})
+	}
+
 	for _, app := range config.Applications {
 		// Вычисляем use_active_record для приложения
 		// Default из main, override может быть только false
@@ -248,6 +263,16 @@ func (g *Generator) processConfig(config config.Config) error {
 			UseActiveRecord:       useActiveRecord,
 			DependsOnDockerImages: app.DependsOnDockerImages,
 			UseEnvs:               useEnvs,
+		}
+
+		// Resolve Grafana datasources for this app
+		for _, dsName := range app.Grafana.Datasources {
+			for _, globalDs := range g.Grafana.Datasources {
+				if globalDs.Name == dsName {
+					application.Grafana.Datasources = append(application.Grafana.Datasources, globalDs)
+					break
+				}
+			}
 		}
 
 		if len(app.Deploy.Volumes) > 0 {
@@ -414,6 +439,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Applications:      g.Applications,
 		Drivers:           g.Drivers,
 		Workers:           g.Workers,
+		Grafana:           g.Grafana,
 	}
 }
 
@@ -697,6 +723,31 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 			dirs = append(dirs, dirsCLI...)
 			files = append(files, filesCLI...)
+		}
+	}
+
+	// Generate Grafana templates if any datasources are configured
+	if g.Grafana.HasDatasources() {
+		// Generate global provisioning templates (datasources and dashboard provider config)
+		dirsGrafana, filesGrafana, err := templater.GetGrafanaProvisioningTemplates(g.GetTmplParams())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get grafana provisioning templates: %w", err)
+		}
+
+		dirs = append(dirs, dirsGrafana...)
+		files = append(files, filesGrafana...)
+
+		// Generate dashboard for each application that has Grafana datasources
+		for _, app := range g.Applications {
+			if app.Grafana.HasDatasources() {
+				dirsAppGrafana, filesAppGrafana, err := templater.GetGrafanaDashboardTemplates(g.GetTmplAppParams(app))
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to get grafana dashboard templates for %s: %w", app.Name, err)
+				}
+
+				dirs = append(dirs, dirsAppGrafana...)
+				files = append(files, filesAppGrafana...)
+			}
 		}
 	}
 

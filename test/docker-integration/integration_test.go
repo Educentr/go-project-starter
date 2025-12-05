@@ -18,8 +18,6 @@ import (
 )
 
 const (
-	goVersion   = "1.24.4"
-	bufVersion  = "1.47.2"
 	serviceName = "golang-builder"
 )
 
@@ -68,56 +66,13 @@ func getProjectRoot() (string, error) {
 
 // RunGolangBuilder creates and starts a golang builder container
 func RunGolangBuilder(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*GolangBuilderContainer, error) {
-	// Get GitHub token from environment for private repos
-	githubToken := os.Getenv("GITHUB_TOKEN")
-	gitConfigCmd := ""
-	if githubToken != "" {
-		gitConfigCmd = `RUN git config --global url."https://x-access-token:` + githubToken + `@github.com/".insteadOf "https://github.com/"`
+	imageName := os.Getenv("TEST_IMAGE")
+	if imageName == "" {
+		return nil, fmt.Errorf("TEST_IMAGE environment variable is not set. Run 'make build-test-image' first")
 	}
-
-	dockerfile := `
-FROM golang:` + goVersion + `-bookworm
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV GOPRIVATE=github.com/Educentr/*
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    make \
-    ca-certificates \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-` + gitConfigCmd + `
-
-# Install buf for proto generation
-RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v` + bufVersion + `/buf-Linux-x86_64" \
-    -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf
-
-# Install protoc-gen-go and protoc-gen-go-grpc
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Install goimports
-RUN go install golang.org/x/tools/cmd/goimports@latest
-
-WORKDIR /workspace
-`
-
-	// Write temporary dockerfile
-	dockerfilePath := filepath.Join(projectRoot, "test/docker-integration/Dockerfile.test")
-	if err := os.WriteFile(dockerfilePath, []byte(dockerfile), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write dockerfile: %w", err)
-	}
-	defer os.Remove(dockerfilePath)
 
 	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    projectRoot,
-			Dockerfile: "test/docker-integration/Dockerfile.test",
-		},
+		Image:      imageName,
 		WaitingFor: wait.ForLog("ready").WithStartupTimeout(5 * time.Minute),
 		Cmd:        []string{"sh", "-c", "echo ready && tail -f /dev/null"},
 	}
@@ -164,7 +119,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	}
 
 	// Copy each config directory separately
-	configDirs := []string{"rest-only", "grpc-only", "worker-telegram", "combined"}
+	configDirs := []string{"rest-only", "grpc-only", "worker-telegram", "combined", "grafana"}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
 		dstPath := fmt.Sprintf("/workspace/test-configs/%s", dir)
@@ -304,4 +259,11 @@ func TestIntegrationCombined(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 	runTest(t, "combined", "combined")
+}
+
+func TestIntegrationGrafana(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	runTest(t, "grafana", "grafana")
 }
