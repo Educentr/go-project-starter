@@ -13,6 +13,7 @@
 - Background workers (including Telegram bots)
 - Kafka consumers
 - Complete deployment infrastructure (Docker, CI/CD)
+- Grafana dashboards with Prometheus and Loki integration
 
 Based on analysis: `cmd/go-project-starter/main.go:30-85`
 
@@ -634,6 +635,57 @@ cool-app-image-puller:
 
 Applications configured with `depends_on_docker_images` will have `depends_on` entries with `condition: service_completed_successfully` for each puller service.
 
+#### 9. Grafana Configuration
+
+```yaml
+grafana:
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: false
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      editable: false
+```
+
+**Per-application Grafana settings:**
+
+```yaml
+applications:
+  - name: api
+    transport: [api, sys]
+    grafana:
+      datasources:
+        - Prometheus
+        - Loki
+```
+
+**Generated files:**
+
+| File | Purpose |
+|------|---------|
+| `grafana/dashboards/{app}-dashboard.json` | Ready-to-use Grafana dashboard |
+| `grafana/provisioning/dashboards/dashboards.yaml` | Dashboard auto-provisioning |
+| `grafana/provisioning/datasources/datasources.yaml` | Datasource auto-provisioning |
+
+**Auto-generated panels based on configuration:**
+
+| Panel | Condition | Metrics |
+|-------|-----------|---------|
+| **Logs** | Loki datasource | Application logs with level filtering |
+| **Go Runtime** | Prometheus datasource | `go_goroutines`, `go_memstats_*`, `go_gc_*` |
+| **HTTP Server: {name}** | For each `ogen` transport | `http_server_request_duration_seconds`, `http_server_requests_total` |
+| **HTTP Client: {name}** | For each `ogen_client` transport | `http_client_request_duration_seconds`, `http_client_requests_total` |
+
+**Metric labels:**
+- `server_name` — identifies HTTP server transport
+- `client_name` — identifies HTTP client transport
+
 ---
 
 ## 📁 Additional Materials
@@ -780,6 +832,7 @@ make docker-up         # Start services with docker-compose
 - **gRPC Support**: Full Protocol Buffers integration
 - **Background Workers**: Telegram bots, daemons, Kafka consumers
 - **Observability**: Prometheus metrics, tracing, structured logging
+- **Grafana Dashboards**: Auto-generated monitoring dashboards with Prometheus and Loki
 - **Configuration Management**: Dynamic config via OnlineConf
 - **Database Access**: Optional ActiveRecord ORM
 - **Docker Ready**: Complete docker-compose setup with Traefik

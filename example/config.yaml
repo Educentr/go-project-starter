@@ -13,6 +13,23 @@ deploy:
       - "loki-retries: 2"
       - "loki-timeout: 4s"
 
+# Grafana dashboard generation configuration
+# Generates ready-to-use dashboards and provisioning configs
+grafana:
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: false
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      isDefault: false
+      editable: false
+
 post_generate:
   - git_install
   #- tools_install
@@ -109,6 +126,12 @@ applications:
       # - clickhouse_batcher
     # depends_on_docker_images:
       # - ghcr.io/org/image:latest  # Docker images to pull before starting
+    # Grafana dashboard settings for this application
+    # References datasources defined in global grafana section
+    grafana:
+      datasources:
+        - Prometheus
+        - Loki
     deploy:
       - volumes:
           - path: ./backupdata

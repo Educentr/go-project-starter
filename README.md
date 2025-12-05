@@ -373,6 +373,47 @@ Every generated project includes:
 - ✅ **Structured Logging** - Zerolog with correlation IDs
 - ✅ **Graceful Shutdown** - Proper cleanup on SIGTERM
 - ✅ **OnlineConf** - Dynamic configuration without redeployment
+- ✅ **Grafana Dashboards** - Auto-generated monitoring dashboards with Prometheus and Loki
+
+### 📊 Grafana Dashboard Generation
+
+Generate ready-to-use Grafana dashboards and provisioning configurations:
+
+```yaml
+grafana:
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      isDefault: true
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+
+applications:
+  - name: api
+    transport: [api, sys]
+    grafana:
+      datasources: [Prometheus, Loki]
+```
+
+**Generated panels based on your configuration:**
+- **Logs Panel** — Application logs visualization (when Loki datasource is configured)
+- **Go Runtime** — Goroutines, memory usage, GC metrics (when Prometheus is configured)
+- **HTTP Server** — RPS, latency, error rates for each `ogen` transport
+- **HTTP Client** — Request metrics for each `ogen_client` transport
+
+**Generated files:**
+```
+grafana/
+├── dashboards/
+│   └── {app-name}-dashboard.json    # Ready-to-use Grafana dashboard
+└── provisioning/
+    ├── dashboards/
+    │   └── dashboards.yaml          # Dashboard provisioning config
+    └── datasources/
+        └── datasources.yaml         # Datasource provisioning config
+```
 
 ### 🛠️ Developer Experience
 
@@ -447,6 +488,17 @@ applications:
     workers: []             # Workers to include
     drivers: []             # External drivers to include
     depends_on_docker_images: []  # Docker images to pull before starting
+    grafana:                # Grafana dashboard configuration
+      datasources: []       # Datasource names to use for this app
+
+grafana:
+  datasources:
+    - name: string          # Datasource name (e.g., "Prometheus")
+      type: string          # Datasource type: prometheus, loki
+      access: string        # Access mode: proxy, direct
+      url: string           # Datasource URL
+      isDefault: bool       # Set as default datasource
+      editable: bool        # Allow editing in Grafana UI
 ```
 
 ### Generator Types
@@ -716,6 +768,68 @@ timeout := onlineconf.GetDuration("myservice.api.timeout")
 
 // Automatically reloads when configuration changes in OnlineConf
 ```
+
+### Grafana Dashboard Integration
+
+Generate production-ready Grafana dashboards with automatic panel configuration:
+
+**Step 1: Define datasources globally:**
+
+```yaml
+grafana:
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: false
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      editable: false
+```
+
+**Step 2: Enable for specific applications:**
+
+```yaml
+applications:
+  - name: api-server
+    transport: [api, sys]
+    grafana:
+      datasources:
+        - Prometheus
+        - Loki
+```
+
+**What gets generated:**
+
+| Panel Type | Condition | Metrics |
+|------------|-----------|---------|
+| **Logs** | Loki datasource configured | Application logs with level filtering |
+| **Go Runtime** | Prometheus configured | `go_goroutines`, `go_memstats_*`, `go_gc_*` |
+| **HTTP Server: {name}** | For each `ogen` transport | `http_server_request_duration_seconds`, `http_server_requests_total` |
+| **HTTP Client: {name}** | For each `ogen_client` transport | `http_client_request_duration_seconds`, `http_client_requests_total` |
+
+**Using generated dashboards:**
+
+1. Copy `grafana/` directory to your Grafana instance
+2. Mount provisioning configs in docker-compose:
+
+```yaml
+grafana:
+  image: grafana/grafana:latest
+  volumes:
+    - ./grafana/provisioning:/etc/grafana/provisioning
+    - ./grafana/dashboards:/var/lib/grafana/dashboards
+```
+
+3. Dashboards and datasources will be auto-provisioned on startup
+
+**Labels in metrics:**
+- `server_name` — identifies the HTTP server transport
+- `client_name` — identifies the HTTP client transport
 
 ### Multi-Version APIs
 
