@@ -57,7 +57,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 	}
 
 	invoice := telegram.TelegramInvoiceData{
-		Products: &telegram.EmptyProducts{},
+		Products: srv.NewInvoiceProducts(),
 	}
 
 	err = telegram.UnpackInvoiceData(ctx, &invoice, preCheckoutQuery.InvoicePayload)
@@ -123,7 +123,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 	}
 
 	invoice := telegram.TelegramInvoiceData{
-		Products: &telegram.EmptyProducts{},
+		Products: srv.NewInvoiceProducts(),
 	}
 
 	err = telegram.UnpackInvoiceData(ctx, &invoice, message.SuccessfulPayment.InvoicePayload)
