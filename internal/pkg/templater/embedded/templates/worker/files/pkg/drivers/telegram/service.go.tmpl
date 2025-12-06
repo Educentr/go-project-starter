@@ -47,6 +47,12 @@ func (UnimplementedPayment) ProcessPayment(ctx context.Context, idempotency uuid
 	return errors.New("unimplemented")
 }
 
+// NewInvoiceProducts creates a new InvoiceProduct instance.
+// Projects should override this to return their own Products type.
+func (UnimplementedPayment) NewInvoiceProducts() InvoiceProduct {
+	return &EmptyProducts{}
+}
+
 type BaseAuth struct {
 }
 
