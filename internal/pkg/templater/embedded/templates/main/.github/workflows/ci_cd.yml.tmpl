@@ -402,14 +402,15 @@ jobs:
           fi
 
           # Экранируем commit message для MarkdownV2 (берём только первую строку)
-          ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed -e 's/[#_*()~`>+=|{}.:-]\|]/\\&/g')
+          # Символы для экранирования: _ * [ ] ( ) ~ ` > # + - = | { } . !
+          ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed 's/[][_*()~`>#+\-=|{}.!]/\\&/g')
 
           # Формирование сообщения
-          MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed -e 's/[#_*()~`>+=|{}.:-]\|]/\\&/g')*
-                   Коммит: _${ESCAPED_COMMIT_MSG}_"
+          MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed 's/[][_*()~`>#+\-=|{}.!]/\\&/g')*
+          Коммит: _${ESCAPED_COMMIT_MSG}_"
 
           if [[ "$STATUS" == "success" ]]; then
-            VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq '.[]' |  sed -e 's/[#_*()~`>+=|{}.:-]\|]/\\&/g')
+            VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq '.[]' | sed 's/[][_*()~`>#+\-=|{}.!]/\\&/g')
             MESSAGE="$MESSAGE
             ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*
             Пакеты:
