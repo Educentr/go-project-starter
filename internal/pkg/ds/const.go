@@ -70,6 +70,7 @@ type App struct {
 	DependsOnDockerImages []string
 	UseEnvs               bool
 	Grafana               grafana.Config
+	GoatTests             bool // Enable GOAT integration tests generation
 }
 
 // CLIApp represents a CLI transport configuration
@@ -191,6 +192,17 @@ type Apps []App
 func (a Apps) HasActiveRecord() bool {
 	for _, app := range a {
 		if app.UseActiveRecord {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasGoatTests returns true if any application has GOAT tests generation enabled
+func (a Apps) HasGoatTests() bool {
+	for _, app := range a {
+		if app.GoatTests {
 			return true
 		}
 	}

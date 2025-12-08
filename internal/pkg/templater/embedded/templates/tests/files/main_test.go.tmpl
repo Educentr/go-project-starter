@@ -1,0 +1,12 @@
+package {{ .Application.Name | ToLower }}_test
+
+import (
+	"testing"
+
+	gtt "github.com/Educentr/goat"
+)
+
+// TestMain is the entry point for all tests in this package
+func TestMain(m *testing.M) {
+	gtt.CallMain(env, m)
+}

@@ -255,6 +255,13 @@ func (g *Generator) processConfig(config config.Config) error {
 			useEnvs = true
 		}
 
+		// Вычисляем goat_tests для приложения
+		// Default false, может быть установлено в true
+		goatTests := false
+		if app.GoatTests != nil && *app.GoatTests {
+			goatTests = true
+		}
+
 		application := ds.App{
 			Name:                  app.Name,
 			Transports:            make(ds.Transports),
@@ -263,6 +270,7 @@ func (g *Generator) processConfig(config config.Config) error {
 			UseActiveRecord:       useActiveRecord,
 			DependsOnDockerImages: app.DependsOnDockerImages,
 			UseEnvs:               useEnvs,
+			GoatTests:             goatTests,
 		}
 
 		// Resolve Grafana datasources for this app
@@ -723,6 +731,17 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 			dirs = append(dirs, dirsCLI...)
 			files = append(files, filesCLI...)
+		}
+
+		// Generate GOAT test templates for applications with goat_tests enabled
+		if app.GoatTests && !app.IsCLI() {
+			dirsTest, filesTest, err := templater.GetTestTemplates(g.GetTmplAppParams(app))
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get test templates for %s: %w", app.Name, err)
+			}
+
+			dirs = append(dirs, dirsTest...)
+			files = append(files, filesTest...)
 		}
 	}
 

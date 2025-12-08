@@ -1,0 +1,166 @@
+package {{ .Application.Name | ToLower }}_test
+
+import (
+	"context"
+	"fmt"
+	"os"
+{{ if .Application.UseActiveRecord }}
+	"sync"
+	"time"
+
+	"github.com/Educentr/go-activerecord/v3/pkg/activerecord"
+	"github.com/Educentr/goat-services/psql"
+{{ end }}
+	gtt "github.com/Educentr/goat"
+	"github.com/Educentr/goat/services"
+)
+
+var (
+	env *gtt.Env
+{{ if .Application.UseActiveRecord }}
+	activeRecordInitOnce sync.Once
+{{ end }}
+)
+
+const (
+	testBinaryPath = "/tmp/{{ .Application.Name }}"
+	serviceName    = "{{ .ProjectName }}"
+{{ $hasSys := false }}{{ $hasAPI := false }}{{ range $_, $tr := .Application.GetRestTransport }}{{ if eq $tr.Name "sys" }}{{ $hasSys = true }}
+	sysPort = "{{ $tr.Port }}"
+{{ else if ne $tr.GeneratorType "ogen_client" }}{{ $hasAPI = true }}
+	apiPort = "{{ $tr.Port }}"
+{{ end }}{{ end }}{{ if not $hasSys }}
+	sysPort = "8080" // default sys port
+{{ end }}{{ if not $hasAPI }}
+	apiPort = "8081" // default api port
+{{ end }}
+)
+
+func init() {
+{{ if .Application.UseActiveRecord }}
+	// Register PostgreSQL service from goat-services
+	services.MustRegisterServiceFuncTyped("postgres", psql.Run)
+
+	servicesMap := services.NewServicesMap("postgres")
+{{ else }}
+	servicesMap := services.NewServicesMap()
+{{ end }}
+	manager := services.NewManager(servicesMap, services.DefaultManagerConfig())
+
+	env = gtt.NewEnv(gtt.EnvConfig{}, manager)
+}
+
+{{ if .Application.UseActiveRecord }}
+func updateEnvVarsForDB(envVars *map[string]string, pg *psql.Env) {
+	(*envVars)[fmt.Sprintf("OC_%s__db__main", serviceName)] = fmt.Sprintf("%s:%s", pg.DBHost, pg.DBPort)
+	(*envVars)[fmt.Sprintf("OC_%s__db__main__User", serviceName)] = pg.DBUser
+	(*envVars)[fmt.Sprintf("OC_%s__db__main__Password", serviceName)] = pg.DBPass
+	(*envVars)[fmt.Sprintf("OC_%s__db__main__name", serviceName)] = pg.DBName
+	(*envVars)[fmt.Sprintf("OC_%s__db__main__TLSEnable", serviceName)] = "0"
+	(*envVars)[fmt.Sprintf("OC_%s__db__main__DB", serviceName)] = pg.DBName
+}
+{{ end }}
+
+// NewTestApp creates an executor for the {{ .Application.Name }} service with test configuration
+func NewTestApp(env *gtt.Env) *gtt.Executor {
+	envVars := make(map[string]string)
+	envVars["ONLINECONFIG_FROM_ENV"] = "true"
+
+{{ if .Application.UseActiveRecord }}
+	pg := services.MustGetTyped[*psql.Env](env.Manager(), "postgres")
+	updateEnvVarsForDB(&envVars, pg)
+{{ end }}
+
+	// Get binary path from environment or use default
+	binaryPath := os.Getenv("TEST_BINARY_PATH")
+	if binaryPath == "" {
+		binaryPath = testBinaryPath
+	}
+
+	// Create executor with environment variables
+	return gtt.NewExecutorBuilder(binaryPath).
+		WithEnv(envVars).
+		WithOutputFile(fmt.Sprintf("/tmp/{{ .Application.Name }}-test-%d.log", time.Now().Unix())).
+		Build()
+}
+
+{{ if .Application.UseActiveRecord }}
+// InitTestDatabase initializes the database with schema and test data
+func InitTestDatabase(ctx context.Context, env *gtt.Env) error {
+	pg := services.MustGetTyped[*psql.Env](env.Manager(), "postgres")
+	sql, err := pg.SQL()
+	if err != nil {
+		return fmt.Errorf("failed to get SQL connection: %w", err)
+	}
+
+	// TODO: Add your migration logic here
+	// Example: Read and execute SQL files from etc/database/postgres/
+	_ = sql
+
+	return nil
+}
+
+// InitActiveRecordForTest initializes ActiveRecord for the test environment
+func InitActiveRecordForTest(ctx context.Context, env *gtt.Env) error {
+	// Use sync.Once to ensure ActiveRecord is initialized only once
+	activeRecordInitOnce.Do(func() {
+		// Build test config that returns database connection info
+		testConfig := func(ctx context.Context) activerecord.ConfigInterface {
+			pg := services.MustGetTyped[*psql.Env](env.Manager(), "postgres")
+			return activerecord.NewDefaultConfigFromMap(map[string]interface{}{
+				"/{{ .ProjectName }}/db/main":           fmt.Sprintf("%s:%s", pg.DBHost, pg.DBPort),
+				"/{{ .ProjectName }}/db/main/User":      pg.DBUser,
+				"/{{ .ProjectName }}/db/main/Password":  pg.DBPass,
+				"/{{ .ProjectName }}/db/main/DB":        pg.DBName,
+				"/{{ .ProjectName }}/db/main/PoolSize":  int64(10),
+				"/{{ .ProjectName }}/db/main/TLSEnable": false,
+				"/{{ .ProjectName }}/db/main/Timeout":   5 * time.Second,
+			})
+		}
+
+		// Initialize ActiveRecord with test configuration
+		activerecord.InitActiveRecord(
+			activerecord.WithConfig(testConfig),
+		)
+	})
+
+	return nil
+}
+
+// CleanupTestDatabase cleans up the database after tests
+func CleanupTestDatabase(ctx context.Context, env *gtt.Env) error {
+	pg := services.MustGetTyped[*psql.Env](env.Manager(), "postgres")
+	sql, err := pg.SQL()
+	if err != nil {
+		return fmt.Errorf("failed to get SQL connection: %w", err)
+	}
+
+	// Drop all tables and recreate schema
+	_, err = sql.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+	if err != nil {
+		return fmt.Errorf("failed to cleanup database: %w", err)
+	}
+
+	return nil
+}
+
+// CleanupTestData cleans up test data after each individual test
+// This is a lighter-weight cleanup that truncates tables instead of dropping the schema
+func CleanupTestData(ctx context.Context, env *gtt.Env) error {
+	// TODO: Add table truncation logic based on your schema
+	// Example:
+	// pg := services.MustGetTyped[*psql.Env](env.Manager(), "postgres")
+	// sql, err := pg.SQL()
+	// if err != nil {
+	//     return err
+	// }
+	// tables := []string{"users", "orders"}
+	// for _, table := range tables {
+	//     _, err = sql.Exec(fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", table))
+	//     if err != nil {
+	//         return err
+	//     }
+	// }
+	return nil
+}
+{{ end }}

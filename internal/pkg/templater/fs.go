@@ -17,6 +17,7 @@ const (
 	grafanaDashboardsPath   = "configs/grafana/dashboards"
 	devPrometheusPath       = "configs/dev/prometheus"
 	devLokiPath             = "configs/dev/loki"
+	testsPath               = "tests"
 )
 
 //go:embed all:embedded
@@ -462,6 +463,45 @@ func GetLokiTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 
 	for i := range files {
 		files[i].DestName = filepath.Join(devLokiPath, files[i].DestName)
+	}
+
+	return
+}
+
+// GetTestTemplates returns GOAT integration test templates for an application
+func GetTestTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Files, err error) {
+	// Skip if test generation is not enabled
+	if !params.Application.GoatTests {
+		return nil, nil, nil
+	}
+
+	// Skip CLI applications (they don't have HTTP transports to test)
+	if params.Application.IsCLI() {
+		return nil, nil, nil
+	}
+
+	dirs, files, err = GetTemplates(templates, "embedded/templates/tests/files", params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get test templates")
+
+		return
+	}
+
+	// Set destination path for test files: tests/{app_name}/
+	destPath := filepath.Join(testsPath, params.Application.Name)
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(destPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(destPath, files[i].DestName)
 	}
 
 	return

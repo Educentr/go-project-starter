@@ -266,14 +266,71 @@ jobs:
           include-hidden-files: true
           overwrite: true
 
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
+  run-goat-tests-{{ $a.Name | ReplaceDash }}:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-env
+    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_GOAT_TESTS != 'true'
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '{{ $.GolangVersion }}'
+          cache: true
+
+      {{ if eq $.RegistryType "github" }}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
+          password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
+      {{ end }}
+
+      - name: Configure Git for private repos
+        env:
+          GH_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set GOPRIVATE
+        run: |
+          go env -w GOPRIVATE="github.com/Educentr{{ if $.PrivateRepos }},{{ $.PrivateRepos }}{{ end }}"
+
+      - name: Run GOAT tests for {{ $a.Name }}
+        run: |
+          make goat-tests-{{ $a.Name }}
+
+      - name: Report GOAT tests status
+        uses: act10ns/slack@v2
+        if: failure()
+        with:
+          status: ${{"{{"}} job.status {{"}}"}}
+          steps: ${{"{{"}} toJson(steps) {{"}}"}}
+        env:
+          SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}
+{{ end }}{{ end }}
+
   build:
     runs-on: ubuntu-latest
     needs:
       - prepare-env
-    strategy:
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
+{{ end }}{{ end }}    strategy:
       matrix:
         containers: ${{"{{"}} fromJSON(needs.prepare-env.outputs.CONTAINERS) {{"}}"}}
-    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
+    if: |
+      always() &&
+      needs.prepare-env.outputs.ENABLE_BUILD == 'true' &&
+      needs.prepare-env.result == 'success'{{ range $_, $a := .Applications }}{{ if $a.GoatTests }} &&
+      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}
 
     steps:
       - name: Checkout repository

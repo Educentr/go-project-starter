@@ -174,6 +174,7 @@ type (
 		DependsOnDockerImages []string    `mapstructure:"depends_on_docker_images"`
 		UseEnvs               *bool       `mapstructure:"use_envs"`
 		Grafana               AppGrafana  `mapstructure:"grafana"`
+		GoatTests             *bool       `mapstructure:"goat_tests"` // Enable GOAT integration tests generation
 	}
 
 	Docker struct {
