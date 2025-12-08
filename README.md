@@ -4,7 +4,7 @@
 
 A powerful, opinionated microservice scaffolding tool that generates complete, production-grade Go services from YAML configuration files. Built for developers who need to rapidly build business services with REST APIs, gRPC, background workers, and event-driven architectures—without sacrificing code quality or flexibility.
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.24.4+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
 [![GitHub Stars](https://img.shields.io/github/stars/Educentr/go-project-starter?style=flat&logo=github)](https://github.com/Educentr/go-project-starter/stargazers)
 [![Code Generation](https://img.shields.io/badge/Generated%20Code-8K%2B%20lines-blue?style=flat)](#)
