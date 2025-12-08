@@ -403,14 +403,14 @@ jobs:
 
           # Экранируем commit message для MarkdownV2 (берём только первую строку)
           # Символы для экранирования: _ * [ ] ( ) ~ ` > # + - = | { } . !
-          ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed 's/[][_*()~`>#+\-=|{}.!]/\\&/g')
+          ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
 
           # Формирование сообщения
-          MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed 's/[][_*()~`>#+\-=|{}.!]/\\&/g')*
+          MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')*
           Коммит: _${ESCAPED_COMMIT_MSG}_"
 
           if [[ "$STATUS" == "success" ]]; then
-            VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq '.[]' | sed 's/[][_*()~`>#+\-=|{}.!]/\\&/g')
+            VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
             MESSAGE="$MESSAGE
             ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*
             Пакеты:
