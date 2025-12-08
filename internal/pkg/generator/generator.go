@@ -749,6 +749,28 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 				files = append(files, filesAppGrafana...)
 			}
 		}
+
+		// Generate Prometheus config for dev environment if prometheus datasource exists
+		if g.Grafana.HasPrometheus() {
+			dirsProm, filesProm, err := templater.GetPrometheusTemplates(g.GetTmplParams())
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get prometheus templates: %w", err)
+			}
+
+			dirs = append(dirs, dirsProm...)
+			files = append(files, filesProm...)
+		}
+
+		// Generate Loki config for dev environment if loki datasource exists
+		if g.Grafana.HasLoki() {
+			dirsLoki, filesLoki, err := templater.GetLokiTemplates(g.GetTmplParams())
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get loki templates: %w", err)
+			}
+
+			dirs = append(dirs, dirsLoki...)
+			files = append(files, filesLoki...)
+		}
 	}
 
 	// ToDo check git status

@@ -68,6 +68,16 @@ func (g Config) HasDatasources() bool {
 	return len(g.Datasources) > 0
 }
 
+// HasPrometheus returns true if prometheus datasource is configured.
+func (g Config) HasPrometheus() bool {
+	return g.HasDatasourceType(DatasourcePrometheus)
+}
+
+// HasLoki returns true if loki datasource is configured.
+func (g Config) HasLoki() bool {
+	return g.HasDatasourceType(DatasourceLoki)
+}
+
 // GetDashboardRows returns all dashboard rows based on configured datasources and transports.
 func (g Config) GetDashboardRows(appName string, transports []TransportInfo) []Row {
 	var rows []Row

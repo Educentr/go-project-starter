@@ -12,6 +12,13 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	grafanaProvisioningPath = "configs/grafana/provisioning"
+	grafanaDashboardsPath   = "configs/grafana/dashboards"
+	devPrometheusPath       = "configs/dev/prometheus"
+	devLokiPath             = "configs/dev/loki"
+)
+
 //go:embed all:embedded
 var templates embed.FS
 
@@ -346,11 +353,6 @@ func GetCLIHandlerTemplates(cli *ds.CLIApp, params GeneratorParams) (dirs []ds.F
 	return
 }
 
-const (
-	grafanaProvisioningPath = "configs/grafana/provisioning"
-	grafanaDashboardsPath   = "configs/grafana/dashboards"
-)
-
 // GetGrafanaProvisioningTemplates returns Grafana provisioning templates (datasources and dashboard provider config)
 func GetGrafanaProvisioningTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs, files, err = GetTemplates(templates, "embedded/templates/grafana/provisioning", params)
@@ -406,6 +408,60 @@ func GetGrafanaDashboardTemplates(params GeneratorAppParams) (dirs []ds.Files, f
 		}
 
 		files[i].DestName = filepath.Join(grafanaDashboardsPath, destName)
+	}
+
+	return
+}
+
+// GetPrometheusTemplates returns Prometheus configuration templates for dev environment
+func GetPrometheusTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, "embedded/templates/dev-infra/prometheus", params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get prometheus templates")
+
+		return
+	}
+
+	// Set destination path
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(devPrometheusPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(devPrometheusPath, files[i].DestName)
+	}
+
+	return
+}
+
+// GetLokiTemplates returns Loki configuration templates for dev environment
+func GetLokiTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, "embedded/templates/dev-infra/loki", params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrap(err, "error while get loki templates")
+
+		return
+	}
+
+	// Set destination path
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(devLokiPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(devLokiPath, files[i].DestName)
 	}
 
 	return
