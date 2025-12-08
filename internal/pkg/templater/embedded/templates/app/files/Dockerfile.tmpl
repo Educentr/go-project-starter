@@ -4,18 +4,24 @@ ARG GOPROXY
 
 RUN set -xe  && \
     apk update && apk upgrade  && \
-    apk add --no-cache make git
+    apk add --no-cache make git openssh-client
 ENV CGO_ENABLED=0
 COPY . /go/src/app
 WORKDIR /go/src/app
 
-# Configure Git to use GitHub token for private repos
-RUN --mount=type=secret,id=github_token \
+# Build with SSH (local dev) or GitHub token (CI)
+# - Local: docker-compose build (uses ssh agent)
+# - CI: docker build --secret id=github_token (uses token)
+RUN --mount=type=ssh --mount=type=secret,id=github_token \
     if [ -f /run/secrets/github_token ]; then \
         export GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
-        git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"{{- if .PrivateRepos }} && \
-        go env -w GOPRIVATE="{{ .PrivateRepos }}"{{- end }}; \
-    fi && \
+        git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    else \
+        mkdir -p -m 0700 ~/.ssh && \
+        ssh-keyscan github.com >> ~/.ssh/known_hosts && \
+        git config --global url."git@github.com:".insteadOf "https://github.com/"; \
+    fi{{- if .PrivateRepos }} && \
+    go env -w GOPRIVATE="{{ .PrivateRepos }}"{{- end }} && \
     make build_in_docker-{{ .Application.Name }} && \
     cp ${binary} /service
 

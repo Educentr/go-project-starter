@@ -187,6 +187,17 @@ type Worker struct {
 
 type Apps []App
 
+// HasActiveRecord returns true if any application uses ActiveRecord
+func (a Apps) HasActiveRecord() bool {
+	for _, app := range a {
+		if app.UseActiveRecord {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (a App) TransportImports() []string {
 	imports := make([]string, 0)
 

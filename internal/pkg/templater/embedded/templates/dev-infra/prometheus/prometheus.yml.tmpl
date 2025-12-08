@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+{{- range $_, $app := .Applications }}
+{{- $restTransport := $app.GetRestTransport }}
+{{- range $_, $t := $restTransport }}
+{{- if eq $t.GeneratorType "template" }}
+  - job_name: '{{ $app.Name }}-{{ $t.Name }}'
+    static_configs:
+      - targets: ['{{ $app.Name }}:{{ $t.Port }}']
+    metrics_path: /metrics
+{{- end }}
+{{- if eq $t.GeneratorType "ogen" }}
+  - job_name: '{{ $app.Name }}-{{ $t.Name }}'
+    static_configs:
+      - targets: ['{{ $app.Name }}:{{ $t.Port }}']
+    metrics_path: /metrics
+{{- end }}
+{{- end }}
+{{- end }}
