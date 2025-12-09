@@ -266,20 +266,13 @@ func (g *Generator) processConfig(config config.Config) error {
 		var goatTestsConfig *ds.GoatTestsConfig
 		if app.GoatTestsConfig != nil && app.GoatTestsConfig.Enabled {
 			goatTests = true // Enable goatTests if config is provided
-			goatTestsConfig = &ds.GoatTestsConfig{
-				Enabled:       app.GoatTestsConfig.Enabled,
-				BinaryPath:    app.GoatTestsConfig.BinaryPath,
-				CleanupTables: app.GoatTestsConfig.CleanupTables,
-				Services:      app.GoatTestsConfig.Services,
-				Migrations: ds.GoatTestsMigrations{
-					Path:       app.GoatTestsConfig.Migrations.Path,
-					Files:      app.GoatTestsConfig.Migrations.Files,
-					CheckTable: app.GoatTestsConfig.Migrations.CheckTable,
-				},
+			binaryPath := app.GoatTestsConfig.BinaryPath
+			if binaryPath == "" {
+				binaryPath = fmt.Sprintf("/tmp/%s", app.Name)
 			}
-			// Set default binary path if not specified
-			if goatTestsConfig.BinaryPath == "" {
-				goatTestsConfig.BinaryPath = fmt.Sprintf("/tmp/%s", app.Name)
+			goatTestsConfig = &ds.GoatTestsConfig{
+				Enabled:    app.GoatTestsConfig.Enabled,
+				BinaryPath: binaryPath,
 			}
 		}
 

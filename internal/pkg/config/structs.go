@@ -163,20 +163,10 @@ type (
 		Volumes []DeployVolume `mapstructure:"volumes"`
 	}
 
-	// GoatTestsMigrations represents database migration configuration for GOAT tests
-	GoatTestsMigrations struct {
-		Path       string   `mapstructure:"path"`        // Path to migration files (e.g., "etc/database/postgres")
-		Files      []string `mapstructure:"files"`       // List of migration files to execute in order
-		CheckTable string   `mapstructure:"check_table"` // Table to check if migrations were applied
-	}
-
 	// GoatTestsConfig represents extended GOAT tests configuration
 	GoatTestsConfig struct {
-		Enabled       bool                `mapstructure:"enabled"`
-		BinaryPath    string              `mapstructure:"binary_path"`    // Path to test binary (default: /tmp/{app_name})
-		Migrations    GoatTestsMigrations `mapstructure:"migrations"`     // Database migrations config
-		CleanupTables []string            `mapstructure:"cleanup_tables"` // Tables to truncate between tests (order matters for FK)
-		Services      []string            `mapstructure:"services"`       // GOAT services to use (e.g., postgres, xray)
+		Enabled    bool   `mapstructure:"enabled"`
+		BinaryPath string `mapstructure:"binary_path"` // Path to test binary (default: /tmp/{app_name})
 	}
 
 	Application struct {

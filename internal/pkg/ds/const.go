@@ -59,20 +59,10 @@ type DeployVolume struct {
 	Mount string // Путь к монтируемой папке в контейнере
 }
 
-// GoatTestsMigrations represents database migration configuration for GOAT tests
-type GoatTestsMigrations struct {
-	Path       string   // Path to migration files (e.g., "etc/database/postgres")
-	Files      []string // List of migration files to execute in order
-	CheckTable string   // Table to check if migrations were applied
-}
-
 // GoatTestsConfig represents extended GOAT tests configuration
 type GoatTestsConfig struct {
-	Enabled       bool
-	BinaryPath    string              // Path to test binary (default: /tmp/{app_name})
-	Migrations    GoatTestsMigrations // Database migrations config
-	CleanupTables []string            // Tables to truncate between tests (order matters for FK)
-	Services      []string            // GOAT services to use (e.g., postgres, xray)
+	Enabled    bool
+	BinaryPath string // Path to test binary (default: /tmp/{app_name})
 }
 
 type App struct {
@@ -220,6 +210,17 @@ func (a Apps) HasActiveRecord() bool {
 func (a Apps) HasGoatTests() bool {
 	for _, app := range a {
 		if app.GoatTests {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
+func (a App) HasOgenClients() bool {
+	for _, transport := range a.Transports {
+		if transport.GeneratorType == "ogen_client" {
 			return true
 		}
 	}

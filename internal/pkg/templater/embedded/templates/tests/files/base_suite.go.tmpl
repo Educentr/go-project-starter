@@ -18,7 +18,7 @@ type BaseTestSuite struct {
 	env    *gtt.Env
 	flow   *gtt.Flow
 	client *HTTPClient
-{{ if .Application.UseActiveRecord }}
+{{ if .Application.HasOgenClients }}
 	mocks  *MockServers
 {{ end }}
 }
@@ -40,7 +40,9 @@ func (s *BaseTestSuite) SetupSuite() {
 	// Initialize ActiveRecord
 	err = InitActiveRecordForTest(s.ctx, s.env)
 	s.Require().NoError(err, "Failed to initialize ActiveRecord")
+{{ end }}
 
+{{ if .Application.HasOgenClients }}
 	// Initialize mocks holder
 	s.mocks = &MockServers{}
 
@@ -119,7 +121,7 @@ func (s *BaseTestSuite) GetEnv() *gtt.Env {
 	return s.env
 }
 
-{{ if .Application.UseActiveRecord }}
+{{ if .Application.HasOgenClients }}
 // Mocks returns mock servers for test assertions
 func (s *BaseTestSuite) Mocks() *MockServers {
 	return s.mocks
