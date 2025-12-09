@@ -15,12 +15,12 @@ import (
 	gtt "github.com/Educentr/goat"
 	zlog "github.com/rs/zerolog"
 
-	tests_pkg "{{ .ProjectPath }}/pkg/tests"
+	"github.com/Educentr/goat/testutil"
 )
 
 var (
 	env             *gtt.Env
-	appConfig       tests_pkg.TestAppConfig
+	appConfig       testutil.TestAppConfig
 	testEnvInitOnce sync.Once
 {{ if .Application.UseActiveRecord }}
 	activeRecordInitOnce sync.Once
@@ -58,7 +58,7 @@ func GetEnv() *gtt.Env {
 }
 
 // GetAppConfig returns the initialized app config
-func GetAppConfig() tests_pkg.TestAppConfig {
+func GetAppConfig() testutil.TestAppConfig {
 	ensureTestEnvInitialized()
 	return appConfig
 }

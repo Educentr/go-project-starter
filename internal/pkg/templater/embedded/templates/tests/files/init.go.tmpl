@@ -3,20 +3,20 @@ package tests
 
 import (
 	gtt "github.com/Educentr/goat"
-	tests_pkg "{{ .ProjectPath }}/pkg/tests"
+	"github.com/Educentr/goat/testutil"
 )
 
 // TestEnvInitializer is the interface for initializing test environment.
 // Implement this interface in your init.go to customize test setup.
 type TestEnvInitializer interface {
-	InitTestEnv() (tests_pkg.TestAppConfig, *gtt.Env)
+	InitTestEnv() (testutil.TestAppConfig, *gtt.Env)
 }
 
 // defaultTestEnvInitializer is the default implementation with panic.
 // It will be replaced by user's implementation in init.go
 type defaultTestEnvInitializer struct{}
 
-func (d *defaultTestEnvInitializer) InitTestEnv() (tests_pkg.TestAppConfig, *gtt.Env) {
+func (d *defaultTestEnvInitializer) InitTestEnv() (testutil.TestAppConfig, *gtt.Env) {
 	panic(`TestEnvInitializer not implemented.
 
 Create init.go with your implementation:
@@ -31,12 +31,12 @@ Create init.go with your implementation:
         "github.com/Educentr/goat-services/psql"
         "github.com/Educentr/goat-services/xray"
 
-        tests_pkg "{{ .ProjectPath }}/pkg/tests"
+        "github.com/Educentr/goat/testutil"
     )
 
     type testEnvInitializerImpl struct{}
 
-    func (t *testEnvInitializerImpl) InitTestEnv() (tests_pkg.TestAppConfig, *gtt.Env) {
+    func (t *testEnvInitializerImpl) InitTestEnv() (testutil.TestAppConfig, *gtt.Env) {
         // 1. Create app config
         config := New{{ .ProjectName | Capitalize }}Config()
 
