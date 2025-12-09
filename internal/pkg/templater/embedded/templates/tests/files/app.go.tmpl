@@ -5,24 +5,23 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 {{ if .Application.UseActiveRecord }}
 	"github.com/Educentr/go-activerecord/v3/pkg/activerecord"
 	"github.com/Educentr/goat-services/psql"
+	"github.com/Educentr/goat/services"
 {{ end }}
 	gtt "github.com/Educentr/goat"
-	"github.com/Educentr/goat/services"
 	zlog "github.com/rs/zerolog"
 
 	tests_pkg "{{ .ProjectPath }}/pkg/tests"
 )
 
 var (
-	env                  *gtt.Env
-	appConfig            tests_pkg.TestAppConfig
-	testEnvInitOnce      sync.Once
+	env             *gtt.Env
+	appConfig       tests_pkg.TestAppConfig
+	testEnvInitOnce sync.Once
 {{ if .Application.UseActiveRecord }}
 	activeRecordInitOnce sync.Once
 {{ end }}
@@ -74,42 +73,9 @@ func InitTestDatabase(ctx context.Context, e *gtt.Env) error {
 		return fmt.Errorf("failed to get SQL connection: %w", err)
 	}
 
-	// Check initialization through interface
-	initialized, err := appConfig.IsInitialized(ctx, sql)
-	if err != nil {
-		return fmt.Errorf("failed to check if database is initialized: %w", err)
-	}
-
-	if initialized {
-		zlog.Ctx(ctx).Info().Msg("Database already initialized, skipping migrations")
-		return nil
-	}
-
-	// Migrations through interface
-	migrationsPath := appConfig.MigrationsPath()
-
-	for _, migration := range appConfig.MigrationFiles() {
-		migrationPath := filepath.Join(migrationsPath, migration)
-		content, err := os.ReadFile(migrationPath)
-		if err != nil {
-			// Skip missing files (some might be empty)
-			if os.IsNotExist(err) {
-				zlog.Ctx(ctx).Warn().Str("migration", migration).Msg("Migration file not found, skipping")
-				continue
-			}
-			return fmt.Errorf("failed to read migration %s: %w", migration, err)
-		}
-
-		if len(content) == 0 {
-			continue
-		}
-
-		zlog.Ctx(ctx).Info().Str("migration", migration).Msg("Executing migration")
-
-		_, err = sql.Exec(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to execute migration %s: %w", migration, err)
-		}
+	// Apply migrations through interface
+	if err := appConfig.ApplyMigrations(ctx, sql); err != nil {
+		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
 	return nil
@@ -159,11 +125,9 @@ func CleanupTestData(ctx context.Context, e *gtt.Env) error {
 		return fmt.Errorf("failed to get SQL connection: %w", err)
 	}
 
-	for _, table := range appConfig.TablesToTruncate() {
-		_, err = sql.Exec(fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", table))
-		if err != nil {
-			return fmt.Errorf("failed to truncate table %s: %w", table, err)
-		}
+	// Cleanup tables through interface
+	if err := appConfig.CleanupTables(ctx, sql); err != nil {
+		return fmt.Errorf("failed to cleanup tables: %w", err)
 	}
 
 	return nil
