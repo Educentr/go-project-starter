@@ -282,7 +282,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '{{ $.GolangVersion }}'
+          go-version: '{{ $.GoLangVersion }}'
           cache: true
 
       {{ if eq $.RegistryType "github" }}

@@ -493,15 +493,13 @@ func GetTestTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fi
 		return
 	}
 
-	// Set destination path for test files: tests/{app_name}/
-	destPath := filepath.Join(testsPath, params.Application.Name)
-
+	// Set destination path for test files: tests/ (directly, without app name subdirectory)
 	for i := range dirs {
-		dirs[i].DestName = filepath.Join(destPath, dirs[i].DestName)
+		dirs[i].DestName = filepath.Join(testsPath, dirs[i].DestName)
 	}
 
 	for i := range files {
-		files[i].DestName = filepath.Join(destPath, files[i].DestName)
+		files[i].DestName = filepath.Join(testsPath, files[i].DestName)
 	}
 
 	return

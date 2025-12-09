@@ -59,6 +59,22 @@ type DeployVolume struct {
 	Mount string // Путь к монтируемой папке в контейнере
 }
 
+// GoatTestsMigrations represents database migration configuration for GOAT tests
+type GoatTestsMigrations struct {
+	Path       string   // Path to migration files (e.g., "etc/database/postgres")
+	Files      []string // List of migration files to execute in order
+	CheckTable string   // Table to check if migrations were applied
+}
+
+// GoatTestsConfig represents extended GOAT tests configuration
+type GoatTestsConfig struct {
+	Enabled       bool
+	BinaryPath    string              // Path to test binary (default: /tmp/{app_name})
+	Migrations    GoatTestsMigrations // Database migrations config
+	CleanupTables []string            // Tables to truncate between tests (order matters for FK)
+	Services      []string            // GOAT services to use (e.g., postgres, xray)
+}
+
 type App struct {
 	Name                  string
 	Transports            Transports
@@ -70,7 +86,8 @@ type App struct {
 	DependsOnDockerImages []string
 	UseEnvs               bool
 	Grafana               grafana.Config
-	GoatTests             bool // Enable GOAT integration tests generation
+	GoatTests             bool             // Enable GOAT integration tests generation
+	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 }
 
 // CLIApp represents a CLI transport configuration
