@@ -102,11 +102,28 @@ regenerate:
 	go-project-starter --target ${PWD}
 
 ##################### End of golang-ci checks #####################
+# Initialize git repository (does not require remote to exist)
+.PHONY: git-init
+git-init:
+	@if [ ! -d .git ]; then \
+		git init && \
+		echo "Git repository initialized"; \
+	else \
+		echo "Git repository already exists"; \
+	fi
+
+# Setup remote and fetch (requires remote repository to exist)
+.PHONY: git-remote
+git-remote:
+	@if ! git remote get-url origin >/dev/null 2>&1; then \
+		git remote add origin {{ .Repo }} && \
+		echo "Remote 'origin' added: {{ .Repo }}"; \
+	fi
+	@git fetch origin || echo "Fetch failed (remote may not exist yet). Skip"
+
+# Legacy target for backwards compatibility
 .PHONY: git-repo
-git-repo:
-	@(git status >/dev/null 2>&1 || (git init && git remote add origin {{ .Repo }} && git fetch origin && git pull origin main))
-	@(git fetch origin || echo "Fetch fail. Skip")
-	@echo "Git repository fetch done"
+git-repo: git-init git-remote
 
 # Install linter
 .PHONY: install-lint

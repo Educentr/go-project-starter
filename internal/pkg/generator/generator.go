@@ -389,7 +389,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	for _, postGenerate := range config.PostGenerate {
 		switch postGenerate {
 		case "git_install":
-			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"git-repo"}, Msg: "initialize git"})
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"git-init"}, Msg: "initialize git"})
 		case "tools_install":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"install-tools"}, Msg: "install tools"})
 		case "clean_imports":
