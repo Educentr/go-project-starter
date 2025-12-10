@@ -163,17 +163,25 @@ type (
 		Volumes []DeployVolume `mapstructure:"volumes"`
 	}
 
+	// GoatTestsConfig represents extended GOAT tests configuration
+	GoatTestsConfig struct {
+		Enabled    bool   `mapstructure:"enabled"`
+		BinaryPath string `mapstructure:"binary_path"` // Path to test binary (default: /tmp/{app_name})
+	}
+
 	Application struct {
-		Name                  string      `mapstructure:"name"`
-		TransportList         []string    `mapstructure:"transport"`
-		DriverList            []AppDriver `mapstructure:"driver"`
-		WorkerList            []string    `mapstructure:"worker"`
-		CLI                   string      `mapstructure:"cli"` // CLI app name (only one per application, exclusive with transport/worker)
-		Deploy                AppDeploy   `mapstructure:"deploy"`
-		UseActiveRecord       *bool       `mapstructure:"use_active_record"`
-		DependsOnDockerImages []string    `mapstructure:"depends_on_docker_images"`
-		UseEnvs               *bool       `mapstructure:"use_envs"`
-		Grafana               AppGrafana  `mapstructure:"grafana"`
+		Name                  string           `mapstructure:"name"`
+		TransportList         []string         `mapstructure:"transport"`
+		DriverList            []AppDriver      `mapstructure:"driver"`
+		WorkerList            []string         `mapstructure:"worker"`
+		CLI                   string           `mapstructure:"cli"` // CLI app name (only one per application, exclusive with transport/worker)
+		Deploy                AppDeploy        `mapstructure:"deploy"`
+		UseActiveRecord       *bool            `mapstructure:"use_active_record"`
+		DependsOnDockerImages []string         `mapstructure:"depends_on_docker_images"`
+		UseEnvs               *bool            `mapstructure:"use_envs"`
+		Grafana               AppGrafana       `mapstructure:"grafana"`
+		GoatTests             *bool            `mapstructure:"goat_tests"`        // Enable GOAT integration tests generation (simple flag)
+		GoatTestsConfig       *GoatTestsConfig `mapstructure:"goat_tests_config"` // Extended GOAT tests configuration
 	}
 
 	Docker struct {

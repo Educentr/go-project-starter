@@ -59,6 +59,12 @@ type DeployVolume struct {
 	Mount string // Путь к монтируемой папке в контейнере
 }
 
+// GoatTestsConfig represents extended GOAT tests configuration
+type GoatTestsConfig struct {
+	Enabled    bool
+	BinaryPath string // Path to test binary (default: /tmp/{app_name})
+}
+
 type App struct {
 	Name                  string
 	Transports            Transports
@@ -70,6 +76,8 @@ type App struct {
 	DependsOnDockerImages []string
 	UseEnvs               bool
 	Grafana               grafana.Config
+	GoatTests             bool             // Enable GOAT integration tests generation
+	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 }
 
 // CLIApp represents a CLI transport configuration
@@ -191,6 +199,28 @@ type Apps []App
 func (a Apps) HasActiveRecord() bool {
 	for _, app := range a {
 		if app.UseActiveRecord {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasGoatTests returns true if any application has GOAT tests generation enabled
+func (a Apps) HasGoatTests() bool {
+	for _, app := range a {
+		if app.GoatTests {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
+func (a App) HasOgenClients() bool {
+	for _, transport := range a.Transports {
+		if transport.GeneratorType == "ogen_client" {
 			return true
 		}
 	}

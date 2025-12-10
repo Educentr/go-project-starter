@@ -150,7 +150,14 @@ func GenerateFilenameByTmpl(file *ds.Files, targetPath string, lastVer int) erro
 	if pos := strings.Index(destFileName, ".go"); pos > 0 && pos == len(destFileName)-3 {
 		dir, fName := filepath.Split(destFileName)
 
-		destFileName = filepath.Join(dir, "psg_"+fName[:len(fName)-3]+"_gen.go")
+		// Special handling for _test.go files to preserve Go test file naming convention
+		// Go requires test files to end with _test.go, not _gen.go
+		if strings.HasSuffix(fName, "_test.go") {
+			// Convert main_test.go -> psg_main_test.go (not psg_main_test_gen.go)
+			destFileName = filepath.Join(dir, "psg_"+fName)
+		} else {
+			destFileName = filepath.Join(dir, "psg_"+fName[:len(fName)-3]+"_gen.go")
+		}
 	}
 
 	oldFileName := destFileName

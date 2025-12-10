@@ -109,3 +109,10 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/ozontech/cute v0.1.8
 )
+{{ if .Applications.HasGoatTests }}
+// GOAT test dependencies
+require (
+	github.com/Educentr/goat v0.0.21
+	github.com/Educentr/goat-services v0.0.7
+)
+{{ end }}

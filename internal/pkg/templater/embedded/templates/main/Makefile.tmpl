@@ -378,4 +378,37 @@ generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{
 download:
 	@GOPRIVATE=$(GOPRIVATE) go mod download
 
+{{ if .Applications.HasGoatTests }}
+# GOAT integration tests
+.PHONY: onlineconf-update-tests
+onlineconf-update-tests:
+	@echo "Update onlineconf tests..."
+	@onlineconf-updater -config tests/etc/onlineconf-updater.conf -once
+
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
+.PHONY: generate-test-env-{{ $a.Name }}
+generate-test-env-{{ $a.Name }}:
+	@if [ ! -f tests/etc/onlineconf/onlineconf.env ]; then \
+		echo "onlineconf.env not found, preparing environment..."; \
+		$(MAKE) install-onlineconf-updater || true; \
+		$(MAKE) onlineconf-update-tests || true; \
+	fi
+	@echo "Generating tests/etc/onlineconf/onlineconf.env..."
+	@go run ./cmd/tests generate-env
+
+.PHONY: goat-tests-{{ $a.Name }}
+goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
+	export GOAT_DISABLE_STDOUT=true \
+	&& go test -v ./tests/...
+
+.PHONY: goat-tests-{{ $a.Name }}-verbose
+goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
+	go test -v ./tests/...
+
+# Alias for backward compatibility
+.PHONY: goat-tests
+goat-tests: goat-tests-{{ $a.Name }}
+{{ end }}{{ end }}
+{{ end }}
+
 #ToDo integration tests GITEF
