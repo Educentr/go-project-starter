@@ -8,12 +8,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/go-git/go-git/v5"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/go-git/go-git/v5"
 )
 
 const (
-	fileMode = 0755
+	fileMode       = 0755
+	DefaultDirPerm = 0755
 
 	msgStopFailedToOpenGitRepo      = "failed to open git repository (%s): %s"
 	msgStopFailedToGetGitWorktree   = "failed to get git worktree (%s): %s"

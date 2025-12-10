@@ -24,11 +24,26 @@ type DeployType struct {
 
 //type WorkerType string
 
+// JSONSchema represents a JSON Schema configuration for code generation.
+type JSONSchema struct {
+	Name    string   // Unique identifier for the schema set
+	Package string   // Package name for generated code
+	Path    []string // Paths to JSON schema files (absolute)
+}
+
+// JSONSchemas is a map of JSONSchema by name
+type JSONSchemas map[string]JSONSchema
+
 const (
 	RestTransportType  TransportType = "rest"
 	GrpcTransportType  TransportType = "grpc"
 	KafkaTransportType TransportType = "kafka"
 	CLITransportType   TransportType = "cli"
+
+	// Path components for schema directories
+	schemaDir = "schema"
+	pkgDir    = "pkg"
+	apiDir    = "api"
 
 //	WorkerDaemonType WorkerType = "daemon"
 
@@ -404,3 +419,38 @@ type FilesDiff struct {
 	RenameFiles    map[string]string
 }
 
+// GetTargetSpecDir returns the directory where schema files should be placed
+func (j JSONSchema) GetTargetSpecDir(targetDir string) string {
+	return filepath.Join(targetDir, apiDir, schemaDir, j.Name)
+}
+
+// GetTargetGeneratePath returns the directory for generated Go code
+func (j JSONSchema) GetTargetGeneratePath(targetDir string) string {
+	return filepath.Join(targetDir, pkgDir, schemaDir, j.Name)
+}
+
+// GetPackageName returns the package name for generated code
+func (j JSONSchema) GetPackageName() string {
+	if j.Package != "" {
+		return j.Package
+	}
+
+	return j.Name
+}
+
+// GetSchemaFilenames returns the base filenames without extension for all schema paths
+func (j JSONSchema) GetSchemaFilenames() []string {
+	filenames := make([]string, 0, len(j.Path))
+
+	for _, path := range j.Path {
+		base := filepath.Base(path)
+		// Remove .json extension if present
+		if ext := filepath.Ext(base); ext == ".json" {
+			base = base[:len(base)-len(ext)]
+		}
+
+		filenames = append(filenames, base)
+	}
+
+	return filenames
+}

@@ -14,6 +14,12 @@ tools:
   golang_version: 1.21
   ogen_version: v0.78.0
   golangci_version: 1.55.2
+  go_jsonschema_version: v0.16.0
+
+jsonschema:
+  - name: testmodels
+    path:
+      - ./test.schema.json
 
 rest:
   - name: example

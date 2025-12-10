@@ -25,8 +25,8 @@ type (
 	// GrafanaDatasource represents a single Grafana datasource configuration
 	GrafanaDatasource struct {
 		Name      string `mapstructure:"name"`
-		Type      string `mapstructure:"type"`      // prometheus, loki
-		Access    string `mapstructure:"access"`    // proxy, direct
+		Type      string `mapstructure:"type"`   // prometheus, loki
+		Access    string `mapstructure:"access"` // proxy, direct
 		URL       string `mapstructure:"url"`
 		IsDefault bool   `mapstructure:"isDefault"`
 		Editable  bool   `mapstructure:"editable"`
@@ -54,12 +54,13 @@ type (
 	}
 
 	Tools struct {
-		ProtobufVersion string `mapstructure:"protobuf_version"`
-		GolangVersion   string `mapstructure:"golang_version"`
-		OgenVersion     string `mapstructure:"ogen_version"`
-		ArgenVersion    string `mapstructure:"argen_version"`
-		GolangciVersion string `mapstructure:"golangci_version"`
-		RuntimeVersion  string `mapstructure:"runtime_version"`
+		ProtobufVersion     string `mapstructure:"protobuf_version"`
+		GolangVersion       string `mapstructure:"golang_version"`
+		OgenVersion         string `mapstructure:"ogen_version"`
+		ArgenVersion        string `mapstructure:"argen_version"`
+		GolangciVersion     string `mapstructure:"golangci_version"`
+		RuntimeVersion      string `mapstructure:"runtime_version"`
+		GoJSONSchemaVersion string `mapstructure:"go_jsonschema_version"`
 	}
 
 	AuthParams struct {
@@ -96,10 +97,18 @@ type (
 	// It works like a shell: first word is command, rest are arguments.
 	CLI struct {
 		Name              string            `mapstructure:"name"`
-		Path              []string          `mapstructure:"path"`              // Path to CLI spec files (optional)
-		GeneratorType     string            `mapstructure:"generator_type"`    // template
+		Path              []string          `mapstructure:"path"`               // Path to CLI spec files (optional)
+		GeneratorType     string            `mapstructure:"generator_type"`     // template
 		GeneratorTemplate string            `mapstructure:"generator_template"` // cli template name
 		GeneratorParams   map[string]string `mapstructure:"generator_params"`
+	}
+
+	// JSONSchema represents a JSON Schema configuration for generating Go structs.
+	// Similar to OpenAPI/gRPC but generates only data structures with validation.
+	JSONSchema struct {
+		Name    string   `mapstructure:"name"`    // Unique identifier for the schema set
+		Path    []string `mapstructure:"path"`    // Paths to JSON schema files
+		Package string   `mapstructure:"package"` // Optional: override package name (default: schema name)
 	}
 
 	Grpc struct {
@@ -146,6 +155,7 @@ type (
 	RepositoryList []Repository
 	WorkerList     []Worker
 	CLIList        []CLI
+	JSONSchemaList []JSONSchema
 	ConsumerList   []Consumer
 	DriverList     []Driver
 
@@ -209,6 +219,7 @@ type (
 		RestList       RestList       `mapstructure:"rest"`
 		WorkerList     WorkerList     `mapstructure:"worker"`
 		CLIList        CLIList        `mapstructure:"cli"`
+		JSONSchemaList JSONSchemaList `mapstructure:"jsonschema"`
 		GrpcList       GrpcList       `mapstructure:"grpc"`
 		WsList         WsList         `mapstructure:"ws"`
 		ConsumerList   ConsumerList   `mapstructure:"consumer"`
@@ -222,6 +233,7 @@ type (
 		DriverMap            map[string]Driver
 		WorkerMap            map[string]Worker
 		CLIMap               map[string]CLI
+		JSONSchemaMap        map[string]JSONSchema
 		GrafanaDatasourceMap map[string]GrafanaDatasource
 	}
 )
@@ -233,11 +245,12 @@ type (
 )
 
 const (
-	defaultGolangVersion   = "1.20"
-	defaultProtobufVersion = "1.7.0"
-	defaultGolangciVersion = "1.55.2"
-	defaultOgenVersion     = "v0.78.0"
-	defaultArgenVersion    = "v1.0.0"
+	defaultGolangVersion       = "1.20"
+	defaultProtobufVersion     = "1.7.0"
+	defaultGolangciVersion     = "1.55.2"
+	defaultOgenVersion         = "v0.78.0"
+	defaultArgenVersion        = "v1.0.0"
+	defaultGoJSONSchemaVersion = "v0.16.0"
 )
 
 var (
@@ -469,6 +482,27 @@ func (c CLI) IsValid() (bool, string) {
 	if len(c.Name) == 0 {
 		return false, "Empty name"
 	}
+	return true, ""
+}
+
+// JSONSchema validation
+func (j JSONSchema) IsValid(baseConfigDir string) (bool, string) {
+	if len(j.Name) == 0 {
+		return false, "Empty name"
+	}
+
+	if len(j.Path) == 0 {
+		return false, "Empty path"
+	}
+
+	for _, p := range j.Path {
+		absPath := filepath.Join(baseConfigDir, p)
+
+		if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
+			return false, "Invalid path: " + p
+		}
+	}
+
 	return true, ""
 }
 
