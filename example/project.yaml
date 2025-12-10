@@ -9,9 +9,9 @@ deploy:
   log_collector:
     type: loki
     parameters:
-      - 'loki-url: "https://loki.educentr.info/loki/api/v1/push"'
-      - "loki-retries: 2"
-      - "loki-timeout: 4s"
+      loki-url: "https://loki.educentr.info/loki/api/v1/push"
+      loki-retries: "2"
+      loki-timeout: "4s"
 
 # Grafana dashboard generation configuration
 # Generates ready-to-use dashboards and provisioning configs
@@ -30,15 +30,11 @@ grafana:
       isDefault: false
       editable: false
 
+# Post-generation steps
+# Available: git_install, tools_install, clean_imports, executable_scripts, call_generate, go_mod_tidy, go_get_u
 post_generate:
-  - git_install
-  #- tools_install
-  - clean_imports
-  - executable_scripts
-  - call_generate
-  - go_mod_tidy
-  #- go_get_u
-  #- echo "post generate last job"
+  - git_install        # Initialize git repo (safe, doesn't require remote)
+  - executable_scripts # Make scripts executable
 
 git:
   repo: git@gitlab.educentr.info:golang/projects/example.git
@@ -50,11 +46,22 @@ tools:
   golang_version: 1.21
   ogen_version: v0.78.0
   golangci_version: 1.55.2
+  go_jsonschema_version: v0.16.0
+
+# JSON Schema - generates Go structs with validation from JSON Schema files
+# Output: pkg/schema/{name}/ - generated Go code
+# Specs:  api/schema/{name}/ - schema files are copied here
+jsonschema:
+  - name: models
+    path:
+      - ./user.schema.json
+      - ./event.schema.json
+    package: models  # optional: defaults to name
 
 rest:
   - name: example
     path:
-      - ./example/example.swagger.yml
+      - ./example.swagger.yml
     api_prefix: /
     version: "v1"
     port: 8081
@@ -90,11 +97,11 @@ cli:
 # grpc:
 #   - name: ExampleService
 #     short: example
-#     path: ./example/example.proto
+#     path: ./example.proto
 #     port: 8083
 #   - name: AdminService
 #     short: admin
-#     path: ./example/admin.proto
+#     path: ./admin.proto
 #     port: 8084
 
 # repository:
@@ -111,7 +118,7 @@ cli:
 
 # consumer:
 #  - name: petstore
-#    path: ./example/kafka_example.proto
+#    path: ./kafka_example.proto
 #    backend: kafka
 #    group: pets_store
 #    topic: pets_store_events
@@ -133,9 +140,9 @@ applications:
         - Prometheus
         - Loki
     deploy:
-      - volumes:
-          - path: ./backupdata
-            mount: /backup
+      volumes:
+        - path: ./backupdata
+          mount: /backup
   # - name: internalApi
   #   transport:
   #     - AdminService

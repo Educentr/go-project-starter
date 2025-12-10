@@ -21,32 +21,34 @@ import (
 )
 
 type Generator struct {
-	AppInfo           string
-	DryRun            bool
-	Meta              meta.Meta
-	Logger            ds.Logger
-	ProjectName       string
-	Deploy            ds.DeployType
-	RegistryType      string
-	Author            string
-	ProjectPath       string
-	UseActiveRecord   bool
-	Repo              string
-	PrivateRepos      string
-	GoLangVersion     string
-	OgenVersion       string
-	ArgenVersion      string
-	GolangciVersion   string
-	RuntimeVersion    string
-	TargetDir         string
-	DockerImagePrefix string
-	SkipInitService   bool
-	PostGenerate      []ExecCmd
-	Transports        ds.Transports
-	Workers           ds.Workers
-	Drivers           ds.Drivers
-	Applications      ds.Apps
-	Grafana           grafana.Config
+	AppInfo             string
+	DryRun              bool
+	Meta                meta.Meta
+	Logger              ds.Logger
+	ProjectName         string
+	Deploy              ds.DeployType
+	RegistryType        string
+	Author              string
+	ProjectPath         string
+	UseActiveRecord     bool
+	Repo                string
+	PrivateRepos        string
+	GoLangVersion       string
+	OgenVersion         string
+	ArgenVersion        string
+	GolangciVersion     string
+	RuntimeVersion      string
+	GoJSONSchemaVersion string
+	TargetDir           string
+	DockerImagePrefix   string
+	SkipInitService     bool
+	PostGenerate        []ExecCmd
+	Transports          ds.Transports
+	Workers             ds.Workers
+	Drivers             ds.Drivers
+	JSONSchemas         ds.JSONSchemas
+	Applications        ds.Apps
+	Grafana             grafana.Config
 }
 
 type ExecCmd struct {
@@ -62,6 +64,7 @@ func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (
 		Transports:   make(ds.Transports),
 		Workers:      make(ds.Workers),
 		Drivers:      make(ds.Drivers),
+		JSONSchemas:  make(ds.JSONSchemas),
 		DryRun:       dryrun,
 		Meta:         genMeta,
 	}
@@ -88,6 +91,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.OgenVersion = config.Tools.OgenVersion
 	g.ArgenVersion = config.Tools.ArgenVersion
 	g.GolangciVersion = config.Tools.GolangciVersion
+	g.GoJSONSchemaVersion = config.Tools.GoJSONSchemaVersion
 
 	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
 	if config.Tools.RuntimeVersion != "" {
@@ -128,13 +132,13 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		transport := ds.Transport{
-			Name:                 rest.Name,
-			PkgName:              fmt.Sprintf("%s_%s", rest.Name, rest.Version),
-			Type:                 ds.RestTransportType,
-			GeneratorType:        rest.GeneratorType,
-			HealthCheckPath:      rest.HealthCheckPath,
-			GeneratorTemplate:    rest.GeneratorTemplate,
-			GeneratorParams:      rest.GeneratorParams,
+			Name:              rest.Name,
+			PkgName:           fmt.Sprintf("%s_%s", rest.Name, rest.Version),
+			Type:              ds.RestTransportType,
+			GeneratorType:     rest.GeneratorType,
+			HealthCheckPath:   rest.HealthCheckPath,
+			GeneratorTemplate: rest.GeneratorTemplate,
+			GeneratorParams:   rest.GeneratorParams,
 			AuthParams: ds.AuthParams{
 				Transport: rest.AuthParams.Transport,
 				Type:      rest.AuthParams.Type,
@@ -238,6 +242,26 @@ func (g *Generator) processConfig(config config.Config) error {
 			Editable:  cfgDs.Editable,
 			UID:       grafana.GenerateDatasourceUID(cfgDs.Name),
 		})
+	}
+
+	// Process JSON Schema configurations
+	for _, js := range config.JSONSchemaList {
+		if js.Name == "" {
+			return errors.New("jsonschema name is empty")
+		}
+
+		paths := make([]string, 0, len(js.Path))
+		for _, path := range js.Path {
+			paths = append(paths, filepath.Join(config.BasePath, path))
+		}
+
+		schema := ds.JSONSchema{
+			Name:    js.Name,
+			Package: js.Package,
+			Path:    paths,
+		}
+
+		g.JSONSchemas[js.Name] = schema
 	}
 
 	for _, app := range config.Applications {
@@ -365,7 +389,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	for _, postGenerate := range config.PostGenerate {
 		switch postGenerate {
 		case "git_install":
-			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"git-repo"}, Msg: "initialize git"})
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"git-init"}, Msg: "initialize git"})
 		case "tools_install":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"install-tools"}, Msg: "install tools"})
 		case "clean_imports":
@@ -443,26 +467,28 @@ func (g *Generator) processConfig(config config.Config) error {
 
 func (g *Generator) GetTmplParams() templater.GeneratorParams {
 	return templater.GeneratorParams{
-		Logger:            g.Logger,
-		ProjectName:       g.ProjectName,
-		RegistryType:      g.RegistryType,
-		Author:            g.Author,
-		Year:              time.Now().Format("2006"),
-		ProjectPath:       g.ProjectPath,
-		UseActiveRecord:   g.UseActiveRecord,
-		Repo:              g.Repo,
-		PrivateRepos:      g.PrivateRepos,
-		DockerImagePrefix: g.DockerImagePrefix,
-		SkipServiceInit:   g.SkipInitService,
-		GoLangVersion:     g.GoLangVersion,
-		OgenVersion:       g.OgenVersion,
-		ArgenVersion:      g.ArgenVersion,
-		GolangciVersion:   g.GolangciVersion,
-		RuntimeVersion:    g.RuntimeVersion,
-		Applications:      g.Applications,
-		Drivers:           g.Drivers,
-		Workers:           g.Workers,
-		Grafana:           g.Grafana,
+		Logger:              g.Logger,
+		ProjectName:         g.ProjectName,
+		RegistryType:        g.RegistryType,
+		Author:              g.Author,
+		Year:                time.Now().Format("2006"),
+		ProjectPath:         g.ProjectPath,
+		UseActiveRecord:     g.UseActiveRecord,
+		Repo:                g.Repo,
+		PrivateRepos:        g.PrivateRepos,
+		DockerImagePrefix:   g.DockerImagePrefix,
+		SkipServiceInit:     g.SkipInitService,
+		GoLangVersion:       g.GoLangVersion,
+		OgenVersion:         g.OgenVersion,
+		ArgenVersion:        g.ArgenVersion,
+		GolangciVersion:     g.GolangciVersion,
+		RuntimeVersion:      g.RuntimeVersion,
+		GoJSONSchemaVersion: g.GoJSONSchemaVersion,
+		Applications:        g.Applications,
+		Drivers:             g.Drivers,
+		Workers:             g.Workers,
+		JSONSchemas:         g.JSONSchemas,
+		Grafana:             g.Grafana,
 	}
 }
 
@@ -510,6 +536,34 @@ func (g *Generator) CopySpecs() error {
 				if err := tools.CopyFile(source, dest); err != nil {
 					return err
 				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (g *Generator) CopySchemas() error {
+	for _, schema := range g.JSONSchemas {
+		targetDir := schema.GetTargetSpecDir(g.TargetDir)
+
+		// Ensure target directory exists
+		if err := os.MkdirAll(targetDir, tools.DefaultDirPerm); err != nil {
+			return fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
+		}
+
+		for _, schemaPath := range schema.Path {
+			if _, err := os.Stat(schemaPath); err != nil {
+				return errors.Wrapf(err, "schema file not found: %s", schemaPath)
+			}
+
+			_, fileName := filepath.Split(schemaPath)
+			dest := filepath.Join(targetDir, fileName)
+
+			log.Printf("copy schema: `%s` to `%s`\n", schemaPath, dest)
+
+			if err := tools.CopyFile(schemaPath, dest); err != nil {
+				return err
 			}
 		}
 	}
@@ -620,6 +674,10 @@ func (g *Generator) Generate() error {
 
 	if err = g.CopySpecs(); err != nil {
 		return errors.Wrap(err, "Error copy spec")
+	}
+
+	if err = g.CopySchemas(); err != nil {
+		return errors.Wrap(err, "Error copy schemas")
 	}
 
 	if err = g.Meta.Save(); err != nil {

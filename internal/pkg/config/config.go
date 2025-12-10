@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
-	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 )
 
 func GetConfig(baseDir, configPath string) (Config, error) { // конструктор, принимает две строки конфигурации и отдает структуру Config и ошибку
@@ -33,11 +33,12 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	viper.SetDefault("post_generate.call_generate", true)      // устанавливаем значения по умолчанию для "post_generate.call_generate"
 	viper.SetDefault("post_generate.go_mod_tidy", true)        // устанавливаем значения по умолчанию для "post_generate.go_mod_tidy"
 
-	viper.SetDefault("tools.protobuf_version", defaultProtobufVersion) // устанавливаем значения по умолчанию для "tools.protobuf_version"
-	viper.SetDefault("tools.golang_version", defaultGolangVersion)     // устанавливаем значения по умолчанию для "tools.golang_version"
-	viper.SetDefault("tools.ogen_version", defaultOgenVersion)         // устанавливаем значения по умолчанию для "tools.ogen_version"
-	viper.SetDefault("tools.argen_version", defaultArgenVersion)       // устанавливаем значения по умолчанию для "tools.argen_version"
-	viper.SetDefault("tools.golangci_version", defaultGolangciVersion) // устанавливаем значения по умолчанию для "tools.golangci_version"
+	viper.SetDefault("tools.protobuf_version", defaultProtobufVersion)          // устанавливаем значения по умолчанию для "tools.protobuf_version"
+	viper.SetDefault("tools.golang_version", defaultGolangVersion)              // устанавливаем значения по умолчанию для "tools.golang_version"
+	viper.SetDefault("tools.ogen_version", defaultOgenVersion)                  // устанавливаем значения по умолчанию для "tools.ogen_version"
+	viper.SetDefault("tools.argen_version", defaultArgenVersion)                // устанавливаем значения по умолчанию для "tools.argen_version"
+	viper.SetDefault("tools.golangci_version", defaultGolangciVersion)          // устанавливаем значения по умолчанию для "tools.golangci_version"
+	viper.SetDefault("tools.go_jsonschema_version", defaultGoJSONSchemaVersion) // устанавливаем значения по умолчанию для "tools.go_jsonschema_version"
 
 	viper.SetDefault("main.author", "Unknown author") // устанавливаем значения по умолчанию для "main.author"
 
@@ -64,6 +65,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	config.DriverMap = make(map[string]Driver)
 	config.WorkerMap = make(map[string]Worker)
 	config.CLIMap = make(map[string]CLI)
+	config.JSONSchemaMap = make(map[string]JSONSchema)
 	config.GrafanaDatasourceMap = make(map[string]GrafanaDatasource)
 
 	for i, rest := range config.RestList { // "rest" названия полей
@@ -128,6 +130,18 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		}
 
 		config.CLIMap[cli.Name] = cli
+	}
+
+	for _, js := range config.JSONSchemaList {
+		if ok, msg := js.IsValid(baseDir); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig, "invalid config jsonschema section: "+msg)
+		}
+
+		if _, ex := config.JSONSchemaMap[js.Name]; ex {
+			return config, errors.WithMessage(ErrInvalidConfig, "duplicate jsonschema name: "+js.Name)
+		}
+
+		config.JSONSchemaMap[js.Name] = js
 	}
 
 	// Validate Grafana configuration

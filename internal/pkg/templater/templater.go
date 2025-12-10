@@ -24,25 +24,27 @@ import (
 const MinRuntimeVersion = "v0.8.0"
 
 type GeneratorParams struct {
-	AppInfo           string
-	Logger            ds.Logger
-	Author            string
-	Year              string
-	ProjectName       string
-	ProjectPath       string
-	RegistryType      string
-	UseActiveRecord   bool
-	Repo              string
-	PrivateRepos      string
-	DockerImagePrefix string
-	SkipServiceInit   bool
-	GoLangVersion     string
-	OgenVersion       string
-	ArgenVersion      string
-	GolangciVersion   string
-	RuntimeVersion    string
-	Drivers           ds.Drivers
-	Workers           ds.Workers
+	AppInfo             string
+	Logger              ds.Logger
+	Author              string
+	Year                string
+	ProjectName         string
+	ProjectPath         string
+	RegistryType        string
+	UseActiveRecord     bool
+	Repo                string
+	PrivateRepos        string
+	DockerImagePrefix   string
+	SkipServiceInit     bool
+	GoLangVersion       string
+	OgenVersion         string
+	ArgenVersion        string
+	GolangciVersion     string
+	RuntimeVersion      string
+	GoJSONSchemaVersion string
+	Drivers             ds.Drivers
+	Workers             ds.Workers
+	JSONSchemas         ds.JSONSchemas
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???

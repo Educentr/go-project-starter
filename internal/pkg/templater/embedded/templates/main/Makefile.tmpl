@@ -21,6 +21,10 @@ OGENVERSION = {{ .OgenVersion }}
 # activeRecord version
 ARGENVERSION = {{ .ArgenVersion }}
 {{ end }}
+{{- if gt (len .JSONSchemas) 0 }}
+# go-jsonschema version
+GO_JSONSCHEMA_VERSION = {{ .GoJSONSchemaVersion }}
+{{- end }}
 # Onlineconf version
 ONLINECONF_UPDATER_VERSION = v3.6.4
 # Build datetime
@@ -98,11 +102,28 @@ regenerate:
 	go-project-starter --target ${PWD}
 
 ##################### End of golang-ci checks #####################
+# Initialize git repository (does not require remote to exist)
+.PHONY: git-init
+git-init:
+	@if [ ! -d .git ]; then \
+		git init && \
+		echo "Git repository initialized"; \
+	else \
+		echo "Git repository already exists"; \
+	fi
+
+# Setup remote and fetch (requires remote repository to exist)
+.PHONY: git-remote
+git-remote:
+	@if ! git remote get-url origin >/dev/null 2>&1; then \
+		git remote add origin {{ .Repo }} && \
+		echo "Remote 'origin' added: {{ .Repo }}"; \
+	fi
+	@git fetch origin || echo "Fetch failed (remote may not exist yet). Skip"
+
+# Legacy target for backwards compatibility
 .PHONY: git-repo
-git-repo:
-	@(git status >/dev/null 2>&1 || (git init && git remote add origin {{ .Repo }} && git fetch origin && git pull origin main))
-	@(git fetch origin || echo "Fetch fail. Skip")
-	@echo "Git repository fetch done"
+git-repo: git-init git-remote
 
 # Install linter
 .PHONY: install-lint
@@ -277,6 +298,25 @@ install-argen:
 	GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/go-activerecord/v3@$(ARGENVERSION)
 	GOPRIVATE=$(GOPRIVATE) go install github.com/Educentr/go-activerecord/v3/cmd/argen@$(ARGENVERSION)
 {{ end }}
+{{- $jsonschema := false }}
+{{- if gt (len .JSONSchemas) 0 }}
+{{ $jsonschema = true }}
+# Generate Go structs from JSON Schema files
+.PHONY: generate-jsonschema
+generate-jsonschema:
+{{- range $name, $schema := .JSONSchemas }}
+	@echo "Generating Go code from JSON Schema for {{ $name }}..."
+	@mkdir -p {{ $schema.GetTargetGeneratePath "" }}
+{{- range $_, $filename := $schema.GetSchemaFilenames }}
+	@go-jsonschema -p {{ $schema.GetPackageName }} -o {{ $schema.GetTargetGeneratePath "" }}/{{ $filename | ReplaceDash | ToLower }}.go {{ $schema.GetTargetSpecDir "" }}/{{ $filename }}.json
+{{- end }}
+{{- end }}
+	@echo "JSON Schema generation done"
+
+.PHONY: install-go-jsonschema
+install-go-jsonschema:
+	go install github.com/atombender/go-jsonschema@$(GO_JSONSCHEMA_VERSION)
+{{- end }}
 
 {{ if eq $ogen true }}
 # ToDo нужно в каждом подключаемом сервисе хранить список необходимых для установки tools-ов и убрать тут проверку, что есто ogen
@@ -366,13 +406,13 @@ install-onlineconf-updater:
 
 # Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
 
 # Generate mock packages
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}
 
 .PHONY: download
 download:
