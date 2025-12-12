@@ -100,6 +100,15 @@ func main() {
 	}
 
 	{{ .Logger.InfoMsg "mainCtx" "application created" }}
+{{- if .Application.HasSysTransport }}
+
+	// Initialize metrics (only when sys transport is available for /metrics endpoint)
+	err = application.InitMetrics(mainCtx)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize metrics" }}
+		os.Exit(ExitCodeErrorApp)
+	}
+{{- end }}
 
 	// initializing graceful stop for application
 	mainCtx = application.InitGracefulStop(mainCtx)
