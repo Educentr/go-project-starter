@@ -108,6 +108,12 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 		}
 
 	case resp.NextState != nil:
+		// Record state change metric
+		if w.tgMetrics != nil {
+			oldState, _ := w.GetUserState(ctx, requestData.Actor.ID)
+			w.tgMetrics.UserStateChanges.WithLabelValues(oldState, *resp.NextState).Inc()
+		}
+
 		if err := w.NewUserState(ctx, requestData.Actor.ID, *resp.NextState); err != nil {
 			{{ .Logger.ErrorMsg "ctx" "err" "Error setting admin state" }}
 

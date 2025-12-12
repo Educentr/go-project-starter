@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"{{ .ProjectPath }}/pkg/app/daemon"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/metrics"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
@@ -28,8 +29,9 @@ type Worker struct {
 	telegram.UnimplementedAdminStatusHandler
 	daemon.EmptyWorker
 	Srv ds.IService
-	tgSrv TelegramUpdateWorker 
+	tgSrv TelegramUpdateWorker
 	jobState any
+	tgMetrics *metrics.TelegramMetrics
 }
 
 type EmptyCommands struct{}
@@ -61,8 +63,14 @@ func (w *Worker) Name() string {
 	return WorkerName
 }
 
-func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prometheus.Registry, srv ds.IService) error {
+func (w *Worker) Init(ctx context.Context, serviceName, _ string, metricsRegistry *prometheus.Registry, srv ds.IService) error {
 	w.Srv = srv
+
+	// Initialize Telegram metrics if registry provided
+	if metricsRegistry != nil {
+		nameForMetric := strings.ReplaceAll(serviceName, "-", "_")
+		w.tgMetrics = metrics.NewTelegramMetrics(metricsRegistry, nameForMetric)
+	}
 
 	var err error
 
@@ -81,6 +89,23 @@ func GetConfigPath(key ...string) string{
 	return onlineconf.MakePath(components...)
 }
 
+func (w *Worker) getUpdateType(update tgbotapi.Update) string {
+	switch {
+	case update.Message != nil && update.Message.Text != "":
+		return "text_message"
+	case update.Message != nil && update.Message.Document != nil:
+		return "document"
+	case update.CallbackQuery != nil:
+		return "callback"
+	case update.PreCheckoutQuery != nil:
+		return "pre_checkout"
+	case update.Message != nil && update.Message.SuccessfulPayment != nil:
+		return "payment"
+	default:
+		return "other"
+	}
+}
+
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
 	ocPrefix := GetConfigPath()
 	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
@@ -93,6 +118,12 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 
 	pi := reqctx.RequestProcessInfo{}
 	ctxJob = reqctx.SetProcessInfo(ctxJob, &pi)
+
+	// Record update received
+	if w.tgMetrics != nil {
+		updateType := w.getUpdateType(update)
+		w.tgMetrics.UpdatesReceivedTotal.WithLabelValues(updateType).Inc()
+	}
 
 	defer func() {
 		err := recover()
@@ -128,6 +159,15 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 		pi.Command = "Purchase"
 
 		ctxJob, err = w.Purchase(ctxJob, update.Message)
+
+		// Record payment metric
+		if w.tgMetrics != nil {
+			paymentStatus := "success"
+			if err != nil {
+				paymentStatus = "failed"
+			}
+			w.tgMetrics.PaymentsTotal.WithLabelValues(paymentStatus).Inc()
+		}
 	case update.Message != nil && update.Message.Document != nil:
 		ctxJob, err = w.DocumentMessage(ctxJob, update.Message)
 	case update.Message != nil && update.Message.Text != "":
@@ -143,6 +183,23 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	status := "Ok"
 	if err != nil {
 		status = err.Error()
+
+		// Record error metric
+		if w.tgMetrics != nil {
+			errorType := "handler_error"
+			if errors.Is(err, telegram.ErrUnsupportedHandler) {
+				errorType = "unsupported"
+			} else if errors.Is(err, telegram.ErrUnimplementedHandler) {
+				errorType = "unimplemented"
+			}
+			w.tgMetrics.ErrorsTotal.WithLabelValues(errorType).Inc()
+		}
+	}
+
+	// Record command metrics
+	if w.tgMetrics != nil {
+		w.tgMetrics.CommandsTotal.WithLabelValues(pi.Command, status).Inc()
+		w.tgMetrics.CommandDuration.WithLabelValues(pi.Command).Observe(time.Since(startTime).Seconds())
 	}
 
 	srv.BotHitInfo(ctxJob, pi, status, pi.ContentLength, time.Since(startTime))
@@ -216,6 +273,11 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 						zlog.Ctx(ctx).Error().Str(nameFieldLogger, WorkerName).Err(err).Msg("Error get hidden message")
 
 						continue
+					}
+
+					// Update hidden messages queue gauge
+					if w.tgMetrics != nil {
+						w.tgMetrics.HiddenMessagesQueue.WithLabelValues("pending").Set(float64(len(hiddenMessages)))
 					}
 
 					for _, hm := range hiddenMessages {
