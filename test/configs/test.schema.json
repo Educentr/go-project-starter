@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/test.schema.json",
+  "title": "TestModel",
+  "description": "A test model for integration tests",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Model ID"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model name"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": ["id", "name"]
+}

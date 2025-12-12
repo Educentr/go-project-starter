@@ -1,6 +1,7 @@
 # IDE
 .idea
 .vscode
+*.code-workspace
 # OS specific files
 .DS_Store
 .AppleDouble

@@ -46,6 +46,7 @@ func TestGenerateNew(t *testing.T) {
 		{"example.swagger.yml", "example.swagger.yml"},
 		{"example.proto", "example.proto"},
 		{"admin.proto", "admin.proto"},
+		{"test.schema.json", "test.schema.json"},
 	} {
 		if err := tools.CopyFile(filepath.Join(curDir, "configs", copyFile[0]), filepath.Join(tmpDir, ".project-config", copyFile[1])); err != nil {
 			t.Fatalf("Error copying file: %v", err)
