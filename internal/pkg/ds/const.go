@@ -100,6 +100,16 @@ func (a App) GetCLITransport() *CLIApp {
 	return a.CLI
 }
 
+// HasSysTransport returns true if application has a SYS transport configured
+func (a App) HasSysTransport() bool {
+	for _, transport := range a.Transports {
+		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "sys" {
+			return true
+		}
+	}
+	return false
+}
+
 type Transports map[string]Transport
 type Drivers map[string]Driver
 type Workers map[string]Worker
