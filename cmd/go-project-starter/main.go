@@ -61,7 +61,9 @@ func main() {
 		log.Fatalf(layoutFailedToLoadConfig, err)
 	}
 
-	if genMeta, err = meta.GetMeta(cfgDir, "meta.yaml"); err != nil {
+	// Meta is always stored in target directory's .project-config
+	metaDir := filepath.Join(targetDir, ".project-config")
+	if genMeta, err = meta.GetMeta(metaDir, "meta.yaml"); err != nil {
 		log.Fatalf(layoutFailedToLoadMeta, err)
 	}
 
