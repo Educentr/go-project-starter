@@ -40,6 +40,7 @@ type Generator struct {
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
 	TargetDir           string
+	ConfigPath          string // Source config file path for copying to target
 	DockerImagePrefix   string
 	SkipInitService     bool
 	PostGenerate        []ExecCmd
@@ -105,6 +106,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	}
 
 	g.TargetDir = "./"
+	g.ConfigPath = config.ConfigFilePath
 
 	if config.Deploy.LogCollector.Type != "" {
 		g.Deploy.LogCollector.Type = config.Deploy.LogCollector.Type
@@ -680,10 +682,23 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error copy schemas")
 	}
 
-	// Create .project-config directory in target for meta.yaml
+	// Create .project-config directory in target for meta.yaml and config
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
 	if err = os.MkdirAll(projectConfigDir, tools.DefaultDirPerm); err != nil {
 		return fmt.Errorf("error creating .project-config directory: %w", err)
+	}
+
+	// Copy config file to target's .project-config for regeneration support
+	if g.ConfigPath != "" {
+		targetConfigPath := filepath.Join(projectConfigDir, "project.yaml")
+		// Only copy if source is different from target
+		if g.ConfigPath != targetConfigPath {
+			if err = tools.CopyFile(g.ConfigPath, targetConfigPath); err != nil {
+				return fmt.Errorf("error copying config to target: %w", err)
+			}
+
+			log.Printf("copy config: `%s` to `%s`", g.ConfigPath, targetConfigPath)
+		}
 	}
 
 	if err = g.Meta.Save(); err != nil {

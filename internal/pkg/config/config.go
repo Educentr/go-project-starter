@@ -207,6 +207,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	// ToDo ws, ...
 
 	config.BasePath = baseDir
+	config.ConfigFilePath = realConfigPath
 
 	return config, nil
 }

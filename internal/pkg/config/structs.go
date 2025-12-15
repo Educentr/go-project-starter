@@ -209,6 +209,7 @@ type (
 
 	Config struct {
 		BasePath       string
+		ConfigFilePath string         // Full path to the config file
 		Main           Main           `mapstructure:"main"`
 		Deploy         Deploy         `mapstructure:"deploy"`
 		PostGenerate   []string       `mapstructure:"post_generate"`
