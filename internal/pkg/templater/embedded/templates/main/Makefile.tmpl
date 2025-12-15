@@ -439,7 +439,7 @@ generate-test-env-{{ $a.Name }}:
 .PHONY: goat-tests-{{ $a.Name }}
 goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
 	export GOAT_DISABLE_STDOUT=true \
-	&& go test -v ./tests/...
+	&& go test ./tests/...
 
 .PHONY: goat-tests-{{ $a.Name }}-verbose
 goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
