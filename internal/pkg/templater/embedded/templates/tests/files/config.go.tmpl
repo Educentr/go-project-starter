@@ -66,6 +66,11 @@ Create your own config struct in init.go that embeds {{ .ProjectName | Capitaliz
         configureDB(envVars, env) // implement this helper
         // Add your custom configuration here (xray, external services, etc.)
 
+        // Pass GOCOVERDIR for coverage collection (if set)
+        if coverDir := os.Getenv("GOCOVERDIR"); coverDir != "" {
+            envVars["GOCOVERDIR"] = coverDir
+        }
+
         return gtt.NewExecutorBuilder(c.BinaryPath()).
             WithEnv(envVars).
             WithOutputFile(fmt.Sprintf("/tmp/{{ .ProjectName }}-test-%d.log", time.Now().Unix())).

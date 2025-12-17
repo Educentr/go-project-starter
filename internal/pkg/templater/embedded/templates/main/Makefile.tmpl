@@ -7,6 +7,10 @@ LAST_COMMIT_HASH = $(shell git rev-parse --short=8 HEAD)
 BUF_VERSION:=1.47.2
 # Test timeout
 TEST_TIMEOUT?=20s
+# Coverage data directory (absolute path required for coverage collection)
+COVERAGE_DIR ?= $(CURDIR)/coverage-data
+# Coverage filter: exclude *_gen.go, internal/pkg/model/repository/*, pkg/*
+COVERAGE_FILTER := _gen\.go\|internal/pkg/model/repository/\|/pkg/
 # golang-ci tag
 GOLANGCI_TAG:={{ .GolangciVersion }}
 # Path to the binary
@@ -438,12 +442,45 @@ generate-test-env-{{ $a.Name }}:
 
 .PHONY: goat-tests-{{ $a.Name }}
 goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
+	@rm -rf $(COVERAGE_DIR)
+	@mkdir -p $(COVERAGE_DIR)
 	export GOAT_DISABLE_STDOUT=true \
+	&& export GOCOVERDIR=$(COVERAGE_DIR) \
 	&& go test ./tests/...
+	@echo "Converting coverage data..."
+	@go tool covdata textfmt -i=$(COVERAGE_DIR) -o=integration-coverage-raw.out 2>/dev/null || true
+	@if [ -f integration-coverage-raw.out ]; then \
+		echo "Filtering coverage..."; \
+		head -1 integration-coverage-raw.out > integration-coverage.out; \
+		tail -n +2 integration-coverage-raw.out | grep -v '$(COVERAGE_FILTER)' >> integration-coverage.out || true; \
+		go tool cover -html=integration-coverage.out -o=integration-coverage.html 2>/dev/null; \
+		echo "Coverage report: integration-coverage.html"; \
+		echo ""; \
+		echo "=== Coverage Summary (filtered) ==="; \
+		go tool cover -func=integration-coverage.out | tail -1; \
+	else \
+		echo "No coverage data collected"; \
+	fi
 
 .PHONY: goat-tests-{{ $a.Name }}-verbose
 goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
-	go test -v ./tests/...
+	@rm -rf $(COVERAGE_DIR)
+	@mkdir -p $(COVERAGE_DIR)
+	GOCOVERDIR=$(COVERAGE_DIR) go test -v ./tests/...
+	@go tool covdata textfmt -i=$(COVERAGE_DIR) -o=integration-coverage-raw.out 2>/dev/null || true
+	@if [ -f integration-coverage-raw.out ]; then \
+		head -1 integration-coverage-raw.out > integration-coverage.out; \
+		tail -n +2 integration-coverage-raw.out | grep -v '$(COVERAGE_FILTER)' >> integration-coverage.out || true; \
+		go tool cover -html=integration-coverage.out -o=integration-coverage.html 2>/dev/null; \
+		echo "=== Coverage Summary (filtered) ==="; \
+		go tool cover -func=integration-coverage.out | tail -1; \
+	fi
+
+.PHONY: goat-coverage-percent
+goat-coverage-percent:
+	@test -f integration-coverage.out || (echo "Run 'make goat-tests-{{ $a.Name }}' first" && exit 1)
+	@echo "=== Coverage Summary (filtered) ==="
+	@go tool cover -func=integration-coverage.out | tail -1
 
 # Alias for backward compatibility
 .PHONY: goat-tests
