@@ -446,7 +446,7 @@ goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.N
 	@mkdir -p $(COVERAGE_DIR)
 	export GOAT_DISABLE_STDOUT=true \
 	&& export GOCOVERDIR=$(COVERAGE_DIR) \
-	&& go test ./tests/...
+	&& go test ./tests
 	@echo "Converting coverage data..."
 	@go tool covdata textfmt -i=$(COVERAGE_DIR) -o=integration-coverage-raw.out 2>/dev/null || true
 	@if [ -f integration-coverage-raw.out ]; then \
