@@ -153,14 +153,10 @@ func GetAPIURL(port string) string {
 	return fmt.Sprintf("http://localhost:%s", port)
 }
 
-// APIPort returns the API service port
-func APIPort() string {
+{{ range $_, $tr := .Application.GetRestTransport }}{{ if ne $tr.GeneratorType "ogen_client" }}
+// {{ $tr.Name | Capitalize }}Port returns the {{ $tr.Name }} transport port
+func {{ $tr.Name | Capitalize }}Port() string {
 	ensureTestEnvInitialized()
-	return appConfig.APIPort()
+	return appConfig.TransportPort("{{ $tr.Name }}")
 }
-
-// SysPort returns the system endpoint port
-func SysPort() string {
-	ensureTestEnvInitialized()
-	return appConfig.SysPort()
-}
+{{ end }}{{ end }}

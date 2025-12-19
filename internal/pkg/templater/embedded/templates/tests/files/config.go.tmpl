@@ -19,16 +19,16 @@ const (
 	testBinaryPath  = "/tmp/{{ .Application.Name }}"
 {{ end }}
 	testServiceName = "{{ .ProjectName }}"
-{{ $hasSys := false }}{{ $hasAPI := false }}{{ range $_, $tr := .Application.GetRestTransport }}{{ if eq $tr.Name "sys" }}{{ $hasSys = true }}
-	testSysPort = "{{ $tr.Port }}"
-{{ else if and (ne $tr.GeneratorType "ogen_client") (not $hasAPI) }}{{ $hasAPI = true }}
-	testAPIPort = "{{ $tr.Port }}"
-{{ end }}{{ end }}{{ if not $hasSys }}
-	testSysPort = "8080" // default sys port
-{{ end }}{{ if not $hasAPI }}
-	testAPIPort = "8081" // default api port
-{{ end }}
+{{ range $_, $tr := .Application.GetRestTransport }}{{ if ne $tr.GeneratorType "ogen_client" }}
+	test{{ $tr.Name | Capitalize }}Port = "{{ $tr.Port }}"
+{{ end }}{{ end }}
 )
+
+var transportPorts = map[string]string{
+{{ range $_, $tr := .Application.GetRestTransport }}{{ if ne $tr.GeneratorType "ogen_client" }}
+	"{{ $tr.Name }}": test{{ $tr.Name | Capitalize }}Port,
+{{ end }}{{ end }}
+}
 
 // {{ .ProjectName | Capitalize }}Config provides basic service configuration.
 // User must create their own config struct that embeds this one and implements:
@@ -45,9 +45,14 @@ func New{{ .ProjectName | Capitalize }}Config() *{{ .ProjectName | Capitalize }}
 // --- ServiceConfig ---
 
 func (c *{{ .ProjectName | Capitalize }}Config) ServiceName() string { return testServiceName }
-func (c *{{ .ProjectName | Capitalize }}Config) APIPort() string     { return testAPIPort }
-func (c *{{ .ProjectName | Capitalize }}Config) SysPort() string     { return testSysPort }
 func (c *{{ .ProjectName | Capitalize }}Config) BinaryPath() string  { return testBinaryPath }
+
+func (c *{{ .ProjectName | Capitalize }}Config) TransportPort(name string) string {
+	if port, ok := transportPorts[name]; ok {
+		return port
+	}
+	return ""
+}
 
 // --- ExecutorBuilder ---
 // User MUST override this method in their own config struct

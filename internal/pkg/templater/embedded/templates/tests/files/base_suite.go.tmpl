@@ -17,7 +17,9 @@ type BaseTestSuite struct {
 	ctx    context.Context
 	env    *gtt.Env
 	flow   *gtt.Flow
-	client *HTTPClient
+{{ range $_, $tr := .Application.GetRestTransport }}{{ if and (ne $tr.Name "sys") (ne $tr.GeneratorType "ogen_client") }}
+	{{ $tr.Name }}Client *HTTPClient
+{{ end }}{{ end }}
 {{ if .Application.HasOgenClients }}
 	mocks  *MockServers
 {{ end }}
@@ -76,7 +78,9 @@ func (s *BaseTestSuite) SetupSuite() {
 		},
 	)
 
-	s.client = NewHTTPClient(GetAPIURL(APIPort()))
+{{ range $_, $tr := .Application.GetRestTransport }}{{ if and (ne $tr.Name "sys") (ne $tr.GeneratorType "ogen_client") }}
+	s.{{ $tr.Name }}Client = NewHTTPClient(GetAPIURL({{ $tr.Name | Capitalize }}Port()))
+{{ end }}{{ end }}
 }
 
 // TearDownTest cleans up after each individual test
@@ -112,11 +116,6 @@ func (s *BaseTestSuite) TearDownSuite() {
 // GetContext returns the test context
 func (s *BaseTestSuite) GetContext() context.Context {
 	return s.ctx
-}
-
-// GetClient returns the HTTP client
-func (s *BaseTestSuite) GetClient() *HTTPClient {
-	return s.client
 }
 
 // GetEnv returns the test environment
