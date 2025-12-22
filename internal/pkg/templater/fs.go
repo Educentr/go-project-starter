@@ -18,6 +18,7 @@ const (
 	devPrometheusPath       = "configs/dev/prometheus"
 	devLokiPath             = "configs/dev/loki"
 	testsPath               = "tests"
+	mocksPath               = "tests/mocks"
 )
 
 //go:embed all:embedded
@@ -538,6 +539,56 @@ func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds
 
 	for i := range files {
 		files[i].DestName = filepath.Join(kafkaPrefix, files[i].DestName)
+	}
+
+	return dirs, files, nil
+}
+
+// GetMockTemplates returns mock templates for an application with ogen_clients.
+// It generates:
+// - tests/mocks/mocks.go - MockServers struct and MocksSetup
+// - tests/mocks/{transport_name}/doc.go - for each ogen_client transport
+func GetMockTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error) {
+	// Skip if no ogen clients
+	if !params.Application.HasOgenClients() {
+		return nil, nil, nil
+	}
+
+	dirs := []ds.Files{}
+	files := []ds.Files{}
+
+	// Generate mocks.go from mocks.go.tmpl (in tests/ directory, same package as base_suite)
+	mocksTemplate := "embedded/templates/mocks/mocks.go.tmpl"
+	files = append(files, ds.Files{
+		SourceName: mocksTemplate,
+		DestName:   filepath.Join(testsPath, "mocks.go"),
+		ParamsTmpl: params,
+	})
+
+	// For each ogen_client transport, generate doc.go
+	docTemplate := "embedded/templates/mocks/files/doc.go.tmpl"
+	for _, transport := range params.Application.GetOgenClients() {
+		// Create handler params for this transport
+		handlerParams := GeneratorHandlerParams{
+			GeneratorParams: params.GeneratorParams,
+			Transport:       transport,
+			TransportParams: transport.GeneratorParams,
+		}
+
+		// Add directory for this transport's mocks
+		transportMocksPath := filepath.Join(mocksPath, transport.Name)
+		dirs = append(dirs, ds.Files{
+			SourceName: docTemplate,
+			DestName:   transportMocksPath,
+			ParamsTmpl: handlerParams,
+		})
+
+		// Add doc.go file
+		files = append(files, ds.Files{
+			SourceName: docTemplate,
+			DestName:   filepath.Join(transportMocksPath, "doc.go"),
+			ParamsTmpl: handlerParams,
+		})
 	}
 
 	return dirs, files, nil

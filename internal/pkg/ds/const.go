@@ -289,6 +289,11 @@ type Transport struct {
 	BufLocalPlugins      bool // Use local buf instead of docker for proto generation
 }
 
+// HasAuthParams returns true if transport has authentication parameters configured
+func (t Transport) HasAuthParams() bool {
+	return t.AuthParams.Type != ""
+}
+
 type Worker struct {
 	Import            []string // Imports for main.go (worker initialization)
 	Name              string
@@ -330,6 +335,23 @@ func (a App) HasOgenClients() bool {
 	}
 
 	return false
+}
+
+// GetOgenClients returns all ogen_client transports sorted by name
+func (a App) GetOgenClients() []Transport {
+	clients := make([]Transport, 0)
+
+	for _, transport := range a.Transports {
+		if transport.GeneratorType == "ogen_client" {
+			clients = append(clients, transport)
+		}
+	}
+
+	sort.Slice(clients, func(i, j int) bool {
+		return strings.Compare(clients[i].Name, clients[j].Name) < 0
+	})
+
+	return clients
 }
 
 func (a App) TransportImports() []string {

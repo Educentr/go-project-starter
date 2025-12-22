@@ -947,6 +947,17 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 			dirs = append(dirs, dirsTest...)
 			files = append(files, filesTest...)
+
+			// Generate mock templates for applications with ogen_clients
+			if app.HasOgenClients() {
+				dirsMock, filesMock, err := templater.GetMockTemplates(g.GetTmplAppParams(app))
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to get mock templates for %s: %w", app.Name, err)
+				}
+
+				dirs = append(dirs, dirsMock...)
+				files = append(files, filesMock...)
+			}
 		}
 	}
 

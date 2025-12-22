@@ -1,0 +1,61 @@
+package tests
+
+import (
+	"net/http"
+{{ range $_, $tr := .Application.GetOgenClients }}
+	{{ $tr.Name }}api "{{ $.ProjectPath }}/pkg/rest/{{ $tr.Name }}/{{ $tr.ApiVersion }}"
+{{- end }}
+{{ range $_, $tr := .Application.GetOgenClients }}
+	{{ $tr.Name }}mock "{{ $.ProjectPath }}/tests/mocks/{{ $tr.Name }}"
+{{- end }}
+
+	"github.com/Educentr/goat/testutil"
+	"go.uber.org/mock/gomock"
+)
+
+// Compile-time interface check - ensures MocksSetup implements HTTPMocksConfig
+var _ testutil.HTTPMocksConfig = (*MocksSetup)(nil)
+
+// MockServers holds references to mock servers for test assertions
+type MockServers struct {
+{{- range $_, $tr := .Application.GetOgenClients }}
+	{{ $tr.Name | Capitalize }}Handler *{{ $tr.Name }}mock.MockHandler
+{{- if $tr.HasAuthParams }}
+	{{ $tr.Name | Capitalize }}Security *{{ $tr.Name }}mock.MockSecurityHandler
+{{- end }}
+{{- end }}
+}
+
+// MocksSetup implements testutil.HTTPMocksConfig interface
+type MocksSetup struct {
+	mocks *MockServers
+}
+
+// NewMocksSetup creates a new MocksSetup with the given MockServers
+func NewMocksSetup(mocks *MockServers) *MocksSetup {
+	return &MocksSetup{mocks: mocks}
+}
+
+// HTTPMocksSetup returns a callback that configures HTTP mock servers
+func (m *MocksSetup) HTTPMocksSetup() func(server *http.ServeMux, ctl *gomock.Controller) {
+	return func(server *http.ServeMux, ctl *gomock.Controller) {
+		// Create mocks using gomock controller
+{{- range $_, $tr := .Application.GetOgenClients }}
+		m.mocks.{{ $tr.Name | Capitalize }}Handler = {{ $tr.Name }}mock.NewMockHandler(ctl)
+{{- if $tr.HasAuthParams }}
+		m.mocks.{{ $tr.Name | Capitalize }}Security = {{ $tr.Name }}mock.NewMockSecurityHandler(ctl)
+{{- end }}
+{{- end }}
+
+		// Call user-defined initialization function
+		// Users must implement initMockServers in the user code section below
+		initMockServers(m.mocks, server)
+	}
+}
+
+// Ensure ogen API packages are available for user code
+var (
+{{- range $_, $tr := .Application.GetOgenClients }}
+	_ = {{ $tr.Name }}api.WithPathPrefix
+{{- end }}
+)
