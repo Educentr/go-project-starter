@@ -21,6 +21,9 @@ import (
 	{{ range $_, $drv := .Application.Drivers }}
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
+	{{ range $_, $imp := .Application.KafkaImports $.ProjectPath }}
+	"{{ $imp }}"
+	{{- end }}
 	{{ range $_, $imp := .Application.WorkerImports }}
 	{{ $imp }}
 	{{- end }}
@@ -124,6 +127,9 @@ func main() {
 	application.SetDriver(
 		{{ range $_, $drv := .Application.Drivers }}
 		{{ $drv.Package }}.Create( {{ range $_, $param := $drv.CreateParams }}{{ $drv.Package }}.{{ $param }}, {{ end }} ),
+		{{ end }}
+		{{ range $_, $kafka := .Application.GetKafkaProducers }}
+		{{ $kafka.GetPackage }}.Create(),
 		{{ end }}
 	)
 

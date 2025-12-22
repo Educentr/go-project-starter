@@ -83,10 +83,10 @@ rest:
 # CLI transport - interactive command-line interface
 # Works like a shell: first word is command, rest are arguments
 # CLI is exclusive - application with CLI cannot have REST/GRPC transports or workers
-cli:
-  - name: admin
-    generator_type: template
-    generator_template: cli
+# cli:
+#   - name: admin
+#     generator_type: template
+#     generator_template: cli
 # - name: migrate
 #   generator_type: template
 #   generator_template: cli
@@ -123,12 +123,47 @@ cli:
 #    group: pets_store
 #    topic: pets_store_events
 
+# Kafka producer/consumer configuration
+# Generates typed Kafka driver with per-topic publish methods
+# Configuration (brokers, auth) is read from OnlineConf at runtime:
+#   {service}/kafka/{client}/brokers       - comma-separated broker list
+#   {service}/kafka/{client}/auth_type     - none, PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+#   {service}/kafka/{client}/username      - SASL username (if auth enabled)
+#   {service}/kafka/{client}/password      - SASL password (if auth enabled)
+#   {service}/kafka/{client}/tls_enabled   - 0 or 1
+kafka:
+  # Auto-generated producer using segmentio/kafka-go
+  - name: events_producer
+    type: producer
+    driver: segmentio           # segmentio (default) - auto-generated, custom - user-provided
+    client: main_kafka          # client name for OnlineConf path
+    topics:
+      - name: user_events
+        message_type: jsonschema
+        schema_ref: models      # references jsonschema section
+        message_ref: Event      # struct name from schema
+
+  # Example with custom driver (user implements their own)
+  # - name: custom_producer
+  #   type: producer
+  #   driver: custom
+  #   driver_import: github.com/myorg/kafka-driver
+  #   driver_package: kafkadriver
+  #   driver_obj: Producer
+  #   client: confluent_kafka
+  #   topics:
+  #     - name: orders
+  #       message_type: proto
+  #       message_ref: orders.OrderEvent
+
 applications:
   - name: publicApi
     transport:
       - example
       - sys
       #- ExampleService
+    kafka:
+      - events_producer
     driver:
       # - clickhouse_batcher
     # depends_on_docker_images:

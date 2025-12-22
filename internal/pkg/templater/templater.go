@@ -45,6 +45,7 @@ type GeneratorParams struct {
 	Drivers             ds.Drivers
 	Workers             ds.Workers
 	JSONSchemas         ds.JSONSchemas
+	Kafka               ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
@@ -79,6 +80,14 @@ type GeneratorRunnerParams struct {
 	GeneratorParams
 	Worker       ds.Worker
 	WorkerParams map[string]string
+}
+
+// GeneratorKafkaParams holds parameters for Kafka driver template generation
+//
+//nolint:decorder // follows existing pattern - types after consts
+type GeneratorKafkaParams struct {
+	GeneratorParams
+	Kafka ds.KafkaConfig
 }
 
 type Template struct {

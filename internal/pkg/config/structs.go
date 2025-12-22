@@ -2,11 +2,20 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
+)
+
+// Kafka driver and type constants
+const (
+	KafkaTypeProducer    = "producer"
+	KafkaTypeConsumer    = "consumer"
+	KafkaDriverSegmentio = "segmentio"
+	KafkaDriverCustom    = "custom"
 )
 
 type (
@@ -103,13 +112,43 @@ type (
 		GeneratorParams   map[string]string `mapstructure:"generator_params"`
 	}
 
+	// JSONSchemaItem represents a single JSON schema file with its identifier
+	JSONSchemaItem struct {
+		ID   string `mapstructure:"id"`   // Unique identifier for referencing from kafka topics
+		Path string `mapstructure:"path"` // Path to JSON schema file
+		Type string `mapstructure:"type"` // Generated Go type name (e.g. "AbonentUserSchemaJson")
+	}
+
 	// JSONSchema represents a JSON Schema configuration for generating Go structs.
 	// Similar to OpenAPI/gRPC but generates only data structures with validation.
 	JSONSchema struct {
-		Name    string   `mapstructure:"name"`    // Unique identifier for the schema set
-		Path    []string `mapstructure:"path"`    // Paths to JSON schema files
-		Package string   `mapstructure:"package"` // Optional: override package name (default: schema name)
+		Name    string           `mapstructure:"name"`    // Unique identifier for the schema set
+		Path    []string         `mapstructure:"path"`    // Legacy: Paths to JSON schema files (deprecated, use schemas)
+		Schemas []JSONSchemaItem `mapstructure:"schemas"` // New: Individual schema files with IDs
+		Package string           `mapstructure:"package"` // Optional: override package name (default: schema name)
 	}
+
+	// KafkaTopic represents a Kafka topic with typed messages
+	KafkaTopic struct {
+		ID     string `mapstructure:"id"`     // Topic ID for OnlineConf path and method naming
+		Name   string `mapstructure:"name"`   // Default topic name (can be overridden via OnlineConf)
+		Schema string `mapstructure:"schema"` // Optional: package.TypeName (e.g. "tb.AbonentUserSchemaJson"), empty for raw []byte
+	}
+
+	// Kafka represents Kafka producer/consumer configuration
+	Kafka struct {
+		Name          string       `mapstructure:"name"`           // Unique name for reference
+		Type          string       `mapstructure:"type"`           // producer, consumer
+		Driver        string       `mapstructure:"driver"`         // segmentio (default), custom
+		DriverImport  string       `mapstructure:"driver_import"`  // For custom: import path
+		DriverPackage string       `mapstructure:"driver_package"` // For custom: package name
+		DriverObj     string       `mapstructure:"driver_obj"`     // For custom: struct name
+		Client        string       `mapstructure:"client"`         // Client name for OC path
+		Group         string       `mapstructure:"group"`          // Consumer group (for consumer type)
+		Topics        []KafkaTopic `mapstructure:"topics"`
+	}
+
+	KafkaList []Kafka
 
 	Grpc struct {
 		Name                 string `mapstructure:"name"`
@@ -184,7 +223,8 @@ type (
 		TransportList         []string         `mapstructure:"transport"`
 		DriverList            []AppDriver      `mapstructure:"driver"`
 		WorkerList            []string         `mapstructure:"worker"`
-		CLI                   string           `mapstructure:"cli"` // CLI app name (only one per application, exclusive with transport/worker)
+		KafkaList             []string         `mapstructure:"kafka"` // References to kafka producers/consumers by name
+		CLI                   string           `mapstructure:"cli"`   // CLI app name (only one per application, exclusive with transport/worker)
 		Deploy                AppDeploy        `mapstructure:"deploy"`
 		UseActiveRecord       *bool            `mapstructure:"use_active_record"`
 		DependsOnDockerImages []string         `mapstructure:"depends_on_docker_images"`
@@ -221,6 +261,7 @@ type (
 		WorkerList     WorkerList     `mapstructure:"worker"`
 		CLIList        CLIList        `mapstructure:"cli"`
 		JSONSchemaList JSONSchemaList `mapstructure:"jsonschema"`
+		KafkaList      KafkaList      `mapstructure:"kafka"`
 		GrpcList       GrpcList       `mapstructure:"grpc"`
 		WsList         WsList         `mapstructure:"ws"`
 		ConsumerList   ConsumerList   `mapstructure:"consumer"`
@@ -235,6 +276,7 @@ type (
 		WorkerMap            map[string]Worker
 		CLIMap               map[string]CLI
 		JSONSchemaMap        map[string]JSONSchema
+		KafkaMap             map[string]Kafka
 		GrafanaDatasourceMap map[string]GrafanaDatasource
 	}
 )
@@ -492,15 +534,128 @@ func (j JSONSchema) IsValid(baseConfigDir string) (bool, string) {
 		return false, "Empty name"
 	}
 
-	if len(j.Path) == 0 {
-		return false, "Empty path"
+	// Support both legacy Path[] and new Schemas[] format
+	if len(j.Schemas) > 0 {
+		for _, s := range j.Schemas {
+			if s.ID == "" {
+				return false, "Schema item missing id"
+			}
+			if s.Path == "" {
+				return false, "Schema item missing path"
+			}
+			// Type is optional - will be auto-calculated from filename if empty
+			absPath := filepath.Join(baseConfigDir, s.Path)
+			if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
+				return false, "Invalid path: " + s.Path
+			}
+		}
+	} else {
+		if len(j.Path) == 0 {
+			return false, "Empty path"
+		}
+
+		for _, p := range j.Path {
+			absPath := filepath.Join(baseConfigDir, p)
+
+			if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
+				return false, "Invalid path: " + p
+			}
+		}
 	}
 
-	for _, p := range j.Path {
-		absPath := filepath.Join(baseConfigDir, p)
+	return true, ""
+}
 
-		if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
-			return false, "Invalid path: " + p
+// IsValid validates KafkaTopic configuration
+func (t KafkaTopic) IsValid(jsonSchemaMap map[string]JSONSchema) (bool, string) {
+	if len(t.ID) == 0 {
+		return false, "Empty topic id"
+	}
+
+	if len(t.Name) == 0 {
+		return false, "Empty topic name"
+	}
+
+	// Schema is optional - if empty, topic uses raw []byte
+	// If set, format should be "schemaset.schemaid"
+	if t.Schema != "" && jsonSchemaMap != nil {
+		parts := strings.SplitN(t.Schema, ".", 2)
+		if len(parts) != 2 {
+			return false, "Invalid schema format: expected 'schemaset.schemaid', got: " + t.Schema
+		}
+
+		schemaSetName := parts[0]
+		schemaID := parts[1]
+
+		schemaSet, exists := jsonSchemaMap[schemaSetName]
+		if !exists {
+			return false, "Unknown jsonschema reference: " + schemaSetName
+		}
+
+		// Find schema item by ID
+		found := false
+		for _, item := range schemaSet.Schemas {
+			if item.ID == schemaID {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false, "Unknown schema id '" + schemaID + "' in schema set '" + schemaSetName + "'"
+		}
+	}
+
+	return true, ""
+}
+
+// IsValid validates Kafka configuration
+func (k Kafka) IsValid(jsonSchemaMap map[string]JSONSchema) (bool, string) {
+	if len(k.Name) == 0 {
+		return false, "Empty name"
+	}
+
+	if k.Type != KafkaTypeProducer && k.Type != KafkaTypeConsumer {
+		return false, "Invalid type: must be 'producer' or 'consumer'"
+	}
+
+	// Validate driver
+	driver := k.Driver
+	if driver == "" {
+		driver = KafkaDriverSegmentio // default
+	}
+
+	switch driver {
+	case KafkaDriverSegmentio:
+		// ok, will be auto-generated
+	case KafkaDriverCustom:
+		if k.DriverImport == "" || k.DriverPackage == "" || k.DriverObj == "" {
+			return false, "Custom driver requires driver_import, driver_package, driver_obj"
+		}
+	default:
+		return false, "Invalid driver: must be 'segmentio' or 'custom'"
+	}
+
+	if len(k.Client) == 0 {
+		return false, "Empty client"
+	}
+
+	if k.Type == KafkaTypeConsumer && len(k.Group) == 0 {
+		return false, "Consumer requires group"
+	}
+
+	if len(k.Topics) == 0 {
+		return false, "Empty topics"
+	}
+
+	for _, topic := range k.Topics {
+		if ok, msg := topic.IsValid(jsonSchemaMap); !ok {
+			topicRef := topic.ID
+			if topicRef == "" {
+				topicRef = topic.Name
+			}
+
+			return false, "topic " + topicRef + ": " + msg
 		}
 	}
 

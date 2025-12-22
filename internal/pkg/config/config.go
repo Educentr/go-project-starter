@@ -66,6 +66,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	config.WorkerMap = make(map[string]Worker)
 	config.CLIMap = make(map[string]CLI)
 	config.JSONSchemaMap = make(map[string]JSONSchema)
+	config.KafkaMap = make(map[string]Kafka)
 	config.GrafanaDatasourceMap = make(map[string]GrafanaDatasource)
 
 	for i, rest := range config.RestList { // "rest" названия полей
@@ -144,6 +145,18 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		config.JSONSchemaMap[js.Name] = js
 	}
 
+	for _, kafka := range config.KafkaList {
+		if ok, msg := kafka.IsValid(config.JSONSchemaMap); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig, "invalid config kafka section: "+msg)
+		}
+
+		if _, ex := config.KafkaMap[kafka.Name]; ex {
+			return config, errors.WithMessage(ErrInvalidConfig, "duplicate kafka name: "+kafka.Name)
+		}
+
+		config.KafkaMap[kafka.Name] = kafka
+	}
+
 	// Validate Grafana configuration
 	if ok, msg := config.Grafana.IsValid(); !ok {
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config grafana section: "+msg)
@@ -196,6 +209,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			}
 		}
 
+		// Validate Kafka references
+		for _, kafkaName := range app.KafkaList {
+			if _, ex := config.KafkaMap[kafkaName]; !ex {
+				return config, errors.WithMessage(ErrInvalidConfig, "unknown kafka: "+kafkaName+" in application: "+app.Name)
+			}
+		}
+
 		// Validate Grafana datasource references
 		for _, dsName := range app.Grafana.Datasources {
 			if _, ex := config.GrafanaDatasourceMap[dsName]; !ex {
@@ -206,8 +226,89 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 
 	// ToDo ws, ...
 
+	// Validate that all defined entities are used in at least one application
+	if err := validateEntityUsage(&config); err != nil {
+		return config, err
+	}
+
 	config.BasePath = baseDir
 	config.ConfigFilePath = realConfigPath
 
 	return config, nil
+}
+
+// validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
+// are referenced in at least one application
+func validateEntityUsage(config *Config) error {
+	usedTransports := make(map[string]bool)
+	usedKafka := make(map[string]bool)
+	usedDrivers := make(map[string]bool)
+	usedWorkers := make(map[string]bool)
+	usedCLI := make(map[string]bool)
+
+	for _, app := range config.Applications {
+		for _, t := range app.TransportList {
+			usedTransports[t] = true
+		}
+
+		for _, k := range app.KafkaList {
+			usedKafka[k] = true
+		}
+
+		for _, d := range app.DriverList {
+			usedDrivers[d.Name] = true
+		}
+
+		for _, w := range app.WorkerList {
+			usedWorkers[w] = true
+		}
+
+		if app.CLI != "" {
+			usedCLI[app.CLI] = true
+		}
+	}
+
+	// Check rest
+	for name := range config.RestMap {
+		if !usedTransports[name] {
+			return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("rest '%s' is not used in any application", name))
+		}
+	}
+
+	// Check grpc
+	for name := range config.GrpcMap {
+		if !usedTransports[name] {
+			return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("grpc '%s' is not used in any application", name))
+		}
+	}
+
+	// Check kafka
+	for name := range config.KafkaMap {
+		if !usedKafka[name] {
+			return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("kafka '%s' is not used in any application", name))
+		}
+	}
+
+	// Check drivers
+	for name := range config.DriverMap {
+		if !usedDrivers[name] {
+			return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("driver '%s' is not used in any application", name))
+		}
+	}
+
+	// Check workers
+	for name := range config.WorkerMap {
+		if !usedWorkers[name] {
+			return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("worker '%s' is not used in any application", name))
+		}
+	}
+
+	// Check CLI
+	for name := range config.CLIMap {
+		if !usedCLI[name] {
+			return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf("cli '%s' is not used in any application", name))
+		}
+	}
+
+	return nil
 }

@@ -29,6 +29,11 @@ import (
 	{{ range $_, $driver := .Drivers }}
 	"{{ $driver.Import }}"
 	{{ end }}
+	{{ range $_, $kafka := .Kafka }}
+	{{ if not $kafka.IsCustomDriver }}
+	"{{ $kafka.GetImport $.ProjectPath }}"
+	{{ end }}
+	{{ end }}
 
 	{{ .Logger.Import }}
 
@@ -58,6 +63,11 @@ type Service struct {
 	{{ $driver.Name | ToLower }} *{{ $driver.Package }}.{{ $driver.ObjName }}
 	{{ if ne $driver.ServiceInjection "" }}
 	{{ $driver.ServiceInjection}}
+	{{ end }}
+	{{ end }}
+	{{ range $_, $kafka := .Kafka }}
+	{{ if eq $kafka.Type "producer" }}
+	{{ $kafka.Name | ToLower }} *{{ $kafka.GetPackage }}.{{ $kafka.GetObjName }}
 	{{ end }}
 	{{ end }}
 }
@@ -130,13 +140,19 @@ func NewService(ctx context.Context) (ds.IService, error) {
 	return srv.Init(ctx)
 }
 
-{{ if ne 0 ( len .Drivers ) }}
+{{ if or (ne 0 ( len .Drivers )) (ne 0 ( len .Kafka )) }}
 func (s *Service) setDrivers(drvs []ds.Runnable) error {
 	for _, drv := range drvs {
 		switch d := drv.(type) {
 		{{ range $_, $driver := .Drivers }}
 		case *{{ $driver.Package }}.{{ $driver.ObjName }}:
 			s.{{ $driver.Name | ToLower }} = d
+		{{ end }}
+		{{ range $_, $kafka := .Kafka }}
+		{{ if eq $kafka.Type "producer" }}
+		case *{{ $kafka.GetPackage }}.{{ $kafka.GetObjName }}:
+			s.{{ $kafka.Name | ToLower }} = d
+		{{ end }}
 		{{ end }}
 		default:
 			return errors.Errorf("unknown driver type: %T", drv)
@@ -195,7 +211,7 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 	{{- end }}
 	{{- end }}
 
-	{{ if ne 0 ( len .Drivers ) }}
+	{{ if or (ne 0 ( len .Drivers )) (ne 0 ( len .Kafka )) }}
 	return s.setDrivers(drvs)
 	{{ else }}
 	return nil

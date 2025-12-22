@@ -24,15 +24,93 @@ type DeployType struct {
 
 //type WorkerType string
 
+// JSONSchemaItem represents a single JSON schema file with its identifier
+type JSONSchemaItem struct {
+	ID   string // Unique identifier for referencing from kafka topics
+	Path string // Path to JSON schema file (absolute)
+	Type string // Generated Go type name (e.g. "AbonentUserSchemaJson")
+}
+
 // JSONSchema represents a JSON Schema configuration for code generation.
 type JSONSchema struct {
-	Name    string   // Unique identifier for the schema set
-	Package string   // Package name for generated code
-	Path    []string // Paths to JSON schema files (absolute)
+	Name    string           // Unique identifier for the schema set
+	Package string           // Package name for generated code
+	Path    []string         // Legacy: Paths to JSON schema files (absolute)
+	Schemas []JSONSchemaItem // New: Individual schema files with IDs
 }
 
 // JSONSchemas is a map of JSONSchema by name
 type JSONSchemas map[string]JSONSchema
+
+// KafkaTopic represents a Kafka topic with typed messages
+type KafkaTopic struct {
+	ID     string // Topic ID for OnlineConf path and method naming
+	Name   string // Default topic name (can be overridden via OnlineConf)
+	Schema string // Optional: package.TypeName (e.g. "tb.AbonentUserSchemaJson"), empty for raw []byte
+	// Computed at generation time
+	GoType   string // Full Go type (pkg.MessageType) or empty for []byte
+	GoImport string // Import path for the message type or empty for []byte
+}
+
+// Kafka driver and type constants
+const (
+	KafkaTypeProducer    = "producer"
+	KafkaTypeConsumer    = "consumer"
+	KafkaDriverCustom    = "custom"
+	KafkaObjNameProducer = "Producer"
+)
+
+// KafkaConfig represents Kafka producer/consumer configuration
+//
+//nolint:decorder // follows existing pattern - types after consts
+type KafkaConfig struct {
+	Name          string       // Unique name for reference
+	Type          string       // producer, consumer
+	Driver        string       // segmentio, custom
+	DriverImport  string       // For custom driver: import path
+	DriverPackage string       // For custom driver: package name
+	DriverObj     string       // For custom driver: struct name
+	ClientName    string       // Client name for OC path
+	Group         string       // Consumer group (for consumer type)
+	Topics        []KafkaTopic // Topics configuration
+}
+
+// KafkaConfigs is a map of KafkaConfig by name
+//
+//nolint:decorder // follows existing pattern
+type KafkaConfigs map[string]KafkaConfig
+
+// IsCustomDriver returns true if using custom driver
+func (k KafkaConfig) IsCustomDriver() bool {
+	return k.Driver == KafkaDriverCustom
+}
+
+// GetImport returns import path (generated or custom)
+func (k KafkaConfig) GetImport(modulePath string) string {
+	if k.IsCustomDriver() {
+		return k.DriverImport
+	}
+
+	return modulePath + "/pkg/drivers/kafka/" + strings.ToLower(k.Name)
+}
+
+// GetPackage returns package name
+func (k KafkaConfig) GetPackage() string {
+	if k.IsCustomDriver() {
+		return k.DriverPackage
+	}
+
+	return strings.ToLower(k.Name)
+}
+
+// GetObjName returns struct name
+func (k KafkaConfig) GetObjName() string {
+	if k.IsCustomDriver() {
+		return k.DriverObj
+	}
+
+	return KafkaObjNameProducer
+}
 
 const (
 	RestTransportType  TransportType = "rest"
@@ -85,7 +163,8 @@ type App struct {
 	Transports            Transports
 	Drivers               Drivers
 	Workers               Workers
-	CLI                   *CLIApp // CLI app config (exclusive with Transports/Workers)
+	Kafka                 KafkaConfigs // Kafka producers/consumers for this app
+	CLI                   *CLIApp      // CLI app config (exclusive with Transports/Workers)
 	Deploy                DeployParams
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
@@ -98,8 +177,8 @@ type App struct {
 // CLIApp represents a CLI transport configuration
 type CLIApp struct {
 	Name              string
-	Import            string            // Import path for the CLI handler
-	Init              string            // Initialization code
+	Import            string // Import path for the CLI handler
+	Init              string // Initialization code
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
@@ -191,12 +270,12 @@ type AuthParams struct {
 }
 
 type Transport struct {
-	Name                 string
-	PkgName              string
-	Import               []string // ToDo точно ли нужен срез?
-	PublicService        bool
-	Init                 string
-	HealthCheckPath      string
+	Name            string
+	PkgName         string
+	Import          []string // ToDo точно ли нужен срез?
+	PublicService   bool
+	Init            string
+	HealthCheckPath string
 	// Handler        Handler
 	Type                 TransportType
 	GeneratorType        string
@@ -207,7 +286,7 @@ type Transport struct {
 	ApiVersion           string // перенесено из Hendler
 	Port                 string // перенесено из Hendler
 	EmptyConfigAvailable bool
-	BufLocalPlugins      bool   // Use local buf instead of docker for proto generation
+	BufLocalPlugins      bool // Use local buf instead of docker for proto generation
 }
 
 type Worker struct {
@@ -284,6 +363,51 @@ func (a App) WorkerImports() []string {
 	return imports
 }
 
+// KafkaImports returns import paths for kafka producers
+func (a App) KafkaImports(modulePath string) []string {
+	imports := make([]string, 0)
+
+	for _, kafka := range a.Kafka {
+		if kafka.Type == KafkaTypeProducer {
+			imports = append(imports, kafka.GetImport(modulePath))
+		}
+	}
+
+	sort.Slice(imports, func(i, j int) bool {
+		return strings.Compare(imports[i], imports[j]) < 0
+	})
+
+	return imports
+}
+
+// GetKafkaProducers returns all kafka producers for this app
+func (a App) GetKafkaProducers() []KafkaConfig {
+	producers := make([]KafkaConfig, 0)
+
+	for _, kafka := range a.Kafka {
+		if kafka.Type == KafkaTypeProducer {
+			producers = append(producers, kafka)
+		}
+	}
+
+	sort.Slice(producers, func(i, j int) bool {
+		return strings.Compare(producers[i].Name, producers[j].Name) < 0
+	})
+
+	return producers
+}
+
+// HasKafkaProducers returns true if app has any kafka producers
+func (a App) HasKafkaProducers() bool {
+	for _, kafka := range a.Kafka {
+		if kafka.Type == KafkaTypeProducer {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetTransportInfos returns transport info for Grafana dashboard generation.
 func (a App) GetTransportInfos() []grafana.TransportInfo {
 	infos := make([]grafana.TransportInfo, 0, len(a.Transports))
@@ -301,7 +425,6 @@ func (a App) GetTransportInfos() []grafana.TransportInfo {
 
 	return infos
 }
-
 
 func (app App) getTransport(t TransportType) []Transport {
 	retTransports := []Transport{}
@@ -450,9 +573,19 @@ func (j JSONSchema) GetPackageName() string {
 
 // GetSchemaFilenames returns the base filenames without extension for all schema paths
 func (j JSONSchema) GetSchemaFilenames() []string {
-	filenames := make([]string, 0, len(j.Path))
+	// Collect paths from both legacy Path[] and new Schemas[]
+	var paths []string
+	if len(j.Schemas) > 0 {
+		for _, item := range j.Schemas {
+			paths = append(paths, item.Path)
+		}
+	} else {
+		paths = j.Path
+	}
 
-	for _, path := range j.Path {
+	filenames := make([]string, 0, len(paths))
+
+	for _, path := range paths {
 		base := filepath.Base(path)
 		// Remove .json extension if present
 		if ext := filepath.Ext(base); ext == ".json" {

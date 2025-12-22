@@ -48,6 +48,7 @@ type Generator struct {
 	Workers             ds.Workers
 	Drivers             ds.Drivers
 	JSONSchemas         ds.JSONSchemas
+	Kafka               ds.KafkaConfigs
 	Applications        ds.Apps
 	Grafana             grafana.Config
 }
@@ -66,6 +67,7 @@ func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (
 		Workers:      make(ds.Workers),
 		Drivers:      make(ds.Drivers),
 		JSONSchemas:  make(ds.JSONSchemas),
+		Kafka:        make(ds.KafkaConfigs),
 		DryRun:       dryrun,
 		Meta:         genMeta,
 	}
@@ -252,18 +254,94 @@ func (g *Generator) processConfig(config config.Config) error {
 			return errors.New("jsonschema name is empty")
 		}
 
-		paths := make([]string, 0, len(js.Path))
-		for _, path := range js.Path {
-			paths = append(paths, filepath.Join(config.BasePath, path))
-		}
-
 		schema := ds.JSONSchema{
 			Name:    js.Name,
 			Package: js.Package,
-			Path:    paths,
+		}
+
+		// Support both legacy path[] and new schemas[] format
+		if len(js.Schemas) > 0 {
+			schema.Schemas = make([]ds.JSONSchemaItem, 0, len(js.Schemas))
+			for _, s := range js.Schemas {
+				schemaType := s.Type
+				if schemaType == "" {
+					// Auto-calculate type from filename: abonent.user.schema.json → AbonentUserSchemaJson
+					schemaType = filenameToTypeName(s.Path)
+				}
+				schema.Schemas = append(schema.Schemas, ds.JSONSchemaItem{
+					ID:   s.ID,
+					Path: filepath.Join(config.BasePath, s.Path),
+					Type: schemaType,
+				})
+			}
+		} else {
+			// Legacy format: plain path list
+			schema.Path = make([]string, 0, len(js.Path))
+			for _, path := range js.Path {
+				schema.Path = append(schema.Path, filepath.Join(config.BasePath, path))
+			}
 		}
 
 		g.JSONSchemas[js.Name] = schema
+	}
+
+	// Process Kafka configurations
+	for _, kafka := range config.KafkaList {
+		if kafka.Name == "" {
+			return errors.New("kafka name is empty")
+		}
+
+		driver := kafka.Driver
+		if driver == "" {
+			driver = "segmentio" // default driver
+		}
+
+		topics := make([]ds.KafkaTopic, 0, len(kafka.Topics))
+
+		for _, t := range kafka.Topics {
+			topic := ds.KafkaTopic{
+				ID:     t.ID,
+				Name:   t.Name,
+				Schema: t.Schema,
+			}
+
+			// Compute GoType and GoImport from Schema field (format: "jsonschema_name.schema_id")
+			// If Schema is empty, topic will use raw []byte
+			if t.Schema != "" {
+				parts := strings.SplitN(t.Schema, ".", 2)
+				if len(parts) == 2 {
+					schemaSetName := parts[0]
+					schemaID := parts[1]
+					// Lookup jsonschema by name
+					if schemaSet, exists := g.JSONSchemas[schemaSetName]; exists {
+						// Find schema item by ID
+						for _, item := range schemaSet.Schemas {
+							if item.ID == schemaID {
+								topic.GoImport = g.ProjectPath + "/pkg/schema/" + schemaSet.Name
+								topic.GoType = schemaSet.GetPackageName() + "." + item.Type
+								break
+							}
+						}
+					}
+				}
+			}
+
+			topics = append(topics, topic)
+		}
+
+		kafkaConfig := ds.KafkaConfig{
+			Name:          kafka.Name,
+			Type:          kafka.Type,
+			Driver:        driver,
+			DriverImport:  kafka.DriverImport,
+			DriverPackage: kafka.DriverPackage,
+			DriverObj:     kafka.DriverObj,
+			ClientName:    kafka.Client,
+			Group:         kafka.Group,
+			Topics:        topics,
+		}
+
+		g.Kafka[kafka.Name] = kafkaConfig
 	}
 
 	for _, app := range config.Applications {
@@ -307,6 +385,7 @@ func (g *Generator) processConfig(config config.Config) error {
 			Transports:            make(ds.Transports),
 			Workers:               make(ds.Workers),
 			Drivers:               make(ds.Drivers),
+			Kafka:                 make(ds.KafkaConfigs),
 			UseActiveRecord:       useActiveRecord,
 			DependsOnDockerImages: app.DependsOnDockerImages,
 			UseEnvs:               useEnvs,
@@ -383,6 +462,16 @@ func (g *Generator) processConfig(config config.Config) error {
 				GeneratorTemplate: cli.GeneratorTemplate,
 				GeneratorParams:   cli.GeneratorParams,
 			}
+		}
+
+		// Add Kafka producers/consumers to this application
+		for _, kafkaName := range app.KafkaList {
+			kafka, ex := g.Kafka[kafkaName]
+			if !ex {
+				return errors.Errorf("unknown kafka: %s in application: %s", kafkaName, app.Name)
+			}
+
+			application.Kafka[kafkaName] = kafka
 		}
 
 		g.Applications = append(g.Applications, application)
@@ -490,6 +579,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Drivers:             g.Drivers,
 		Workers:             g.Workers,
 		JSONSchemas:         g.JSONSchemas,
+		Kafka:               g.Kafka,
 		Grafana:             g.Grafana,
 	}
 }
@@ -554,7 +644,17 @@ func (g *Generator) CopySchemas() error {
 			return fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
 		}
 
-		for _, schemaPath := range schema.Path {
+		// Collect paths from both legacy Path[] and new Schemas[]
+		var paths []string
+		if len(schema.Schemas) > 0 {
+			for _, item := range schema.Schemas {
+				paths = append(paths, item.Path)
+			}
+		} else {
+			paths = schema.Path
+		}
+
+		for _, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
 				return errors.Wrapf(err, "schema file not found: %s", schemaPath)
 			}
@@ -807,6 +907,17 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	dirs = append(dirs, dirsL...)
 	files = append(files, filesL...)
 
+	// Generate Kafka driver templates for segmentio drivers
+	for _, kafka := range g.Kafka {
+		dirsK, filesK, err := templater.GetKafkaDriverTemplates(kafka, g.GetTmplParams())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get kafka driver templates for %s: %w", kafka.Name, err)
+		}
+
+		dirs = append(dirs, dirsK...)
+		files = append(files, filesK...)
+	}
+
 	for _, app := range g.Applications {
 		dirApp, filesApp, err := templater.GetAppTemplates(g.GetTmplAppParams(app))
 		if err != nil {
@@ -903,4 +1014,26 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	}
 
 	return dirs, files, nil
+}
+
+// filenameToTypeName converts a schema filename to a Go type name
+// Example: abonent.user.schema.json → AbonentUserSchemaJson
+func filenameToTypeName(path string) string {
+	// Get base filename (keep .json extension for type name)
+	base := filepath.Base(path)
+
+	// Split by dots and dashes, convert each part to title case
+	var result strings.Builder
+	parts := strings.FieldsFunc(base, func(r rune) bool {
+		return r == '.' || r == '-' || r == '_'
+	})
+
+	for _, part := range parts {
+		if len(part) > 0 {
+			result.WriteString(strings.ToUpper(string(part[0])))
+			result.WriteString(strings.ToLower(part[1:]))
+		}
+	}
+
+	return result.String()
 }

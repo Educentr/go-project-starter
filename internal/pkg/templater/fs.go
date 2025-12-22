@@ -504,3 +504,41 @@ func GetTestTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fi
 
 	return
 }
+
+// GetKafkaDriverTemplates returns Kafka driver templates for auto-generated producers/consumers
+// kafkaType should be "producer" or "consumer"
+func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds.Files, []ds.Files, error) {
+	// Only generate templates for segmentio driver (not custom)
+	if kafka.IsCustomDriver() {
+		return nil, nil, nil
+	}
+
+	kafkaParams := GeneratorKafkaParams{
+		GeneratorParams: params,
+		Kafka:           kafka,
+	}
+
+	templatePath := filepath.Join("embedded/templates/driver/kafka", kafka.Type, "files")
+
+	dirs, files, err := GetTemplates(templates, templatePath, kafkaParams)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+
+		return nil, nil, errors.Wrapf(err, "error while get kafka driver templates for %s", kafka.Name)
+	}
+
+	// Set destination path: pkg/drivers/kafka/{name}
+	kafkaPrefix := "pkg/drivers/kafka/{{ .Kafka.Name | ToLower }}"
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(kafkaPrefix, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(kafkaPrefix, files[i].DestName)
+	}
+
+	return dirs, files, nil
+}

@@ -1,0 +1,234 @@
+package {{ .Kafka.Name | ToLower }}
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/segmentio/kafka-go"
+	"golang.org/x/sync/errgroup"
+	zlog "github.com/rs/zerolog"
+)
+
+const clientName = "{{ .Kafka.ClientName }}"
+const asyncQueueSize = 1000
+const asyncPublishTimeout = 5 * time.Second
+
+// asyncMessage represents a message to be published asynchronously
+type asyncMessage struct {
+	topic string
+	key   []byte
+	value []byte
+}
+
+// Producer is a Kafka producer for {{ .Kafka.Name }}
+type Producer struct {
+	serviceName string
+	writer      *kafka.Writer
+	metrics     *Metrics
+	topicNames  map[string]string
+	disabled    bool
+	asyncChan   chan asyncMessage
+	stopChan    chan struct{}
+}
+
+// Create returns a new Producer instance
+func Create() *Producer {
+	return &Producer{}
+}
+
+// Name returns the driver name
+func (p *Producer) Name() string {
+	return "KafkaProducer_{{ .Kafka.Name }}"
+}
+
+// Init initializes the producer connection
+func (p *Producer) Init(ctx context.Context, serviceName string, _ ds.ServerBucket, registry *prometheus.Registry) error {
+	p.serviceName = serviceName
+
+	brokers, err := getBrokers(ctx, serviceName)
+	if err != nil {
+		zlog.Ctx(ctx).Warn().Err(err).Str("producer", "{{ .Kafka.Name }}").Msg("kafka producer disabled: brokers not configured")
+		p.disabled = true
+		return nil
+	}
+
+	transport, err := buildTransport(ctx, serviceName)
+	if err != nil {
+		return fmt.Errorf("build transport: %w", err)
+	}
+
+	p.topicNames, err = loadTopicNames(ctx, serviceName)
+	if err != nil {
+		return fmt.Errorf("load topic names: %w", err)
+	}
+
+	p.writer = &kafka.Writer{
+		Addr:      kafka.TCP(brokers...),
+		Transport: transport,
+		Balancer:  &kafka.LeastBytes{},
+	}
+
+	p.metrics = NewMetrics(registry, "{{ .Kafka.Name | ToLower }}")
+
+	// Initialize async channels
+	p.asyncChan = make(chan asyncMessage, asyncQueueSize)
+	p.stopChan = make(chan struct{})
+
+	// Warm up connection by fetching metadata
+	if err := p.warmup(ctx, brokers[0], transport); err != nil {
+		zlog.Ctx(ctx).Warn().Err(err).Str("producer", "{{ .Kafka.Name }}").Msg("kafka warmup failed, first request may be slow")
+	} else {
+		zlog.Ctx(ctx).Info().Str("producer", "{{ .Kafka.Name }}").Str("broker", brokers[0]).Msg("kafka connection warmed up")
+	}
+
+	return nil
+}
+
+// warmup establishes connection to broker and fetches metadata to pre-warm the connection pool
+func (p *Producer) warmup(ctx context.Context, broker string, transport *kafka.Transport) error {
+	dialer := &kafka.Dialer{
+		Timeout:       10 * time.Second,
+		DualStack:     true,
+		SASLMechanism: transport.SASL,
+		TLS:           transport.TLS,
+	}
+
+	conn, err := dialer.DialContext(ctx, "tcp", broker)
+	if err != nil {
+		return fmt.Errorf("dial broker: %w", err)
+	}
+	defer conn.Close()
+
+	// Fetch brokers metadata to warm up connection
+	_, err = conn.Brokers()
+	if err != nil {
+		return fmt.Errorf("fetch brokers: %w", err)
+	}
+
+	return nil
+}
+
+// IsDisabled returns true if producer is disabled (no kafka configured)
+func (p *Producer) IsDisabled() bool {
+	return p.disabled
+}
+
+// Run starts the producer and async worker
+func (p *Producer) Run(ctx context.Context, _ *errgroup.Group) {
+	if p.disabled {
+		return
+	}
+
+	// Start async worker
+	go p.asyncWorker(ctx)
+}
+
+// asyncWorker processes async messages from the channel
+func (p *Producer) asyncWorker(ctx context.Context) {
+	logger := zlog.Ctx(ctx).With().Str("producer", "{{ .Kafka.Name }}").Logger()
+	logger.Info().Msg("kafka async worker started")
+
+	for {
+		select {
+		case msg, ok := <-p.asyncChan:
+			if !ok {
+				logger.Info().Msg("kafka async worker stopped: channel closed")
+				return
+			}
+			p.processAsyncMessage(msg, logger)
+		case <-p.stopChan:
+			// Drain remaining messages with timeout
+			p.drainMessages(logger)
+			logger.Info().Msg("kafka async worker stopped")
+			return
+		}
+	}
+}
+
+// processAsyncMessage publishes a single async message
+func (p *Producer) processAsyncMessage(msg asyncMessage, logger zlog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), asyncPublishTimeout)
+	defer cancel()
+
+	err := p.writer.WriteMessages(ctx, kafka.Message{
+		Topic: msg.topic,
+		Key:   msg.key,
+		Value: msg.value,
+	})
+	if err != nil {
+		logger.Error().Err(err).Str("topic", msg.topic).Msg("failed to publish async message")
+		p.metrics.PublishError(msg.topic)
+	} else {
+		p.metrics.PublishSuccess(msg.topic)
+	}
+}
+
+// drainMessages processes remaining messages in the channel before shutdown
+func (p *Producer) drainMessages(logger zlog.Logger) {
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case msg, ok := <-p.asyncChan:
+			if !ok {
+				return
+			}
+			p.processAsyncMessage(msg, logger)
+		case <-timeout:
+			remaining := len(p.asyncChan)
+			if remaining > 0 {
+				logger.Warn().Int("remaining", remaining).Msg("kafka async worker shutdown: dropped messages")
+			}
+			return
+		default:
+			return
+		}
+	}
+}
+
+// PublishAsync sends a message asynchronously (non-blocking, fire and forget)
+func (p *Producer) PublishAsync(topic string, key, value []byte) {
+	if p.disabled {
+		return
+	}
+
+	select {
+	case p.asyncChan <- asyncMessage{topic: topic, key: key, value: value}:
+		// Message queued
+	default:
+		// Channel full, drop message
+		p.metrics.PublishDropped(topic)
+	}
+}
+
+// Shutdown closes the producer connection
+func (p *Producer) Shutdown(_ context.Context) error {
+	// Signal worker to stop
+	if p.stopChan != nil {
+		close(p.stopChan)
+	}
+	if p.writer != nil {
+		return p.writer.Close()
+	}
+	return nil
+}
+
+// GracefulStop gracefully stops the producer
+func (p *Producer) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Signal worker to stop and drain messages
+		if p.stopChan != nil {
+			close(p.stopChan)
+		}
+		// Give worker time to drain
+		time.Sleep(100 * time.Millisecond)
+		if p.writer != nil {
+			p.writer.Close()
+		}
+	}()
+	return done, nil
+}
