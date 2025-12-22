@@ -364,6 +364,12 @@ mock:
 	@echo "Generating mocks..."
 	@go generate ./...
 
+# Generate test mocks only
+.PHONY: generate-mocks
+generate-mocks:
+	@echo "Generating test mocks..."
+	@go generate ./tests/mocks/...
+
 
 .PHONY: get-runtime
 get-runtime:
