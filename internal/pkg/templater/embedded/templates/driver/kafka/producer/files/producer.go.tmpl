@@ -3,6 +3,7 @@ package {{ .Kafka.Name | ToLower }}
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
@@ -32,6 +33,7 @@ type Producer struct {
 	disabled    bool
 	asyncChan   chan asyncMessage
 	stopChan    chan struct{}
+	closeOnce   sync.Once
 }
 
 // Create returns a new Producer instance
@@ -205,10 +207,12 @@ func (p *Producer) PublishAsync(topic string, key, value []byte) {
 
 // Shutdown closes the producer connection
 func (p *Producer) Shutdown(_ context.Context) error {
-	// Signal worker to stop
-	if p.stopChan != nil {
-		close(p.stopChan)
-	}
+	// Signal worker to stop (only once)
+	p.closeOnce.Do(func() {
+		if p.stopChan != nil {
+			close(p.stopChan)
+		}
+	})
 	if p.writer != nil {
 		return p.writer.Close()
 	}
@@ -220,10 +224,12 @@ func (p *Producer) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// Signal worker to stop and drain messages
-		if p.stopChan != nil {
-			close(p.stopChan)
-		}
+		// Signal worker to stop and drain messages (only once)
+		p.closeOnce.Do(func() {
+			if p.stopChan != nil {
+				close(p.stopChan)
+			}
+		})
 		// Give worker time to drain
 		time.Sleep(100 * time.Millisecond)
 		if p.writer != nil {
