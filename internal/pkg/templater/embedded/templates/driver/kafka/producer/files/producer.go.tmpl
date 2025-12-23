@@ -32,8 +32,9 @@ type Producer struct {
 	topicNames  map[string]string
 	disabled    bool
 	asyncChan   chan asyncMessage
-	stopChan    chan struct{}
-	closeOnce   sync.Once
+	stopChan       chan struct{}
+	closeOnce      sync.Once
+	writerCloseOnce sync.Once
 }
 
 // Create returns a new Producer instance
@@ -205,6 +206,17 @@ func (p *Producer) PublishAsync(topic string, key, value []byte) {
 	}
 }
 
+// closeWriter safely closes the kafka writer (only once)
+func (p *Producer) closeWriter() error {
+	var err error
+	p.writerCloseOnce.Do(func() {
+		if p.writer != nil {
+			err = p.writer.Close()
+		}
+	})
+	return err
+}
+
 // Shutdown closes the producer connection
 func (p *Producer) Shutdown(_ context.Context) error {
 	// Signal worker to stop (only once)
@@ -213,10 +225,7 @@ func (p *Producer) Shutdown(_ context.Context) error {
 			close(p.stopChan)
 		}
 	})
-	if p.writer != nil {
-		return p.writer.Close()
-	}
-	return nil
+	return p.closeWriter()
 }
 
 // GracefulStop gracefully stops the producer
@@ -232,9 +241,7 @@ func (p *Producer) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
 		})
 		// Give worker time to drain
 		time.Sleep(100 * time.Millisecond)
-		if p.writer != nil {
-			p.writer.Close()
-		}
+		p.closeWriter()
 	}()
 	return done, nil
 }
