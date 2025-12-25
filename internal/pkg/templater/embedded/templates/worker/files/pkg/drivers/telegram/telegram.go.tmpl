@@ -20,6 +20,7 @@ type Telegram struct {
 	EnableHiddenMessage bool
 	Poller              tgbotapi.UpdatesChannel
 	OnSendError         OnSendErrorCallback
+	apiEndpoint         string
 }
 
 const (
@@ -55,7 +56,18 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 			return err
 		}
 
-		bot, err := tgbotapi.NewBotAPI(botToken)
+		// Get API endpoint from onlineconf or use option value
+		apiEndpoint := tg.apiEndpoint
+		if apiEndpoint == "" {
+			apiEndpoint, _ = onlineconf.GetString(ctx, onlineconf.MakePath(serviceName, configPath, "tg_api_endpoint"), "")
+		}
+
+		var bot *tgbotapi.BotAPI
+		if apiEndpoint != "" {
+			bot, err = tgbotapi.NewBotAPIWithAPIEndpoint(botToken, apiEndpoint)
+		} else {
+			bot, err = tgbotapi.NewBotAPI(botToken)
+		}
 		if err != nil {
 			return err
 		}

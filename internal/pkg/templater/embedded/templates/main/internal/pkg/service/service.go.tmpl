@@ -204,7 +204,7 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 
 	{{ range $_, $tr := .Applications.GetGrpcTransport }}
 	{{ if eq $tr.GeneratorType "buf_client" }}
-	s.{{ $tr.Name }}, err = {{ $tr.Name }}.NewClient(ctx, constant.ServiceName)
+	s.{{ $tr.Name | ToLower }}, err = {{ $tr.Name }}.NewClient(ctx, constant.ServiceName)
 	if err != nil {
 		return errors.Wrap(err, "error init {{ $tr.Name }} gRPC client")
 	}

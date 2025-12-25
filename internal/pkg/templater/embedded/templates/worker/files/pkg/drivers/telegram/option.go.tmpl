@@ -27,3 +27,9 @@ func WithOnSendError(cb OnSendErrorCallback) Option {
 		t.OnSendError = cb
 	})
 }
+
+func WithAPIEndpoint(endpoint string) Option {
+	return optionFunc(func(t *Telegram) {
+		t.apiEndpoint = endpoint
+	})
+}

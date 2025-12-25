@@ -551,6 +551,10 @@ func (t Transport) GetOgenConfigPath(targetDir string) string {
 }
 
 func (t Transport) GetTargetSpecDir(targetDir string) string {
+	if t.Type == GrpcTransportType {
+		return filepath.Join(targetDir, "api", "grpc", t.Name)
+	}
+
 	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 

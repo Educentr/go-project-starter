@@ -1,18 +1,18 @@
 main:
-  name: rest-test
+  name: resttest
   logger: zerolog
   registry_type: github
 
 post_generate: []
 
 git:
-  repo: git@github.com:test/rest-test.git
-  module_path: github.com/test/rest-test
+  repo: git@github.com:test/resttest.git
+  module_path: github.com/test/resttest
 
 tools:
   protobuf_version: 1.7.0
   golang_version: "1.24"
-  ogen_version: v1.8.1
+  ogen_version: v1.18.0
   golangci_version: 1.64.8
 
 rest:
@@ -32,7 +32,7 @@ rest:
     generator_template: sys
 
 applications:
-  - name: apiServer
+  - name: api
     transport:
       - api
       - sys
