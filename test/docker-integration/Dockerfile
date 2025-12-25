@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Docker CLI for building images inside container
+RUN curl -fsSL https://get.docker.com | sh
+
 # Git config for private repos (if token provided)
 RUN if [ -n "$GITHUB_TOKEN" ]; then \
     git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \

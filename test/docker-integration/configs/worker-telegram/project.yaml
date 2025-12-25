@@ -1,18 +1,18 @@
 main:
-  name: telegram-test
+  name: telegramtest
   logger: zerolog
   registry_type: github
 
 post_generate: []
 
 git:
-  repo: git@github.com:test/telegram-test.git
-  module_path: github.com/test/telegram-test
+  repo: git@github.com:test/telegramtest.git
+  module_path: github.com/test/telegramtest
 
 tools:
   protobuf_version: 1.7.0
   golang_version: "1.24"
-  ogen_version: v1.8.1
+  ogen_version: v1.18.0
   golangci_version: 1.64.8
 
 rest:
@@ -29,7 +29,7 @@ worker:
 
 driver:
   - name: telegram
-    import: github.com/test/telegram-test/pkg/drivers/telegram
+    import: github.com/test/telegramtest/pkg/drivers/telegram
     package: telegram
     obj_name: Telegram
     service_injection: |
@@ -37,7 +37,7 @@ driver:
       telegram.UnimplementedPayment
 
 applications:
-  - name: botServer
+  - name: bot
     transport:
       - sys
     worker:
