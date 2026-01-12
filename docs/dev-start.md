@@ -1,8 +1,8 @@
-# Локальная разработка с docker-compose.dev.yaml
+# Локальная разработка с docker-compose-dev.yaml
 
 ## Обзор
 
-`docker-compose.dev.yaml` - файл для локальной разработки, который автоматически генерируется на основе конфигурации проекта. Включает:
+`docker-compose-dev.yaml` - файл для локальной разработки, который автоматически генерируется на основе конфигурации проекта. Включает:
 
 - Все applications из конфига
 - Общий Traefik reverse proxy
@@ -32,15 +32,15 @@ OC_PASSWORD=your_password
 EOF
 
 # 3. Собрать и запустить
-docker-compose -f docker-compose.dev.yaml build
-docker-compose -f docker-compose.dev.yaml up
+docker-compose -f docker-compose-dev.yaml build
+docker-compose -f docker-compose-dev.yaml up
 ```
 
 ## Структура сервисов
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    docker-compose.dev.yaml                  │
+│                    docker-compose-dev.yaml                  │
 ├─────────────────────────────────────────────────────────────┤
 │  traefik              - reverse proxy для всех сервисов     │
 │  onlineconf-updater   - общий updater конфигурации          │
@@ -95,13 +95,13 @@ docker-compose -f docker-compose.dev.yaml up
 ssh-add -l
 
 # Собрать все образы
-docker-compose -f docker-compose.dev.yaml build
+docker-compose -f docker-compose-dev.yaml build
 
 # Собрать конкретный сервис
-docker-compose -f docker-compose.dev.yaml build {app_name}
+docker-compose -f docker-compose-dev.yaml build {app_name}
 
 # Собрать без кеша
-docker-compose -f docker-compose.dev.yaml build --no-cache
+docker-compose -f docker-compose-dev.yaml build --no-cache
 ```
 
 ### CI сборка (GitHub Token)
@@ -123,26 +123,26 @@ docker build \
 
 ```bash
 # Запустить все сервисы
-docker-compose -f docker-compose.dev.yaml up
+docker-compose -f docker-compose-dev.yaml up
 
 # Запустить в фоне
-docker-compose -f docker-compose.dev.yaml up -d
+docker-compose -f docker-compose-dev.yaml up -d
 
 # Запустить конкретный сервис с зависимостями
-docker-compose -f docker-compose.dev.yaml up {app_name}
+docker-compose -f docker-compose-dev.yaml up {app_name}
 
 # Посмотреть логи
-docker-compose -f docker-compose.dev.yaml logs -f {app_name}
+docker-compose -f docker-compose-dev.yaml logs -f {app_name}
 
 # Остановить
-docker-compose -f docker-compose.dev.yaml down
+docker-compose -f docker-compose-dev.yaml down
 ```
 
 ## Директории
 
 ```
 project/
-├── docker-compose.dev.yaml    # Сгенерированный compose файл
+├── docker-compose-dev.yaml    # Сгенерированный compose файл
 ├── Dockerfile-{app}           # Dockerfile для каждого приложения
 ├── .env                       # Переменные окружения (создать вручную)
 ├── etc/
@@ -201,10 +201,10 @@ ssh-add ~/.ssh/id_rsa
 
 ```bash
 # Проверить переменные
-docker-compose -f docker-compose.dev.yaml config | grep OC_
+docker-compose -f docker-compose-dev.yaml config | grep OC_
 
 # Посмотреть логи updater
-docker-compose -f docker-compose.dev.yaml logs onlineconf-updater
+docker-compose -f docker-compose-dev.yaml logs onlineconf-updater
 ```
 
 ### Порт уже занят
@@ -214,17 +214,17 @@ docker-compose -f docker-compose.dev.yaml logs onlineconf-updater
 echo "DEV_GRAFANA_PORT=3001" >> .env
 
 # Или через переменную окружения
-DEV_GRAFANA_PORT=3001 docker-compose -f docker-compose.dev.yaml up
+DEV_GRAFANA_PORT=3001 docker-compose -f docker-compose-dev.yaml up
 ```
 
 ### Пересборка после изменений
 
 ```bash
 # Пересобрать и перезапустить
-docker-compose -f docker-compose.dev.yaml up --build
+docker-compose -f docker-compose-dev.yaml up --build
 
 # Полная очистка и пересборка
-docker-compose -f docker-compose.dev.yaml down -v
-docker-compose -f docker-compose.dev.yaml build --no-cache
-docker-compose -f docker-compose.dev.yaml up
+docker-compose -f docker-compose-dev.yaml down -v
+docker-compose -f docker-compose-dev.yaml build --no-cache
+docker-compose -f docker-compose-dev.yaml up
 ```

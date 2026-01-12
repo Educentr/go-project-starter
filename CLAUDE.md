@@ -129,7 +129,7 @@ go install ./cmd/go-project-starter && \
 
 ```bash
 # 1. Остановить контейнеры и удалить volumes (если были запущены ранее)
-cd ~/Develop/tmp/test-app && docker compose -f docker-compose.dev.yaml down -v
+cd ~/Develop/tmp/test-app && docker compose -f docker-compose-dev.yaml down -v
 
 # 2. Установить генератор и пересоздать проект
 go install ./cmd/go-project-starter && \
@@ -138,7 +138,7 @@ go install ./cmd/go-project-starter && \
   go-project-starter --configDir=./test/docker-integration/configs/rest-only --target=~/Develop/tmp/test-app
 
 # 3. Запустить dev-окружение
-cd ~/Develop/tmp/test-app && docker compose -f docker-compose.dev.yaml up
+cd ~/Develop/tmp/test-app && docker compose -f docker-compose-dev.yaml up
 ```
 
 **Что проверить:**

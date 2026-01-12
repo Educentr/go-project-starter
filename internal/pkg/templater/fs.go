@@ -93,8 +93,8 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 		filteredFiles := make([]ds.Files, 0, len(files))
 
 		for _, f := range files {
-			// Skip docker-compose.dev.yaml and etc/onlineconf/ files
-			if strings.HasPrefix(f.DestName, "docker-compose.dev") ||
+			// Skip docker-compose-dev.yaml and etc/onlineconf/ files
+			if strings.HasPrefix(f.DestName, "docker-compose-dev") ||
 				strings.Contains(f.DestName, "etc/onlineconf") {
 				continue
 			}
