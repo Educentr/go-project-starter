@@ -1,0 +1,436 @@
+-- ============================================
+-- Auto-generated OnlineConf configuration
+-- Project: {{ .ProjectName }}
+-- ============================================
+
+-- ============================================
+-- Service Authentication (for onlineconf-updater)
+-- ============================================
+-- Admin user for updater authentication (password: admin, SHA256 hash)
+-- /onlineconf/service node has ID=4 in base example-with-projects.sql
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('admin', 4, '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', 'text/plain', 'Admin service user');
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+-- ============================================
+-- Chroot Configuration (defines config tree access for admin)
+-- ============================================
+-- /onlineconf/chroot node has ID=9 in base example-with-projects.sql
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('admin', 9, 'delimiter: /', 'application/x-yaml', 'Admin chroot config');
+SET @chroot_admin_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@chroot_admin_id, 1, 'delimiter: /', 'application/x-yaml', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('TREE', @chroot_admin_id, NULL, 'application/x-null', 'Tree modules');
+SET @chroot_admin_tree_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@chroot_admin_tree_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ .ProjectName }}', @chroot_admin_tree_id, '/services/{{ .ProjectName }}', 'application/x-symlink', 'Project config root');
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '/services/{{ .ProjectName }}', 'application/x-symlink', 'go-project-starter', 'Auto-generated');
+
+-- ============================================
+-- Module Routing (add admin service to /onlineconf/module case)
+-- ============================================
+-- /onlineconf/module (ID=3) uses application/x-case to route services to their chroot paths
+-- We need to add admin service mapping to the existing case array
+UPDATE `my_config_tree`
+SET `Value` = JSON_ARRAY_APPEND(
+    COALESCE(`Value`, '[]'),
+    '$',
+    JSON_OBJECT('mime', 'application/x-symlink', 'value', '/onlineconf/chroot/admin', 'service', 'admin')
+),
+`Version` = `Version` + 1
+WHERE `ID` = 3;
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+SELECT 3, `Version`, `Value`, 'application/x-case', 'go-project-starter', 'Added admin service routing'
+FROM `my_config_tree` WHERE `ID` = 3;
+
+-- ============================================
+-- Project Configuration
+-- ============================================
+
+-- Services container node (parent for all application configs)
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('services', 1, NULL, 'application/x-null', 'Services configuration container');
+SET @services_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@services_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+-- Grant root group access to services node
+INSERT INTO `my_config_tree_group` (`NodeID`, `GroupID`, `RW`)
+VALUES (@services_id, (SELECT `ID` from `my_config_group` WHERE `Name` = 'root'), true);
+
+-- Service root node
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ .ProjectName }}', @services_id, NULL, 'application/x-null', '{{ .ProjectName }} service configuration');
+SET @service_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@service_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+-- Grant root group access to service config
+INSERT INTO `my_config_tree_group` (`NodeID`, `GroupID`, `RW`)
+VALUES (@service_id, (SELECT `ID` from `my_config_group` WHERE `Name` = 'root'), true);
+
+-- DevStand flag (enabled for development)
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('devstand', @service_id, '1', 'text/plain', 'Development stand flag');
+SET @devstand_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@devstand_id, 1, '1', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+-- ============================================
+-- Transport Configuration
+-- ============================================
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('transport', @service_id, NULL, 'application/x-null', 'Transport configuration');
+SET @transport_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@transport_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+{{- $hasRestTransports := false }}
+{{- $hasGrpcTransports := false }}
+{{- range $_, $app := .Applications }}
+{{- range $_, $t := $app.GetRestTransport }}
+{{- $hasRestTransports = true }}
+{{- end }}
+{{- end }}
+{{- range $_, $app := .Applications }}
+{{- range $_, $t := $app.Transports }}
+{{- if eq (printf "%s" $t.Type) "grpc" }}
+{{- $hasGrpcTransports = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if $hasRestTransports }}
+-- REST transport section
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('rest', @transport_id, NULL, 'application/x-null', 'REST transport configuration');
+SET @rest_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@rest_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+{{- end }}
+
+{{- if $hasGrpcTransports }}
+-- gRPC transport section
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('grpc', @transport_id, NULL, 'application/x-null', 'gRPC transport configuration');
+SET @grpc_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@grpc_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+{{- end }}
+
+{{- range $appIdx, $app := .Applications }}
+{{- range $tIdx, $t := $app.GetRestTransport }}
+{{- if ne $t.GeneratorType "ogen_client" }}
+{{- $transportName := printf "%s_%s" $t.Name $t.ApiVersion }}
+
+-- ============================================
+-- REST Server: {{ $transportName }} ({{ $app.Name }})
+-- ============================================
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ $transportName }}', @rest_id, NULL, 'application/x-null', 'REST server {{ $transportName }}');
+SET @rest_{{ $transportName | ReplaceDash }}_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@rest_{{ $transportName | ReplaceDash }}_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+-- Transport config
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('ip', @rest_{{ $transportName | ReplaceDash }}_id, '0.0.0.0', 'text/plain', 'Bind IP address');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '0.0.0.0', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('port', @rest_{{ $transportName | ReplaceDash }}_id, '{{ $t.Port }}', 'text/plain', 'Port number');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '{{ $t.Port }}', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('timeout', @rest_{{ $transportName | ReplaceDash }}_id, '30s', 'text/plain', 'Request timeout');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '30s', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('timeout_read_header', @rest_{{ $transportName | ReplaceDash }}_id, '10s', 'text/plain', 'Read header timeout');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '10s', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+{{- end }}
+{{- end }}
+
+{{- range $tIdx, $t := $app.GetRestTransport }}
+{{- if eq $t.GeneratorType "ogen_client" }}
+
+-- ============================================
+-- REST Client: {{ $t.Name }} ({{ $t.PkgName }})
+-- ============================================
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ $t.PkgName }}', @rest_id, NULL, 'application/x-null', 'REST client {{ $t.PkgName }}');
+SET @rest_client_{{ $t.PkgName | ReplaceDash }}_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@rest_client_{{ $t.PkgName | ReplaceDash }}_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('host', @rest_client_{{ $t.PkgName | ReplaceDash }}_id, 'http://{{ $app.Name }}:{{ $t.Port }}', 'text/plain', 'Client host URL');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('timeout', @rest_client_{{ $t.PkgName | ReplaceDash }}_id, '2s', 'text/plain', 'Client timeout');
+
+{{- if $t.HasAuthParams }}
+-- Auth params for {{ $t.PkgName }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('auth_params', @rest_client_{{ $t.PkgName | ReplaceDash }}_id, NULL, 'application/x-null', 'Auth configuration');
+SET @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('apikey', @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id, '', 'text/plain', 'API key (set manually)');
+{{- end }}
+
+{{- end }}
+{{- end }}
+
+{{- range $tIdx, $t := $app.Transports }}
+{{- if eq (printf "%s" $t.Type) "grpc" }}
+{{- if eq $t.GeneratorType "buf_client" }}
+
+-- ============================================
+-- gRPC Client: {{ $t.Name }}
+-- ============================================
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ $t.Name }}', @grpc_id, NULL, 'application/x-null', 'gRPC client {{ $t.Name }}');
+SET @grpc_{{ $t.Name | ReplaceDash }}_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@grpc_{{ $t.Name | ReplaceDash }}_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('host', @grpc_{{ $t.Name | ReplaceDash }}_id, '{{ $app.Name }}', 'text/plain', 'gRPC host');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('port', @grpc_{{ $t.Name | ReplaceDash }}_id, '{{ $t.Port }}', 'text/plain', 'gRPC port');
+
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+-- ============================================
+-- Kafka Configuration
+-- ============================================
+{{- $hasKafka := false }}
+{{- range $_, $app := .Applications }}
+{{- if $app.HasKafkaProducers }}
+{{- $hasKafka = true }}
+{{- end }}
+{{- end }}
+
+{{- if $hasKafka }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('kafka', @service_id, NULL, 'application/x-null', 'Kafka configuration');
+SET @kafka_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@kafka_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+{{- range $_, $app := .Applications }}
+{{- range $_, $kafka := $app.GetKafkaProducers }}
+
+-- Kafka producer: {{ $kafka.Name }} (client: {{ $kafka.ClientName }})
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ $kafka.ClientName }}', @kafka_id, NULL, 'application/x-null', 'Kafka client {{ $kafka.ClientName }}');
+SET @kafka_{{ $kafka.ClientName | ReplaceDash }}_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@kafka_{{ $kafka.ClientName | ReplaceDash }}_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('brokers', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, 'kafka:9092', 'text/plain', 'Kafka brokers (comma-separated)');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('auth_type', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, 'none', 'text/plain', 'Auth type: none, PLAIN, SCRAM-SHA-256, SCRAM-SHA-512');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('username', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, '', 'text/plain', 'SASL username');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('password', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, '', 'text/plain', 'SASL password');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('tls_enabled', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, '0', 'text/plain', 'Enable TLS');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('tls_skip_verify', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, '0', 'text/plain', 'Skip TLS verification');
+
+-- Topics
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('topics', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, NULL, 'application/x-null', 'Topic configuration');
+SET @kafka_{{ $kafka.ClientName | ReplaceDash }}_topics_id = LAST_INSERT_ID();
+
+{{- range $_, $topic := $kafka.Topics }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ $topic.ID }}', @kafka_{{ $kafka.ClientName | ReplaceDash }}_topics_id, '{{ $topic.Name }}', 'text/plain', 'Topic: {{ $topic.ID }}');
+{{- end }}
+
+{{- end }}
+{{- end }}
+{{- end }}
+
+-- ============================================
+-- Worker Configuration
+-- ============================================
+{{- $hasWorkers := false }}
+{{- range $_, $app := .Applications }}
+{{- if $app.Workers }}
+{{- $hasWorkers = true }}
+{{- end }}
+{{- end }}
+
+{{- if $hasWorkers }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('worker', @service_id, NULL, 'application/x-null', 'Worker configuration');
+SET @worker_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@worker_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+{{- range $_, $app := .Applications }}
+{{- range $_, $worker := $app.Workers }}
+
+-- Worker: {{ $worker.Name }} (type: {{ $worker.GeneratorType }})
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('{{ $worker.Name }}', @worker_id, NULL, 'application/x-null', 'Worker {{ $worker.Name }}');
+SET @worker_{{ $worker.Name | ReplaceDash }}_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@worker_{{ $worker.Name | ReplaceDash }}_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+{{- if eq $worker.GeneratorTemplate "telegram" }}
+-- Telegram worker config
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('buffer_size', @worker_{{ $worker.Name | ReplaceDash }}_id, '100', 'text/plain', 'Updates channel buffer size');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('tg_token', @worker_{{ $worker.Name | ReplaceDash }}_id, '', 'text/plain', 'Telegram bot token (set manually)');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('tg_api_endpoint', @worker_{{ $worker.Name | ReplaceDash }}_id, '', 'text/plain', 'Custom Telegram API endpoint (optional)');
+{{- end }}
+
+{{- if eq $worker.GeneratorTemplate "daemon" }}
+-- Daemon worker config
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('batch_size', @worker_{{ $worker.Name | ReplaceDash }}_id, '100', 'text/plain', 'Batch size for job processing');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('max_workers', @worker_{{ $worker.Name | ReplaceDash }}_id, '10', 'text/plain', 'Maximum parallel workers');
+
+-- Jobs configuration
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('jobs', @worker_{{ $worker.Name | ReplaceDash }}_id, NULL, 'application/x-null', 'Jobs configuration');
+SET @worker_{{ $worker.Name | ReplaceDash }}_jobs_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('enabled', @worker_{{ $worker.Name | ReplaceDash }}_jobs_id, '', 'text/plain', 'Comma-separated list of enabled jobs');
+{{- end }}
+
+{{- end }}
+{{- end }}
+{{- end }}
+
+-- ============================================
+-- Security Configuration
+-- ============================================
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('security', @service_id, NULL, 'application/x-null', 'Security configuration');
+SET @security_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@security_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('httpAuth', @security_id, NULL, 'application/x-null', 'HTTP authentication');
+SET @httpauth_id = LAST_INSERT_ID();
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@httpauth_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('enabled', @httpauth_id, '0', 'text/plain', 'Enable HTTP auth');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '0', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('csrf', @security_id, NULL, 'application/x-null', 'CSRF protection');
+SET @csrf_id = LAST_INSERT_ID();
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@csrf_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('enabled', @csrf_id, '0', 'text/plain', 'Enable CSRF protection');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '0', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+-- ============================================
+-- Settings Configuration
+-- ============================================
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('settings', @service_id, NULL, 'application/x-null', 'Service settings');
+SET @settings_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@settings_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('auto_refund_disable', @settings_id, '0', 'text/plain', 'Disable auto-refund feature');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '0', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('enabled', @settings_id, NULL, 'application/x-null', 'Feature enablement flags');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+-- ============================================
+-- Bot Configuration (for Telegram workers)
+-- ============================================
+{{- $hasTelegramWorker := false }}
+{{- range $_, $app := .Applications }}
+{{- range $_, $worker := $app.Workers }}
+{{- if eq $worker.GeneratorTemplate "telegram" }}
+{{- $hasTelegramWorker = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if $hasTelegramWorker }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('bot', @service_id, NULL, 'application/x-null', 'Bot configuration');
+SET @bot_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@bot_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('admins', @bot_id, NULL, 'application/x-null', 'Admin users (by Telegram ID)');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('users', @bot_id, NULL, 'application/x-null', 'Allowed users');
+{{- end }}

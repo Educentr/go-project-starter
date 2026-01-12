@@ -2,8 +2,12 @@ main:
   name: resttest
   logger: zerolog
   registry_type: github
+  dev_stand: true
 
-post_generate: []
+post_generate:
+  - git_install
+  - call_generate
+  - go_mod_tidy
 
 git:
   repo: git@github.com:test/resttest.git
@@ -22,6 +26,7 @@ rest:
     api_prefix: /
     version: "v1"
     port: 8080
+    public_service: true
     generator_type: ogen
     generator_params:
       auth_handler: "off"

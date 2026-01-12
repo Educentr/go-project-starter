@@ -116,3 +116,7 @@ require (
 	github.com/Educentr/goat-services v0.0.7
 )
 {{ end }}
+{{ if .DevStand }}
+// Local development: resolve internal packages from local directory
+replace {{ .ProjectPath }} => ./
+{{ end }}

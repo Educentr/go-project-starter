@@ -23,6 +23,7 @@ rest:
     api_prefix: /
     version: "v1"
     port: 8080
+    public_service: true
     generator_type: ogen
     generator_params:
       auth_handler: "off"

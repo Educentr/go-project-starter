@@ -72,6 +72,37 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 	dirs, files, err = GetTemplates(templates, "embedded/templates/main", params)
 	if err != nil {
 		err = errors.Wrap(err, "error while get main templates")
+		return
+	}
+
+	// Filter out dev-stand specific templates if DevStand is false
+	if !params.DevStand {
+		filteredDirs := make([]ds.Files, 0, len(dirs))
+
+		for _, d := range dirs {
+			// Skip etc/onlineconf/ directory
+			if strings.Contains(d.DestName, "etc/onlineconf") {
+				continue
+			}
+
+			filteredDirs = append(filteredDirs, d)
+		}
+
+		dirs = filteredDirs
+
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			// Skip docker-compose.dev.yaml and etc/onlineconf/ files
+			if strings.HasPrefix(f.DestName, "docker-compose.dev") ||
+				strings.Contains(f.DestName, "etc/onlineconf") {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
 	}
 
 	return
