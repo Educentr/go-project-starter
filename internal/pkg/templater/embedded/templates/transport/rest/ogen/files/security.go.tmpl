@@ -1,5 +1,5 @@
 package {{ .Transport.Name }}
-{{ if ne "off" ( index .TransportParams "auth_handler" ) }}
+{{ if eq "on" ( index .TransportParams "auth_handler" ) }}
 
 import (
     "context"

@@ -235,6 +235,20 @@ docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
 .PHONY: docker-push
 docker-push: {{ range $_, $a := .Applications }}docker-{{ $a.Name }}-push {{ end }}
 
+{{ if .DevStand }}
+# Development stand management
+.PHONY: dev-up
+dev-up:
+	docker compose -f docker-compose-dev.yaml up -d
+
+.PHONY: dev-down
+dev-down:
+	docker compose -f docker-compose-dev.yaml down
+
+.PHONY: dev-drop
+dev-drop:
+	docker compose -f docker-compose-dev.yaml down -v
+{{ end }}
 .PHONY: build
 build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
 
