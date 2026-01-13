@@ -46,6 +46,7 @@ allure-results/
 # Configs and environment files
 .env
 
+rm/*
 
 # postgres local files
 # rabbitmq local files
