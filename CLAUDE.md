@@ -106,3 +106,52 @@ templater/embedded/templates/
 
 - `test/generate_test.go` - Integration tests
 - `test/configs/` - Test configurations (config1.yml, example.proto, example.swagger.yml)
+
+## Manual Testing
+
+### Testing Generator Changes
+
+После изменений в генераторе или шаблонах:
+
+```bash
+# Установить и сгенерировать тестовый проект
+go install ./cmd/go-project-starter && \
+  rm -rf ~/Develop/tmp/test-app && \
+  mkdir ~/Develop/tmp/test-app && \
+  go-project-starter --configDir=./test/docker-integration/configs/rest-only --target=~/Develop/tmp/test-app
+```
+
+### Testing dev_stand Feature
+
+Функция `dev_stand: true` генерирует локальное окружение с OnlineConf.
+
+**Важно:** При изменениях в SQL-шаблонах нужно удалить MySQL volume, иначе init-скрипты не применятся повторно.
+
+```bash
+# 1. Остановить контейнеры и удалить volumes (если были запущены ранее)
+cd ~/Develop/tmp/test-app && docker compose -f docker-compose-dev.yaml down -v
+
+# 2. Установить генератор и пересоздать проект
+go install ./cmd/go-project-starter && \
+  rm -rf ~/Develop/tmp/test-app && \
+  mkdir ~/Develop/tmp/test-app && \
+  go-project-starter --configDir=./test/docker-integration/configs/rest-only --target=~/Develop/tmp/test-app
+
+# 3. Запустить dev-окружение
+cd ~/Develop/tmp/test-app && docker compose -f docker-compose-dev.yaml up
+```
+
+**Что проверить:**
+- OnlineConf Admin UI доступен на http://localhost:8888
+- Traefik dashboard на http://localhost:9080
+- API на http://localhost:8080
+- Sys metrics на http://localhost:8085
+- `onlineconf-updater` в статусе healthy (создан файл TREE.cdb)
+
+### Docker Integration Tests
+
+```bash
+# Собрать образ и запустить интеграционные тесты
+make buildfortest
+TEST_IMAGE=go-project-starter-test:latest go test -v -count=1 -run TestIntegrationRESTOnly ./test/docker-integration/...
+```

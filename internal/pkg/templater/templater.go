@@ -32,6 +32,7 @@ type GeneratorParams struct {
 	ProjectPath         string
 	RegistryType        string
 	UseActiveRecord     bool
+	DevStand            bool
 	Repo                string
 	PrivateRepos        string
 	DockerImagePrefix   string

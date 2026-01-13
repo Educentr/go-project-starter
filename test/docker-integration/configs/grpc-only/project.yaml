@@ -28,6 +28,7 @@ grpc:
     short: item
     path: ./item.proto
     port: 8090
+    public_service: true
     generator_type: buf_client
     buf_local_plugins: true
     empty_config_available: true

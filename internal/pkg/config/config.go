@@ -226,6 +226,23 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 
 	// ToDo ws, ...
 
+	// Validate dev_stand requires git_install in post_generate
+	if config.Main.DevStand {
+		hasGitInstall := false
+
+		for _, pg := range config.PostGenerate {
+			if pg == "git_install" {
+				hasGitInstall = true
+
+				break
+			}
+		}
+
+		if !hasGitInstall {
+			return config, errors.WithMessage(ErrInvalidConfig, "dev_stand requires 'git_install' in post_generate section")
+		}
+	}
+
 	// Validate that all defined entities are used in at least one application
 	if err := validateEntityUsage(&config); err != nil {
 		return config, err

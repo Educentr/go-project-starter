@@ -26,6 +26,7 @@ type (
 		Author          string `mapstructure:"author"`
 		SkipServiceInit bool   `mapstructure:"skip_service_init"`
 		UseActiveRecord bool   `mapstructure:"use_active_record"`
+		DevStand        bool   `mapstructure:"dev_stand"`
 		LoggerObj       ds.Logger
 		TargetDir       string
 		ConfigDir       string
