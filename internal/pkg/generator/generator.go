@@ -682,7 +682,7 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error copy schemas")
 	}
 
-	// Create .project-config directory in target for meta.yaml and config
+	 
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
 	if err = os.MkdirAll(projectConfigDir, tools.DefaultDirPerm); err != nil {
 		return fmt.Errorf("error creating .project-config directory: %w", err)

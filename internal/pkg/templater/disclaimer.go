@@ -54,7 +54,7 @@ func makeStartDisclaimer(fName string) (string, error) {
 		prefix = "# " + fname + "\n\n"
 	}
 
-	text, err := makeComment(fname, disclaimerTop)
+	text, err := makeComment(fname, DisclaimerTop)
 	if err != nil {
 		return "", fmt.Errorf("error while make comment: %w", err)
 	}
@@ -70,7 +70,7 @@ func makeFinishDisclaimer(fName string) (string, error) {
 		return "", nil
 	}
 
-	return makeComment(fname, disclaimerBottom)
+	return makeComment(fname, DisclaimerBottom)
 }
 
 func makeComment(fName, text string) (string, error) {

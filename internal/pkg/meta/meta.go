@@ -7,14 +7,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"gopkg.in/yaml.v3"
 )
 
 const curVer = 3
 
 type Meta struct {
-	Path    string `yaml:"-"`
-	Version int    `yaml:"version"`
+	Path             string `yaml:"-"`
+	Version          int    `yaml:"version"`
+	StartDisclaimer  string `yaml:"disclaimer"`
+	FinishDisclaimer string `yaml:"finish_disclaimer"`
 }
 
 func GetDefaultMeta(path string) Meta {
@@ -54,6 +57,9 @@ func GetMeta(baseDir, metaPath string) (Meta, error) {
 
 func (m *Meta) Save() error {
 	m.Version = curVer
+
+	m.StartDisclaimer = templater.DisclaimerTop
+	m.FinishDisclaimer = templater.DisclaimerBottom
 
 	data, err := yaml.Marshal(m)
 	if err != nil {

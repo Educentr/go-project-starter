@@ -14,6 +14,8 @@ import (
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+
+	//
 	"github.com/pkg/errors"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -183,9 +185,9 @@ func GenerateFilenameByTmpl(file *ds.Files, targetPath string, lastVer int) erro
 // ToDo сделать проверку, что эта строка есть в файле дисклеймера
 // для случаев, когда дисклеймер меняется, надо поддержать массив строк для поиска
 // CI должен проверять, что массив строк "никогда" не уменьшается, что бы не нарушать обратную совместимость
-const (
-	disclaimer = "If you need you can add your code after this message"
-)
+// const (
+// 	disclaimer = "If you need you can add your code after this message"
+// )
 
 var (
 	ignoreExistingPath = []string{
@@ -339,20 +341,38 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 	return filesDiff, nil
 }
 
-func splitDisclaimer(fileContent string) (string, string, error) {
-	disclamerFind := strings.Index(fileContent, disclaimer)
-	if disclamerFind == -1 {
-		return fileContent, "", errors.New("end disclaimer not found in file")
+func splitDisclaimer(fileContent string, disclaimerStart string, disclaimerFinish string) (string, string, error) {
+
+	// genMeta.StartDisclaimer
+	disclamerFindStart := strings.Index(fileContent, disclaimerStart)
+	if disclamerFindStart == -1 {
+		return fileContent, "", errors.New("disclaimerStart not found in file")
 	}
 
-	newLine := strings.Index(fileContent[disclamerFind+len(disclaimer):], "\n")
-	if newLine == -1 {
-		return fileContent[:disclamerFind], "", nil
+	beforeLine := strings.Index(fileContent[:disclamerFindStart], "\n")
+	if beforeLine == -1 {
+		return fileContent[:disclamerFindStart], "", errors.New("there is a code before the disclaimer")
 	}
 
-	userData := fileContent[disclamerFind+len(disclaimer)+newLine+1:]
+	lineTop := strings.Index(fileContent[disclamerFindStart+len(disclaimerStart):], "\n")
+	if lineTop == -1 {
+		return fileContent[:disclamerFindStart], "", nil
+	}
 
-	return fileContent[:disclamerFind+len(disclaimer)+newLine+1], userData, nil
+	foundFileContent := fileContent[disclamerFindStart+len(disclaimerStart)+lineTop+1:]
+	disclamerFindFinish := strings.Index(foundFileContent, disclaimerFinish)
+	if disclamerFindFinish == -1 {
+		return fileContent, "", errors.New("disclaimerFinish not found in file")
+	}
+
+	lineBottom := strings.Index(fileContent[disclamerFindFinish+len(disclaimerFinish):], "\n")
+	if lineBottom == -1 {
+		return fileContent[:disclamerFindFinish], "", nil
+	}
+
+	userData := fileContent[disclamerFindStart+len(disclaimerStart)+lineTop+1+disclamerFindFinish+len(disclaimerFinish)+lineBottom+1:]
+
+	return fileContent[:disclamerFindStart+len(disclaimerStart)+lineTop+1], userData, nil
 }
 
 const bufferSizeStep = 1024

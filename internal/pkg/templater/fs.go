@@ -24,10 +24,10 @@ const (
 var templates embed.FS
 
 //go:embed embedded/disclaimer.txt
-var disclaimerTop string
+var DisclaimerTop string
 
 //go:embed embedded/finish_disclaimer.txt
-var disclaimerBottom string
+var DisclaimerBottom string
 
 func GetTemplates(templateFS embed.FS, prefix string, params any) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs = []ds.Files{}
