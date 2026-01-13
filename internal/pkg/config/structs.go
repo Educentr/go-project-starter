@@ -71,6 +71,8 @@ type (
 		GolangciVersion     string `mapstructure:"golangci_version"`
 		RuntimeVersion      string `mapstructure:"runtime_version"`
 		GoJSONSchemaVersion string `mapstructure:"go_jsonschema_version"`
+		GoatVersion         string `mapstructure:"goat_version"`
+		GoatServicesVersion string `mapstructure:"goat_services_version"`
 	}
 
 	AuthParams struct {

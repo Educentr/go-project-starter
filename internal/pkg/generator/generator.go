@@ -40,6 +40,8 @@ type Generator struct {
 	GolangciVersion     string
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
 	TargetDir           string
 	ConfigPath          string // Source config file path for copying to target
 	DockerImagePrefix   string
@@ -97,6 +99,8 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.ArgenVersion = config.Tools.ArgenVersion
 	g.GolangciVersion = config.Tools.GolangciVersion
 	g.GoJSONSchemaVersion = config.Tools.GoJSONSchemaVersion
+	g.GoatVersion = config.Tools.GoatVersion
+	g.GoatServicesVersion = config.Tools.GoatServicesVersion
 
 	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
 	if config.Tools.RuntimeVersion != "" {
@@ -581,6 +585,8 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		GolangciVersion:     g.GolangciVersion,
 		RuntimeVersion:      g.RuntimeVersion,
 		GoJSONSchemaVersion: g.GoJSONSchemaVersion,
+		GoatVersion:         g.GoatVersion,
+		GoatServicesVersion: g.GoatServicesVersion,
 		Applications:        g.Applications,
 		Drivers:             g.Drivers,
 		Workers:             g.Workers,

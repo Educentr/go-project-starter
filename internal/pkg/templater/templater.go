@@ -43,6 +43,8 @@ type GeneratorParams struct {
 	GolangciVersion     string
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
 	Drivers             ds.Drivers
 	Workers             ds.Workers
 	JSONSchemas         ds.JSONSchemas

@@ -29,6 +29,11 @@ ARGENVERSION = {{ .ArgenVersion }}
 # go-jsonschema version
 GO_JSONSCHEMA_VERSION = {{ .GoJSONSchemaVersion }}
 {{- end }}
+{{- if .Applications.HasGoatTests }}
+# Goat versions
+GOATVERSION = {{ .GoatVersion }}
+GOATSERVICESVERSION = {{ .GoatServicesVersion }}
+{{- end }}
 # Onlineconf version
 ONLINECONF_UPDATER_VERSION = v3.6.4
 # Build datetime
@@ -241,9 +246,17 @@ docker-push: {{ range $_, $a := .Applications }}docker-{{ $a.Name }}-push {{ end
 dev-up:
 	docker compose -f docker-compose-dev.yaml up -d
 
+.PHONY: dev-rebuild
+dev-rebuild: dev-down
+	docker compose -f docker-compose-dev.yaml up -d --build{{ range .Applications }} {{ .Name }}{{ end }}
+
 .PHONY: dev-down
 dev-down:
 	docker compose -f docker-compose-dev.yaml down
+
+.PHONY: dev-restart
+dev-restart:
+	docker compose -f docker-compose-dev.yaml restart
 
 .PHONY: dev-drop
 dev-drop:
@@ -343,6 +356,20 @@ install-go-jsonschema:
 install-ogen:
 	GOPRIVATE=$(GOPRIVATE) go get github.com/ogen-go/ogen@$(OGENVERSION)
 	GOPRIVATE=$(GOPRIVATE) go install github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION)
+{{- end }}
+
+{{- if .Applications.HasGoatTests }}
+# Install goat and goat-services
+.PHONY: install-goat
+install-goat:
+	GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat@$(GOATVERSION)
+	GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat-services@$(GOATSERVICESVERSION)
+
+.PHONY: get-goat
+get-goat:
+	@echo "Fetching goat..."
+	@GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat@$(GOATVERSION)
+	@GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat-services@$(GOATSERVICESVERSION)
 {{- end }}
 
 # Print release tag
@@ -458,7 +485,7 @@ generate-test-env-{{ $a.Name }}:
 		$(MAKE) onlineconf-update-tests || true; \
 	fi
 	@echo "Generating tests/etc/onlineconf/onlineconf.env..."
-	@go run ./cmd/tests generate-env
+	@go run github.com/Educentr/goat/cmd/testutil@$(GOATVERSION) generate-env
 
 .PHONY: goat-tests-{{ $a.Name }}
 goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
