@@ -202,6 +202,7 @@ const (
 var (
 	ignoreExistingPath = []string{
 		".git/",
+		"docs/",
 	}
 	ignoreIfExistsFiles = map[string]struct{}{
 		".gitignore":           {},
