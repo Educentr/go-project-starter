@@ -320,9 +320,15 @@ func (m Main) IsValid() (bool, string) {
 		return false, "RegistryType not set " + m.RegistryType
 	}
 
-	if string(m.RegistryType) != "digitalocean" && m.RegistryType != "github" {
-		// return false, "invalid RegistryType value " + m.RegistryType
-		return false, "RegistryType value can be either 'github' or 'digitalocean', invalid RegistryType value " + m.RegistryType
+	validRegistryTypes := map[string]bool{
+		"digitalocean": true,
+		"github":       true,
+		"aws":          true,
+		"selfhosted":   true,
+	}
+
+	if !validRegistryTypes[m.RegistryType] {
+		return false, "RegistryType value can be 'github', 'digitalocean', 'aws', or 'selfhosted', invalid RegistryType value " + m.RegistryType
 	}
 
 	return true, ""

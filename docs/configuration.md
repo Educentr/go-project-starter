@@ -6,7 +6,7 @@
 main:
   name: string              # Имя проекта
   logger: zerolog           # Тип логгера
-  registry_type: github     # Container registry (github/digitalocean)
+  registry_type: github     # Container registry (github/digitalocean/aws/selfhosted)
   use_active_record: bool   # Включить ORM для базы данных
 
 git:
@@ -58,7 +58,7 @@ grafana:
 ```yaml
 main:
   name: myproject
-  registry_type: github     # или digitalocean
+  registry_type: github     # github, digitalocean, aws, или selfhosted
   logger: zerolog
   author: "Your Name"
   use_active_record: true   # Включает PostgreSQL + ActiveRecord ORM
@@ -67,9 +67,38 @@ main:
 | Поле | Обязательно | Описание |
 |------|-------------|----------|
 | `name` | Да | Имя проекта (используется в путях, Docker образах) |
-| `registry_type` | Нет | `github` или `digitalocean` |
+| `registry_type` | Нет | `github`, `digitalocean`, `aws`, или `selfhosted` |
 | `logger` | Нет | Тип логгера (сейчас только `zerolog`) |
 | `use_active_record` | Нет | Включает генерацию кода для PostgreSQL |
+
+### Типы Container Registry
+
+| Тип | Registry | Требуемые секреты GitHub Actions |
+|-----|----------|----------------------------------|
+| `github` | GitHub Container Registry (ghcr.io) | `GHCR_USER`, `GHCR_TOKEN` |
+| `digitalocean` | DigitalOcean Container Registry | `REGISTRY_PASSWORD` |
+| `aws` | Amazon Elastic Container Registry (ECR) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
+| `selfhosted` | Любой Docker Registry совместимый API | `REGISTRY_URL`, `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` |
+
+#### AWS ECR
+
+Для AWS ECR формат URL реестра: `{account-id}.dkr.ecr.{region}.amazonaws.com`
+
+```yaml
+main:
+  registry_type: aws
+```
+
+#### Self-Hosted Registry
+
+Для self-hosted реестров (включая MinIO-backed registry):
+
+```yaml
+main:
+  registry_type: selfhosted
+```
+
+Настройте переменную `REGISTRY_LOGIN_SERVER` в GitHub для указания URL реестра.
 
 ## Секция `git`
 
@@ -368,7 +397,7 @@ OC_{ProjectName}__security__httpAuth__enabled=0
 2. **Драйверы, на которые есть ссылки, должны существовать**
 3. **Имена не должны дублироваться** (REST, gRPC, drivers)
 4. **ActiveRecord требует указания ArgenVersion**
-5. **Registry type: только `github` или `digitalocean`**
+5. **Registry type: только `github`, `digitalocean`, `aws`, или `selfhosted`**
 6. **Порты обязательны для REST (кроме шаблона `sys`)**
 
 ## Следующие шаги
