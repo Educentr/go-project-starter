@@ -587,7 +587,7 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error collect files")
 	}
 
-	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files)
+	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.StartDisclaimer, g.Meta.FinishDisclaimer)
 	if err != nil {
 		return errors.Wrap(err, "Error get user code")
 	}
@@ -682,7 +682,6 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error copy schemas")
 	}
 
-	 
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
 	if err = os.MkdirAll(projectConfigDir, tools.DefaultDirPerm); err != nil {
 		return fmt.Errorf("error creating .project-config directory: %w", err)

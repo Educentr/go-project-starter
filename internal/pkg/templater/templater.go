@@ -218,7 +218,7 @@ func isFileIgnore(path string) bool {
 	return false
 }
 
-func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, error) {
+func GetUserCodeFromFiles(targetDir string, files []ds.Files, disclaimerStart string, disclaimerFinish string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
 		IgnoreFiles:    make(map[string]struct{}),
@@ -295,7 +295,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 				return err
 			}
 
-			_, userData, err := splitDisclaimer(string(fileContent))
+			_, userData, err := splitDisclaimer(string(fileContent), disclaimerStart, disclaimerFinish)
 			if err != nil {
 				// ToDo сделать force режим
 				return errors.Wrap(err, "error split disclaimer in file "+path)
@@ -319,7 +319,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 			}
 
 			// ToDo сделать удаление старых файлов с дисклеймером которые больше не будут генерироваться
-			_, userData, err := splitDisclaimer(string(fileContent))
+			_, userData, err := splitDisclaimer(string(fileContent), disclaimerStart, disclaimerFinish)
 			if err == nil && len(userData) > 0 {
 				// ToDo сделать миграции с возможностью указать перемещение файлов из одного места в другое, что бы пользовательский код переносить
 				return errors.New("found user code in stale gen file " + targetDir + " / " + path)
