@@ -2,39 +2,57 @@
 
 ## Обзор
 
-`docker-compose-dev.yaml` - файл для локальной разработки, который автоматически генерируется на основе конфигурации проекта. Включает:
+При включении `dev_stand: true` в конфигурации проекта генерируется `docker-compose-dev.yaml` — полностью автономное локальное окружение для разработки. Включает:
 
+- **OnlineConf** (MySQL + Admin UI + Updater) — локальный сервер конфигурации
+- **Traefik** — reverse proxy для всех сервисов
 - Все applications из конфига
-- Общий Traefik reverse proxy
-- Общий OnlineConf updater
-- PostgreSQL (если используется ActiveRecord)
+- PostgreSQL (если `use_active_record: true`)
 - Grafana + Prometheus + Loki (если настроены datasources)
 
 ## Требования
 
 - Docker с поддержкой BuildKit
 - SSH ключ добавлен в ssh-agent (для приватных репозиториев)
-- Доступ к OnlineConf серверу
+- Git (для submodule onlineconf)
+
+## Конфигурация
+
+Добавьте `dev_stand: true` в секцию `main`:
+
+```yaml
+main:
+  name: myproject
+  logger: zerolog
+  dev_stand: true
+
+post_generate:
+  - git_install    # Обязательно для dev_stand
+  - call_generate
+  - go_mod_tidy
+```
+
+**Важно:** `dev_stand: true` требует `git_install` в `post_generate`, так как OnlineConf добавляется как git submodule.
 
 ## Быстрый старт
 
-```bash
-# 1. Добавить SSH ключ в agent
-eval $(ssh-agent -s)
-ssh-add ~/.ssh/id_rsa
-
-# 2. Создать .env файл с настройками OnlineConf
-cat > .env << EOF
-OC_HOST=onlineconf.example.com
-OC_PORT=443
-OC_USER=your_user
-OC_PASSWORD=your_password
-EOF
 
 # 3. Собрать и запустить
-docker-compose -f docker-compose-dev.yaml build
-docker-compose -f docker-compose-dev.yaml up
-```
+
+- Генерация проекта
+- make dev-up
+
+После запуска дождитесь сообщения `onlineconf-updater` о создании `TREE.cdb` — это означает, что конфигурация загружена и приложения готовы к работе.
+
+## Make-команды
+
+| Команда | Описание |
+|---------|----------|
+| `make dev-up` | Собрать и запустить все сервисы в фоне |
+| `make dev-down` | Остановить все сервисы |
+| `make dev-restart` | Перезапустить все сервисы |
+| `make dev-rebuild` | Пересобрать и перезапустить приложения |
+| `make dev-drop` | Остановить и удалить все volumes (полный сброс) |
 
 ## Структура сервисов
 
@@ -42,8 +60,12 @@ docker-compose -f docker-compose-dev.yaml up
 ┌─────────────────────────────────────────────────────────────┐
 │                    docker-compose-dev.yaml                  │
 ├─────────────────────────────────────────────────────────────┤
+│  OnlineConf Stack:                                          │
+│  onlineconf-database  - MySQL для хранения конфигурации     │
+│  onlineconf-admin     - Web UI для редактирования конфигов  │
+│  onlineconf-updater   - синхронизация конфигов в файлы      │
+├─────────────────────────────────────────────────────────────┤
 │  traefik              - reverse proxy для всех сервисов     │
-│  onlineconf-updater   - общий updater конфигурации          │
 │  {app1}               - приложение 1                        │
 │  {app2}               - приложение 2                        │
 │  ...                                                        │
@@ -56,33 +78,54 @@ docker-compose -f docker-compose-dev.yaml up
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Доступ к сервисам
+
+| Сервис | URL | Credentials |
+|--------|-----|-------------|
+| OnlineConf Admin | http://localhost:8888 | admin / admin |
+| Traefik Dashboard | http://localhost:9080 | - |
+| Application API | http://localhost:{port} | - |
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | - |
+| PostgreSQL | localhost:5432 | postgres / postgres |
+
 ## Переменные окружения
 
-### Обязательные (OnlineConf)
-
-| Переменная | Описание |
-|------------|----------|
-| `OC_HOST` | Хост OnlineConf сервера |
-| `OC_PORT` | Порт OnlineConf сервера |
-| `OC_USER` | Пользователь OnlineConf |
-| `OC_PASSWORD` | Пароль OnlineConf |
-
-### Опциональные (порты)
+### OnlineConf (опционально)
 
 | Переменная | Default | Описание |
 |------------|---------|----------|
-| `DEV_TRAEFIK_PORT` | 8080 | Порт Traefik dashboard |
+| `OC_USER` | admin | Пользователь OnlineConf updater |
+| `OC_PASSWORD` | admin | Пароль OnlineConf updater |
+
+### Порты (опционально)
+
+| Переменная | Default | Описание |
+|------------|---------|----------|
+| `DEV_ONLINECONF_ADMIN_PORT` | 8888 | Порт OnlineConf Admin UI |
+| `DEV_TRAEFIK_PORT` | 9080 | Порт Traefik dashboard |
 | `DEV_PORT_{TRANSPORT}` | из конфига | Порт транспорта |
 | `DEV_POSTGRES_PORT` | 5432 | Порт PostgreSQL |
 | `DEV_GRAFANA_PORT` | 3000 | Порт Grafana |
 | `DEV_PROMETHEUS_PORT` | 9090 | Порт Prometheus |
 | `DEV_LOKI_PORT` | 3100 | Порт Loki |
 
-### Опциональные (сборка)
+### Сборка (опционально)
 
 | Переменная | Default | Описание |
 |------------|---------|----------|
 | `GOPROXY` | - | Go proxy для ускорения сборки |
+
+## Начальная конфигурация OnlineConf
+
+При первом запуске MySQL выполняет `init-config.sql`, который создаёт начальную структуру конфигурации в OnlineConf. Этот файл генерируется автоматически на основе конфигурации проекта.
+
+**Важно:** При изменении `init-config.sql` необходимо удалить volume MySQL, чтобы init-скрипты применились повторно:
+
+```bash
+make dev-drop
+make dev-up
+```
 
 ## Сборка образов
 
@@ -94,48 +137,33 @@ docker-compose -f docker-compose-dev.yaml up
 # Убедиться что SSH agent запущен и ключ добавлен
 ssh-add -l
 
-# Собрать все образы
-docker-compose -f docker-compose-dev.yaml build
+# Собрать и запустить
+make dev-up
 
-# Собрать конкретный сервис
-docker-compose -f docker-compose-dev.yaml build {app_name}
-
-# Собрать без кеша
-docker-compose -f docker-compose-dev.yaml build --no-cache
+# Пересобрать приложения после изменений кода
+make dev-rebuild
 ```
 
-### CI сборка (GitHub Token)
-
-В CI используется GitHub token вместо SSH:
+## Запуск и управление
 
 ```bash
-# Создать файл с токеном
-echo "$GITHUB_TOKEN" > .github_token
+# Запустить все сервисы в фоне
+make dev-up
 
-# Собрать с секретом
-docker build \
-  --secret id=github_token,src=.github_token \
-  -f Dockerfile-{app_name} \
-  -t {project}-{app_name}:latest .
-```
+# Остановить все сервисы
+make dev-down
 
-## Запуск
+# Перезапустить сервисы
+make dev-restart
 
-```bash
-# Запустить все сервисы
-docker-compose -f docker-compose-dev.yaml up
+# Пересобрать и перезапустить приложения
+make dev-rebuild
 
-# Запустить в фоне
-docker-compose -f docker-compose-dev.yaml up -d
+# Посмотреть логи конкретного сервиса
+docker compose -f docker-compose-dev.yaml logs -f {app_name}
 
-# Запустить конкретный сервис с зависимостями
-docker-compose -f docker-compose-dev.yaml up {app_name}
-
-# Посмотреть логи
-docker-compose -f docker-compose-dev.yaml logs -f {app_name}
-
-# Остановить
-docker-compose -f docker-compose-dev.yaml down
+# Запустить в foreground (для отладки)
+docker compose -f docker-compose-dev.yaml up
 ```
 
 ## Директории
@@ -144,10 +172,13 @@ docker-compose -f docker-compose-dev.yaml down
 project/
 ├── docker-compose-dev.yaml    # Сгенерированный compose файл
 ├── Dockerfile-{app}           # Dockerfile для каждого приложения
-├── .env                       # Переменные окружения (создать вручную)
+├── .env                       # Переменные окружения (опционально)
 ├── etc/
+│   ├── repo-oc/               # Git submodule OnlineConf
 │   └── onlineconf/
-│       └── dev/               # OnlineConf данные (создается автоматически)
+│       └── dev/
+│           ├── init-config.sql    # Начальная конфигурация
+│           └── TREE.cdb           # Файл конфигурации (создаётся updater)
 ├── configs/
 │   ├── grafana/
 │   │   ├── provisioning/      # Grafana datasources config
@@ -161,26 +192,38 @@ project/
     └── .env.{app}             # Env файлы для приложений с UseEnvs=true
 ```
 
-## Доступ к сервисам
+## Работа с OnlineConf
 
-После запуска сервисы доступны по портам:
+### Редактирование конфигурации
 
-| Сервис | URL |
-|--------|-----|
-| Traefik Dashboard | http://localhost:8080 |
-| Application API | http://localhost:{port} |
-| Grafana | http://localhost:3000 (admin/admin) |
-| Prometheus | http://localhost:9090 |
+1. Откройте http://localhost:8888
+2. Войдите как admin / admin
+3. Отредактируйте конфигурацию в дереве
+4. Изменения автоматически синхронизируются в `TREE.cdb`
+
+### Структура конфигурации
+
+Генератор создаёт начальную структуру:
+
+```
+/onlineconf/
+├── module/
+│   └── {project_name}/
+│       ├── common/          # Общие настройки
+│       ├── kafka/           # Настройки Kafka (если есть)
+│       ├── postgres/        # Настройки PostgreSQL (если есть)
+│       └── ...
+```
 
 ## Мониторинг
 
 Если в конфиге настроены `grafana.datasources`, автоматически создаются:
 
-1. **Prometheus** - сбор метрик с приложений
-2. **Loki** - агрегация логов
-3. **Grafana** - визуализация с предустановленными дашбордами
+1. **Prometheus** — сбор метрик с приложений
+2. **Loki** — агрегация логов
+3. **Grafana** — визуализация с предустановленными дашбордами
 
-Prometheus автоматически настроен на scrape метрик со всех REST транспортов по пути `/metrics`.
+Prometheus автоматически настроен на scrape метрик со всех REST транспортов.
 
 ## Troubleshooting
 
@@ -197,34 +240,55 @@ ssh-add -l
 ssh-add ~/.ssh/id_rsa
 ```
 
-### OnlineConf не подключается
+### OnlineConf updater не создаёт TREE.cdb
 
 ```bash
-# Проверить переменные
-docker-compose -f docker-compose-dev.yaml config | grep OC_
+# Проверить логи updater
+docker compose -f docker-compose-dev.yaml logs onlineconf-updater
 
-# Посмотреть логи updater
-docker-compose -f docker-compose-dev.yaml logs onlineconf-updater
+# Проверить что admin UI доступен
+curl http://localhost:8888
+
+# Проверить что MySQL готов
+docker compose -f docker-compose-dev.yaml logs onlineconf-database
+```
+
+### Изменения в init-config.sql не применяются
+
+MySQL выполняет init-скрипты только при первом запуске. Для применения изменений:
+
+```bash
+make dev-drop
+make dev-up
 ```
 
 ### Порт уже занят
 
 ```bash
 # Переопределить порт через .env
-echo "DEV_GRAFANA_PORT=3001" >> .env
+echo "DEV_ONLINECONF_ADMIN_PORT=8889" >> .env
 
-# Или через переменную окружения
-DEV_GRAFANA_PORT=3001 docker-compose -f docker-compose-dev.yaml up
+# Перезапустить
+make dev-restart
 ```
 
 ### Пересборка после изменений
 
 ```bash
-# Пересобрать и перезапустить
-docker-compose -f docker-compose-dev.yaml up --build
+# Пересобрать приложения
+make dev-rebuild
 
 # Полная очистка и пересборка
-docker-compose -f docker-compose-dev.yaml down -v
-docker-compose -f docker-compose-dev.yaml build --no-cache
-docker-compose -f docker-compose-dev.yaml up
+make dev-drop
+make dev-up
+```
+
+### Submodule не инициализирован
+
+```bash
+# Инициализировать submodule
+git submodule update --init --recursive
+
+# Или пересоздать проект
+go-project-starter --config=project.yaml
 ```
