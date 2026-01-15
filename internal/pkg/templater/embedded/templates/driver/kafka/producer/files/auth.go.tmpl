@@ -3,7 +3,9 @@ package {{ .Kafka.Name | ToLower }}
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"strings"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl"
@@ -28,14 +30,34 @@ func buildTransport(ctx context.Context, serviceName string) (*kafka.Transport, 
 		return nil, fmt.Errorf("get tls skip verify: %w", err)
 	}
 
+	tlsCACert, err := getTLSCACert(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get tls ca cert: %w", err)
+	}
+
 	transport := &kafka.Transport{}
 
 	// Configure TLS if enabled
 	if tlsEnabled {
-		transport.TLS = &tls.Config{
+		tlsConfig := &tls.Config{
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: tlsSkipVerify, //nolint:gosec // configurable for self-signed certs
 		}
+
+		// Load CA certificate if provided (PEM-encoded certificate content)
+		if tlsCACert != "" {
+			// Convert literal \n to actual newlines (OnlineConf stores them escaped)
+			tlsCACert = strings.ReplaceAll(tlsCACert, "\\n", "\n")
+
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM([]byte(tlsCACert)) {
+				return nil, fmt.Errorf("failed to parse CA certificate from tls_ca_cert")
+			}
+
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		transport.TLS = tlsConfig
 	}
 
 	// Configure SASL if not "none"

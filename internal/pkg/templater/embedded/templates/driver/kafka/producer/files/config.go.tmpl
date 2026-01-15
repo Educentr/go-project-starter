@@ -63,6 +63,14 @@ func getTLSSkipVerify(ctx context.Context, serviceName string) (bool, error) {
 	return onlineconf.GetBool(ctx, path, false)
 }
 
+// getTLSCACert returns the CA certificate content from OnlineConf
+// Path: {serviceName}/kafka/{clientName}/tls_ca_cert
+// The value should be a PEM-encoded CA certificate content
+func getTLSCACert(ctx context.Context, serviceName string) (string, error) {
+	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_ca_cert")
+	return onlineconf.GetString(ctx, path, "")
+}
+
 // loadTopicNames loads topic names from OnlineConf with defaults from project.yaml
 // Path: {serviceName}/kafka/{clientName}/topics/{topicId}
 func loadTopicNames(ctx context.Context, serviceName string) (map[string]string, error) {

@@ -1,0 +1,199 @@
+stages:
+  - prepare
+  - test
+  - build
+  - deploy
+  - notify
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_DRIVER: overlay2
+
+# Default image for jobs
+default:
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+
+# Cache configuration
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .cache/go/mod/
+
+# Prepare environment variables and version info
+prepare-env:
+  stage: prepare
+  image: golang:{{ .GoLangVersion }}
+  script:
+    - echo "RELEASE=$(make release-tag)" >> build.env
+    - echo "CONTAINERS=$(make docker-list)" >> build.env
+    - echo "ARTIFACTS=$(make artifact-list)" >> build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
+
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
+# GOAT tests for {{ $a.Name }}
+goat-tests-{{ $a.Name | ReplaceDash }}:
+  stage: test
+  image: golang:{{ $.GoLangVersion }}
+  needs:
+    - prepare-env
+  before_script:
+    {{ if eq $.RegistryType "github" -}}
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+    {{ else if eq $.RegistryType "digitalocean" -}}
+    - apt-get update && apt-get install -y snapd
+    - snap install doctl
+    - doctl registry login -t "$REGISTRY_PASSWORD"
+    {{ else if eq $.RegistryType "aws" -}}
+    - apt-get update && apt-get install -y awscli
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
+    {{ else if eq $.RegistryType "selfhosted" -}}
+    - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
+    {{ end -}}
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
+    {{ if $.PrivateRepos -}}
+    - go env -w GOPRIVATE="gitlab.com{{ if $.PrivateRepos }},{{ $.PrivateRepos }}{{ end }}"
+    {{ end -}}
+  script:
+    - make goat-tests-{{ $a.Name }}
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging") && $SKIP_GOAT_TESTS != "true"
+{{ end }}{{ end }}
+
+# Build job template
+.build-template: &build-template
+  stage: build
+  needs:
+    - prepare-env
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}    - job: goat-tests-{{ $a.Name | ReplaceDash }}
+      optional: true
+{{ end }}{{ end }}
+  before_script:
+    {{ if eq .RegistryType "github" -}}
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+    {{ else if eq .RegistryType "digitalocean" -}}
+    - apk add --no-cache curl
+    - curl -sL https://github.com/digitalocean/doctl/releases/download/v1.94.0/doctl-1.94.0-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+    - doctl registry login -t "$REGISTRY_PASSWORD"
+    {{ else if eq .RegistryType "aws" -}}
+    - apk add --no-cache aws-cli
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
+    {{ else if eq .RegistryType "selfhosted" -}}
+    - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
+    {{ end -}}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
+
+# Build jobs for each application
+{{ range $_, $a := .Applications }}
+build-{{ $a.Name | ReplaceDash }}:
+  <<: *build-template
+  script:
+    - export REGISTRY_SERVER="${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}"
+    - make docker-{{ $a.Name }}
+    - make docker-{{ $a.Name }}-push
+{{ end }}
+
+# Deploy job template
+.deploy-template: &deploy-template
+  stage: deploy
+  image: alpine:latest
+  needs:
+{{ range $_, $a := .Applications }}    - build-{{ $a.Name | ReplaceDash }}
+{{ end }}
+  before_script:
+    - apk add --no-cache openssh-client rsync
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+# Deploy to staging
+deploy-staging:
+  <<: *deploy-template
+  environment:
+    name: staging
+  script:
+    - |
+      # Create env file
+      cat > .env.staging << EOF
+      OC_HOST=${OC_HOST}
+      OC_PORT=${OC_PORT}
+      OC_USER=${OC_USER}
+      OC_PASSWORD=${OC_PASSWORD}
+      APP_VERSION=${RELEASE}
+      REGISTRY_SERVER=${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}
+      INTERNAL_SUBNET=${INTERNAL_SUBNET}
+      {{ range $_, $a := $.Applications -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
+      {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
+      {{ if $t.PublicService -}}
+      DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
+      {{ end }}{{ end }}{{ end }}{{ end -}}
+      EOF
+    - rsync -avz --delete .env.staging docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
+    - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.staging envs/ && ./deploy.sh"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "staging"
+
+# Deploy to production
+deploy-production:
+  <<: *deploy-template
+  environment:
+    name: production
+  script:
+    - |
+      # Create env file
+      cat > .env.main << EOF
+      OC_HOST=${OC_HOST}
+      OC_PORT=${OC_PORT}
+      OC_USER=${OC_USER}
+      OC_PASSWORD=${OC_PASSWORD}
+      APP_VERSION=${RELEASE}
+      REGISTRY_SERVER=${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}
+      INTERNAL_SUBNET=${INTERNAL_SUBNET}
+      {{ range $_, $a := $.Applications -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
+      {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
+      {{ if $t.PublicService -}}
+      DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
+      {{ end }}{{ end }}{{ end }}{{ end -}}
+      EOF
+    - rsync -avz --delete .env.main docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
+    - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.main envs/ && ./deploy.sh"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: manual
+
+# Notification job
+notify:
+  stage: notify
+  image: curlimages/curl:latest
+  needs:
+{{ range $_, $a := .Applications }}    - build-{{ $a.Name | ReplaceDash }}
+{{ end }}
+  script:
+    - |
+      if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+        ESCAPED_COMMIT_MSG=$(echo "$CI_COMMIT_MESSAGE" | head -1 | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')
+        MESSAGE="Репозиторий: *$(echo "$CI_PROJECT_PATH" | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')*
+      Коммит: _${ESCAPED_COMMIT_MSG}_
+      ✅ Успех: *CI Pipeline* завершен на ветке *$CI_COMMIT_BRANCH*
+      Версия: *$RELEASE*
+      [Посмотреть билд]($CI_PIPELINE_URL)"
+
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="$MESSAGE" \
+          -d parse_mode="MarkdownV2"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
