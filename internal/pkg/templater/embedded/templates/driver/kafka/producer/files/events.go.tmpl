@@ -1,0 +1,89 @@
+package {{ .Kafka.Name | ToLower }}
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/segmentio/kafka-go"
+	zlog "github.com/rs/zerolog"
+{{- $hasSchema := false }}
+{{- range $_, $event := .Kafka.Events }}
+{{- if $event.GoType }}{{ $hasSchema = true }}{{ end }}
+{{- end }}
+{{- if $hasSchema }}
+	"encoding/json"
+{{- end }}
+{{- range $_, $event := .Kafka.Events }}
+{{- if $event.GoImport }}
+	"{{ $event.GoImport }}"
+{{- end }}
+{{- end }}
+)
+
+{{ range $_, $event := .Kafka.Events }}
+// Publish{{ $event.Name | Capitalize | ReplaceDash }} sends event "{{ $event.Name }}" to kafka topic
+{{- if $event.GoType }}
+func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}(ctx context.Context, key []byte, msg {{ $event.GoType }}) error {
+{{- else }}
+func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}(ctx context.Context, key []byte, msg []byte) error {
+{{- end }}
+	if p.disabled {
+		zlog.Ctx(ctx).Warn().Str("producer", "{{ $.Kafka.Name }}").Str("event", "{{ $event.Name }}").Msg("kafka disabled: message not published")
+		return nil
+	}
+
+	start := time.Now()
+	topicName := p.eventTopics["{{ $event.Name }}"]
+
+{{- if $event.GoType }}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		p.metrics.RecordError("{{ $event.Name }}", "marshal")
+		return fmt.Errorf("marshal message: %w", err)
+	}
+{{- else }}
+	data := msg
+{{- end }}
+
+	err {{ if not $event.GoType }}:{{ end }}= p.writer.WriteMessages(ctx, kafka.Message{
+		Topic: topicName,
+		Key:   key,
+		Value: data,
+	})
+
+	p.metrics.RecordLatency("{{ $event.Name }}", time.Since(start))
+	if err != nil {
+		p.metrics.RecordError("{{ $event.Name }}", "publish")
+		return fmt.Errorf("publish to %s: %w", topicName, err)
+	}
+
+	p.metrics.RecordSuccess("{{ $event.Name }}")
+	return nil
+}
+
+// Publish{{ $event.Name | Capitalize | ReplaceDash }}Async sends event "{{ $event.Name }}" asynchronously (fire and forget)
+{{- if $event.GoType }}
+func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}Async(key []byte, msg {{ $event.GoType }}) {
+{{- else }}
+func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}Async(key []byte, msg []byte) {
+{{- end }}
+	if p.disabled {
+		return
+	}
+
+	topicName := p.eventTopics["{{ $event.Name }}"]
+
+{{- if $event.GoType }}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		p.metrics.RecordError("{{ $event.Name }}", "marshal")
+		return
+	}
+{{- else }}
+	data := msg
+{{- end }}
+
+	p.PublishAsync(topicName, key, data)
+}
+{{ end }}

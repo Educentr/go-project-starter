@@ -71,19 +71,20 @@ func getTLSCACert(ctx context.Context, serviceName string) (string, error) {
 	return onlineconf.GetString(ctx, path, "")
 }
 
-// loadTopicNames loads topic names from OnlineConf with defaults from project.yaml
-// Path: {serviceName}/kafka/{clientName}/topics/{topicId}
-func loadTopicNames(ctx context.Context, serviceName string) (map[string]string, error) {
-	topics := make(map[string]string)
-{{- range $_, $topic := .Kafka.Topics }}
+// loadEventTopics loads topic names for events from OnlineConf.
+// Default: event name = topic name, can be overridden via OnlineConf.
+// Path: {serviceName}/kafka/{clientName}/events/{eventName}/topic
+func loadEventTopics(ctx context.Context, serviceName string) (map[string]string, error) {
+	eventTopics := make(map[string]string)
+{{- range $_, $event := .Kafka.Events }}
 	{
-		path := onlineconf.MakePath(serviceName, "kafka", clientName, "topics", "{{ $topic.ID }}")
-		name, err := onlineconf.GetString(ctx, path, "{{ $topic.Name }}")
+		path := onlineconf.MakePath(serviceName, "kafka", clientName, "events", "{{ $event.Name }}", "topic")
+		topic, err := onlineconf.GetString(ctx, path, "{{ $event.Name }}")
 		if err != nil {
-			return nil, fmt.Errorf("get topic {{ $topic.ID }}: %w", err)
+			return nil, fmt.Errorf("get topic for event {{ $event.Name }}: %w", err)
 		}
-		topics["{{ $topic.ID }}"] = name
+		eventTopics["{{ $event.Name }}"] = topic
 	}
 {{- end }}
-	return topics, nil
+	return eventTopics, nil
 }

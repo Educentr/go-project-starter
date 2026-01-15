@@ -280,14 +280,18 @@ VALUES ('tls_enabled', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, '0', 'te
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
 VALUES ('tls_skip_verify', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, '0', 'text/plain', 'Skip TLS verification');
 
--- Topics
+-- Events
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
-VALUES ('topics', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, NULL, 'application/x-null', 'Topic configuration');
-SET @kafka_{{ $kafka.ClientName | ReplaceDash }}_topics_id = LAST_INSERT_ID();
+VALUES ('events', @kafka_{{ $kafka.ClientName | ReplaceDash }}_id, NULL, 'application/x-null', 'Event configuration');
+SET @kafka_{{ $kafka.ClientName | ReplaceDash }}_events_id = LAST_INSERT_ID();
 
-{{- range $_, $topic := $kafka.Topics }}
+{{- range $_, $event := $kafka.Events }}
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
-VALUES ('{{ $topic.ID }}', @kafka_{{ $kafka.ClientName | ReplaceDash }}_topics_id, '{{ $topic.Name }}', 'text/plain', 'Topic: {{ $topic.ID }}');
+VALUES ('{{ $event.Name }}', @kafka_{{ $kafka.ClientName | ReplaceDash }}_events_id, NULL, 'application/x-null', 'Event: {{ $event.Name }}');
+SET @kafka_{{ $kafka.ClientName | ReplaceDash }}_event_{{ $event.Name | ReplaceDash }}_id = LAST_INSERT_ID();
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('topic', @kafka_{{ $kafka.ClientName | ReplaceDash }}_event_{{ $event.Name | ReplaceDash }}_id, '{{ $event.Name }}', 'text/plain', 'Kafka topic name (default: event name)');
 {{- end }}
 
 {{- end }}

@@ -29,7 +29,7 @@ type Producer struct {
 	serviceName string
 	writer      *kafka.Writer
 	metrics     *Metrics
-	topicNames  map[string]string
+	eventTopics map[string]string
 	disabled    bool
 	asyncChan   chan asyncMessage
 	stopChan       chan struct{}
@@ -63,9 +63,9 @@ func (p *Producer) Init(ctx context.Context, serviceName string, _ ds.ServerBuck
 		return fmt.Errorf("build transport: %w", err)
 	}
 
-	p.topicNames, err = loadTopicNames(ctx, serviceName)
+	p.eventTopics, err = loadEventTopics(ctx, serviceName)
 	if err != nil {
-		return fmt.Errorf("load topic names: %w", err)
+		return fmt.Errorf("load event topics: %w", err)
 	}
 
 	p.writer = &kafka.Writer{

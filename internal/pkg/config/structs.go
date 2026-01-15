@@ -131,24 +131,25 @@ type (
 		Package string           `mapstructure:"package"` // Optional: override package name (default: schema name)
 	}
 
-	// KafkaTopic represents a Kafka topic with typed messages
-	KafkaTopic struct {
-		ID     string `mapstructure:"id"`     // Topic ID for OnlineConf path and method naming
-		Name   string `mapstructure:"name"`   // Default topic name (can be overridden via OnlineConf)
+	// KafkaEvent represents a Kafka event with typed messages.
+	// Event name is used for Go method generation and as default topic name.
+	// Topic can be overridden per environment via OnlineConf.
+	KafkaEvent struct {
+		Name   string `mapstructure:"name"`   // Event name (used for method naming and as default topic name)
 		Schema string `mapstructure:"schema"` // Optional: package.TypeName (e.g. "tb.AbonentUserSchemaJson"), empty for raw []byte
 	}
 
 	// Kafka represents Kafka producer/consumer configuration
 	Kafka struct {
-		Name          string       `mapstructure:"name"`           // Unique name for reference
-		Type          string       `mapstructure:"type"`           // producer, consumer
-		Driver        string       `mapstructure:"driver"`         // segmentio (default), custom
-		DriverImport  string       `mapstructure:"driver_import"`  // For custom: import path
-		DriverPackage string       `mapstructure:"driver_package"` // For custom: package name
-		DriverObj     string       `mapstructure:"driver_obj"`     // For custom: struct name
-		Client        string       `mapstructure:"client"`         // Client name for OC path
-		Group         string       `mapstructure:"group"`          // Consumer group (for consumer type)
-		Topics        []KafkaTopic `mapstructure:"topics"`
+		Name          string        `mapstructure:"name"`           // Unique name for reference
+		Type          string        `mapstructure:"type"`           // producer, consumer
+		Driver        string        `mapstructure:"driver"`         // segmentio (default), custom
+		DriverImport  string        `mapstructure:"driver_import"`  // For custom: import path
+		DriverPackage string        `mapstructure:"driver_package"` // For custom: package name
+		DriverObj     string        `mapstructure:"driver_obj"`     // For custom: struct name
+		Client        string        `mapstructure:"client"`         // Client name for OC path
+		Group         string        `mapstructure:"group"`          // Consumer group (for consumer type)
+		Events        []KafkaEvent  `mapstructure:"events"`         // List of events to publish/consume
 	}
 
 	KafkaList []Kafka
@@ -575,22 +576,18 @@ func (j JSONSchema) IsValid(baseConfigDir string) (bool, string) {
 	return true, ""
 }
 
-// IsValid validates KafkaTopic configuration
-func (t KafkaTopic) IsValid(jsonSchemaMap map[string]JSONSchema) (bool, string) {
-	if len(t.ID) == 0 {
-		return false, "Empty topic id"
+// IsValid validates KafkaEvent configuration
+func (e KafkaEvent) IsValid(jsonSchemaMap map[string]JSONSchema) (bool, string) {
+	if len(e.Name) == 0 {
+		return false, "Empty event name"
 	}
 
-	if len(t.Name) == 0 {
-		return false, "Empty topic name"
-	}
-
-	// Schema is optional - if empty, topic uses raw []byte
+	// Schema is optional - if empty, event uses raw []byte
 	// If set, format should be "schemaset.schemaid"
-	if t.Schema != "" && jsonSchemaMap != nil {
-		parts := strings.SplitN(t.Schema, ".", 2)
+	if e.Schema != "" && jsonSchemaMap != nil {
+		parts := strings.SplitN(e.Schema, ".", 2)
 		if len(parts) != 2 {
-			return false, "Invalid schema format: expected 'schemaset.schemaid', got: " + t.Schema
+			return false, "Invalid schema format: expected 'schemaset.schemaid', got: " + e.Schema
 		}
 
 		schemaSetName := parts[0]
@@ -653,18 +650,13 @@ func (k Kafka) IsValid(jsonSchemaMap map[string]JSONSchema) (bool, string) {
 		return false, "Consumer requires group"
 	}
 
-	if len(k.Topics) == 0 {
-		return false, "Empty topics"
+	if len(k.Events) == 0 {
+		return false, "Empty events"
 	}
 
-	for _, topic := range k.Topics {
-		if ok, msg := topic.IsValid(jsonSchemaMap); !ok {
-			topicRef := topic.ID
-			if topicRef == "" {
-				topicRef = topic.Name
-			}
-
-			return false, "topic " + topicRef + ": " + msg
+	for _, event := range k.Events {
+		if ok, msg := event.IsValid(jsonSchemaMap); !ok {
+			return false, "event " + event.Name + ": " + msg
 		}
 	}
 

@@ -302,19 +302,18 @@ func (g *Generator) processConfig(config config.Config) error {
 			driver = "segmentio" // default driver
 		}
 
-		topics := make([]ds.KafkaTopic, 0, len(kafka.Topics))
+		events := make([]ds.KafkaEvent, 0, len(kafka.Events))
 
-		for _, t := range kafka.Topics {
-			topic := ds.KafkaTopic{
-				ID:     t.ID,
-				Name:   t.Name,
-				Schema: t.Schema,
+		for _, e := range kafka.Events {
+			event := ds.KafkaEvent{
+				Name:   e.Name,
+				Schema: e.Schema,
 			}
 
 			// Compute GoType and GoImport from Schema field (format: "jsonschema_name.schema_id")
-			// If Schema is empty, topic will use raw []byte
-			if t.Schema != "" {
-				parts := strings.SplitN(t.Schema, ".", 2)
+			// If Schema is empty, event will use raw []byte
+			if e.Schema != "" {
+				parts := strings.SplitN(e.Schema, ".", 2)
 				if len(parts) == 2 {
 					schemaSetName := parts[0]
 					schemaID := parts[1]
@@ -323,8 +322,8 @@ func (g *Generator) processConfig(config config.Config) error {
 						// Find schema item by ID
 						for _, item := range schemaSet.Schemas {
 							if item.ID == schemaID {
-								topic.GoImport = g.ProjectPath + "/pkg/schema/" + schemaSet.Name
-								topic.GoType = schemaSet.GetPackageName() + "." + item.Type
+								event.GoImport = g.ProjectPath + "/pkg/schema/" + schemaSet.Name
+								event.GoType = schemaSet.GetPackageName() + "." + item.Type
 								break
 							}
 						}
@@ -332,7 +331,7 @@ func (g *Generator) processConfig(config config.Config) error {
 				}
 			}
 
-			topics = append(topics, topic)
+			events = append(events, event)
 		}
 
 		kafkaConfig := ds.KafkaConfig{
@@ -344,7 +343,7 @@ func (g *Generator) processConfig(config config.Config) error {
 			DriverObj:     kafka.DriverObj,
 			ClientName:    kafka.Client,
 			Group:         kafka.Group,
-			Topics:        topics,
+			Events:        events,
 		}
 
 		g.Kafka[kafka.Name] = kafkaConfig

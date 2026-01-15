@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestKafkaTopic_IsValid(t *testing.T) {
+func TestKafkaEvent_IsValid(t *testing.T) {
 	jsonSchemaMap := map[string]JSONSchema{
 		"models": {
 			Name: "models",
@@ -23,16 +23,15 @@ func TestKafkaTopic_IsValid(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		topic    KafkaTopic
+		event    KafkaEvent
 		wantOK   bool
 		wantMsg  string
 		schemaFn func() map[string]JSONSchema
 	}{
 		{
-			name: "valid topic with schema reference",
-			topic: KafkaTopic{
-				ID:     "user_events",
-				Name:   "user.events",
+			name: "valid event with schema reference",
+			event: KafkaEvent{
+				Name:   "user_events",
 				Schema: "models.user",
 			},
 			wantOK: true,
@@ -41,10 +40,9 @@ func TestKafkaTopic_IsValid(t *testing.T) {
 			},
 		},
 		{
-			name: "valid topic without schema (raw bytes)",
-			topic: KafkaTopic{
-				ID:   "raw_events",
-				Name: "raw.events",
+			name: "valid event without schema (raw bytes)",
+			event: KafkaEvent{
+				Name: "raw_events",
 			},
 			wantOK: true,
 			schemaFn: func() map[string]JSONSchema {
@@ -52,34 +50,20 @@ func TestKafkaTopic_IsValid(t *testing.T) {
 			},
 		},
 		{
-			name: "empty topic id",
-			topic: KafkaTopic{
-				ID:   "",
-				Name: "events",
-			},
-			wantOK:  false,
-			wantMsg: "Empty topic id",
-			schemaFn: func() map[string]JSONSchema {
-				return nil
-			},
-		},
-		{
-			name: "empty topic name",
-			topic: KafkaTopic{
-				ID:   "events",
+			name: "empty event name",
+			event: KafkaEvent{
 				Name: "",
 			},
 			wantOK:  false,
-			wantMsg: "Empty topic name",
+			wantMsg: "Empty event name",
 			schemaFn: func() map[string]JSONSchema {
 				return nil
 			},
 		},
 		{
 			name: "invalid schema format (no dot)",
-			topic: KafkaTopic{
-				ID:     "events",
-				Name:   "events.topic",
+			event: KafkaEvent{
+				Name:   "events",
 				Schema: "models",
 			},
 			wantOK:  false,
@@ -90,9 +74,8 @@ func TestKafkaTopic_IsValid(t *testing.T) {
 		},
 		{
 			name: "unknown schema set",
-			topic: KafkaTopic{
-				ID:     "events",
-				Name:   "events.topic",
+			event: KafkaEvent{
+				Name:   "events",
 				Schema: "unknown.user",
 			},
 			wantOK:  false,
@@ -103,9 +86,8 @@ func TestKafkaTopic_IsValid(t *testing.T) {
 		},
 		{
 			name: "unknown schema id in existing set",
-			topic: KafkaTopic{
-				ID:     "events",
-				Name:   "events.topic",
+			event: KafkaEvent{
+				Name:   "events",
 				Schema: "models.unknown_id",
 			},
 			wantOK:  false,
@@ -118,14 +100,14 @@ func TestKafkaTopic_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotOK, gotMsg := tt.topic.IsValid(tt.schemaFn())
+			gotOK, gotMsg := tt.event.IsValid(tt.schemaFn())
 
 			if gotOK != tt.wantOK {
-				t.Errorf("KafkaTopic.IsValid() ok = %v, want %v", gotOK, tt.wantOK)
+				t.Errorf("KafkaEvent.IsValid() ok = %v, want %v", gotOK, tt.wantOK)
 			}
 
 			if !tt.wantOK && gotMsg != tt.wantMsg {
-				t.Errorf("KafkaTopic.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+				t.Errorf("KafkaEvent.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
 			}
 		})
 	}
@@ -141,15 +123,13 @@ func TestKafka_IsValid(t *testing.T) {
 		},
 	}
 
-	validTopicWithSchema := KafkaTopic{
-		ID:     "user_events",
-		Name:   "user.events",
+	validEventWithSchema := KafkaEvent{
+		Name:   "user_events",
 		Schema: "models.user",
 	}
 
-	validTopicRaw := KafkaTopic{
-		ID:   "raw_events",
-		Name: "raw.events",
+	validEventRaw := KafkaEvent{
+		Name: "raw_events",
 	}
 
 	tests := []struct {
@@ -159,22 +139,22 @@ func TestKafka_IsValid(t *testing.T) {
 		wantMsg string
 	}{
 		{
-			name: "valid producer with schema topic",
+			name: "valid producer with schema event",
 			kafka: Kafka{
 				Name:   "events_producer",
 				Type:   KafkaTypeProducer,
 				Client: "events",
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK: true,
 		},
 		{
-			name: "valid producer with raw topic",
+			name: "valid producer with raw event",
 			kafka: Kafka{
 				Name:   "raw_producer",
 				Type:   KafkaTypeProducer,
 				Client: "raw",
-				Topics: []KafkaTopic{validTopicRaw},
+				Events: []KafkaEvent{validEventRaw},
 			},
 			wantOK: true,
 		},
@@ -185,7 +165,7 @@ func TestKafka_IsValid(t *testing.T) {
 				Type:   KafkaTypeConsumer,
 				Client: "events",
 				Group:  "my_group",
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK: true,
 		},
@@ -194,7 +174,7 @@ func TestKafka_IsValid(t *testing.T) {
 			kafka: Kafka{
 				Name:   "",
 				Type:   KafkaTypeProducer,
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK:  false,
 			wantMsg: "Empty name",
@@ -204,7 +184,7 @@ func TestKafka_IsValid(t *testing.T) {
 			kafka: Kafka{
 				Name:   "test",
 				Type:   "invalid",
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK:  false,
 			wantMsg: "Invalid type: must be 'producer' or 'consumer'",
@@ -214,21 +194,21 @@ func TestKafka_IsValid(t *testing.T) {
 			kafka: Kafka{
 				Name:   "test",
 				Type:   KafkaTypeProducer,
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK:  false,
 			wantMsg: "Empty client",
 		},
 		{
-			name: "empty topics",
+			name: "empty events",
 			kafka: Kafka{
 				Name:   "test",
 				Type:   KafkaTypeProducer,
 				Client: "test",
-				Topics: []KafkaTopic{},
+				Events: []KafkaEvent{},
 			},
 			wantOK:  false,
-			wantMsg: "Empty topics",
+			wantMsg: "Empty events",
 		},
 		{
 			name: "consumer without group",
@@ -236,21 +216,21 @@ func TestKafka_IsValid(t *testing.T) {
 				Name:   "test",
 				Type:   KafkaTypeConsumer,
 				Client: "test",
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK:  false,
 			wantMsg: "Consumer requires group",
 		},
 		{
-			name: "invalid topic",
+			name: "invalid event",
 			kafka: Kafka{
 				Name:   "test",
 				Type:   KafkaTypeProducer,
 				Client: "test",
-				Topics: []KafkaTopic{{ID: "", Name: "test"}},
+				Events: []KafkaEvent{{Name: ""}},
 			},
 			wantOK:  false,
-			wantMsg: "topic test: Empty topic id",
+			wantMsg: "event : Empty event name",
 		},
 		{
 			name: "custom driver without all fields",
@@ -259,7 +239,7 @@ func TestKafka_IsValid(t *testing.T) {
 				Type:   KafkaTypeProducer,
 				Driver: KafkaDriverCustom,
 				Client: "test",
-				Topics: []KafkaTopic{validTopicWithSchema},
+				Events: []KafkaEvent{validEventWithSchema},
 			},
 			wantOK:  false,
 			wantMsg: "Custom driver requires driver_import, driver_package, driver_obj",
@@ -274,7 +254,7 @@ func TestKafka_IsValid(t *testing.T) {
 				DriverPackage: "driver",
 				DriverObj:     "Producer",
 				Client:        "test",
-				Topics:        []KafkaTopic{validTopicWithSchema},
+				Events:        []KafkaEvent{validEventWithSchema},
 			},
 			wantOK: true,
 		},
@@ -294,4 +274,3 @@ func TestKafka_IsValid(t *testing.T) {
 		})
 	}
 }
-

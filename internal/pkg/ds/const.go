@@ -42,10 +42,11 @@ type JSONSchema struct {
 // JSONSchemas is a map of JSONSchema by name
 type JSONSchemas map[string]JSONSchema
 
-// KafkaTopic represents a Kafka topic with typed messages
-type KafkaTopic struct {
-	ID     string // Topic ID for OnlineConf path and method naming
-	Name   string // Default topic name (can be overridden via OnlineConf)
+// KafkaEvent represents a Kafka event with typed messages.
+// Event name is used for Go method generation and as default topic name.
+// Topic can be overridden per environment via OnlineConf.
+type KafkaEvent struct {
+	Name   string // Event name (used for method naming and as default topic name)
 	Schema string // Optional: package.TypeName (e.g. "tb.AbonentUserSchemaJson"), empty for raw []byte
 	// Computed at generation time
 	GoType   string // Full Go type (pkg.MessageType) or empty for []byte
@@ -64,15 +65,15 @@ const (
 //
 //nolint:decorder // follows existing pattern - types after consts
 type KafkaConfig struct {
-	Name          string       // Unique name for reference
-	Type          string       // producer, consumer
-	Driver        string       // segmentio, custom
-	DriverImport  string       // For custom driver: import path
-	DriverPackage string       // For custom driver: package name
-	DriverObj     string       // For custom driver: struct name
-	ClientName    string       // Client name for OC path
-	Group         string       // Consumer group (for consumer type)
-	Topics        []KafkaTopic // Topics configuration
+	Name          string        // Unique name for reference
+	Type          string        // producer, consumer
+	Driver        string        // segmentio, custom
+	DriverImport  string        // For custom driver: import path
+	DriverPackage string        // For custom driver: package name
+	DriverObj     string        // For custom driver: struct name
+	ClientName    string        // Client name for OC path
+	Group         string        // Consumer group (for consumer type)
+	Events        []KafkaEvent  // Events configuration
 }
 
 // KafkaConfigs is a map of KafkaConfig by name
