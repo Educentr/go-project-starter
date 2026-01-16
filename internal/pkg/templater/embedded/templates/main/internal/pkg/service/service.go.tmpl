@@ -56,7 +56,7 @@ type Service struct {
 	{{ end }}
 	{{ range $_, $tr := .Applications.GetGrpcTransport }}
 	{{ if eq $tr.GeneratorType "buf_client" }}
-	{{ $tr.Name | ToLower }} *{{ $tr.Name }}.Client
+	{{ $tr.Name | ToLower }} *{{ $tr.Name }}Client.Client
 	{{ end }}
 	{{ end }}
 	{{ range $_, $driver := .Drivers }}
@@ -187,7 +187,7 @@ func (s *Service) setClients(ctx context.Context, clients []ds.ClientInitializer
 		{{- end }}
 		{{ range $_, $tr := .Applications.GetGrpcTransport }}
 		{{ if eq $tr.GeneratorType "buf_client" }}
-		case *{{ $tr.Name }}.ClientWrapper:
+		case *{{ $tr.Name }}Client.ClientWrapper:
 			s.{{ $tr.Name | ToLower }}, err = c.Init(ctx, constant.ServiceName)
 			if err != nil {
 				return errors.Wrap(err, "error init {{ $tr.Name }} gRPC client")

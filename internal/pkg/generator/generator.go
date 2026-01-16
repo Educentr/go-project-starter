@@ -190,7 +190,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		worker := ds.Worker{
-			Import:            []string{fmt.Sprintf(`"%s/internal/app/worker/%s"`, g.ProjectPath, w.Name)},
+			Import:            []string{fmt.Sprintf(`%sWorker "%s/internal/app/worker/%s"`, w.Name, g.ProjectPath, w.Name)},
 			Name:              w.Name,
 			GeneratorType:     w.GeneratorType,
 			GeneratorTemplate: w.GeneratorTemplate,
@@ -236,7 +236,7 @@ func (g *Generator) processConfig(config config.Config) error {
 
 		if grpc.GeneratorType == "buf_client" {
 			transport.Import = []string{
-				fmt.Sprintf(`"%s/internal/app/transport/grpc/%s"`, g.ProjectPath, grpc.Name),
+				fmt.Sprintf(`%sClient "%s/internal/app/transport/grpc/%s"`, grpc.Name, g.ProjectPath, grpc.Name),
 			}
 		}
 

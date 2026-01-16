@@ -157,7 +157,7 @@ func main() {
 		{{- end }}
 		{{ range $_, $tr := .Application.GetGrpcTransport }}
 		{{ if eq $tr.GeneratorType "buf_client" }}
-		{{ $tr.Name }}.NewClient(),
+		{{ $tr.Name }}Client.NewClient(),
 		{{- end }}
 		{{- end }}
 	)
@@ -176,7 +176,7 @@ func main() {
 
 	err = application.SetWorker(
 		{{ range $_, $wr := .Application.Workers }}
-		{{ $wr.Name }}.Create(),
+		{{ $wr.Name }}Worker.Create(),
 		{{ end }}
 	)
 	if err != nil {
