@@ -18,6 +18,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
+	"golang.org/x/mod/semver"
 )
 
 type Generator struct {
@@ -104,9 +105,12 @@ func (g *Generator) processConfig(config config.Config) error {
 
 	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
 	if config.Tools.RuntimeVersion != "" {
-		// Validate that config version >= MinRuntimeVersion
-		if config.Tools.RuntimeVersion < templater.MinRuntimeVersion {
-			return fmt.Errorf("runtime_version %s is lower than minimum required version %s", config.Tools.RuntimeVersion, templater.MinRuntimeVersion)
+		// Validate that config version >= MinRuntimeVersion using semantic version comparison
+		if semver.Compare(config.Tools.RuntimeVersion, templater.MinRuntimeVersion) < 0 {
+			return errors.Errorf(
+				"runtime_version %s is lower than minimum %s required by this generator",
+				config.Tools.RuntimeVersion, templater.MinRuntimeVersion,
+			)
 		}
 		g.RuntimeVersion = config.Tools.RuntimeVersion
 	} else {

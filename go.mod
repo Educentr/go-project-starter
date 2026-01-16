@@ -11,6 +11,7 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
+	golang.org/x/mod v0.28.0
 	golang.org/x/text v0.30.0
 	gopkg.in/yaml.v3 v3.0.1
 )
