@@ -802,8 +802,20 @@ func (g *Generator) Generate() error {
 	// Copy config file to target's .project-config for regeneration support
 	if g.ConfigPath != "" {
 		targetConfigPath := filepath.Join(projectConfigDir, "project.yaml")
+
+		// Resolve both paths to absolute for proper comparison
+		absSourcePath, err := filepath.Abs(g.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("error resolving source config path: %w", err)
+		}
+
+		absTargetPath, err := filepath.Abs(targetConfigPath)
+		if err != nil {
+			return fmt.Errorf("error resolving target config path: %w", err)
+		}
+
 		// Only copy if source is different from target
-		if g.ConfigPath != targetConfigPath {
+		if absSourcePath != absTargetPath {
 			if err = tools.CopyFile(g.ConfigPath, targetConfigPath); err != nil {
 				return fmt.Errorf("error copying config to target: %w", err)
 			}

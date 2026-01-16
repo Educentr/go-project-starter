@@ -26,12 +26,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 
 	viper.SetDefault("docker.image_prefix", "educentr") // устанавливаем значения по умолчанию для "docker.image_prefix"
 
-	viper.SetDefault("post_generate.git_install", true)        // устанавливаем значения по умолчанию для "post_generate.git_install"
-	viper.SetDefault("post_generate.tools_install", true)      // устанавливаем значения по умолчанию для "post_generate.tools_install"
-	viper.SetDefault("post_generate.clean_imports", true)      // устанавливаем значения по умолчанию для "post_generate.clean_imports"
-	viper.SetDefault("post_generate.executable_scripts", true) // устанавливаем значения по умолчанию для "post_generate.executable_scripts"
-	viper.SetDefault("post_generate.call_generate", true)      // устанавливаем значения по умолчанию для "post_generate.call_generate"
-	viper.SetDefault("post_generate.go_mod_tidy", true)        // устанавливаем значения по умолчанию для "post_generate.go_mod_tidy"
+	// post_generate defaults removed - now uses []string format, users must explicitly specify steps
 
 	viper.SetDefault("tools.protobuf_version", defaultProtobufVersion)          // устанавливаем значения по умолчанию для "tools.protobuf_version"
 	viper.SetDefault("tools.golang_version", defaultGolangVersion)              // устанавливаем значения по умолчанию для "tools.golang_version"

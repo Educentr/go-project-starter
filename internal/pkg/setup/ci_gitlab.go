@@ -162,74 +162,100 @@ func (s *Setup) generateGitLabVariables() []GitLabVariable {
 	for _, env := range s.SetupConfig.Environments {
 		scope := env.Branch // Use branch as environment scope
 
-		// OnlineConf credentials
-		variables = append(variables, GitLabVariable{
-			Key:       "OC_USER",
-			Value:     env.OnlineConf.User,
-			Protected: true,
-			Masked:    false,
-			Scope:     scope,
-		})
-		variables = append(variables, GitLabVariable{
-			Key:       "OC_PASSWORD",
-			Value:     "<onlineconf-password>",
-			Protected: true,
-			Masked:    true,
-			Scope:     scope,
-		})
-		variables = append(variables, GitLabVariable{
-			Key:       "OC_HOST",
-			Value:     env.OnlineConf.Host,
-			Protected: false,
-			Masked:    false,
-			Scope:     scope,
-		})
-		variables = append(variables, GitLabVariable{
-			Key:       "OC_PORT",
-			Value:     fmt.Sprintf("%d", env.OnlineConf.Port),
-			Protected: false,
-			Masked:    false,
-			Scope:     scope,
-		})
+		// OnlineConf credentials (only if enabled)
+		if env.OnlineConf.Enabled && env.OnlineConf.Host != "" {
+			variables = append(variables, GitLabVariable{
+				Key:       "OC_USER",
+				Value:     env.OnlineConf.User,
+				Protected: true,
+				Masked:    false,
+				Scope:     scope,
+			})
+			variables = append(variables, GitLabVariable{
+				Key:       "OC_PASSWORD",
+				Value:     "<onlineconf-password>",
+				Protected: true,
+				Masked:    true,
+				Scope:     scope,
+			})
+			variables = append(variables, GitLabVariable{
+				Key:       "OC_HOST",
+				Value:     env.OnlineConf.Host,
+				Protected: false,
+				Masked:    false,
+				Scope:     scope,
+			})
+			variables = append(variables, GitLabVariable{
+				Key:       "OC_PORT",
+				Value:     fmt.Sprintf("%d", env.OnlineConf.Port),
+				Protected: false,
+				Masked:    false,
+				Scope:     scope,
+			})
+		}
 
-		// SSH host
-		variables = append(variables, GitLabVariable{
-			Key:       "SSH_HOST",
-			Value:     env.Server.Host,
-			Protected: false,
-			Masked:    false,
-			Scope:     scope,
-		})
+		// SSH hosts from deployments (comma-separated for multiple servers)
+		var sshHosts []string
+
+		for _, deployment := range env.Deployments {
+			server := s.SetupConfig.GetServerByName(deployment.Server)
+			if server != nil {
+				sshHosts = append(sshHosts, server.Host)
+			}
+		}
+
+		if len(sshHosts) > 0 {
+			variables = append(variables, GitLabVariable{
+				Key:       "SSH_HOST",
+				Value:     strings.Join(sshHosts, ","),
+				Protected: false,
+				Masked:    false,
+				Scope:     scope,
+			})
+		}
 
 		// Internal subnet
-		variables = append(variables, GitLabVariable{
-			Key:       "INTERNAL_SUBNET",
-			Value:     env.InternalSubnet,
-			Protected: false,
-			Masked:    false,
-			Scope:     scope,
-		})
-
-		// Port prefixes
-		for _, svc := range env.Services {
-			svcName := strings.ToUpper(strings.ReplaceAll(svc.Name, "-", "_"))
+		if env.InternalSubnet != "" {
 			variables = append(variables, GitLabVariable{
-				Key:       fmt.Sprintf("PORT_PREFIX_%s", svcName),
-				Value:     fmt.Sprintf("%d", svc.PortPrefix),
+				Key:       "INTERNAL_SUBNET",
+				Value:     env.InternalSubnet,
+				Protected: false,
+				Masked:    false,
+				Scope:     scope,
+			})
+		}
+
+		// Port prefixes for applications
+		for _, app := range s.SetupConfig.Applications {
+			appName := strings.ToUpper(strings.ReplaceAll(app.Name, "-", "_"))
+			variables = append(variables, GitLabVariable{
+				Key:       fmt.Sprintf("PORT_PREFIX_%s", appName),
+				Value:     fmt.Sprintf("%d", app.PortPrefix),
 				Protected: false,
 				Masked:    false,
 				Scope:     scope,
 			})
 
-			if svc.Domain != "" {
+			if app.Domain != "" {
 				variables = append(variables, GitLabVariable{
-					Key:       fmt.Sprintf("DOMAIN_%s", svcName),
-					Value:     svc.Domain,
+					Key:       fmt.Sprintf("DOMAIN_%s", appName),
+					Value:     app.Domain,
 					Protected: false,
 					Masked:    false,
 					Scope:     scope,
 				})
 			}
+		}
+
+		// Apps per deployment
+		for i, deployment := range env.Deployments {
+			variables = append(variables, GitLabVariable{
+				Key:       fmt.Sprintf("APPS_%d", i),
+				Value:     strings.Join(deployment.Apps, ","),
+				Protected: false,
+				Masked:    false,
+				Scope:     scope,
+			})
 		}
 	}
 

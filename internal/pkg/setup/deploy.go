@@ -117,9 +117,13 @@ func (s *Setup) generateDockerComposeForApp(app string) error {
 }
 
 // GenerateServerDeployScript generates deploy.sh directly to the server via SSH
-func (s *Setup) GenerateServerDeployScript(env EnvironmentConfig) error {
+// serverName is the server name from config, apps is the list of apps to deploy on this server
+func (s *Setup) GenerateServerDeployScript(serverName string, apps []string) error {
 	projectName := s.GetProjectName()
-	apps := s.GetApplications()
+
+	if len(apps) == 0 {
+		apps = s.GetApplications() // fallback to all apps
+	}
 
 	script := s.buildDeployScript(projectName, apps)
 
@@ -131,6 +135,62 @@ chmod +x /opt/%s-cd/deploy.sh`, projectName, script, projectName)
 
 	commands := []string{command}
 
-	PrintManualInstructions(fmt.Sprintf("Create deploy.sh on %s:", env.Server.Host), commands)
+	server := s.SetupConfig.GetServerByName(serverName)
+	if server != nil {
+		PrintManualInstructions(fmt.Sprintf("Create deploy.sh on %s (%s):", serverName, server.Host), commands)
+	} else {
+		PrintManualInstructions(fmt.Sprintf("Create deploy.sh on %s:", serverName), commands)
+	}
+
+	return nil
+}
+
+// GenerateAllServerDeployScripts generates deploy.sh for all servers based on deployments
+func (s *Setup) GenerateAllServerDeployScripts() error {
+	projectName := s.GetProjectName()
+
+	// Collect apps per server across all environments
+	serverApps := make(map[string]map[string]bool)
+
+	for _, env := range s.SetupConfig.Environments {
+		for _, deployment := range env.Deployments {
+			if serverApps[deployment.Server] == nil {
+				serverApps[deployment.Server] = make(map[string]bool)
+			}
+
+			for _, app := range deployment.Apps {
+				serverApps[deployment.Server][app] = true
+			}
+		}
+	}
+
+	// Generate deploy script for each server
+	for serverName, appsMap := range serverApps {
+		var apps []string
+		for app := range appsMap {
+			apps = append(apps, app)
+		}
+
+		server := s.SetupConfig.GetServerByName(serverName)
+		if server == nil {
+			PrintWarning(fmt.Sprintf("Server %s not found in config", serverName))
+			continue
+		}
+
+		script := s.buildDeployScript(projectName, apps)
+
+		fmt.Printf("\n--- Deploy script for %s (%s) ---\n", serverName, server.Host)
+		fmt.Println("Applications:", strings.Join(apps, ", "))
+		fmt.Println()
+
+		// Print script content
+		fmt.Println(script)
+
+		// Print copy command
+		outputPath := filepath.Join(s.TargetDir, "scripts", fmt.Sprintf("deploy-%s.sh", serverName))
+		fmt.Printf("\nTo deploy: scp %s %s@%s:/opt/%s-cd/deploy.sh\n",
+			outputPath, server.DeployUser, server.Host, projectName)
+	}
+
 	return nil
 }

@@ -128,7 +128,72 @@ func (s *Setup) runFullWizard() error {
 	}
 
 	fmt.Println("\n=== Setup Complete ===")
+
+	s.printNextSteps()
+
 	return nil
+}
+
+// printNextSteps prints instructions for what to do after setup
+func (s *Setup) printNextSteps() {
+	fmt.Println("\n--- Next Steps ---")
+	fmt.Println()
+
+	s.printEnvConfigStep()
+	s.printCommitStep()
+	s.printVerifyStep()
+	s.printTroubleshootingStep()
+}
+
+func (s *Setup) printEnvConfigStep() {
+	fmt.Println("1. Configure application environment:")
+
+	for _, app := range s.SetupConfig.Applications {
+		fmt.Printf("   - Edit .env-%s with your application settings\n", app.Name)
+	}
+
+	for _, env := range s.SetupConfig.Environments {
+		if env.OnlineConf.Enabled {
+			fmt.Println("   - Or configure settings in OnlineConf")
+
+			break
+		}
+	}
+
+	fmt.Println()
+}
+
+func (s *Setup) printCommitStep() {
+	fmt.Println("2. Commit and push your changes:")
+	fmt.Println("   git add .")
+	fmt.Printf("   git commit -m \"Setup CI/CD for %s\"\n", s.GetProjectName())
+	fmt.Println("   git push")
+	fmt.Println()
+}
+
+func (s *Setup) printVerifyStep() {
+	fmt.Println("3. Verify the deployment:")
+	fmt.Println("   - Check GitHub Actions / GitLab CI pipeline")
+	fmt.Println("   - Monitor the first deployment")
+
+	if len(s.SetupConfig.Servers) > 0 {
+		fmt.Println("   - After deploy, check health endpoints:")
+
+		for _, srv := range s.SetupConfig.Servers {
+			for _, app := range s.SetupConfig.Applications {
+				sysPort := app.PortPrefix*portMultiplier + portOffsetSys
+				fmt.Printf("     http://%s:%d/health (%s)\n", srv.Host, sysPort, app.Name)
+			}
+		}
+	}
+
+	fmt.Println()
+}
+
+func (s *Setup) printTroubleshootingStep() {
+	fmt.Println("If something goes wrong:")
+	fmt.Println("   - Check CI/CD logs for build/deploy errors")
+	fmt.Println("   - SSH to server: docker ps, docker logs <container>")
 }
 
 // runCISetup handles CI/CD configuration
@@ -145,13 +210,7 @@ func (s *Setup) runCISetup() error {
 
 // runServerSetup handles server configuration
 func (s *Setup) runServerSetup() error {
-	for _, env := range s.SetupConfig.Environments {
-		fmt.Printf("\n--- Setting up %s environment (%s) ---\n", env.Name, env.Server.Host)
-		if err := s.setupServer(env); err != nil {
-			return fmt.Errorf("failed to setup %s: %w", env.Name, err)
-		}
-	}
-	return nil
+	return s.setupAllServers()
 }
 
 // runDeploySetup generates deploy.sh script

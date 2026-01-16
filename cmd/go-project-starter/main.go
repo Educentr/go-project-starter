@@ -10,6 +10,7 @@ import (
 
 	"github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/generator"
+	projinit "github.com/Educentr/go-project-starter/internal/pkg/init"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/setup"
 )
@@ -17,6 +18,7 @@ import (
 const (
 	msgConfig        = "used config path ="
 	cmdSetup         = "setup"
+	cmdInit          = "init"
 	defaultConfigDir = ".project-config"
 	flagDryRun       = "dry-run"
 
@@ -26,15 +28,23 @@ const (
 	layoutFailedToCreateGenerator = "failed to create generator: %v"
 	layoutFailedToGenerate        = "failed to generate: %v"
 	layoutFailedToSetup           = "failed to run setup: %v"
+	layoutFailedToInit            = "failed to run init: %v"
 )
 
 var AppInfo string = "go-sterter-v0.01"
 
 func main() {
-	// Check if first argument is "setup" command
-	if len(os.Args) > 1 && os.Args[0] != cmdSetup && os.Args[1] == cmdSetup {
-		runSetup()
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case cmdSetup:
+			runSetup()
+
+			return
+		case cmdInit:
+			runInit()
+
+			return
+		}
 	}
 
 	runGenerator()
@@ -90,6 +100,35 @@ func runSetup() {
 	// Run setup
 	if err := s.Run(cmd); err != nil {
 		log.Fatalf(layoutFailedToSetup, err)
+	}
+}
+
+func runInit() {
+	// Init command flags
+	initFlags := pflag.NewFlagSet(cmdInit, pflag.ExitOnError)
+
+	var (
+		configDir string
+		targetDir string
+	)
+
+	initFlags.StringVar(&configDir, "configDir", defaultConfigDir, "project configuration directory")
+	initFlags.StringVar(&targetDir, "target", ".", "target directory")
+
+	// Parse flags after "init" command
+	if err := initFlags.Parse(os.Args[2:]); err != nil {
+		log.Fatalf("failed to parse init flags: %v", err)
+	}
+
+	// Create init instance
+	i := projinit.New(projinit.Options{
+		ConfigDir: configDir,
+		TargetDir: targetDir,
+	})
+
+	// Run init
+	if err := i.Run(); err != nil {
+		log.Fatalf(layoutFailedToInit, err)
 	}
 }
 
