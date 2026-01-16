@@ -13,15 +13,31 @@ import (
 	zlog "github.com/rs/zerolog"
 )
 
+// Client holds the initialized gRPC connection
 type Client struct {
 	client *grpc.ClientConn
 }
+
+// ClientWrapper is used for lazy initialization via SetClient pattern
+type ClientWrapper struct{}
 
 const (
 	defaultTimeout = 10 * time.Second
 )
 
-func NewClient(ctx context.Context, serviceName string) (*Client, error) {
+// NewClient returns a wrapper for lazy initialization.
+// The actual connection is created in Init().
+func NewClient() *ClientWrapper {
+	return &ClientWrapper{}
+}
+
+// ClientName implements ds.ClientInitializer interface
+func (c *ClientWrapper) ClientName() string {
+	return "{{ .Transport.Name }}"
+}
+
+// Init creates the actual gRPC connection
+func (c *ClientWrapper) Init(ctx context.Context, serviceName string) (*Client, error) {
 	var (
 		host string
 		port string

@@ -163,6 +163,49 @@ func (s *Service) setDrivers(drvs []ds.Runnable) error {
 }
 {{ end }}
 
+{{ $hasOgenClients := false }}
+{{ range $_, $tr := .Applications.GetRestTransport }}
+{{ if eq $tr.GeneratorType "ogen_client" }}{{ $hasOgenClients = true }}{{ end }}
+{{ end }}
+{{ $hasGrpcClients := false }}
+{{ range $_, $tr := .Applications.GetGrpcTransport }}
+{{ if eq $tr.GeneratorType "buf_client" }}{{ $hasGrpcClients = true }}{{ end }}
+{{ end }}
+{{ if or $hasOgenClients $hasGrpcClients }}
+func (s *Service) setClients(ctx context.Context, clients []ds.ClientInitializer) error {
+	var err error
+	for _, cln := range clients {
+		switch c := cln.(type) {
+		{{ range $_, $tr := .Applications.GetRestTransport }}
+		{{ if eq $tr.GeneratorType "ogen_client" }}
+		case *{{ $tr.Name }}.Client:
+			s.{{ $tr.Name | ToLower }}, err = c.GetClient{{ $tr.Name }}(ctx)
+			if err != nil {
+				return errors.Wrap(err, "error init {{ $tr.Name }} client")
+			}
+		{{- end }}
+		{{- end }}
+		{{ range $_, $tr := .Applications.GetGrpcTransport }}
+		{{ if eq $tr.GeneratorType "buf_client" }}
+		case *{{ $tr.Name }}.ClientWrapper:
+			s.{{ $tr.Name | ToLower }}, err = c.Init(ctx, constant.ServiceName)
+			if err != nil {
+				return errors.Wrap(err, "error init {{ $tr.Name }} gRPC client")
+			}
+		{{- end }}
+		{{- end }}
+		default:
+			return errors.Errorf("unknown client type: %T", cln)
+		}
+	}
+	return nil
+}
+{{ else }}
+func (s *Service) setClients(_ context.Context, _ []ds.ClientInitializer) error {
+	return nil
+}
+{{ end }}
+
 {{ if not .SkipServiceInit }}
 var (
 	errAppReadyNil = errors.New("app ready pointer can't be nil")
@@ -180,7 +223,7 @@ type EmptyService struct {
 	*Service
 }
 
-func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, bucket ds.ServerBucket, m *prometheus.Registry) error {
+func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, clients []ds.ClientInitializer, bucket ds.ServerBucket, m *prometheus.Registry) error {
 	err := s.InitState(ctx, drvs, bucket, m)
 	if err != nil {
 		return errors.Wrap(err, "error init state")
@@ -190,26 +233,12 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, buck
 	if err != nil {
 		return errors.Wrap(err, "error init metrics")
 	}
-	
-	{{ range $_, $tr := .Applications.GetRestTransport }}
-	{{ if eq $tr.GeneratorType "ogen_client" }}
-	{{ $tr.Name }}Cln := {{ $tr.Name }}.NewClient()
 
-	s.{{ $tr.Name }}, err = {{ $tr.Name }}Cln.GetClient{{ $tr.Name }}(ctx)
+	// Initialize clients from the passed list
+	err = s.setClients(ctx, clients)
 	if err != nil {
-		return errors.Wrap(err, "error init {{ $tr.Name }} client")
+		return errors.Wrap(err, "error init clients")
 	}
-	{{- end }}
-	{{- end }}
-
-	{{ range $_, $tr := .Applications.GetGrpcTransport }}
-	{{ if eq $tr.GeneratorType "buf_client" }}
-	s.{{ $tr.Name | ToLower }}, err = {{ $tr.Name }}.NewClient(ctx, constant.ServiceName)
-	if err != nil {
-		return errors.Wrap(err, "error init {{ $tr.Name }} gRPC client")
-	}
-	{{- end }}
-	{{- end }}
 
 	{{ if or (ne 0 ( len .Drivers )) (ne 0 ( len .Kafka )) }}
 	return s.setDrivers(drvs)

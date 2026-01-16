@@ -491,6 +491,10 @@ func (app App) GetRestTransport() []Transport {
 	return app.getTransport(RestTransportType)
 }
 
+func (a App) GetGrpcTransport() []Transport {
+	return a.getTransport(GrpcTransportType)
+}
+
 func (a Apps) GetRestTransport() []Transport {
 	return a.getTransport(RestTransportType)
 }

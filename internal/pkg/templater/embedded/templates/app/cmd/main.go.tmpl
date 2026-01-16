@@ -18,6 +18,21 @@ import (
 	{{ range $_, $imp := .Application.TransportImports }}
 	{{ $imp }}
 	{{- end }}
+	{{- /* Client imports for ogen_client and buf_client */ -}}
+	{{ range $_, $tr := .Application.GetRestTransport }}
+	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ range $_, $imp := $tr.Import }}
+	{{ $imp }}
+	{{- end }}
+	{{- end }}
+	{{- end }}
+	{{ range $_, $tr := .Application.GetGrpcTransport }}
+	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ range $_, $imp := $tr.Import }}
+	{{ $imp }}
+	{{- end }}
+	{{- end }}
+	{{- end }}
 	{{ range $_, $drv := .Application.Drivers }}
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
@@ -131,6 +146,20 @@ func main() {
 		{{ range $_, $kafka := .Application.GetKafkaProducers }}
 		{{ $kafka.GetPackage }}.Create(),
 		{{ end }}
+	)
+
+	// Register clients (ogen_client, buf_client) for initialization in service
+	application.SetClient(
+		{{ range $_, $tr := .Application.GetRestTransport }}
+		{{ if eq $tr.GeneratorType "ogen_client" }}
+		{{ $tr.Name }}.NewClient(),
+		{{- end }}
+		{{- end }}
+		{{ range $_, $tr := .Application.GetGrpcTransport }}
+		{{ if eq $tr.GeneratorType "buf_client" }}
+		{{ $tr.Name }}.NewClient(),
+		{{- end }}
+		{{- end }}
 	)
 
 	err = application.SetTransport(
