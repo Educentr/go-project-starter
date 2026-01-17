@@ -16,8 +16,8 @@ const curVer = 3
 type Meta struct {
 	Path             string `yaml:"-"`
 	Version          int    `yaml:"version"`
-	StartDisclaimer  string `yaml:"disclaimer"`
-	FinishDisclaimer string `yaml:"finish_disclaimer"`
+	StartDisclaimer  string `yaml:"disclaimer,omitempty"`
+	FinishDisclaimer string `yaml:"finish_disclaime,omitempty"`
 }
 
 func GetDefaultMeta(path string) Meta {

@@ -1,155 +1,38 @@
 main:
-  name: example
+  name: rest-test
   logger: zerolog
-  author: educentr
-  use_active_record: false
-  registry_type: "github"
+  registry_type: github
 
-deploy:
-  log_collector:
-    type: loki
-    parameters:
-      loki-url: "https://loki.educentr.info/loki/api/v1/push"
-      loki-retries: "2"
-      loki-timeout: "4s"
-
-# Grafana dashboard generation configuration
-# Generates ready-to-use dashboards and provisioning configs
-grafana:
-  datasources:
-    - name: Prometheus
-      type: prometheus
-      access: proxy
-      url: http://prometheus:9090
-      isDefault: true
-      editable: false
-    - name: Loki
-      type: loki
-      access: proxy
-      url: http://loki:3100
-      isDefault: false
-      editable: false
-
-# Post-generation steps
-# Available: git_install, tools_install, clean_imports, executable_scripts, call_generate, go_mod_tidy, go_get_u
-post_generate:
-  - git_install        # Initialize git repo (safe, doesn't require remote)
-  - executable_scripts # Make scripts executable
+post_generate: []
 
 git:
-  repo: git@gitlab.educentr.info:golang/projects/example.git
-  module_path: gitlab.educentr.info/golang/projects/example
-  private_repos: "github.com/myorg/*"
+  repo: git@github.com:test/rest-test.git
+  module_path: github.com/test/rest-test
 
 tools:
   protobuf_version: 1.7.0
-  golang_version: 1.21
-  ogen_version: v0.78.0
-  golangci_version: 1.55.2
-  go_jsonschema_version: v0.16.0
-
-# JSON Schema - generates Go structs with validation from JSON Schema files
-# Output: pkg/schema/{name}/ - generated Go code
-# Specs:  api/schema/{name}/ - schema files are copied here
-jsonschema:
-  - name: models
-    path:
-      - ./user.schema.json
-      - ./event.schema.json
-    package: models  # optional: defaults to name
+  golang_version: "1.24"
+  ogen_version: v1.8.1
+  golangci_version: 1.64.8
 
 rest:
-  - name: example
+  - name: api
     path:
-      - ./example.swagger.yml
+      - ./api.swagger.yml
     api_prefix: /
     version: "v1"
-    port: 8081
+    port: 8080
     generator_type: ogen
-    genarator_params:
-      auth_handler: "on"
+    generator_params:
+      auth_handler: "off"
   - name: sys
     port: 8085
     version: "v1"
-    health_check_path: /live
     generator_type: template
     generator_template: sys
 
-# worker:
-#   - name: worker
-#     generator_type: template
-#     generator_template: worker
-
-# CLI transport - interactive command-line interface
-# Works like a shell: first word is command, rest are arguments
-# CLI is exclusive - application with CLI cannot have REST/GRPC transports or workers
-cli:
-  - name: admin
-    generator_type: template
-    generator_template: cli
-# - name: migrate
-#   generator_type: template
-#   generator_template: cli
-
-# driver:
-#   - name: clickhouse_batcher
-
-# grpc:
-#   - name: ExampleService
-#     short: example
-#     path: ./example.proto
-#     port: 8083
-#   - name: AdminService
-#     short: admin
-#     path: ./admin.proto
-#     port: 8084
-
-# repository:
-#   - name: exampledb1
-#     type_db: psql
-#     driver_db: sqlc
-# #  - name: exampledb2
-# #    type_db: psql
-# #    driver_db: sqlc
-#   - name: examplecache
-#     alias: Cache # important: case-sensitive
-#     type_db: redis
-#     driver_db: redis
-
-# consumer:
-#  - name: petstore
-#    path: ./kafka_example.proto
-#    backend: kafka
-#    group: pets_store
-#    topic: pets_store_events
-
 applications:
-  - name: publicApi
+  - name: apiServer
     transport:
-      - example
+      - api
       - sys
-      #- ExampleService
-    driver:
-      # - clickhouse_batcher
-    # depends_on_docker_images:
-      # - ghcr.io/org/image:latest  # Docker images to pull before starting
-    # Grafana dashboard settings for this application
-    # References datasources defined in global grafana section
-    grafana:
-      datasources:
-        - Prometheus
-        - Loki
-    deploy:
-      volumes:
-        - path: ./backupdata
-          mount: /backup
-  # - name: internalApi
-  #   transport:
-  #     - AdminService
-  #     - sys
-  # CLI application example - uses cli field instead of transport
-  # CLI apps work like shell: ./admin-cli <command> [args...]
-  # - name: admin-cli
-  #   cli: admin
-  #   driver:
-  #     - name: postgres

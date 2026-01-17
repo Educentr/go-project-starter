@@ -93,6 +93,13 @@ type TemplateCache struct {
 	templates map[string]Template
 }
 
+/*
+type Disclaimers struct {
+	disclaimerStart  string
+	disclaimerFinish string
+}
+*/
+
 // ToDo кажется эта константа бесполезная
 const (
 	TemplateName string = "ProjectStarterGeneratorTemplate"
@@ -339,6 +346,28 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, disclaimerStart st
 	}
 
 	return filesDiff, nil
+}
+
+func DisclaimerStart(disclaimerStart string) {
+	d := disclaimerStart
+	if len(d) == 0 {
+		disclaimerStart = ""
+		// fmt.Println(disclaimerStart)
+	} else {
+		d = disclaimerStart
+		// fmt.Println(disclaimerStart)
+	}
+}
+
+func DisclaimerFinish(disclaimerFinish string) {
+	d := disclaimerFinish
+	if len(d) == 0 {
+		disclaimerFinish = ""
+		// fmt.Println(disclaimerFinish)
+	} else {
+		d = disclaimerFinish
+		// fmt.Println(disclaimerFinish)
+	}
 }
 
 func splitDisclaimer(fileContent string, disclaimerStart string, disclaimerFinish string) (string, string, error) {
