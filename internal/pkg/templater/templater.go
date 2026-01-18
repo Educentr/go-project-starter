@@ -54,6 +54,7 @@ type GeneratorParams struct {
 	// Models ???
 	Applications ds.Apps
 	Grafana      grafana.Config
+	Artifacts    ds.ArtifactsConfig
 }
 
 // type GeneratorParamDriver struct {

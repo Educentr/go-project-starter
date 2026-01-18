@@ -19,6 +19,7 @@ const (
 	devLokiPath             = "configs/dev/loki"
 	testsPath               = "tests"
 	mocksPath               = "tests/mocks"
+	packagingPath           = "packaging"
 )
 
 //go:embed all:embedded
@@ -621,6 +622,76 @@ func GetMockTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error)
 			ParamsTmpl: handlerParams,
 		})
 	}
+
+	return dirs, files, nil
+}
+
+// GetPackagingTemplates returns packaging templates for an application (nfpm, systemd, scripts).
+// It generates files per application when packaging artifacts (deb/rpm/apk) are enabled.
+func GetPackagingTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error) {
+	// Skip if packaging is not enabled
+	if !params.Artifacts.HasPackaging() {
+		return nil, nil, nil
+	}
+
+	// Skip CLI applications (they don't have systemd services)
+	if params.Application.IsCLI() {
+		return nil, nil, nil
+	}
+
+	dirs := []ds.Files{}
+	files := []ds.Files{}
+
+	appPackagingPath := filepath.Join(packagingPath, params.Application.Name)
+	systemdPath := filepath.Join(appPackagingPath, "systemd")
+	scriptsPath := filepath.Join(appPackagingPath, "scripts")
+
+	// Create directories
+	dirs = append(dirs, ds.Files{
+		DestName:   appPackagingPath,
+		ParamsTmpl: params,
+	})
+	dirs = append(dirs, ds.Files{
+		DestName:   systemdPath,
+		ParamsTmpl: params,
+	})
+	dirs = append(dirs, ds.Files{
+		DestName:   scriptsPath,
+		ParamsTmpl: params,
+	})
+
+	// nfpm.yaml configuration
+	nfpmTemplate := "embedded/templates/packaging/nfpm.yaml.tmpl"
+	files = append(files, ds.Files{
+		SourceName: nfpmTemplate,
+		DestName:   filepath.Join(appPackagingPath, "nfpm.yaml"),
+		ParamsTmpl: params,
+	})
+
+	// Systemd service file
+	serviceTemplate := "embedded/templates/packaging/systemd/service.tmpl"
+	serviceName := params.ProjectName + "-" + params.Application.Name + ".service"
+	files = append(files, ds.Files{
+		SourceName: serviceTemplate,
+		DestName:   filepath.Join(systemdPath, serviceName),
+		ParamsTmpl: params,
+	})
+
+	// Postinstall script
+	postinstallTemplate := "embedded/templates/packaging/scripts/postinstall.sh.tmpl"
+	files = append(files, ds.Files{
+		SourceName: postinstallTemplate,
+		DestName:   filepath.Join(scriptsPath, "postinstall.sh"),
+		ParamsTmpl: params,
+	})
+
+	// Preremove script
+	preremoveTemplate := "embedded/templates/packaging/scripts/preremove.sh.tmpl"
+	files = append(files, ds.Files{
+		SourceName: preremoveTemplate,
+		DestName:   filepath.Join(scriptsPath, "preremove.sh"),
+		ParamsTmpl: params,
+	})
 
 	return dirs, files, nil
 }

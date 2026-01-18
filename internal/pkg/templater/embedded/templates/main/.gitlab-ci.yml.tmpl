@@ -99,6 +99,33 @@ build-{{ $a.Name | ReplaceDash }}:
     - make docker-{{ $a.Name }}-push
 {{ end }}
 
+{{ if .Artifacts.HasPackaging }}
+# Build system packages (deb/rpm/apk)
+build-packages:
+  stage: build
+  image: golang:{{ .GoLangVersion }}
+  needs:
+    - prepare-env
+  before_script:
+    - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+  script:
+    - make packages
+  artifacts:
+    paths:
+      {{- if .Artifacts.HasDeb }}
+      - "*.deb"
+      {{- end }}
+      {{- if .Artifacts.HasRPM }}
+      - "*.rpm"
+      {{- end }}
+      {{- if .Artifacts.HasAPK }}
+      - "*.apk"
+      {{- end }}
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+{{ end }}
+
 # Deploy job template
 .deploy-template: &deploy-template
   stage: deploy

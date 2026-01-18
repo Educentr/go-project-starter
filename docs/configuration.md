@@ -51,6 +51,21 @@ grafana:
       url: string           # URL datasource
       isDefault: bool       # Установить как default
       editable: bool        # Разрешить редактирование в Grafana UI
+
+artifacts:                  # Типы артефактов сборки
+  - docker                  # Docker образы (по умолчанию)
+  - deb                     # Debian пакеты
+  - rpm                     # RPM пакеты (CentOS, RHEL, Fedora)
+  - apk                     # Alpine пакеты
+
+packaging:                  # Конфигурация системных пакетов (если указан deb/rpm/apk)
+  maintainer: string        # Maintainer email (обязательно)
+  description: string       # Описание пакета (обязательно)
+  homepage: string          # URL проекта
+  license: string           # Лицензия (MIT, Apache-2.0, и т.д.)
+  vendor: string            # Название компании
+  install_dir: string       # Путь установки бинарника (default: /usr/bin)
+  config_dir: string        # Путь конфигов (default: /etc/{project-name})
 ```
 
 ## Секция `main`
@@ -342,6 +357,106 @@ grafana/
     │   └── dashboards.yaml
     └── datasources/
         └── datasources.yaml
+```
+
+## Секция `artifacts`
+
+Определяет типы артефактов сборки. По умолчанию собираются только Docker образы.
+
+```yaml
+artifacts:
+  - docker    # Docker образы (включен по умолчанию)
+  - deb       # Debian пакеты (.deb)
+  - rpm       # RPM пакеты (.rpm) для CentOS/RHEL/Fedora
+  - apk       # Alpine пакеты (.apk)
+```
+
+| Тип | Описание | Использование |
+|-----|----------|---------------|
+| `docker` | Docker образы | Kubernetes, Docker Compose |
+| `deb` | Debian пакеты | Ubuntu, Debian |
+| `rpm` | RPM пакеты | CentOS, RHEL, Fedora, Rocky |
+| `apk` | Alpine пакеты | Alpine Linux |
+
+## Секция `packaging`
+
+Конфигурация для системных пакетов (обязательна если указан `deb`, `rpm` или `apk`).
+
+```yaml
+packaging:
+  maintainer: "DevOps Team <devops@example.com>"
+  description: "My microservice for handling orders"
+  homepage: "https://github.com/myorg/myservice"
+  license: "MIT"
+  vendor: "My Company"
+  install_dir: "/usr/bin"           # default: /usr/bin
+  config_dir: "/etc/myservice"      # default: /etc/{project-name}
+```
+
+| Поле | Обязательно | Описание |
+|------|-------------|----------|
+| `maintainer` | Да | Email maintainer'а пакета |
+| `description` | Да | Описание пакета |
+| `homepage` | Нет | URL проекта |
+| `license` | Нет | Лицензия (MIT, Apache-2.0, GPL-3.0) |
+| `vendor` | Нет | Название компании |
+| `install_dir` | Нет | Путь установки бинарника |
+| `config_dir` | Нет | Путь для конфигурационных файлов |
+
+### Генерируемые файлы
+
+При включении системных пакетов генерируются:
+
+```
+packaging/
+└── {app-name}/
+    ├── nfpm.yaml                    # Конфигурация nfpm
+    ├── systemd/
+    │   └── {project}-{app}.service  # Systemd unit файл
+    └── scripts/
+        ├── postinstall.sh           # Скрипт после установки
+        └── preremove.sh             # Скрипт перед удалением
+```
+
+### Сборка пакетов
+
+```bash
+# Установить nfpm
+make install-nfpm
+
+# Собрать deb пакет для приложения api
+make deb-api
+
+# Собрать rpm пакет
+make rpm-api
+
+# Собрать все пакеты
+make packages
+```
+
+### Пример полной конфигурации
+
+```yaml
+main:
+  name: orderservice
+  logger: zerolog
+  registry_type: github
+
+artifacts:
+  - docker
+  - deb
+  - rpm
+
+packaging:
+  maintainer: "Platform Team <platform@example.com>"
+  description: "Order processing microservice"
+  homepage: "https://github.com/example/orderservice"
+  license: "Apache-2.0"
+  vendor: "Example Inc"
+
+applications:
+  - name: api
+    transport: [api, sys]
 ```
 
 ## Секция `steps` (постгенерация)

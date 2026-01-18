@@ -22,6 +22,83 @@ type DeployType struct {
 	LogCollector LogCollectorType
 }
 
+// ArtifactType represents a build artifact type
+type ArtifactType string
+
+// PackagingConfig contains system package configuration for nfpm
+type PackagingConfig struct {
+	Maintainer  string
+	Description string
+	Homepage    string
+	License     string
+	Vendor      string
+	InstallDir  string
+	ConfigDir   string
+}
+
+// ArtifactsConfig holds artifacts and packaging configuration
+type ArtifactsConfig struct {
+	Types     []ArtifactType
+	Packaging PackagingConfig
+}
+
+// Artifact type constants
+const (
+	ArtifactDocker ArtifactType = "docker"
+	ArtifactDeb    ArtifactType = "deb"
+	ArtifactRPM    ArtifactType = "rpm"
+	ArtifactAPK    ArtifactType = "apk"
+)
+
+// HasDocker returns true if docker artifact is enabled
+func (a ArtifactsConfig) HasDocker() bool {
+	for _, t := range a.Types {
+		if t == ArtifactDocker {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasDeb returns true if deb artifact is enabled
+func (a ArtifactsConfig) HasDeb() bool {
+	for _, t := range a.Types {
+		if t == ArtifactDeb {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasRPM returns true if rpm artifact is enabled
+func (a ArtifactsConfig) HasRPM() bool {
+	for _, t := range a.Types {
+		if t == ArtifactRPM {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasAPK returns true if apk artifact is enabled
+func (a ArtifactsConfig) HasAPK() bool {
+	for _, t := range a.Types {
+		if t == ArtifactAPK {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasPackaging returns true if any system package artifact (deb/rpm/apk) is enabled
+func (a ArtifactsConfig) HasPackaging() bool {
+	return a.HasDeb() || a.HasRPM() || a.HasAPK()
+}
+
 //type WorkerType string
 
 // JSONSchemaItem represents a single JSON schema file with its identifier

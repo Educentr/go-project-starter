@@ -240,6 +240,45 @@ docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
 .PHONY: docker-push
 docker-push: {{ range $_, $a := .Applications }}docker-{{ $a.Name }}-push {{ end }}
 
+{{ if .Artifacts.HasPackaging }}
+# nfpm tool installation
+NFPM_VERSION ?= 2.35.3
+.PHONY: install-nfpm
+install-nfpm:
+	go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
+
+# Package version (uses RELEASE variable)
+PKG_VERSION ?= $(RELEASE)
+
+{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}
+{{ if $.Artifacts.HasDeb }}
+.PHONY: deb-{{ $a.Name }}
+deb-{{ $a.Name }}: build-{{ $a.Name }}
+	VERSION=$(PKG_VERSION) nfpm package -p deb -f packaging/{{ $a.Name }}/nfpm.yaml
+{{ end }}
+
+{{ if $.Artifacts.HasRPM }}
+.PHONY: rpm-{{ $a.Name }}
+rpm-{{ $a.Name }}: build-{{ $a.Name }}
+	VERSION=$(PKG_VERSION) nfpm package -p rpm -f packaging/{{ $a.Name }}/nfpm.yaml
+{{ end }}
+
+{{ if $.Artifacts.HasAPK }}
+.PHONY: apk-{{ $a.Name }}
+apk-{{ $a.Name }}: build-{{ $a.Name }}
+	VERSION=$(PKG_VERSION) nfpm package -p apk -f packaging/{{ $a.Name }}/nfpm.yaml
+{{ end }}
+{{ end }}{{ end }}
+
+# Aggregate package targets
+.PHONY: packages
+packages: {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $.Artifacts.HasDeb }}deb-{{ $a.Name }} {{ end }}{{ if $.Artifacts.HasRPM }}rpm-{{ $a.Name }} {{ end }}{{ if $.Artifacts.HasAPK }}apk-{{ $a.Name }} {{ end }}{{ end }}{{ end }}
+
+.PHONY: package-list
+package-list:
+	@echo '[{{ $first := true }}{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $.Artifacts.HasDeb }}{{ if not $first }}, {{ end }}{{ $first = false }}"deb-{{ $a.Name }}"{{ end }}{{ if $.Artifacts.HasRPM }}{{ if not $first }}, {{ end }}{{ $first = false }}"rpm-{{ $a.Name }}"{{ end }}{{ if $.Artifacts.HasAPK }}{{ if not $first }}, {{ end }}{{ $first = false }}"apk-{{ $a.Name }}"{{ end }}{{ end }}{{ end }}]'
+{{ end }}
+
 {{ if .DevStand }}
 # Development stand management
 .PHONY: dev-up

@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+# Create service user if not exists
+if ! getent passwd {{ .ProjectName }} > /dev/null; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin {{ .ProjectName }}
+fi
+
+# Create config directory
+mkdir -p {{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}
+chown {{ .ProjectName }}:{{ .ProjectName }} {{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}
+
+# Enable and start service
+systemctl daemon-reload
+systemctl enable {{ .ProjectName }}-{{ .Application.Name }} || true
+systemctl start {{ .ProjectName }}-{{ .Application.Name }} || true

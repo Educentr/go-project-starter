@@ -78,6 +78,7 @@ kubectl scale deployment workers --replicas=2
 | Компонент | Описание |
 |-----------|----------|
 | **Docker & Docker Compose** | Multi-stage сборки, оптимизированные по размеру |
+| **System Packages** | deb/rpm/apk пакеты для bare-metal деплоя |
 | **Traefik** | Reverse proxy с автоматическим HTTPS |
 | **GitHub Actions CI/CD** | Workflows для тестов, сборки и деплоя |
 | **Prometheus метрики** | RED метрики (Rate, Errors, Duration) из коробки |
@@ -132,6 +133,60 @@ grafana/
         └── datasources.yaml
 ```
 
+## Системные пакеты (deb/rpm/apk)
+
+Помимо Docker образов, генерируйте системные пакеты для bare-metal деплоя:
+
+```yaml
+artifacts:
+  - docker    # Docker образы (по умолчанию)
+  - deb       # Debian/Ubuntu
+  - rpm       # CentOS/RHEL/Fedora
+  - apk       # Alpine Linux
+
+packaging:
+  maintainer: "DevOps <devops@example.com>"
+  description: "Order processing service"
+  license: "MIT"
+```
+
+### Поддерживаемые форматы
+
+| Формат | Дистрибутивы | Инструмент |
+|--------|--------------|------------|
+| **deb** | Debian, Ubuntu | dpkg, apt |
+| **rpm** | CentOS, RHEL, Fedora, Rocky | yum, dnf |
+| **apk** | Alpine Linux | apk |
+
+### Что включено в пакет
+
+- **Бинарный файл** → `/usr/bin/{app-name}`
+- **Systemd unit** → `/lib/systemd/system/{project}-{app}.service`
+- **Конфиг директория** → `/etc/{project}/{app}/`
+- **Post-install скрипт** — создание пользователя, systemctl enable
+- **Pre-remove скрипт** — systemctl stop, disable
+
+### Сборка и установка
+
+```bash
+# Сборка пакетов
+make install-nfpm     # Установить nfpm
+make deb-api          # Собрать .deb для приложения api
+make rpm-api          # Собрать .rpm
+make packages         # Собрать все пакеты
+
+# Установка на целевом сервере
+sudo dpkg -i myservice-api_1.0.0_amd64.deb
+sudo systemctl status myservice-api
+```
+
+### CI/CD интеграция
+
+При включении системных пакетов автоматически генерируются:
+
+- **GitLab CI**: job `build-packages` собирает пакеты и сохраняет как артефакты
+- **GitHub Actions**: job `build-packages` загружает пакеты в artifacts
+
 ## Developer Experience
 
 ### Makefile с 40+ целями
@@ -144,6 +199,7 @@ make docker-build    # Сборка Docker образа
 make docker-up       # Запуск всех зависимостей
 make migrate-up      # Запуск миграций БД
 make mock            # Генерация моков для тестов
+make packages        # Сборка системных пакетов (deb/rpm/apk)
 ```
 
 ### Миграции базы данных

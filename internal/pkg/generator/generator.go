@@ -55,6 +55,7 @@ type Generator struct {
 	Kafka               ds.KafkaConfigs
 	Applications        ds.Apps
 	Grafana             grafana.Config
+	Artifacts           ds.ArtifactsConfig
 }
 
 type ExecCmd struct {
@@ -565,6 +566,37 @@ func (g *Generator) processConfig(config config.Config) error {
 	// 	}
 	// }
 
+	// Process artifacts configuration
+	// Default to docker only if not specified
+	if len(config.Artifacts) == 0 {
+		g.Artifacts.Types = []ds.ArtifactType{ds.ArtifactDocker}
+	} else {
+		g.Artifacts.Types = make([]ds.ArtifactType, len(config.Artifacts))
+		for i, a := range config.Artifacts {
+			g.Artifacts.Types[i] = ds.ArtifactType(a)
+		}
+	}
+
+	// Process packaging config with defaults
+	g.Artifacts.Packaging = ds.PackagingConfig{
+		Maintainer:  config.Packaging.Maintainer,
+		Description: config.Packaging.Description,
+		Homepage:    config.Packaging.Homepage,
+		License:     config.Packaging.License,
+		Vendor:      config.Packaging.Vendor,
+		InstallDir:  config.Packaging.InstallDir,
+		ConfigDir:   config.Packaging.ConfigDir,
+	}
+
+	// Set defaults for packaging paths
+	if g.Artifacts.Packaging.InstallDir == "" {
+		g.Artifacts.Packaging.InstallDir = "/usr/bin"
+	}
+
+	if g.Artifacts.Packaging.ConfigDir == "" {
+		g.Artifacts.Packaging.ConfigDir = "/etc/" + g.ProjectName
+	}
+
 	return nil
 }
 
@@ -596,6 +628,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		JSONSchemas:         g.JSONSchemas,
 		Kafka:               g.Kafka,
 		Grafana:             g.Grafana,
+		Artifacts:           g.Artifacts,
 	}
 }
 
@@ -1044,6 +1077,15 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 				files = append(files, filesMock...)
 			}
 		}
+
+		// Generate packaging templates for applications when packaging artifacts are enabled
+		dirsPkg, filesPkg, err := templater.GetPackagingTemplates(g.GetTmplAppParams(app))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get packaging templates for %s: %w", app.Name, err)
+		}
+
+		dirs = append(dirs, dirsPkg...)
+		files = append(files, filesPkg...)
 	}
 
 	// Generate Grafana templates if any datasources are configured

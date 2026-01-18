@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+
+systemctl stop {{ .ProjectName }}-{{ .Application.Name }} || true
+systemctl disable {{ .ProjectName }}-{{ .Application.Name }} || true

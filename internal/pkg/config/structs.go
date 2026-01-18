@@ -10,12 +10,34 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ArtifactType represents a build artifact type
+type ArtifactType string
+
+// PackagingConfig contains system package configuration for nfpm
+type PackagingConfig struct {
+	Maintainer  string `mapstructure:"maintainer"`
+	Description string `mapstructure:"description"`
+	Homepage    string `mapstructure:"homepage"`
+	License     string `mapstructure:"license"`
+	Vendor      string `mapstructure:"vendor"`
+	InstallDir  string `mapstructure:"install_dir"`
+	ConfigDir   string `mapstructure:"config_dir"`
+}
+
 // Kafka driver and type constants
 const (
 	KafkaTypeProducer    = "producer"
 	KafkaTypeConsumer    = "consumer"
 	KafkaDriverSegmentio = "segmentio"
 	KafkaDriverCustom    = "custom"
+)
+
+// Artifact type constants
+const (
+	ArtifactDocker ArtifactType = "docker"
+	ArtifactDeb    ArtifactType = "deb"
+	ArtifactRPM    ArtifactType = "rpm"
+	ArtifactAPK    ArtifactType = "apk"
 )
 
 type (
@@ -273,6 +295,8 @@ type (
 		Applications   []Application  `mapstructure:"applications"`
 		Docker         Docker         `mapstructure:"docker"`
 		Grafana        Grafana        `mapstructure:"grafana"`
+		Artifacts      []ArtifactType `mapstructure:"artifacts"`
+		Packaging      PackagingConfig `mapstructure:"packaging"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc
@@ -741,6 +765,55 @@ func (g Grafana) IsValid() (bool, string) {
 				return false, "Only one datasource can be default"
 			}
 			hasDefault = true
+		}
+	}
+
+	return true, ""
+}
+
+// IsValid validates PackagingConfig
+func (p PackagingConfig) IsValid() (bool, string) {
+	if p.Maintainer == "" {
+		return false, "packaging.maintainer is required"
+	}
+
+	if p.Description == "" {
+		return false, "packaging.description is required"
+	}
+
+	return true, ""
+}
+
+// HasPackaging checks if any system package artifacts are configured
+func HasPackaging(artifacts []ArtifactType) bool {
+	for _, a := range artifacts {
+		if a == ArtifactDeb || a == ArtifactRPM || a == ArtifactAPK {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ValidateArtifacts validates artifacts configuration
+func ValidateArtifacts(artifacts []ArtifactType, packaging PackagingConfig) (bool, string) {
+	validTypes := map[ArtifactType]bool{
+		ArtifactDocker: true,
+		ArtifactDeb:    true,
+		ArtifactRPM:    true,
+		ArtifactAPK:    true,
+	}
+
+	for _, a := range artifacts {
+		if !validTypes[a] {
+			return false, "Invalid artifact type: " + string(a)
+		}
+	}
+
+	// If system packages are configured, packaging section is required
+	if HasPackaging(artifacts) {
+		if ok, msg := packaging.IsValid(); !ok {
+			return false, msg
 		}
 	}
 

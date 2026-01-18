@@ -7,17 +7,18 @@ import (
 )
 
 const (
-	extYaml = ".yaml"
-	extYml  = ".yml"
-	extGo   = ".go"
-	extMod  = ".mod"
-	extSum  = ".sum"
-	extSQL  = ".sql"
-	extMD   = ".md"
-	extTxt  = ".txt"
-	extSh   = ".sh"
-	extDot  = "."
-	extJSON = ".json"
+	extYaml    = ".yaml"
+	extYml     = ".yml"
+	extGo      = ".go"
+	extMod     = ".mod"
+	extSum     = ".sum"
+	extSQL     = ".sql"
+	extMD      = ".md"
+	extTxt     = ".txt"
+	extSh      = ".sh"
+	extDot     = "."
+	extJSON    = ".json"
+	extService = ".service"
 )
 
 func isFileIgnored(fName string) bool {
@@ -92,6 +93,8 @@ func makeComment(fName, text string) (string, error) {
 
 		fallthrough
 	case extSh:
+		fallthrough
+	case extService:
 		fallthrough
 	case ".gitignore":
 		fallthrough
