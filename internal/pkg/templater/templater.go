@@ -379,7 +379,7 @@ func splitDisclaimer(fileContent string, disclaimerStart string, disclaimerFinis
 	}
 
 	beforeLine := strings.Index(fileContent[:disclamerFindStart], "\n")
-	if beforeLine == -1 {
+	if beforeLine != -1 {
 		return fileContent[:disclamerFindStart], "", errors.New("there is a code before the disclaimer")
 	}
 
