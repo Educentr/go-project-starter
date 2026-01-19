@@ -137,6 +137,242 @@ REST-сервисы должны быть назначены на конкрет
 - **ВАЖНО**: Устаревший параметр `auth_type` в `generator_params` больше не поддерживается. Используйте вместо него `auth_params`.
 - Генерируемый код создаёт структуру `SecuritySource` с методом `AuthHeader` для передачи API ключа в заголовках запросов.
 
+### Kafka (Event-Driven Architecture)
+
+#### Концепция Events
+
+Kafka конфигурация использует концепцию **events** (ранее topics):
+- `KafkaEvent` — единица публикации/потребления сообщений
+- Event name используется для генерации Go методов
+- Topic name по умолчанию совпадает с event name
+- Topic можно переопределить per-environment через OnlineConf
+
+#### Конфигурация
+
+```yaml
+kafka:
+  - name: events_producer
+    type: producer          # producer или consumer
+    driver: segmentio       # segmentio (default) или custom
+    client: main_kafka      # имя клиента для OnlineConf пути
+    group: my_group         # consumer group (только для consumer)
+    events:
+      - name: user_events   # event name = default topic name
+        schema: models.user # опционально: jsonschema_name.schema_id
+```
+
+#### OnlineConf пути для Kafka
+
+| Путь | Описание |
+|------|----------|
+| `{service}/kafka/{client}/brokers` | Список брокеров через запятую |
+| `{service}/kafka/{client}/auth_type` | none, PLAIN, SCRAM-SHA-256, SCRAM-SHA-512 |
+| `{service}/kafka/{client}/username` | SASL username |
+| `{service}/kafka/{client}/password` | SASL password |
+| `{service}/kafka/{client}/tls_enabled` | 0 или 1 |
+| `{service}/kafka/{client}/tls_skip_verify` | 0 или 1 (только для dev) |
+| `{service}/kafka/{client}/tls_ca_cert` | PEM-encoded CA сертификат |
+| `{service}/kafka/{client}/events/{event_name}/topic` | Override topic name |
+
+#### TLS Configuration
+
+Для production Kafka с TLS:
+- `tls_enabled: 1` — включить TLS
+- `tls_ca_cert` — PEM-encoded CA сертификат для валидации сервера
+- `tls_skip_verify: 1` — пропустить валидацию сертификата (только dev!)
+
+#### Типизированные сообщения
+
+Events могут ссылаться на JSON Schema для типизации:
+
+```yaml
+jsonschema:
+  - name: models
+    schemas:
+      - id: user
+        path: ./user.schema.json
+
+kafka:
+  - name: producer
+    type: producer
+    client: main_kafka
+    events:
+      - name: user_events
+        schema: models.user  # Генерирует типизированный метод
+```
+
+### Container Registry Types
+
+| Тип | Registry | Требуемые секреты |
+|-----|----------|-------------------|
+| `github` | GitHub Container Registry (ghcr.io) | `GHCR_USER`, `GHCR_TOKEN` |
+| `digitalocean` | DigitalOcean Container Registry | `REGISTRY_PASSWORD` |
+| `aws` | Amazon ECR | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
+| `selfhosted` | Любой Docker Registry | `REGISTRY_URL`, `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` |
+
+#### AWS ECR
+
+URL формат: `{account-id}.dkr.ecr.{region}.amazonaws.com`
+
+#### Self-Hosted Registry
+
+Для MinIO-backed или других self-hosted registry настройте `REGISTRY_LOGIN_SERVER`.
+
+### Setup Command
+
+Подкоманда для автоматизации развертывания проекта.
+
+#### Использование
+
+```bash
+go-project-starter setup [command]
+
+# Доступные команды:
+go-project-starter setup         # Полный интерактивный wizard
+go-project-starter setup ci      # Настройка CI/CD
+go-project-starter setup server  # Настройка серверов
+go-project-starter setup deploy  # Генерация deploy скриптов
+```
+
+#### Wizard
+
+Интерактивный wizard собирает информацию:
+1. CI/CD провайдер (GitHub Actions / GitLab CI)
+2. Окружения (staging, production)
+3. Серверы и SSH доступ
+4. Registry credentials
+
+#### Поддерживаемые CI провайдеры
+
+- **GitHub Actions** — автогенерация workflows
+- **GitLab CI** — автогенерация .gitlab-ci.yml
+
+#### Файлы конфигурации
+
+- `setup.yaml` — сохраненная конфигурация wizard
+- `.github/workflows/` или `.gitlab-ci.yml` — CI/CD файлы
+- `deploy.sh` — скрипт развертывания
+
+### JSON Schema
+
+Генерация Go структур с валидацией из JSON Schema файлов.
+
+#### Формат конфигурации
+
+```yaml
+jsonschema:
+  - name: models
+    schemas:
+      - id: user
+        path: ./user.schema.json
+        type: UserSchema        # Опционально: имя Go типа
+      - id: event
+        path: ./event.schema.json
+    package: models             # Опционально: имя пакета
+```
+
+#### Структура schemas
+
+| Поле | Описание |
+|------|----------|
+| `id` | Уникальный идентификатор для ссылок из Kafka events |
+| `path` | Путь к JSON schema файлу |
+| `type` | Опционально: имя генерируемого Go типа |
+
+#### Интеграция с Kafka
+
+Для типизированных Kafka сообщений используйте формат `{jsonschema_name}.{schema_id}`:
+
+```yaml
+kafka:
+  - name: producer
+    type: producer
+    events:
+      - name: user_events
+        schema: models.user
+```
+
+#### Генерируемые файлы
+
+```
+pkg/schema/{name}/    # Go код
+api/schema/{name}/    # Копии schema файлов
+```
+
+### GOAT Integration Tests
+
+GOAT (Go Application Testing) — фреймворк для интеграционного тестирования.
+
+#### Включение
+
+```yaml
+applications:
+  - name: api
+    goat_tests: true
+    # или расширенная конфигурация:
+    goat_tests_config:
+      enabled: true
+      binary_path: /tmp/api  # опционально
+```
+
+#### Генерируемые файлы
+
+| Файл | Описание |
+|------|----------|
+| `tests/psg_app_gen.go` | Инициализация тестового окружения |
+| `tests/psg_base_suite_gen.go` | Базовый test suite |
+| `tests/psg_config_gen.go` | Конфигурация сервиса |
+| `tests/psg_helpers_gen.go` | HTTP клиент, helpers |
+| `tests/psg_init_gen.go` | Интерфейс инициализации (требует реализации) |
+| `tests/psg_main_test.go` | Точка входа |
+
+#### Mock-серверы
+
+Для `ogen_client` автоматически генерируется поддержка mock-серверов.
+
+Подробная документация: [docs/goat-tests.md](goat-tests.md)
+
+### Dev Stand (Локальная разработка)
+
+При включении `dev_stand: true` генерируется `docker-compose-dev.yaml` — автономное окружение разработки.
+
+#### Включение
+
+```yaml
+main:
+  name: myproject
+  dev_stand: true
+
+post_generate:
+  - git_install    # Обязательно для dev_stand
+```
+
+#### Компоненты
+
+- **OnlineConf Stack** (MySQL + Admin UI + Updater)
+- **Traefik** — reverse proxy
+- **PostgreSQL** (если `use_active_record: true`)
+- **Grafana + Prometheus + Loki** (если настроены)
+
+#### Доступ
+
+| Сервис | URL |
+|--------|-----|
+| OnlineConf Admin | http://localhost:8888 |
+| Traefik Dashboard | http://localhost:9080 |
+| Grafana | http://localhost:3000 |
+
+#### Команды
+
+```bash
+make dev-up      # Запустить
+make dev-down    # Остановить
+make dev-drop    # Полный сброс с volumes
+make dev-rebuild # Пересборка приложений
+```
+
+Подробная документация: [docs/dev-start.md](dev-start.md)
+
 ### Логирование
 - Интерфейс логгера:
   - Реализации взаимозаменяемы (The Logo, RusLogo и т. п.) через общий интерфейс.
@@ -169,6 +405,16 @@ REST-сервисы должны быть назначены на конкрет
   - О: Да, замените драйвер, соблюдая интерфейс; сервисные вызовы не меняются.
 - В: Где должно происходить логирование?
   - О: В проект-специфичных слоях (application/internal), не в internal/pkg.
+- В: Как переопределить topic name для Kafka event?
+  - О: Через OnlineConf по пути `{service}/kafka/{client}/events/{event_name}/topic`. Event name используется как default topic.
+- В: Как настроить TLS для Kafka?
+  - О: Установите `tls_enabled: 1` в OnlineConf и укажите `tls_ca_cert` с PEM-encoded сертификатом. Для dev-окружений можно использовать `tls_skip_verify: 1`.
+- В: Как запустить GOAT тесты?
+  - О: Добавьте `goat_tests: true` в application конфигурацию, соберите бинарник и запустите `make goat-tests`.
+- В: Что делать если init-config.sql не применяется в dev_stand?
+  - О: MySQL выполняет init-скрипты только при первом запуске. Используйте `make dev-drop && make dev-up` для полной переинициализации.
+- В: Какие registry types поддерживаются?
+  - О: github (ghcr.io), digitalocean, aws (ECR), selfhosted (любой Docker Registry совместимый).
 
 ### SOP: Валидация Project Config (черновик)
 - Шаги:
@@ -313,6 +559,11 @@ applications:
 - GRPC — HTTP2/protobuf транспорт.
 - CLI — интерактивный транспорт командной строки (shell-like: command args...).
 - Worker — фоновая горутина, работающая непрерывно без интерактивной сессии.
+- KafkaEvent — единица Kafka сообщения (бывший KafkaTopic), используется для генерации методов публикации/потребления.
+- dev_stand — локальное окружение разработки с OnlineConf, Traefik и опциональными Grafana/Prometheus/Loki.
+- GOAT — Go Application Testing framework для интеграционного тестирования сгенерированных сервисов.
+- Setup Command — интерактивный wizard для автоматизации развертывания (CI/CD, серверы, deploy скрипты).
+- JSON Schema — генерация Go структур из JSON Schema файлов с валидацией.
 
 ### Важные правила (IMPORTANT)
 
@@ -323,7 +574,7 @@ applications:
 Файл: `internal/pkg/templater/templater.go`
 
 ```go
-const MinRuntimeVersion = "vX.Y.Z"  // всегда последняя версия из репозитория runtime
+const MinRuntimeVersion = "v0.9.0"  // актуальная версия на момент написания
 ```
 
 Правила:
