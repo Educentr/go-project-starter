@@ -4,7 +4,7 @@ stages:
   - build
   - deploy
   - notify
-
+{{ if .Artifacts.HasDocker }}
 variables:
   DOCKER_TLS_CERTDIR: "/certs"
   DOCKER_DRIVER: overlay2
@@ -14,7 +14,7 @@ default:
   image: docker:24.0.5
   services:
     - docker:24.0.5-dind
-
+{{ end }}
 # Cache configuration
 cache:
   key: ${CI_COMMIT_REF_SLUG}
@@ -27,14 +27,19 @@ prepare-env:
   image: golang:{{ .GoLangVersion }}
   script:
     - echo "RELEASE=$(make release-tag)" >> build.env
+{{- if .Artifacts.HasDocker }}
     - echo "CONTAINERS=$(make docker-list)" >> build.env
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
     - echo "ARTIFACTS=$(make artifact-list)" >> build.env
+{{- end }}
   artifacts:
     reports:
       dotenv: build.env
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
 
+{{ if .Artifacts.HasDocker }}
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
 # GOAT tests for {{ $a.Name }}
 goat-tests-{{ $a.Name | ReplaceDash }}:
@@ -65,7 +70,7 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
     - if: ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging") && $SKIP_GOAT_TESTS != "true"
 {{ end }}{{ end }}
 
-# Build job template
+# Build job template for Docker images
 .build-template: &build-template
   stage: build
   needs:
@@ -89,7 +94,7 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
 
-# Build jobs for each application
+# Build Docker images for each application
 {{ range $_, $a := .Applications }}
 build-{{ $a.Name | ReplaceDash }}:
   <<: *build-template
@@ -97,6 +102,7 @@ build-{{ $a.Name | ReplaceDash }}:
     - export REGISTRY_SERVER="${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}"
     - make docker-{{ $a.Name }}
     - make docker-{{ $a.Name }}-push
+{{ end }}
 {{ end }}
 
 {{ if .Artifacts.HasPackaging }}
@@ -178,7 +184,8 @@ upload-packages:
 {{ end }}
 {{ end }}
 
-# Deploy job template
+{{ if .Artifacts.HasDocker }}
+# Deploy job template (Docker-based deployments)
 .deploy-template: &deploy-template
   stage: deploy
   image: alpine:latest
@@ -276,3 +283,4 @@ notify:
       fi
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
+{{ end }}

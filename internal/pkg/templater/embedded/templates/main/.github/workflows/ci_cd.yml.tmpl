@@ -12,9 +12,11 @@ jobs:
     outputs:
       ENABLE_BUILD: ${{"{{"}} steps.vars_enabled.outputs.ENABLE_BUILD {{"}}"}}
       RELEASE: ${{"{{"}} steps.vers_and_containers.outputs.RELEASE {{"}}"}}
+{{- if .Artifacts.HasDocker }}
       CONTAINERS: ${{"{{"}} steps.vers_and_containers.outputs.CONTAINERS {{"}}"}}
+{{- end }}
       ARTIFACTS: ${{"{{"}} steps.vers_and_containers.outputs.ARTIFACTS {{"}}"}}
-
+{{- if .Artifacts.HasDocker }}
       ENABLE_DEPLOY: ${{"{{"}}steps.vars_enabled.outputs.ENABLE_DEPLOY {{"}}"}}
       DEPLOY_ENVS: ${{"{{"}} steps.vars_deploy.outputs.DEPLOY_ENVS {{"}}"}}
       OC_HOST: ${{"{{"}} steps.vars_deploy.outputs.OC_HOST {{"}}"}}
@@ -24,7 +26,7 @@ jobs:
       ENV_TYPE: ${{"{{"}} steps.set_env_main.outputs.ENV_TYPE {{"}}"}}
       LEN_EXPECTED: ${{"{{"}} steps.vars_deploy.outputs.LEN_EXPECTED {{"}}"}}
       SSH_HOST_MATRIX: ${{"{{"}} steps.vars_deploy.outputs.SSH_HOST_MATRIX {{"}}"}}
-      INTERNAL_SUBNET: ${{"{{"}} steps.vars_deploy.outputs.INTERNAL_SUBNET {{"}}"}}        
+      INTERNAL_SUBNET: ${{"{{"}} steps.vars_deploy.outputs.INTERNAL_SUBNET {{"}}"}}
       {{- range $_, $a := .Applications }}
         {{ $applicationName := $a.Name | ReplaceDash }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK {{"}}"}}
@@ -35,31 +37,39 @@ jobs:
       PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }} {{"}}"}}
         {{ end }}{{ end }}
       {{ end }}
+{{- end }}
 
     steps:
       - name: Get branch
         uses: noliran/branch-based-secrets@v1
         with:
-          secrets: ENABLED,ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET
+          secrets: ENABLED{{ if .Artifacts.HasDocker }},ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET{{ end }}
 
       - name: Use vars
         id: vars_enabled
         run: |
           if [ "${{"{{"}} vars[env.ENABLED_NAME] {{"}}"}}" == "ENABLED" ]; then
             echo "ENABLE_BUILD=true" >> $GITHUB_OUTPUT
+{{- if .Artifacts.HasDocker }}
             echo "ENABLE_DEPLOY=true" >> $GITHUB_OUTPUT
+{{- end }}
           elif [ "${{"{{"}} vars[env.ENABLED_NAME] {{"}}"}}" == "ENABLED_ONLY_BUILD" ]; then
             echo "ENABLE_BUILD=true" >> $GITHUB_OUTPUT
+{{- if .Artifacts.HasDocker }}
             echo "ENABLE_DEPLOY=false" >> $GITHUB_OUTPUT
             echo "DEPLOY_ENVS=[]" >> $GITHUB_OUTPUT
+{{- end }}
           else
             echo "Skip branch ${GITHUB_REF}"
             echo "ENABLE_BUILD=false" >> $GITHUB_OUTPUT
+{{- if .Artifacts.HasDocker }}
             echo "ENABLE_DEPLOY=false" >> $GITHUB_OUTPUT
             echo "DEPLOY_ENVS=[]" >> $GITHUB_OUTPUT
+{{- end }}
             exit 0
           fi
 
+{{ if .Artifacts.HasDocker }}
       - name: Deploy vars
         id: vars_deploy
         if: steps.vars_enabled.outputs.ENABLE_DEPLOY == 'true'
@@ -80,7 +90,7 @@ jobs:
           if [ -z "${{"{{"}} vars[env.OC_PORT_NAME] {{"}}"}}" ]; then
             echo "Empty OC_PORT use 443"
             echo 'OC_PORT=443' >> $GITHUB_OUTPUT
-          else 
+          else
             echo 'OC_PORT=${{"{{"}} vars[env.OC_PORT_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
           fi
 
@@ -97,7 +107,9 @@ jobs:
 
           echo "LEN_EXPECTED=$LEN_EXPECTED" >> $GITHUB_OUTPUT
           echo DEPLOY_ENVS="`jq -cn "[range(0; $LEN_EXPECTED)]"`" >> $GITHUB_OUTPUT
+{{ end }}
 
+{{ if .Artifacts.HasDocker }}
       - name: Check and set vars for instances
         id: set_env_main
         if: steps.vars_enabled.outputs.ENABLE_DEPLOY == 'true'
@@ -187,6 +199,7 @@ jobs:
           fi
 
           echo 'OC_PASSWORD=${{"{{"}} env.OC_PASSWORD_NAME {{"}}"}}' >> $GITHUB_OUTPUT
+{{ end }}
 
       - name: Checkout repository
         if: steps.vars_enabled.outputs.ENABLE_BUILD == 'true'
@@ -197,15 +210,14 @@ jobs:
         if: steps.vars_enabled.outputs.ENABLE_BUILD == 'true'
         run: |
           vers=$(make release-tag)
-          containerList=$(make docker-list)
-
           echo "RELEASE=$vers" >> $GITHUB_OUTPUT
+{{- if .Artifacts.HasDocker }}
+          containerList=$(make docker-list)
           echo "CONTAINERS=$containerList" >> $GITHUB_OUTPUT
-
+{{- end }}
           art=$(make artifact-list)
-
           echo "ARTIFACTS=$art" >> $GITHUB_OUTPUT
-
+{{ if .Artifacts.HasDocker }}
       - name: Upload env file
         uses: actions/upload-artifact@v4
         if: steps.vars_enabled.outputs.ENABLE_DEPLOY == 'true'
@@ -214,7 +226,9 @@ jobs:
           path: docker-compose-*.yaml
           retention-days: 1
           overwrite: true
+{{ end }}
 
+{{ if .Artifacts.HasDocker }}
   create_env_files:
     runs-on: ubuntu-latest
     strategy:
@@ -239,13 +253,13 @@ jobs:
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
               {{ if $t.PublicService }}
           echo 'DOMAIN_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
-              {{ end }} 
+              {{ end }}
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
             {{- end }}{{- end }}
           {{- end }}
           echo "ENV_TYPE=$ENV_TYPE" >> $fname
           echo 'OC_HOST="${{"{{"}} needs.prepare-env.outputs.OC_HOST {{"}}"}}"' >> $fname
-          echo 'OC_PORT="${{"{{"}} needs.prepare-env.outputs.OC_PORT {{"}}"}}"' >> $fname          
+          echo 'OC_PORT="${{"{{"}} needs.prepare-env.outputs.OC_PORT {{"}}"}}"' >> $fname
           echo 'OC_USER="${{"{{"}} fromJson(secrets[needs.prepare-env.outputs.OC_USER])[matrix.envs] {{"}}"}}"' >> $fname
           echo 'OC_PASSWORD="${{"{{"}} fromJson(secrets[needs.prepare-env.outputs.OC_PASSWORD])[matrix.envs] {{"}}"}}"' >> $fname
           echo 'APP_VERSION="${{"{{"}} needs.prepare-env.outputs.RELEASE {{"}}"}}"' >> $fname
@@ -420,6 +434,7 @@ jobs:
           matrix: ${{"{{"}} toJson(matrix) {{"}}"}}
         env:
           SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}
+{{ end }}
 
 {{ if .Artifacts.HasPackaging }}
   build-packages:
@@ -549,6 +564,7 @@ jobs:
 {{ end }}
 {{ end }}
 
+{{ if .Artifacts.HasDocker }}
   deploy:
     runs-on: ubuntu-latest
     strategy:
@@ -654,3 +670,4 @@ jobs:
             -d chat_id=$TELEGRAM_CHAT_ID \
             -d text="$MESSAGE" \
             -d parse_mode="MarkdownV2"
+{{ end }}
