@@ -6,9 +6,9 @@ After=network.target
 Type=simple
 User={{ .ProjectName }}
 ExecStart={{ .Artifacts.Packaging.InstallDir }}/{{ .Application.Name }}
+Environment="ONLINECONF_DIR={{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}"
 Restart=always
 RestartSec=5
-Environment="ONLINECONF_DIR={{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}"
 
 [Install]
 WantedBy=multi-user.target

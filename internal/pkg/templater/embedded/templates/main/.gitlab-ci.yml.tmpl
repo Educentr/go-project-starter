@@ -124,6 +124,58 @@ build-packages:
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+
+{{ if .Artifacts.HasUpload }}
+# Upload packages to storage
+# Required CI/CD variables:
+{{- if .Artifacts.IsMinio }}
+#   MINIO_ACCESS_KEY, MINIO_SECRET_KEY - MinIO credentials
+#   UPLOAD_ENDPOINT - MinIO endpoint URL
+#   UPLOAD_BUCKET - Target bucket name
+#   UPLOAD_REGION - Bucket region (optional, default: us-east-1)
+#   UPLOAD_PREFIX - Path prefix in bucket (optional, default: packages)
+{{- else if .Artifacts.IsAWS }}
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY - AWS credentials
+#   UPLOAD_BUCKET - Target S3 bucket name
+#   UPLOAD_REGION - Bucket region (optional, default: us-east-1)
+#   UPLOAD_PREFIX - Path prefix in bucket (optional, default: packages)
+{{- else if .Artifacts.IsRsync }}
+#   UPLOAD_SSH_PRIVATE_KEY - SSH private key for rsync
+#   UPLOAD_HOST - Target SSH host
+#   UPLOAD_USER - SSH username
+#   UPLOAD_PATH - Remote path for packages
+{{- end }}
+upload-packages:
+  stage: deploy
+  image: {{ if .Artifacts.IsRsync }}alpine:latest{{ else }}amazon/aws-cli:latest{{ end }}
+  needs:
+    - build-packages
+  before_script:
+    {{- if .Artifacts.IsRsync }}
+    - apk add --no-cache openssh-client rsync
+    - eval $(ssh-agent -s)
+    - echo "$UPLOAD_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H "$UPLOAD_HOST" >> ~/.ssh/known_hosts
+    {{- else if .Artifacts.IsMinio }}
+    - aws configure set aws_access_key_id "$MINIO_ACCESS_KEY"
+    - aws configure set aws_secret_access_key "$MINIO_SECRET_KEY"
+    {{- else if .Artifacts.IsAWS }}
+    - aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+    - aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+    {{- end }}
+  script:
+    {{- if .Artifacts.IsMinio }}
+    - aws s3 cp . s3://${UPLOAD_BUCKET}/${UPLOAD_PREFIX:-packages}/ --recursive --exclude "*" {{ if .Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if .Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if .Artifacts.HasAPK }}--include "*.apk" {{ end }}--endpoint-url ${UPLOAD_ENDPOINT} --region ${UPLOAD_REGION:-us-east-1}
+    {{- else if .Artifacts.IsAWS }}
+    - aws s3 cp . s3://${UPLOAD_BUCKET}/${UPLOAD_PREFIX:-packages}/ --recursive --exclude "*" {{ if .Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if .Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if .Artifacts.HasAPK }}--include "*.apk" {{ end }}--region ${UPLOAD_REGION:-us-east-1}
+    {{- else if .Artifacts.IsRsync }}
+    - rsync -avz --progress {{ if .Artifacts.HasDeb }}*.deb {{ end }}{{ if .Artifacts.HasRPM }}*.rpm {{ end }}{{ if .Artifacts.HasAPK }}*.apk {{ end }}${UPLOAD_USER}@${UPLOAD_HOST}:${UPLOAD_PATH}/
+    {{- end }}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+{{ end }}
 {{ end }}
 
 # Deploy job template

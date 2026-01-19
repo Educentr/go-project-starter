@@ -187,6 +187,38 @@ sudo systemctl status myservice-api
 - **GitLab CI**: job `build-packages` собирает пакеты и сохраняет как артефакты
 - **GitHub Actions**: job `build-packages` загружает пакеты в artifacts
 
+### Загрузка пакетов в хранилище
+
+Поддерживается автоматическая загрузка собранных пакетов:
+
+```yaml
+packaging:
+  maintainer: "DevOps <devops@example.com>"
+  description: "My service"
+  upload:
+    enabled: true
+    type: minio          # minio, aws, или rsync
+    bucket: "packages"
+    region: "us-east-1"
+    endpoint: "https://minio.example.com"
+    prefix: "deb/myservice"
+```
+
+| Тип | Описание | Требуемые секреты |
+|-----|----------|-------------------|
+| **minio** | MinIO или S3-совместимое хранилище | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` |
+| **aws** | Amazon S3 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| **rsync** | Загрузка по SSH | `UPLOAD_SSH_PRIVATE_KEY` |
+
+Сгенерированные Makefile таргеты:
+
+```bash
+make upload-packages    # Загрузить все пакеты
+make upload-deb         # Загрузить только .deb
+make upload-rpm         # Загрузить только .rpm
+make upload-apk         # Загрузить только .apk
+```
+
 ## Developer Experience
 
 ### Makefile с 40+ целями

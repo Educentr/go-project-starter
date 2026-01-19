@@ -586,6 +586,9 @@ func (g *Generator) processConfig(config config.Config) error {
 		Vendor:      config.Packaging.Vendor,
 		InstallDir:  config.Packaging.InstallDir,
 		ConfigDir:   config.Packaging.ConfigDir,
+		Upload: ds.PackageUploadConfig{
+			Type: ds.PackageUploadType(config.Packaging.Upload.Type),
+		},
 	}
 
 	// Set defaults for packaging paths

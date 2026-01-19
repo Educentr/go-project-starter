@@ -25,6 +25,15 @@ type DeployType struct {
 // ArtifactType represents a build artifact type
 type ArtifactType string
 
+// PackageUploadType represents package upload storage type
+type PackageUploadType string
+
+// PackageUploadConfig contains package upload configuration.
+// Connection details (endpoint, bucket, credentials) are passed via CI/CD variables.
+type PackageUploadConfig struct {
+	Type PackageUploadType // minio, aws, rsync
+}
+
 // PackagingConfig contains system package configuration for nfpm
 type PackagingConfig struct {
 	Maintainer  string
@@ -34,6 +43,7 @@ type PackagingConfig struct {
 	Vendor      string
 	InstallDir  string
 	ConfigDir   string
+	Upload      PackageUploadConfig
 }
 
 // ArtifactsConfig holds artifacts and packaging configuration
@@ -49,6 +59,18 @@ const (
 	ArtifactRPM    ArtifactType = "rpm"
 	ArtifactAPK    ArtifactType = "apk"
 )
+
+// Package upload type constants
+const (
+	PackageUploadMinio PackageUploadType = "minio"
+	PackageUploadAWS   PackageUploadType = "aws"
+	PackageUploadRsync PackageUploadType = "rsync"
+)
+
+// IsEnabled returns true if upload is configured
+func (u PackageUploadConfig) IsEnabled() bool {
+	return u.Type != ""
+}
 
 // HasDocker returns true if docker artifact is enabled
 func (a ArtifactsConfig) HasDocker() bool {
@@ -97,6 +119,31 @@ func (a ArtifactsConfig) HasAPK() bool {
 // HasPackaging returns true if any system package artifact (deb/rpm/apk) is enabled
 func (a ArtifactsConfig) HasPackaging() bool {
 	return a.HasDeb() || a.HasRPM() || a.HasAPK()
+}
+
+// HasUpload returns true if package upload is enabled
+func (a ArtifactsConfig) HasUpload() bool {
+	return a.Packaging.Upload.IsEnabled() && a.HasPackaging()
+}
+
+// IsMinio returns true if upload type is MinIO
+func (a ArtifactsConfig) IsMinio() bool {
+	return a.HasUpload() && a.Packaging.Upload.Type == PackageUploadMinio
+}
+
+// IsAWS returns true if upload type is AWS S3
+func (a ArtifactsConfig) IsAWS() bool {
+	return a.HasUpload() && a.Packaging.Upload.Type == PackageUploadAWS
+}
+
+// IsRsync returns true if upload type is rsync
+func (a ArtifactsConfig) IsRsync() bool {
+	return a.HasUpload() && a.Packaging.Upload.Type == PackageUploadRsync
+}
+
+// IsS3Compatible returns true if upload type is S3-compatible (MinIO or AWS)
+func (a ArtifactsConfig) IsS3Compatible() bool {
+	return a.IsMinio() || a.IsAWS()
 }
 
 //type WorkerType string

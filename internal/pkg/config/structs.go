@@ -13,15 +13,25 @@ import (
 // ArtifactType represents a build artifact type
 type ArtifactType string
 
+// PackageUploadType represents package upload storage type
+type PackageUploadType string
+
+// PackageUploadConfig contains package upload configuration.
+// Connection details (endpoint, bucket, credentials) are passed via CI/CD variables.
+type PackageUploadConfig struct {
+	Type PackageUploadType `mapstructure:"type"` // minio, aws, rsync
+}
+
 // PackagingConfig contains system package configuration for nfpm
 type PackagingConfig struct {
-	Maintainer  string `mapstructure:"maintainer"`
-	Description string `mapstructure:"description"`
-	Homepage    string `mapstructure:"homepage"`
-	License     string `mapstructure:"license"`
-	Vendor      string `mapstructure:"vendor"`
-	InstallDir  string `mapstructure:"install_dir"`
-	ConfigDir   string `mapstructure:"config_dir"`
+	Maintainer  string              `mapstructure:"maintainer"`
+	Description string              `mapstructure:"description"`
+	Homepage    string              `mapstructure:"homepage"`
+	License     string              `mapstructure:"license"`
+	Vendor      string              `mapstructure:"vendor"`
+	InstallDir  string              `mapstructure:"install_dir"`
+	ConfigDir   string              `mapstructure:"config_dir"`
+	Upload      PackageUploadConfig `mapstructure:"upload"`
 }
 
 // Kafka driver and type constants
@@ -38,6 +48,13 @@ const (
 	ArtifactDeb    ArtifactType = "deb"
 	ArtifactRPM    ArtifactType = "rpm"
 	ArtifactAPK    ArtifactType = "apk"
+)
+
+// Package upload type constants
+const (
+	PackageUploadMinio PackageUploadType = "minio"
+	PackageUploadAWS   PackageUploadType = "aws"
+	PackageUploadRsync PackageUploadType = "rsync"
 )
 
 type (
@@ -771,6 +788,30 @@ func (g Grafana) IsValid() (bool, string) {
 	return true, ""
 }
 
+// IsValid validates PackageUploadConfig
+func (u PackageUploadConfig) IsValid() (bool, string) {
+	if u.Type == "" {
+		return true, "" // Empty type means upload is disabled
+	}
+
+	validTypes := map[PackageUploadType]bool{
+		PackageUploadMinio: true,
+		PackageUploadAWS:   true,
+		PackageUploadRsync: true,
+	}
+
+	if !validTypes[u.Type] {
+		return false, "packaging.upload.type must be 'minio', 'aws', or 'rsync'"
+	}
+
+	return true, ""
+}
+
+// IsEnabled returns true if upload is configured
+func (u PackageUploadConfig) IsEnabled() bool {
+	return u.Type != ""
+}
+
 // IsValid validates PackagingConfig
 func (p PackagingConfig) IsValid() (bool, string) {
 	if p.Maintainer == "" {
@@ -779,6 +820,11 @@ func (p PackagingConfig) IsValid() (bool, string) {
 
 	if p.Description == "" {
 		return false, "packaging.description is required"
+	}
+
+	// Validate upload config if enabled
+	if ok, msg := p.Upload.IsValid(); !ok {
+		return false, msg
 	}
 
 	return true, ""

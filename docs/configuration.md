@@ -391,6 +391,18 @@ packaging:
   vendor: "My Company"
   install_dir: "/usr/bin"           # default: /usr/bin
   config_dir: "/etc/myservice"      # default: /etc/{project-name}
+  upload:                           # Опциональная загрузка пакетов
+    enabled: true
+    type: minio                     # minio, aws, или rsync
+    # Для minio/aws:
+    bucket: "packages"
+    region: "us-east-1"
+    endpoint: "https://minio.example.com"  # Только для minio
+    prefix: "deb/myservice"
+    # Для rsync:
+    # host: "repo.example.com"
+    # path: "/var/repo/packages"
+    # user: "deploy"
 ```
 
 | Поле | Обязательно | Описание |
@@ -402,6 +414,74 @@ packaging:
 | `vendor` | Нет | Название компании |
 | `install_dir` | Нет | Путь установки бинарника |
 | `config_dir` | Нет | Путь для конфигурационных файлов |
+| `upload` | Нет | Конфигурация загрузки пакетов |
+
+### Секция `upload`
+
+Позволяет автоматически загружать собранные пакеты в хранилище.
+
+| Поле | Обязательно | Описание |
+|------|-------------|----------|
+| `enabled` | Да | Включить загрузку |
+| `type` | Да | Тип хранилища: `minio`, `aws`, или `rsync` |
+| `bucket` | Для minio/aws | Имя S3 bucket |
+| `region` | Для minio/aws | AWS регион |
+| `endpoint` | Для minio | URL MinIO endpoint |
+| `prefix` | Нет | Префикс пути в bucket или на сервере |
+| `host` | Для rsync | SSH хост |
+| `path` | Для rsync | Путь на удалённом сервере |
+| `user` | Для rsync | SSH пользователь |
+
+### Примеры конфигурации загрузки
+
+#### MinIO
+
+```yaml
+packaging:
+  maintainer: "DevOps <devops@example.com>"
+  description: "My service"
+  upload:
+    enabled: true
+    type: minio
+    bucket: "packages"
+    region: "us-east-1"
+    endpoint: "https://minio.example.com"
+    prefix: "deb/myservice"
+```
+
+Требуемые секреты CI/CD: `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
+
+#### AWS S3
+
+```yaml
+packaging:
+  maintainer: "DevOps <devops@example.com>"
+  description: "My service"
+  upload:
+    enabled: true
+    type: aws
+    bucket: "my-packages-bucket"
+    region: "eu-west-1"
+    prefix: "releases/myservice"
+```
+
+Требуемые секреты CI/CD: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+
+#### Rsync
+
+```yaml
+packaging:
+  maintainer: "DevOps <devops@example.com>"
+  description: "My service"
+  upload:
+    enabled: true
+    type: rsync
+    host: "repo.example.com"
+    path: "/var/repo/packages"
+    user: "deploy"
+```
+
+Требуемые секреты CI/CD: `UPLOAD_SSH_PRIVATE_KEY`
 
 ### Генерируемые файлы
 

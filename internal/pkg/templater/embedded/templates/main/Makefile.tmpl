@@ -279,6 +279,80 @@ package-list:
 	@echo '[{{ $first := true }}{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $.Artifacts.HasDeb }}{{ if not $first }}, {{ end }}{{ $first = false }}"deb-{{ $a.Name }}"{{ end }}{{ if $.Artifacts.HasRPM }}{{ if not $first }}, {{ end }}{{ $first = false }}"rpm-{{ $a.Name }}"{{ end }}{{ if $.Artifacts.HasAPK }}{{ if not $first }}, {{ end }}{{ $first = false }}"apk-{{ $a.Name }}"{{ end }}{{ end }}{{ end }}]'
 {{ end }}
 
+{{ if .Artifacts.HasUpload }}
+# Package upload configuration
+# Set these environment variables or pass as make arguments:
+{{- if .Artifacts.IsS3Compatible }}
+#   UPLOAD_BUCKET   - Target bucket name (required)
+#   UPLOAD_REGION   - Bucket region (optional, default: us-east-1)
+#   UPLOAD_PREFIX   - Path prefix in bucket (optional, default: packages)
+{{- if .Artifacts.IsMinio }}
+#   UPLOAD_ENDPOINT - MinIO endpoint URL (required for MinIO)
+{{- end }}
+{{- end }}
+{{- if .Artifacts.IsRsync }}
+#   UPLOAD_HOST - Target SSH host (required)
+#   UPLOAD_PATH - Remote path for packages (required)
+#   UPLOAD_USER - SSH username (required)
+{{- end }}
+UPLOAD_PREFIX ?= packages
+{{- if .Artifacts.IsS3Compatible }}
+UPLOAD_REGION ?= us-east-1
+{{- end }}
+
+# Upload all packages
+.PHONY: upload-packages
+upload-packages: packages
+{{- if .Artifacts.IsMinio }}
+	@echo "Uploading packages to MinIO (endpoint: $(UPLOAD_ENDPOINT))..."
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" {{ if $.Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if $.Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if $.Artifacts.HasAPK }}--include "*.apk" {{ end }}--endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@echo "Uploading packages to AWS S3..."
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" {{ if $.Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if $.Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if $.Artifacts.HasAPK }}--include "*.apk" {{ end }}--region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@echo "Uploading packages via rsync to $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)..."
+	@rsync -avz --progress {{ if $.Artifacts.HasDeb }}*.deb {{ end }}{{ if $.Artifacts.HasRPM }}*.rpm {{ end }}{{ if $.Artifacts.HasAPK }}*.apk {{ end }}$(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+	@echo "Upload complete"
+
+{{ if .Artifacts.HasDeb }}
+# Upload only deb packages
+.PHONY: upload-deb
+upload-deb:
+{{- if .Artifacts.IsMinio }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.deb" --endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.deb" --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@rsync -avz --progress *.deb $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+{{ end }}
+{{ if .Artifacts.HasRPM }}
+# Upload only rpm packages
+.PHONY: upload-rpm
+upload-rpm:
+{{- if .Artifacts.IsMinio }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.rpm" --endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.rpm" --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@rsync -avz --progress *.rpm $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+{{ end }}
+{{ if .Artifacts.HasAPK }}
+# Upload only apk packages
+.PHONY: upload-apk
+upload-apk:
+{{- if .Artifacts.IsMinio }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.apk" --endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.apk" --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@rsync -avz --progress *.apk $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+{{ end }}
+{{ end }}
+
 {{ if .DevStand }}
 # Development stand management
 .PHONY: dev-up

@@ -3,3 +3,9 @@ set -e
 
 systemctl stop {{ .ProjectName }}-{{ .Application.Name }} || true
 systemctl disable {{ .ProjectName }}-{{ .Application.Name }} || true
+{{- if .Application.UseEnvs }}
+
+# Remove systemd override directory (use_envs mode)
+rm -rf /etc/systemd/system/{{ .ProjectName }}-{{ .Application.Name }}.service.d
+systemctl daemon-reload
+{{- end }}
