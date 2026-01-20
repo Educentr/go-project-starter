@@ -5,7 +5,7 @@
 name: "{{ .ProjectName }}-{{ .Application.Name }}"
 arch: "amd64"
 platform: "linux"
-version: "${VERSION:-0.0.1}"
+version: "${VERSION}"
 maintainer: "{{ .Artifacts.Packaging.Maintainer }}"
 description: "{{ .Artifacts.Packaging.Description }}"
 {{- if .Artifacts.Packaging.Homepage }}
