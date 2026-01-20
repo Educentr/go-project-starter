@@ -120,6 +120,22 @@ templater/embedded/templates/
 - **Driver** - External service integration implementing `Runnable` interface (Init, Run, Shutdown, GracefulShutdown)
 - **Disclaimer Markers** - Separates generated code from manual code; code below marker survives regeneration
 
+### Naming Hierarchy
+
+| Name | Source | Example | Access |
+|------|--------|---------|--------|
+| **ServiceName** | `Main.Name` | `"my-api"` | `constant.ServiceName` |
+| **AppName** | `Application.Name` | `"web-app"` | `ds.AppInfo.AppName` |
+| **TransportName** | `Transport.Name` | `"api_v1"` | Function parameter |
+| **WorkerName** | `Worker.Name` | `"telegram"` | Function parameter |
+
+**OnlineConf paths** (3-level priority):
+1. Default from code
+2. Transport: `/{serviceName}/transport/rest/{transportName}/{key}`
+3. App-specific: `/{serviceName}/transport/rest/{transportName}/{appName}/{key}`
+
+See [docs/NAMING.md](docs/NAMING.md) for detailed documentation.
+
 ### Generator Types
 
 - `ogen` - OpenAPI 3.0 code generation for REST

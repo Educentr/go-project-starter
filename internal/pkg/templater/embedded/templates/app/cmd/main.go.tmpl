@@ -226,7 +226,7 @@ func main() {
 }
 
 func getAppInfo() *ds.AppInfo {
-	return ds.NewAppInfo(constant.ServiceName).
+	return ds.NewAppInfo("{{ .Application.Name }}").
 		WithVersion(Version).
 		WithBuildTime(BuildTime).
 		WithBuildOS(BuildOS).

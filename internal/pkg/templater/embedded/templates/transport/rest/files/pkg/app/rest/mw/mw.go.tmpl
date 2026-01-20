@@ -20,12 +20,17 @@ import (
 type DefaultMiddlewares struct{}
 type EmptyMiddlewares struct{}
 
+// GetMiddlewares returns middleware chain for REST server.
+// Parameters:
+// - appName: Application.Name (e.g., "web-app") - the specific application instance
+// - serviceName: Main.Name (e.g., "my-api") - the service-level name (constant.ServiceName)
+// - transportName: Transport.Name (e.g., "api_v1") - the REST transport name
 func (dmw *DefaultMiddlewares) GetMiddlewares(
 	ctx context.Context,
 	appName string,
 	metrics *prometheus.Registry,
 	srv ds.IService,
-	serviceName string,
+	serviceName, transportName string,
 	errHdl rest.RestErrorHandler,
 ) (
 	[]func(next http.Handler) http.Handler,
@@ -37,7 +42,11 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				ocPrefix := onlineconf.MakePath(appName, "/transport/rest/", serviceName, "handler")
+				// OnlineConf path hierarchy (3 levels):
+				// 1. /{serviceName}/transport/rest/{transportName}/{appName}/handler/{path} - app-specific
+				// 2. /{serviceName}/transport/rest/{transportName}/handler/{path} - transport-level
+				// The path is resolved in CreateContext with fallback logic
+				ocPrefix := onlineconf.MakePath(serviceName, "transport/rest", transportName, appName, "handler")
 				// r.Context() - контекст запроса (основной), ctx - контекст приложения (для onlineconf)
 				reqCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, ocPrefix, r.URL.Path)
 				if err != nil {
@@ -51,11 +60,11 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 				cancel()
 			})
 		},
-		PanicRecoveryMiddleware(ctx),								// Обработка паник
-		HTTPServerMiddlewareRequestStartTime(),                     // Обогащаем контекст временем начала запроса
-		HTTPServerMiddlewareTracing(ctx),                           // Обогащаем контекст запроса ID для трейсинга
-		HTTPServerMiddlewareMetrics(ctx, serviceName, metrics, srv),// Инициализируем метрики, добавляем инфу о времени старта обработки запроса и т.д.
-		HTTPServerMiddlewareXServerHeader(ctx, serviceName),        // Обогащаем ответ заголовком X-Server
+		PanicRecoveryMiddleware(ctx),                                               // Обработка паник
+		HTTPServerMiddlewareRequestStartTime(),                                     // Обогащаем контекст временем начала запроса
+		HTTPServerMiddlewareTracing(ctx),                                           // Обогащаем контекст запроса ID для трейсинга
+		HTTPServerMiddlewareMetrics(ctx, serviceName, transportName, appName, metrics, srv), // Инициализируем метрики
+		HTTPServerMiddlewareXServerHeader(ctx, appName),                            // Обогащаем ответ заголовком X-Server (с appName)
 	}
 
 	httpAuthEnable, err := onlineconf.GetBool(ctx, "/{{ .ProjectName }}/security/httpAuth/enabled", true)
@@ -84,7 +93,7 @@ func (emw *EmptyMiddlewares) GetMiddlewares(
 	_ string,
 	_ *prometheus.Registry,
 	_ ds.IService,
-	_ string,
+	_, _ string,
 	_ rest.RestErrorHandler,
 ) (
 	[]func(next http.Handler) http.Handler,

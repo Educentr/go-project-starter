@@ -149,7 +149,11 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 		return errors.Wrap(err, "error initialization API Routers")
 	}
 
-	mws, err := s.router.GetMiddlewares(ctx, serviceName, metrics, srv, s.Name(), s.router.GetErrorHandler())
+	// GetMiddlewares parameters:
+	// - appName: Application.Name (e.g., "web-app")
+	// - serviceName: Main.Name (constant.ServiceName, e.g., "my-api")
+	// - s.Name(): Transport.Name (e.g., "api_v1")
+	mws, err := s.router.GetMiddlewares(ctx, appName, metrics, srv, serviceName, s.Name(), s.router.GetErrorHandler())
 	if err != nil {
 		return errors.Wrap(err, "error initialization API middlewares")
 	}
