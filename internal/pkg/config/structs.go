@@ -132,6 +132,7 @@ type (
 		GeneratorParams      map[string]string `mapstructure:"generator_params"`
 		AuthParams           AuthParams        `mapstructure:"auth_params"`
 		EmptyConfigAvailable bool              `mapstructure:"empty_config_available"`
+		Instantiation        string            `mapstructure:"instantiation"` // "static" (default) or "dynamic" - only for ogen_client
 	}
 
 	Worker struct {
@@ -180,15 +181,15 @@ type (
 
 	// Kafka represents Kafka producer/consumer configuration
 	Kafka struct {
-		Name          string        `mapstructure:"name"`           // Unique name for reference
-		Type          string        `mapstructure:"type"`           // producer, consumer
-		Driver        string        `mapstructure:"driver"`         // segmentio (default), custom
-		DriverImport  string        `mapstructure:"driver_import"`  // For custom: import path
-		DriverPackage string        `mapstructure:"driver_package"` // For custom: package name
-		DriverObj     string        `mapstructure:"driver_obj"`     // For custom: struct name
-		Client        string        `mapstructure:"client"`         // Client name for OC path
-		Group         string        `mapstructure:"group"`          // Consumer group (for consumer type)
-		Events        []KafkaEvent  `mapstructure:"events"`         // List of events to publish/consume
+		Name          string       `mapstructure:"name"`           // Unique name for reference
+		Type          string       `mapstructure:"type"`           // producer, consumer
+		Driver        string       `mapstructure:"driver"`         // segmentio (default), custom
+		DriverImport  string       `mapstructure:"driver_import"`  // For custom: import path
+		DriverPackage string       `mapstructure:"driver_package"` // For custom: package name
+		DriverObj     string       `mapstructure:"driver_obj"`     // For custom: struct name
+		Client        string       `mapstructure:"client"`         // Client name for OC path
+		Group         string       `mapstructure:"group"`          // Consumer group (for consumer type)
+		Events        []KafkaEvent `mapstructure:"events"`         // List of events to publish/consume
 	}
 
 	KafkaList []Kafka
@@ -261,9 +262,22 @@ type (
 		BinaryPath string `mapstructure:"binary_path"` // Path to test binary (default: /tmp/{app_name})
 	}
 
+	// AppTransportConfig holds per-application transport configuration overrides
+	AppTransportConfig struct {
+		Instantiation string `mapstructure:"instantiation"` // "static" or "dynamic" - overrides REST-level setting
+	}
+
+	// AppTransport references a transport with optional per-app config overrides
+	AppTransport struct {
+		Name   string             `mapstructure:"name"`
+		Config AppTransportConfig `mapstructure:"config"`
+	}
+
 	Application struct {
 		Name                  string           `mapstructure:"name"`
-		TransportList         []string         `mapstructure:"transport"`
+		TransportListRaw      interface{}      `mapstructure:"transport"` // Raw data from YAML (string[] or object[])
+		TransportList         []AppTransport   `mapstructure:"-"`         // Normalized after loading
+		HasDeprecatedFormat   bool             `mapstructure:"-"`         // True if old string[] format was used
 		DriverList            []AppDriver      `mapstructure:"driver"`
 		WorkerList            []string         `mapstructure:"worker"`
 		KafkaList             []string         `mapstructure:"kafka"` // References to kafka producers/consumers by name
@@ -293,27 +307,27 @@ type (
 
 	Config struct {
 		BasePath       string
-		ConfigFilePath string         // Full path to the config file
-		Main           Main           `mapstructure:"main"`
-		Deploy         Deploy         `mapstructure:"deploy"`
-		PostGenerate   []string       `mapstructure:"post_generate"`
-		Git            Git            `mapstructure:"git"`
-		Tools          Tools          `mapstructure:"tools"`
-		RepositoryList RepositoryList `mapstructure:"repository"`
-		Scheduler      Scheduler      `mapstructure:"scheduler"`
-		RestList       RestList       `mapstructure:"rest"`
-		WorkerList     WorkerList     `mapstructure:"worker"`
-		CLIList        CLIList        `mapstructure:"cli"`
-		JSONSchemaList JSONSchemaList `mapstructure:"jsonschema"`
-		KafkaList      KafkaList      `mapstructure:"kafka"`
-		GrpcList       GrpcList       `mapstructure:"grpc"`
-		WsList         WsList         `mapstructure:"ws"`
-		ConsumerList   ConsumerList   `mapstructure:"consumer"`
-		DriverList     DriverList     `mapstructure:"driver"`
-		Applications   []Application  `mapstructure:"applications"`
-		Docker         Docker         `mapstructure:"docker"`
-		Grafana        Grafana        `mapstructure:"grafana"`
-		Artifacts      []ArtifactType `mapstructure:"artifacts"`
+		ConfigFilePath string          // Full path to the config file
+		Main           Main            `mapstructure:"main"`
+		Deploy         Deploy          `mapstructure:"deploy"`
+		PostGenerate   []string        `mapstructure:"post_generate"`
+		Git            Git             `mapstructure:"git"`
+		Tools          Tools           `mapstructure:"tools"`
+		RepositoryList RepositoryList  `mapstructure:"repository"`
+		Scheduler      Scheduler       `mapstructure:"scheduler"`
+		RestList       RestList        `mapstructure:"rest"`
+		WorkerList     WorkerList      `mapstructure:"worker"`
+		CLIList        CLIList         `mapstructure:"cli"`
+		JSONSchemaList JSONSchemaList  `mapstructure:"jsonschema"`
+		KafkaList      KafkaList       `mapstructure:"kafka"`
+		GrpcList       GrpcList        `mapstructure:"grpc"`
+		WsList         WsList          `mapstructure:"ws"`
+		ConsumerList   ConsumerList    `mapstructure:"consumer"`
+		DriverList     DriverList      `mapstructure:"driver"`
+		Applications   []Application   `mapstructure:"applications"`
+		Docker         Docker          `mapstructure:"docker"`
+		Grafana        Grafana         `mapstructure:"grafana"`
+		Artifacts      []ArtifactType  `mapstructure:"artifacts"`
 		Packaging      PackagingConfig `mapstructure:"packaging"`
 
 		RestMap              map[string]Rest
@@ -340,6 +354,15 @@ const (
 	defaultOgenVersion         = "v0.78.0"
 	defaultArgenVersion        = "v1.0.0"
 	defaultGoJSONSchemaVersion = "v0.16.0"
+
+	errInstantiationOnlyOgenClient = "instantiation is only supported for ogen_client"
+
+	// Generator type constants
+	GeneratorTypeOgenClient = "ogen_client"
+
+	// Instantiation mode constants
+	InstantiationStatic  = "static"
+	InstantiationDynamic = "dynamic"
 )
 
 var (
@@ -415,6 +438,7 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 		if len(r.GeneratorTemplate) != 0 {
 			return false, "Invalid generator template for type ogen"
 		}
+
 		if len(r.GeneratorParams) != 0 {
 			for k := range r.GeneratorParams {
 				switch k {
@@ -424,12 +448,21 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 				}
 			}
 		}
+
+		if r.Instantiation != "" {
+			return false, errInstantiationOnlyOgenClient
+		}
 	case "template":
 		if len(r.GeneratorTemplate) == 0 {
 			return false, "Empty generator template"
 		}
+
 		if len(r.GeneratorParams) != 0 {
 			return false, "Generator params not supported"
+		}
+
+		if r.Instantiation != "" {
+			return false, errInstantiationOnlyOgenClient
 		}
 	case "ogen_client":
 		if len(r.GeneratorTemplate) != 0 {
@@ -444,6 +477,12 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 					return false, "Invalid generator params"
 				}
 			}
+		}
+		// Validate instantiation: only "static" or "dynamic" allowed
+		if r.Instantiation != "" &&
+			r.Instantiation != InstantiationStatic &&
+			r.Instantiation != InstantiationDynamic {
+			return false, "instantiation must be 'static' or 'dynamic'"
 		}
 	case "auth_params":
 		if len(r.AuthParams.Transport) == 0 || len(r.AuthParams.Type) == 0 {
@@ -548,6 +587,67 @@ func (w Ws) IsValid(baseConfigDir string) (bool, string) {
 	return true, ""
 }
 
+// NormalizeTransports converts TransportListRaw to TransportList
+// Supports both old format ([]string) and new format ([]AppTransport)
+//
+// Deprecated: The string array format for transports is deprecated and will be removed in v0.12.0.
+// Use the new object format instead:
+//
+//	transport:
+//	  - name: transport_name
+//	    config:
+//	      instantiation: dynamic
+func (a *Application) NormalizeTransports() error {
+	if a.TransportListRaw == nil {
+		a.TransportList = nil
+
+		return nil
+	}
+
+	rawList, ok := a.TransportListRaw.([]interface{})
+	if !ok {
+		return errors.New("transport must be an array")
+	}
+
+	a.TransportList = make([]AppTransport, 0, len(rawList))
+	a.HasDeprecatedFormat = false
+
+	for i, item := range rawList {
+		switch v := item.(type) {
+		case string:
+			// Old format: just transport name
+			// DEPRECATED: Will be removed in v0.12.0
+			a.TransportList = append(a.TransportList, AppTransport{Name: v})
+			a.HasDeprecatedFormat = true
+
+		case map[string]interface{}:
+			// New format: object with name and optional config
+			name, ok := v["name"].(string)
+			if !ok || name == "" {
+				return errors.Errorf("transport[%d]: name is required", i)
+			}
+
+			appTransport := AppTransport{Name: name}
+
+			// Parse config if present
+			if configRaw, exists := v["config"]; exists {
+				if configMap, ok := configRaw.(map[string]interface{}); ok {
+					if inst, ok := configMap["instantiation"].(string); ok {
+						appTransport.Config.Instantiation = inst
+					}
+				}
+			}
+
+			a.TransportList = append(a.TransportList, appTransport)
+
+		default:
+			return errors.Errorf("transport[%d]: invalid format, expected string or object", i)
+		}
+	}
+
+	return nil
+}
+
 func (a Application) IsValid() (bool, string) {
 	if len(a.Name) == 0 {
 		return false, "Empty name"
@@ -558,15 +658,31 @@ func (a Application) IsValid() (bool, string) {
 		if len(a.TransportList) > 0 {
 			return false, "CLI application cannot have transports"
 		}
+
 		if len(a.WorkerList) > 0 {
 			return false, "CLI application cannot have workers"
 		}
+
 		return true, ""
 	}
 
 	// Non-CLI apps must have at least one transport
 	if len(a.TransportList) == 0 {
 		return false, "Application must have at least one transport or be a CLI app"
+	}
+
+	// Validate transport configs
+	for _, t := range a.TransportList {
+		if t.Name == "" {
+			return false, "Transport name cannot be empty"
+		}
+
+		// Validate instantiation if specified
+		if t.Config.Instantiation != "" &&
+			t.Config.Instantiation != InstantiationStatic &&
+			t.Config.Instantiation != InstantiationDynamic {
+			return false, "transport " + t.Name + ": instantiation must be 'static' or 'dynamic'"
+		}
 	}
 
 	return true, ""

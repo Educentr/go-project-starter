@@ -461,7 +461,13 @@ type Transport struct {
 	ApiVersion           string // перенесено из Hendler
 	Port                 string // перенесено из Hendler
 	EmptyConfigAvailable bool
-	BufLocalPlugins      bool // Use local buf instead of docker for proto generation
+	BufLocalPlugins      bool   // Use local buf instead of docker for proto generation
+	Instantiation        string // "static" (default) or "dynamic" - only for ogen_client
+}
+
+// IsDynamic returns true if client should be created at runtime (not at startup)
+func (t Transport) IsDynamic() bool {
+	return t.Instantiation == "dynamic"
 }
 
 // HasAuthParams returns true if transport has authentication parameters configured

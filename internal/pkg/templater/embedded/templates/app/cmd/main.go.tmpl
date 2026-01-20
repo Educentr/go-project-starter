@@ -18,9 +18,9 @@ import (
 	{{ range $_, $imp := .Application.TransportImports }}
 	{{ $imp }}
 	{{- end }}
-	{{- /* Client imports for ogen_client and buf_client */ -}}
+	{{- /* Client imports for ogen_client (static only) and buf_client */ -}}
 	{{ range $_, $tr := .Application.GetRestTransport }}
-	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
 	{{ range $_, $imp := $tr.Import }}
 	{{ $imp }}
 	{{- end }}
@@ -150,10 +150,11 @@ func main() {
 		{{ end }}
 	)
 
-	// Register clients (ogen_client, buf_client) for initialization in service
+	// Register clients (ogen_client static only, buf_client) for initialization in service
+	// Dynamic clients are created at runtime, not at startup
 	application.SetClient(
 		{{ range $_, $tr := .Application.GetRestTransport }}
-		{{ if eq $tr.GeneratorType "ogen_client" }}
+		{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
 		{{ $tr.Name }}.NewClient(),
 		{{- end }}
 		{{- end }}

@@ -12,7 +12,7 @@ import (
 
 	"{{ .ProjectPath }}/internal/app/constant"
 	{{ range $_, $tr := .Applications.GetRestTransport }}
-	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
 	{{ range $_, $imp := $tr.Import }}
 	{{ $imp }}
 	{{- end }}
@@ -50,7 +50,7 @@ type Service struct {
 	servicemetrics.EmptyMetrics
 	serviceauth.Authorizer
 	{{ range $_, $tr := .Applications.GetRestTransport }}
-	{{ if eq $tr.GeneratorType "ogen_client" }}
+	{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
 	{{ $tr.Name | ToLower }} *{{ $tr.PkgName }}.Client
 	{{ end }}
 	{{ end }}
@@ -165,7 +165,7 @@ func (s *Service) setDrivers(drvs []ds.Runnable) error {
 
 {{ $hasOgenClients := false }}
 {{ range $_, $tr := .Applications.GetRestTransport }}
-{{ if eq $tr.GeneratorType "ogen_client" }}{{ $hasOgenClients = true }}{{ end }}
+{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}{{ $hasOgenClients = true }}{{ end }}
 {{ end }}
 {{ $hasGrpcClients := false }}
 {{ range $_, $tr := .Applications.GetGrpcTransport }}
@@ -177,7 +177,7 @@ func (s *Service) setClients(ctx context.Context, clients []ds.ClientInitializer
 	for _, cln := range clients {
 		switch c := cln.(type) {
 		{{ range $_, $tr := .Applications.GetRestTransport }}
-		{{ if eq $tr.GeneratorType "ogen_client" }}
+		{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
 		case *{{ $tr.Name }}.Client:
 			s.{{ $tr.Name | ToLower }}, err = c.GetClient{{ $tr.Name }}(ctx)
 			if err != nil {

@@ -177,7 +177,7 @@ VALUES (LAST_INSERT_ID(), 1, '10s', 'text/plain', 'go-project-starter', 'Auto-ge
 {{- end }}
 
 {{- range $tIdx, $t := $app.GetRestTransport }}
-{{- if eq $t.GeneratorType "ogen_client" }}
+{{- if and (eq $t.GeneratorType "ogen_client") (not $t.IsDynamic) }}
 
 -- ============================================
 -- REST Client: {{ $t.Name }} ({{ $t.PkgName }})

@@ -6,9 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Go Project Starter is a **code generator** (not a running microservice). It generates production-ready Go microservices from YAML configuration files. The generator uses 78+ embedded templates to produce ~8,000 lines of production-grade code including REST APIs, gRPC services, Kafka consumers, Telegram bots, and complete infrastructure.
 
-## IMPORTANT: Runtime Version Update
+## IMPORTANT: Release Checklist
 
-**При каждом релизе go-project-starter необходимо обновить `MinRuntimeVersion`:**
+**При каждом релизе go-project-starter выполнить:**
+
+### 1. Runtime Version Update
 
 1. Проверить последний тег в репозитории go-project-starter-runtime
 2. Обновить константу `MinRuntimeVersion` в файле `internal/pkg/templater/templater.go`
@@ -18,6 +20,16 @@ Go Project Starter is a **code generator** (not a running microservice). It gene
 // internal/pkg/templater/templater.go
 const MinRuntimeVersion = "vX.Y.Z"  // <- обновить до последней версии runtime
 ```
+
+### 2. Deprecation Cleanup
+
+1. Проверить `internal/pkg/migrate/migrate.go` на константы `RemovalVersion*`
+2. Если текущая версия >= версия удаления:
+   - Удалить код обратной совместимости
+   - Удалить миграционную логику для этой функции
+   - Обновить `DEPRECATION.md`
+
+См. полную политику deprecation в [DEPRECATION.md](DEPRECATION.md)
 
 ## Build/Test/Lint Commands
 

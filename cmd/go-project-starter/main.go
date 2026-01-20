@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,15 +13,20 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/generator"
 	projinit "github.com/Educentr/go-project-starter/internal/pkg/init"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/migrate"
 	"github.com/Educentr/go-project-starter/internal/pkg/setup"
 )
 
 const (
-	msgConfig        = "used config path ="
-	cmdSetup         = "setup"
-	cmdInit          = "init"
-	defaultConfigDir = ".project-config"
-	flagDryRun       = "dry-run"
+	msgConfig         = "used config path ="
+	cmdSetup          = "setup"
+	cmdInit           = "init"
+	cmdMigrate        = "migrate"
+	defaultConfigDir  = ".project-config"
+	defaultConfigFile = "project.yaml"
+	flagConfig        = "config"
+	flagDryRun        = "dry-run"
+	usageConfigFile   = "project configuration file"
 
 	layoutFailedToBindFlags       = "failed to bind flags: %v"
 	layoutFailedToLoadConfig      = "failed to load config: %v"
@@ -29,6 +35,7 @@ const (
 	layoutFailedToGenerate        = "failed to generate: %v"
 	layoutFailedToSetup           = "failed to run setup: %v"
 	layoutFailedToInit            = "failed to run init: %v"
+	layoutFailedToMigrate         = "failed to migrate config: %v"
 )
 
 var AppInfo string = "go-sterter-v0.01"
@@ -42,6 +49,10 @@ func main() {
 			return
 		case cmdInit:
 			runInit()
+
+			return
+		case cmdMigrate:
+			runMigrate()
 
 			return
 		}
@@ -132,6 +143,64 @@ func runInit() {
 	}
 }
 
+func runMigrate() {
+	// Migrate command flags
+	migrateFlags := pflag.NewFlagSet(cmdMigrate, pflag.ExitOnError)
+
+	var (
+		configDir  string
+		configFile string
+		dryRun     bool
+	)
+
+	migrateFlags.StringVar(&configDir, "configDir", defaultConfigDir, "project configuration directory")
+	migrateFlags.StringVar(&configFile, flagConfig, defaultConfigFile, usageConfigFile)
+	migrateFlags.BoolVar(&dryRun, flagDryRun, false, "Dry run mode - show what would be changed")
+
+	// Parse flags after "migrate" command
+	if err := migrateFlags.Parse(os.Args[2:]); err != nil {
+		log.Fatalf("failed to parse migrate flags: %v", err)
+	}
+
+	// Find config file
+	configPath := migrate.FindConfigFile(configDir, configFile)
+
+	fmt.Printf("Migrating config: %s\n", configPath)
+
+	if dryRun {
+		fmt.Println("(dry-run mode)")
+	}
+
+	// Create migrator and run
+	m := migrate.New(configPath, dryRun)
+
+	result, err := m.Migrate()
+	if err != nil {
+		log.Fatalf(layoutFailedToMigrate, err)
+	}
+
+	if !result.Modified {
+		fmt.Println("✓ Config is already up to date, no migration needed")
+
+		return
+	}
+
+	if dryRun {
+		fmt.Println("\n⚠️  Deprecations found:")
+		migrate.PrintWarnings(result.Warnings)
+		fmt.Println("Run without --dry-run to apply migrations")
+
+		return
+	}
+
+	fmt.Printf("✓ Config migrated successfully\n")
+	fmt.Printf("  Backup saved to: %s\n", result.BackupPath)
+
+	if len(result.Warnings) > 0 {
+		fmt.Printf("  %d deprecation(s) fixed\n", len(result.Warnings))
+	}
+}
+
 func runGenerator() {
 	var (
 		gen           *generator.Generator
@@ -145,7 +214,7 @@ func runGenerator() {
 	)
 
 	pflag.StringVar(&baseConfigDir, "configDir", defaultConfigDir, "project configuration directory")
-	pflag.StringVar(&cfgPath, "config", "project.yaml", "project configuration file")
+	pflag.StringVar(&cfgPath, flagConfig, defaultConfigFile, usageConfigFile)
 	pflag.StringVar(&targetDir, "target", "", "target directory")
 	pflag.BoolVar(&dryRun, flagDryRun, false, "Dry run")
 

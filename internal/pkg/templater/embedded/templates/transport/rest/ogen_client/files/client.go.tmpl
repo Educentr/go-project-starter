@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	{{ if not .Transport.IsDynamic -}}
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	{{- end }}
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -13,7 +15,34 @@ import (
 	"{{ .ProjectPath }}/pkg/app/rest"
 	{{ .Transport.PkgName }} "{{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/v1"
 )
+{{ if .Transport.IsDynamic }}
+// NewDynamicClient creates a client for the given base URL.
+// Use this when client endpoints are discovered at runtime.
+func NewDynamicClient(ctx context.Context, baseURL string) (*{{ .Transport.PkgName }}.Client, error) {
+	if baseURL == "" {
+		return nil, errors.New("baseURL cannot be empty")
+	}
 
+	defaultClient := &rest.DefaultClient{}
+
+	return {{ .Transport.PkgName }}.NewClient(
+		baseURL,
+		{{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey") -}}
+		&SecuritySource{},
+		{{ end -}}
+		{{ .Transport.PkgName }}.WithClient(&http.Client{
+			Timeout: time.Second * 30,
+			Transport: rest.Chain(http.DefaultTransport,
+				defaultClient.GetClientMiddlewares(ctx, constant.ServiceName, nil, nil, "{{ .Transport.PkgName }}", nil)...,
+			),
+		}),
+		{{ .Transport.PkgName }}.WithAttributes(
+			attribute.String("client_name", "{{ .Transport.Name }}"),
+			attribute.String("service_name", constant.ServiceName),
+		),
+	)
+}
+{{ else }}
 type Client struct {
 	rest.DefaultClient
 }
@@ -63,3 +92,4 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 		),
 	)
 }
+{{ end }}

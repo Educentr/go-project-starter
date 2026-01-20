@@ -64,6 +64,8 @@ type ExecCmd struct {
 	Msg string
 }
 
+var errUnknownTransport = errors.New("unknown transport")
+
 func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
@@ -171,6 +173,11 @@ func (g *Generator) processConfig(config config.Config) error {
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)
 			transport.SpecPath = paths
+			// Set instantiation mode: default to "static" if not specified
+			transport.Instantiation = rest.Instantiation
+			if transport.Instantiation == "" {
+				transport.Instantiation = "static"
+			}
 		} else {
 			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/internal/app/transport/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
 			transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
@@ -471,12 +478,17 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		for _, transport := range app.TransportList {
-			tr, ex := g.Transports[transport]
+			tr, ex := g.Transports[transport.Name]
 			if !ex {
-				return fmt.Errorf("unknown transport: %s", transport)
+				return errors.Wrapf(errUnknownTransport, "%s", transport.Name)
 			}
 
-			application.Transports[transport] = tr
+			// Apply per-app config override for instantiation
+			if transport.Config.Instantiation != "" {
+				tr.Instantiation = transport.Config.Instantiation
+			}
+
+			application.Transports[transport.Name] = tr
 		}
 
 		for _, worker := range app.WorkerList {
