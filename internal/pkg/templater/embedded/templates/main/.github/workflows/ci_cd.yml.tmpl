@@ -690,14 +690,24 @@ jobs:
             ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*"
 {{- if .Artifacts.HasDocker }}
             DOCKER_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
-            MESSAGE="$MESSAGE
-            Docker образы:
+            DEPLOY_ENABLED="${{"{{"}} needs.prepare-env.outputs.ENABLE_DEPLOY {{"}}"}}"
+            if [[ "$DEPLOY_ENABLED" == "true" ]]; then
+              MESSAGE="$MESSAGE
+
+            📦 *Задеплоено:*
             ${DOCKER_VERS}"
+            else
+              MESSAGE="$MESSAGE
+
+            🔨 *Собрано \(не деплоится\):*
+            ${DOCKER_VERS}"
+            fi
 {{- end }}
 {{- if .Artifacts.HasPackaging }}
             PKG_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.PACKAGES {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
             MESSAGE="$MESSAGE
-            Пакеты:
+
+            📦 *Собрано \(установка вручную\):*
             ${PKG_VERS}"
 {{- end }}
           else

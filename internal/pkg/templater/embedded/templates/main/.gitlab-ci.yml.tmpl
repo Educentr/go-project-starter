@@ -264,14 +264,44 @@ notify:
   needs:
 {{ range $_, $a := .Applications }}{{ if $a.HasDocker }}    - build-{{ $a.Name | ReplaceDash }}
 {{ end }}{{ end }}
+{{- if .Artifacts.HasPackaging }}
+    - build-packages
+{{- end }}
   script:
     - |
       if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
         ESCAPED_COMMIT_MSG=$(echo "$CI_COMMIT_MESSAGE" | head -1 | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')
         MESSAGE="Репозиторий: *$(echo "$CI_PROJECT_PATH" | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')*
       Коммит: _${ESCAPED_COMMIT_MSG}_
-      ✅ Успех: *CI Pipeline* завершен на ветке *$CI_COMMIT_BRANCH*
-      Версия: *$RELEASE*
+      ✅ Успех: *CI Pipeline* завершен на ветке *$CI_COMMIT_BRANCH*"
+
+{{- if .Artifacts.HasDocker }}
+        # Docker images - deployed on main/staging
+        DOCKER_LIST=$(echo "$CONTAINERS" | tr -d '[]"' | tr ',' '\n' | sed 's/^/      /')
+        if [ "$CI_COMMIT_BRANCH" = "main" ] || [ "$CI_COMMIT_BRANCH" = "staging" ]; then
+          MESSAGE="$MESSAGE
+
+      📦 *Задеплоено:*
+      $DOCKER_LIST"
+        else
+          MESSAGE="$MESSAGE
+
+      🔨 *Собрано \(не деплоится\):*
+      $DOCKER_LIST"
+        fi
+{{- end }}
+
+{{- if .Artifacts.HasPackaging }}
+        # Packages - built but deployed manually
+        PKG_LIST=$(echo "$ARTIFACTS" | tr -d '[]"' | tr ',' '\n' | sed 's/^/      /')
+        MESSAGE="$MESSAGE
+
+      📦 *Собрано \(установка вручную\):*
+      $PKG_LIST"
+{{- end }}
+
+        MESSAGE="$MESSAGE
+
       [Посмотреть билд]($CI_PIPELINE_URL)"
 
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
