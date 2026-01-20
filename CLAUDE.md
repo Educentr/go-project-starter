@@ -31,6 +31,25 @@ const MinRuntimeVersion = "vX.Y.Z"  // <- обновить до последне
 
 См. полную политику deprecation в [DEPRECATION.md](DEPRECATION.md)
 
+### 3. GitHub Release (ОБЯЗАТЕЛЬНО)
+
+**Тег != релиз!** После пуша тега обязательно создать GitHub Release.
+
+1. Найти последний релиз (не тег!): `gh release list --limit 1`
+2. Получить коммит последнего релиза: `gh release view <version> --json targetCommitish`
+3. Посмотреть изменения относительно последнего релиза:
+   ```bash
+   # Diff между релизами (не тегами!)
+   gh release view <prev-version> --json targetCommitish -q .targetCommitish
+   git log --oneline <prev-commit>..HEAD
+   ```
+4. Создать релиз с release notes:
+   ```bash
+   gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "Release notes..."
+   ```
+
+**Важно:** Release notes составлять относительно коммита последнего релиза, а не последнего тега!
+
 ## Build/Test/Lint Commands
 
 ```bash
