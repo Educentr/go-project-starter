@@ -112,7 +112,9 @@ build-packages:
   image: golang:{{ .GoLangVersion }}
   needs:
     - prepare-env
-  before_script:
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}    - job: goat-tests-{{ $a.Name | ReplaceDash }}
+      optional: true
+{{ end }}{{ end }}  before_script:
     - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
   script:
     - make packages

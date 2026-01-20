@@ -450,7 +450,12 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - prepare-env
-    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
+{{ end }}{{ end }}    if: |
+      always() &&
+      needs.prepare-env.outputs.ENABLE_BUILD == 'true' &&
+      needs.prepare-env.result == 'success'{{ range $_, $a := .Applications }}{{ if $a.GoatTests }} &&
+      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
