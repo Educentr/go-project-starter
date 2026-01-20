@@ -248,23 +248,21 @@ NFPM_VERSION ?= 2.35.3
 install-nfpm:
 	go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
 
-# Package version (uses RELEASE variable)
-PKG_VERSION ?= $(RELEASE)
+# Package version (same format as docker tag: date-commit)
+PKG_VERSION ?= $(DOCKER_TAG)
 
 {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}
-{{ if $.Artifacts.HasDeb }}
+{{ if $a.HasDeb }}
 .PHONY: deb-{{ $a.Name }}
 deb-{{ $a.Name }}: build-{{ $a.Name }}
 	VERSION=$(PKG_VERSION) nfpm package -p deb -f packaging/{{ $a.Name }}/nfpm.yaml
 {{ end }}
-
-{{ if $.Artifacts.HasRPM }}
+{{ if $a.HasRPM }}
 .PHONY: rpm-{{ $a.Name }}
 rpm-{{ $a.Name }}: build-{{ $a.Name }}
 	VERSION=$(PKG_VERSION) nfpm package -p rpm -f packaging/{{ $a.Name }}/nfpm.yaml
 {{ end }}
-
-{{ if $.Artifacts.HasAPK }}
+{{ if $a.HasAPK }}
 .PHONY: apk-{{ $a.Name }}
 apk-{{ $a.Name }}: build-{{ $a.Name }}
 	VERSION=$(PKG_VERSION) nfpm package -p apk -f packaging/{{ $a.Name }}/nfpm.yaml
@@ -273,11 +271,11 @@ apk-{{ $a.Name }}: build-{{ $a.Name }}
 
 # Aggregate package targets
 .PHONY: packages
-packages: {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $.Artifacts.HasDeb }}deb-{{ $a.Name }} {{ end }}{{ if $.Artifacts.HasRPM }}rpm-{{ $a.Name }} {{ end }}{{ if $.Artifacts.HasAPK }}apk-{{ $a.Name }} {{ end }}{{ end }}{{ end }}
+packages: {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDeb }}deb-{{ $a.Name }} {{ end }}{{ if $a.HasRPM }}rpm-{{ $a.Name }} {{ end }}{{ if $a.HasAPK }}apk-{{ $a.Name }} {{ end }}{{ end }}{{ end }}
 
 .PHONY: package-list
 package-list:
-	@echo '[{{ $first := true }}{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $.Artifacts.HasDeb }}{{ if not $first }}, {{ end }}{{ $first = false }}"deb-{{ $a.Name }}"{{ end }}{{ if $.Artifacts.HasRPM }}{{ if not $first }}, {{ end }}{{ $first = false }}"rpm-{{ $a.Name }}"{{ end }}{{ if $.Artifacts.HasAPK }}{{ if not $first }}, {{ end }}{{ $first = false }}"apk-{{ $a.Name }}"{{ end }}{{ end }}{{ end }}]'
+	@echo '[{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDeb }}"$(SERVICE_NAME)-{{ $a.Name }}_$(DOCKER_TAG)_amd64.deb", {{ end }}{{ if $a.HasRPM }}"$(SERVICE_NAME)-{{ $a.Name }}-$(DOCKER_TAG).x86_64.rpm", {{ end }}{{ if $a.HasAPK }}"$(SERVICE_NAME)-{{ $a.Name }}-$(DOCKER_TAG).apk", {{ end }}{{ end }}{{ end }}]' | sed 's/, *]$$/]/'
 {{ end }}
 
 {{ if .Artifacts.HasUpload }}
