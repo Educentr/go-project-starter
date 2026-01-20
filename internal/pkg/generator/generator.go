@@ -354,6 +354,40 @@ func (g *Generator) processConfig(config config.Config) error {
 		g.Kafka[kafka.Name] = kafkaConfig
 	}
 
+	// Process artifacts configuration BEFORE applications loop
+	// Default to docker only if not specified at root level
+	if len(config.Artifacts) == 0 {
+		g.Artifacts.Types = []ds.ArtifactType{ds.ArtifactDocker}
+	} else {
+		g.Artifacts.Types = make([]ds.ArtifactType, len(config.Artifacts))
+		for i, a := range config.Artifacts {
+			g.Artifacts.Types[i] = ds.ArtifactType(a)
+		}
+	}
+
+	// Process packaging config with defaults
+	g.Artifacts.Packaging = ds.PackagingConfig{
+		Maintainer:  config.Packaging.Maintainer,
+		Description: config.Packaging.Description,
+		Homepage:    config.Packaging.Homepage,
+		License:     config.Packaging.License,
+		Vendor:      config.Packaging.Vendor,
+		InstallDir:  config.Packaging.InstallDir,
+		ConfigDir:   config.Packaging.ConfigDir,
+		Upload: ds.PackageUploadConfig{
+			Type: ds.PackageUploadType(config.Packaging.Upload.Type),
+		},
+	}
+
+	// Set defaults for packaging paths
+	if g.Artifacts.Packaging.InstallDir == "" {
+		g.Artifacts.Packaging.InstallDir = "/usr/bin"
+	}
+
+	if g.Artifacts.Packaging.ConfigDir == "" {
+		g.Artifacts.Packaging.ConfigDir = "/etc/" + g.ProjectName
+	}
+
 	for _, app := range config.Applications {
 		// Вычисляем use_active_record для приложения
 		// Default из main, override может быть только false
@@ -390,6 +424,18 @@ func (g *Generator) processConfig(config config.Config) error {
 			}
 		}
 
+		// Process per-application artifacts
+		// If application has its own artifacts, use those; otherwise fall back to global
+		var appArtifacts []ds.ArtifactType
+		if len(app.Artifacts) > 0 {
+			appArtifacts = make([]ds.ArtifactType, len(app.Artifacts))
+			for i, a := range app.Artifacts {
+				appArtifacts[i] = ds.ArtifactType(a)
+			}
+		} else {
+			appArtifacts = g.Artifacts.Types
+		}
+
 		application := ds.App{
 			Name:                  app.Name,
 			Transports:            make(ds.Transports),
@@ -401,6 +447,7 @@ func (g *Generator) processConfig(config config.Config) error {
 			UseEnvs:               useEnvs,
 			GoatTests:             goatTests,
 			GoatTestsConfig:       goatTestsConfig,
+			Artifacts:             appArtifacts,
 		}
 
 		// Resolve Grafana datasources for this app
@@ -487,6 +534,22 @@ func (g *Generator) processConfig(config config.Config) error {
 		g.Applications = append(g.Applications, application)
 	}
 
+	// Recompute global artifacts based on union of all application artifacts
+	// This ensures HasDocker() returns true if ANY application has docker artifacts
+	artifactSet := make(map[ds.ArtifactType]bool)
+
+	for _, app := range g.Applications {
+		for _, a := range app.Artifacts {
+			artifactSet[a] = true
+		}
+	}
+
+	g.Artifacts.Types = make([]ds.ArtifactType, 0, len(artifactSet))
+
+	for a := range artifactSet {
+		g.Artifacts.Types = append(g.Artifacts.Types, a)
+	}
+
 	for _, postGenerate := range config.PostGenerate {
 		switch postGenerate {
 		case "git_install":
@@ -565,40 +628,6 @@ func (g *Generator) processConfig(config config.Config) error {
 	// 		return err
 	// 	}
 	// }
-
-	// Process artifacts configuration
-	// Default to docker only if not specified
-	if len(config.Artifacts) == 0 {
-		g.Artifacts.Types = []ds.ArtifactType{ds.ArtifactDocker}
-	} else {
-		g.Artifacts.Types = make([]ds.ArtifactType, len(config.Artifacts))
-		for i, a := range config.Artifacts {
-			g.Artifacts.Types[i] = ds.ArtifactType(a)
-		}
-	}
-
-	// Process packaging config with defaults
-	g.Artifacts.Packaging = ds.PackagingConfig{
-		Maintainer:  config.Packaging.Maintainer,
-		Description: config.Packaging.Description,
-		Homepage:    config.Packaging.Homepage,
-		License:     config.Packaging.License,
-		Vendor:      config.Packaging.Vendor,
-		InstallDir:  config.Packaging.InstallDir,
-		ConfigDir:   config.Packaging.ConfigDir,
-		Upload: ds.PackageUploadConfig{
-			Type: ds.PackageUploadType(config.Packaging.Upload.Type),
-		},
-	}
-
-	// Set defaults for packaging paths
-	if g.Artifacts.Packaging.InstallDir == "" {
-		g.Artifacts.Packaging.InstallDir = "/usr/bin"
-	}
-
-	if g.Artifacts.Packaging.ConfigDir == "" {
-		g.Artifacts.Packaging.ConfigDir = "/etc/" + g.ProjectName
-	}
 
 	return nil
 }

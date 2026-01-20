@@ -297,6 +297,7 @@ type App struct {
 	Grafana               grafana.Config
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
+	Artifacts             []ArtifactType   // Per-application artifacts
 }
 
 // CLIApp represents a CLI transport configuration
@@ -327,6 +328,55 @@ func (a App) HasSysTransport() bool {
 		}
 	}
 	return false
+}
+
+// HasDocker returns true if this application has docker artifact enabled
+func (a App) HasDocker() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactDocker {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasDeb returns true if this application has deb artifact enabled
+func (a App) HasDeb() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactDeb {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasRPM returns true if this application has rpm artifact enabled
+func (a App) HasRPM() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactRPM {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasAPK returns true if this application has apk artifact enabled
+func (a App) HasAPK() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactAPK {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasPackaging returns true if this application has any system package artifact (deb/rpm/apk)
+func (a App) HasPackaging() bool {
+	return a.HasDeb() || a.HasRPM() || a.HasAPK()
 }
 
 type Transports map[string]Transport

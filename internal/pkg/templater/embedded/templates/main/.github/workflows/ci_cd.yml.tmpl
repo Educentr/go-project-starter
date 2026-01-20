@@ -27,7 +27,7 @@ jobs:
       LEN_EXPECTED: ${{"{{"}} steps.vars_deploy.outputs.LEN_EXPECTED {{"}}"}}
       SSH_HOST_MATRIX: ${{"{{"}} steps.vars_deploy.outputs.SSH_HOST_MATRIX {{"}}"}}
       INTERNAL_SUBNET: ${{"{{"}} steps.vars_deploy.outputs.INTERNAL_SUBNET {{"}}"}}
-      {{- range $_, $a := .Applications }}
+      {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
         {{ $applicationName := $a.Name | ReplaceDash }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK {{"}}"}}
         {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
@@ -36,14 +36,14 @@ jobs:
         {{ end }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }} {{"}}"}}
         {{ end }}{{ end }}
-      {{ end }}
+      {{ end }}{{ end }}
 {{- end }}
 
     steps:
       - name: Get branch
         uses: noliran/branch-based-secrets@v1
         with:
-          secrets: ENABLED{{ if .Artifacts.HasDocker }},ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET{{ end }}
+          secrets: ENABLED{{ if .Artifacts.HasDocker }},ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}{{ if $a.HasDocker }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET{{ end }}
 
       - name: Use vars
         id: vars_enabled
@@ -117,7 +117,7 @@ jobs:
         run: |
           LEN_EXPECTED=${{"{{"}} steps.vars_deploy.outputs.LEN_EXPECTED {{"}}"}}
 
-          {{- range $_, $a := .Applications }}
+          {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
             if [ -z "${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME] {{"}}"}}" ]; then
               echo "Empty variable ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME {{"}}"}}"
               exit 3
@@ -162,7 +162,7 @@ jobs:
 
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
             {{ end -}}{{ end -}}
-          {{ end -}}
+          {{ end }}{{ end -}}
 
           LEN=$(echo '${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}' | jq '. | length')
 
@@ -248,7 +248,7 @@ jobs:
             fname="$fname-$ENV_TYPE"
           fi
 
-          {{- range $_, $a := .Applications }}
+          {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK)[matrix.envs] {{"}}"}}"' >> $fname
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
               {{ if $t.PublicService }}
@@ -256,7 +256,7 @@ jobs:
               {{ end }}
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
             {{- end }}{{- end }}
-          {{- end }}
+          {{- end }}{{ end }}
           echo "ENV_TYPE=$ENV_TYPE" >> $fname
           echo 'OC_HOST="${{"{{"}} needs.prepare-env.outputs.OC_HOST {{"}}"}}"' >> $fname
           echo 'OC_PORT="${{"{{"}} needs.prepare-env.outputs.OC_PORT {{"}}"}}"' >> $fname

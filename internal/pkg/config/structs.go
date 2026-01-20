@@ -275,6 +275,7 @@ type (
 		Grafana               AppGrafana       `mapstructure:"grafana"`
 		GoatTests             *bool            `mapstructure:"goat_tests"`        // Enable GOAT integration tests generation (simple flag)
 		GoatTestsConfig       *GoatTestsConfig `mapstructure:"goat_tests_config"` // Extended GOAT tests configuration
+		Artifacts             []ArtifactType   `mapstructure:"artifacts"`         // Per-application artifacts (overrides global if set)
 	}
 
 	Docker struct {

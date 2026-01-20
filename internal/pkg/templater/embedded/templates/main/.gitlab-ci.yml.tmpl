@@ -95,14 +95,14 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
 
 # Build Docker images for each application
-{{ range $_, $a := .Applications }}
+{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}
 build-{{ $a.Name | ReplaceDash }}:
   <<: *build-template
   script:
     - export REGISTRY_SERVER="${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}"
     - make docker-{{ $a.Name }}
     - make docker-{{ $a.Name }}-push
-{{ end }}
+{{ end }}{{ end }}
 {{ end }}
 
 {{ if .Artifacts.HasPackaging }}
@@ -190,8 +190,8 @@ upload-packages:
   stage: deploy
   image: alpine:latest
   needs:
-{{ range $_, $a := .Applications }}    - build-{{ $a.Name | ReplaceDash }}
-{{ end }}
+{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}    - build-{{ $a.Name | ReplaceDash }}
+{{ end }}{{ end }}
   before_script:
     - apk add --no-cache openssh-client rsync
     - eval $(ssh-agent -s)
@@ -216,13 +216,13 @@ deploy-staging:
       APP_VERSION=${RELEASE}
       REGISTRY_SERVER=${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}
       INTERNAL_SUBNET=${INTERNAL_SUBNET}
-      {{ range $_, $a := $.Applications -}}
+      {{ range $_, $a := $.Applications }}{{ if $a.HasDocker -}}
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
       {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
       {{ if $t.PublicService -}}
       DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
-      {{ end }}{{ end }}{{ end }}{{ end -}}
+      {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
       EOF
     - rsync -avz --delete .env.staging docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
     - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.staging envs/ && ./deploy.sh"
@@ -245,13 +245,13 @@ deploy-production:
       APP_VERSION=${RELEASE}
       REGISTRY_SERVER=${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}
       INTERNAL_SUBNET=${INTERNAL_SUBNET}
-      {{ range $_, $a := $.Applications -}}
+      {{ range $_, $a := $.Applications }}{{ if $a.HasDocker -}}
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
       {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
       {{ if $t.PublicService -}}
       DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
-      {{ end }}{{ end }}{{ end }}{{ end -}}
+      {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
       EOF
     - rsync -avz --delete .env.main docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
     - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.main envs/ && ./deploy.sh"
@@ -264,8 +264,8 @@ notify:
   stage: notify
   image: curlimages/curl:latest
   needs:
-{{ range $_, $a := .Applications }}    - build-{{ $a.Name | ReplaceDash }}
-{{ end }}
+{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}    - build-{{ $a.Name | ReplaceDash }}
+{{ end }}{{ end }}
   script:
     - |
       if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
