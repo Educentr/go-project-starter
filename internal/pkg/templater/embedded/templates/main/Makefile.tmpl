@@ -197,6 +197,7 @@ dep-ci: ## Install dependencies
 	GOPRIVATE=$(GOPRIVATE) go mod download
 
 {{ range $_, $a := .Applications }}
+{{ if $a.HasDocker -}}
 # Build service {{ $a.Name }} in container
 .PHONY: build_in_docker-{{ $a.Name }}
 build_in_docker-{{ $a.Name }}:
@@ -210,7 +211,7 @@ docker-{{ $a.Name }}:
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:
 	docker push $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
-
+{{ end }}
 # Run service {{ $a.Name }}
 .PHONY: run-{{ $a.Name }}
 run-{{ $a.Name }}: onlineconf-update
@@ -226,19 +227,19 @@ build_for_test-{{ $a.Name }}: download
 	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "all=-N -l" -o /tmp/{{ $a.Name }} ${PACKAGE}/cmd/{{ $a.Name }}
 {{ end }}
 
-.PHONY: docker-list
-artifact-list: 
-	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}"{{ end }}]'
+.PHONY: artifact-list
+artifact-list:
+	@echo '[{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}"$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}", {{ end }}{{ end }}]' | sed 's/, *]$$/]/'
 
 .PHONY: docker-list
-docker-list: 
-	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"docker-{{ $a.Name }}"{{ end }}]'
+docker-list:
+	@echo '[{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}"docker-{{ $a.Name }}", {{ end }}{{ end }}]' | sed 's/, *]$$/]/'
 
 .PHONY: docker
-docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
+docker: {{ range $_, $a := .Applications }}{{ if $a.HasDocker }}docker-{{ $a.Name }} {{ end }}{{ end }}
 
 .PHONY: docker-push
-docker-push: {{ range $_, $a := .Applications }}docker-{{ $a.Name }}-push {{ end }}
+docker-push: {{ range $_, $a := .Applications }}{{ if $a.HasDocker }}docker-{{ $a.Name }}-push {{ end }}{{ end }}
 
 {{ if .Artifacts.HasPackaging }}
 # nfpm tool installation

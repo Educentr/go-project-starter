@@ -308,6 +308,22 @@ func GetAppTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fil
 		return
 	}
 
+	// Filter out Docker-related files if app doesn't have docker artifacts
+	if !params.Application.HasDocker() {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			// Skip Dockerfile and docker-compose for non-docker apps
+			if strings.HasPrefix(f.DestName, "Dockerfile") || strings.HasPrefix(f.DestName, "docker-compose") {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
+	}
+
 	for i := range files {
 		ext := filepath.Ext(files[i].DestName)
 		fname := strings.TrimSuffix(files[i].DestName, ext)
