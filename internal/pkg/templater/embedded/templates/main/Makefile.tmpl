@@ -248,8 +248,14 @@ NFPM_VERSION ?= 2.35.3
 install-nfpm:
 	go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
 
-# Package version (same format as docker tag: date-commit)
-PKG_VERSION ?= $(DOCKER_TAG)
+# Package version (deb-compatible format: YYYYMMDD.HHMM+commit or 0~devYYYYMMDD.HHMM+commit)
+# Deb versions can't start with letters, dashes replaced with dots
+PKG_RELEASE = $(subst -,.,$(RELEASE))
+ifeq ($(COMMIT_BRANCH), main)
+PKG_VERSION ?= $(PKG_RELEASE).$(LAST_COMMIT_HASH)
+else
+PKG_VERSION ?= 0~dev$(PKG_RELEASE).$(LAST_COMMIT_HASH)
+endif
 
 {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}
 {{ if $a.HasDeb }}
@@ -275,7 +281,7 @@ packages: {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDe
 
 .PHONY: package-list
 package-list:
-	@echo '[{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDeb }}"$(SERVICE_NAME)-{{ $a.Name }}_$(DOCKER_TAG)_amd64.deb", {{ end }}{{ if $a.HasRPM }}"$(SERVICE_NAME)-{{ $a.Name }}-$(DOCKER_TAG).x86_64.rpm", {{ end }}{{ if $a.HasAPK }}"$(SERVICE_NAME)-{{ $a.Name }}-$(DOCKER_TAG).apk", {{ end }}{{ end }}{{ end }}]' | sed 's/, *]$$/]/'
+	@echo '[{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDeb }}"$(SERVICE_NAME)-{{ $a.Name }}_$(PKG_VERSION)_amd64.deb", {{ end }}{{ if $a.HasRPM }}"$(SERVICE_NAME)-{{ $a.Name }}-$(PKG_VERSION).x86_64.rpm", {{ end }}{{ if $a.HasAPK }}"$(SERVICE_NAME)-{{ $a.Name }}-$(PKG_VERSION).apk", {{ end }}{{ end }}{{ end }}]' | sed 's/, *]$$/]/'
 {{ end }}
 
 {{ if .Artifacts.HasUpload }}
