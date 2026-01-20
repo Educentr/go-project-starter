@@ -488,9 +488,8 @@ jobs:
   # Required repository variables/secrets:
   {{- if .Artifacts.IsMinio }}
   #   secrets.MINIO_ACCESS_KEY, secrets.MINIO_SECRET_KEY - MinIO credentials
-  #   vars.UPLOAD_ENDPOINT - MinIO endpoint URL
+  #   vars.UPLOAD_ENDPOINT - MinIO endpoint URL (e.g., https://minio.example.com)
   #   vars.UPLOAD_BUCKET - Target bucket name
-  #   vars.UPLOAD_REGION - Bucket region (optional, default: us-east-1)
   #   vars.UPLOAD_PREFIX - Path prefix in bucket (optional, default: packages)
   {{- else if .Artifacts.IsAWS }}
   #   secrets.AWS_ACCESS_KEY_ID, secrets.AWS_SECRET_ACCESS_KEY - AWS credentials
@@ -516,17 +515,18 @@ jobs:
           path: ./packages
 
       {{- if .Artifacts.IsMinio }}
-      - name: Configure AWS CLI for MinIO
+      - name: Install MinIO Client
         run: |
-          aws configure set aws_access_key_id ${{"{{"}} secrets.MINIO_ACCESS_KEY {{"}}"}}
-          aws configure set aws_secret_access_key ${{"{{"}} secrets.MINIO_SECRET_KEY {{"}}"}}
+          curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+          chmod +x /usr/local/bin/mc
+
+      - name: Configure MinIO Client
+        run: |
+          mc alias set minio ${{"{{"}} vars.UPLOAD_ENDPOINT {{"}}"}} ${{"{{"}} secrets.MINIO_ACCESS_KEY {{"}}"}} ${{"{{"}} secrets.MINIO_SECRET_KEY {{"}}"}}
 
       - name: Upload to MinIO
         run: |
-          aws s3 cp ./packages/ s3://${{"{{"}} vars.UPLOAD_BUCKET {{"}}"}}/${{"{{"}} vars.UPLOAD_PREFIX || 'packages' {{"}}"}}/ \
-            --recursive \
-            --endpoint-url ${{"{{"}} vars.UPLOAD_ENDPOINT {{"}}"}} \
-            --region ${{"{{"}} vars.UPLOAD_REGION || 'us-east-1' {{"}}"}}
+          mc cp ./packages/* minio/${{"{{"}} vars.UPLOAD_BUCKET {{"}}"}}/${{"{{"}} vars.UPLOAD_PREFIX || 'packages' {{"}}"}}/
       {{- else if .Artifacts.IsAWS }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
