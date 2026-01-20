@@ -15,7 +15,12 @@ jobs:
 {{- if .Artifacts.HasDocker }}
       CONTAINERS: ${{"{{"}} steps.vers_and_containers.outputs.CONTAINERS {{"}}"}}
 {{- end }}
+{{- if .Artifacts.HasDocker }}
       ARTIFACTS: ${{"{{"}} steps.vers_and_containers.outputs.ARTIFACTS {{"}}"}}
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+      PACKAGES: ${{"{{"}} steps.vers_and_containers.outputs.PACKAGES {{"}}"}}
+{{- end }}
 {{- if .Artifacts.HasDocker }}
       ENABLE_DEPLOY: ${{"{{"}}steps.vars_enabled.outputs.ENABLE_DEPLOY {{"}}"}}
       DEPLOY_ENVS: ${{"{{"}} steps.vars_deploy.outputs.DEPLOY_ENVS {{"}}"}}
@@ -214,9 +219,13 @@ jobs:
 {{- if .Artifacts.HasDocker }}
           containerList=$(make docker-list)
           echo "CONTAINERS=$containerList" >> $GITHUB_OUTPUT
-{{- end }}
           art=$(make artifact-list)
           echo "ARTIFACTS=$art" >> $GITHUB_OUTPUT
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+          pkg=$(make package-list)
+          echo "PACKAGES=$pkg" >> $GITHUB_OUTPUT
+{{- end }}
 {{ if .Artifacts.HasDocker }}
       - name: Upload env file
         uses: actions/upload-artifact@v4
@@ -613,12 +622,18 @@ jobs:
           matrix: ${{"{{"}} toJson(matrix) {{"}}"}}
         env:
           SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}
+{{ end }}
 
   artifact_version:
     runs-on: ubuntu-latest
     needs:
       - prepare-env
+{{- if .Artifacts.HasDocker }}
       - build
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+      - build-packages
+{{- end }}
     if: always() && needs.prepare-env.outputs.ENABLE_BUILD == 'true'
     env:
       TELEGRAM_BOT_TOKEN: ${{"{{"}} secrets.TELEGRAM_BOT_TOKEN {{"}}"}}
@@ -628,7 +643,12 @@ jobs:
       - name: Check conditions and set message
         run: |
           BRANCH="${{"{{"}} github.ref_name {{"}}"}}"
-          STATUS="${{"{{"}} needs.build.result {{"}}"}}"
+{{- if .Artifacts.HasDocker }}
+          BUILD_STATUS="${{"{{"}} needs.build.result {{"}}"}}"
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+          PACKAGES_STATUS="${{"{{"}} needs.build-packages.result {{"}}"}}"
+{{- end }}
           COMMIT_MSG="${{"{{"}} github.event.head_commit.message {{"}}"}}"
           RUN_URL="https://github.com/${{"{{"}} github.repository {{"}}"}}/actions/runs/${{"{{"}} github.run_id {{"}}"}}"
 
@@ -644,6 +664,19 @@ jobs:
             exit 0
           fi
 
+          # Определяем общий статус
+          STATUS="success"
+{{- if .Artifacts.HasDocker }}
+          if [[ "$BUILD_STATUS" != "success" ]]; then
+            STATUS="failure"
+          fi
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+          if [[ "$PACKAGES_STATUS" != "success" ]]; then
+            STATUS="failure"
+          fi
+{{- end }}
+
           # Экранируем commit message для MarkdownV2 (берём только первую строку)
           # Символы для экранирования: _ * [ ] ( ) ~ ` > # + - = | { } . !
           ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
@@ -653,11 +686,20 @@ jobs:
           Коммит: _${ESCAPED_COMMIT_MSG}_"
 
           if [[ "$STATUS" == "success" ]]; then
-            VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
             MESSAGE="$MESSAGE
-            ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*
+            ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*"
+{{- if .Artifacts.HasDocker }}
+            DOCKER_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
+            MESSAGE="$MESSAGE
+            Docker образы:
+            ${DOCKER_VERS}"
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+            PKG_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.PACKAGES {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
+            MESSAGE="$MESSAGE
             Пакеты:
-            ${VERS}"
+            ${PKG_VERS}"
+{{- end }}
           else
             MESSAGE="$MESSAGE
             ❌ Ошибка: *${{"{{"}} github.workflow {{"}}"}}* завершился с ошибкой на ветке *$BRANCH*"
@@ -670,4 +712,3 @@ jobs:
             -d chat_id=$TELEGRAM_CHAT_ID \
             -d text="$MESSAGE" \
             -d parse_mode="MarkdownV2"
-{{ end }}
