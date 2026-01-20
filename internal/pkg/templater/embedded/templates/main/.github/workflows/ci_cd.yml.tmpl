@@ -591,6 +591,9 @@ jobs:
 {{- range $_, $a := .Applications }}{{ if $a.UseEnvs }}
       - create_{{ $a.Name | ReplaceDash }}_env_files
 {{- end }}{{- end }}
+{{- if .Artifacts.HasUpload }}
+      - upload-packages
+{{- end }}
     if: needs.prepare-env.outputs.ENABLE_DEPLOY == 'true'
     steps:
       - name: Download env file

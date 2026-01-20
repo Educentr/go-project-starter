@@ -191,8 +191,8 @@ upload-packages:
   image: alpine:latest
   needs:
 {{ range $_, $a := .Applications }}{{ if $a.HasDocker }}    - build-{{ $a.Name | ReplaceDash }}
-{{ end }}{{ end }}
-  before_script:
+{{ end }}{{ end }}{{ if .Artifacts.HasUpload }}    - upload-packages
+{{ end }}  before_script:
     - apk add --no-cache openssh-client rsync
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
