@@ -184,11 +184,15 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 			if requestData.Type == telegram.CallbackRequest && resp.UpdateCurMsg && requestData.MessageID != 0 {
 				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData, requestData.MessageID, tgMsg)
 				if err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Error updating message" }}
+					if telegram.IsMessageEditError(err) {
+						{{ .Logger.WarnMsg "ctx" "Error updating message (expected)" "Err(err)" }}
+					} else {
+						{{ .Logger.ErrorMsg "ctx" "err" "Error updating message" }}
+					}
 
 					err = srv.TelegramDeleteMessage(ctx, requestData.ChatID, requestData.MessageID)
-					if err != nil {
-						{{ .Logger.ErrorMsg "ctx" "err" "Error deleting message after failed update" }}
+					if err != nil && !telegram.IsMessageDeleteError(err) {
+						{{ .Logger.WarnMsg "ctx" "Error deleting message after failed update" "Err(err)" }}
 					}
 
 					msgID, err = srv.TelegramSendMessageButtons(ctx, requestData, tgMsg)
