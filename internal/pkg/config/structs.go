@@ -58,17 +58,38 @@ const (
 )
 
 type (
+	// Main contains the main project configuration settings.
+	//
+	// YAML example:
+	//
+	//	main:
+	//	  name: myproject           # Project name (used in paths, Docker images)
+	//	  registry_type: github     # github, digitalocean, aws, selfhosted
+	//	  logger: zerolog           # Logger type (only zerolog supported)
+	//	  author: "Your Name"       # Author for generated files
+	//	  use_active_record: true   # Enable PostgreSQL ActiveRecord generation
+	//	  dev_stand: true           # Generate docker-compose-dev.yaml with OnlineConf
+	//	  skip_service_init: false  # Skip Service layer generation
+	//
+	// See docs/configuration/main.md for full documentation.
 	Main struct {
-		Name            string `mapstructure:"name"`
-		RegistryType    string `mapstructure:"registry_type"`
-		Logger          string `mapstructure:"logger"`
-		Author          string `mapstructure:"author"`
-		SkipServiceInit bool   `mapstructure:"skip_service_init"`
-		UseActiveRecord bool   `mapstructure:"use_active_record"`
-		DevStand        bool   `mapstructure:"dev_stand"`
-		LoggerObj       ds.Logger
-		TargetDir       string
-		ConfigDir       string
+		// Name is the project name, used in paths and Docker images. Required.
+		Name string `mapstructure:"name"`
+		// RegistryType specifies the container registry type: github, digitalocean, aws, or selfhosted.
+		RegistryType string `mapstructure:"registry_type"`
+		// Logger specifies the logger type. Currently only "zerolog" is supported.
+		Logger string `mapstructure:"logger"`
+		// Author is used in generated file headers.
+		Author string `mapstructure:"author"`
+		// SkipServiceInit disables Service layer generation.
+		SkipServiceInit bool `mapstructure:"skip_service_init"`
+		// UseActiveRecord enables PostgreSQL ActiveRecord code generation.
+		UseActiveRecord bool `mapstructure:"use_active_record"`
+		// DevStand enables docker-compose-dev.yaml generation with OnlineConf.
+		DevStand  bool `mapstructure:"dev_stand"`
+		LoggerObj ds.Logger
+		TargetDir string
+		ConfigDir string
 	}
 
 	// GrafanaDatasource represents a single Grafana datasource configuration
@@ -95,22 +116,56 @@ type (
 		Enabled bool `mapstructure:"enabled"`
 	}
 
+	// Git contains Git repository configuration.
+	//
+	// YAML example:
+	//
+	//	git:
+	//	  repo: https://github.com/org/repo
+	//	  module_path: github.com/org/repo
+	//	  private_repos: github.com/myorg/*
+	//
+	// See docs/configuration/main.md for full documentation.
 	Git struct {
-		Repo         string `mapstructure:"repo"`
-		ModulePath   string `mapstructure:"module_path"`
+		// Repo is the Git repository URL. Required.
+		Repo string `mapstructure:"repo"`
+		// ModulePath is the Go module path. Required.
+		ModulePath string `mapstructure:"module_path"`
+		// PrivateRepos is a comma-separated list of private modules for GOPRIVATE.
 		PrivateRepos string `mapstructure:"private_repos"`
-		// ProjectID  uint   `mapstructure:"project_id"` // Todo
 	}
 
+	// Tools contains version settings for tools used during generation and build.
+	//
+	// YAML example:
+	//
+	//	tools:
+	//	  golang_version: "1.24"
+	//	  ogen_version: "v0.78.0"
+	//	  argen_version: "v1.0.0"
+	//	  golangci_version: "1.55.2"
+	//	  protobuf_version: "1.7.0"
+	//	  go_jsonschema_version: "v0.16.0"
+	//
+	// See docs/configuration/main.md for full documentation.
 	Tools struct {
-		ProtobufVersion     string `mapstructure:"protobuf_version"`
-		GolangVersion       string `mapstructure:"golang_version"`
-		OgenVersion         string `mapstructure:"ogen_version"`
-		ArgenVersion        string `mapstructure:"argen_version"`
-		GolangciVersion     string `mapstructure:"golangci_version"`
-		RuntimeVersion      string `mapstructure:"runtime_version"`
+		// ProtobufVersion is the protoc-gen-go version. Default: 1.7.0
+		ProtobufVersion string `mapstructure:"protobuf_version"`
+		// GolangVersion is the Go version. Default: 1.24
+		GolangVersion string `mapstructure:"golang_version"`
+		// OgenVersion is the ogen version. Default: v0.78.0
+		OgenVersion string `mapstructure:"ogen_version"`
+		// ArgenVersion is the argen (ActiveRecord) version. Default: v1.0.0
+		ArgenVersion string `mapstructure:"argen_version"`
+		// GolangciVersion is the golangci-lint version. Default: 1.55.2
+		GolangciVersion string `mapstructure:"golangci_version"`
+		// RuntimeVersion is the go-project-starter-runtime version. Auto-set.
+		RuntimeVersion string `mapstructure:"runtime_version"`
+		// GoJSONSchemaVersion is the go-jsonschema version. Default: v0.16.0
 		GoJSONSchemaVersion string `mapstructure:"go_jsonschema_version"`
-		GoatVersion         string `mapstructure:"goat_version"`
+		// GoatVersion is the GOAT test framework version. Auto-set.
+		GoatVersion string `mapstructure:"goat_version"`
+		// GoatServicesVersion is the GOAT services version. Auto-set.
 		GoatServicesVersion string `mapstructure:"goat_services_version"`
 	}
 
@@ -119,40 +174,111 @@ type (
 		Type      string `mapstructure:"type"`
 	}
 
+	// Rest contains REST API transport configuration.
+	//
+	// YAML example:
+	//
+	//	rest:
+	//	  - name: api
+	//	    path: [./api/openapi.yaml]
+	//	    generator_type: ogen       # ogen, template, ogen_client
+	//	    port: 8080
+	//	    version: v1
+	//	    health_check_path: /health
+	//
+	//	  - name: system
+	//	    generator_type: template
+	//	    generator_template: sys
+	//	    port: 9090
+	//	    version: v1
+	//
+	//	  - name: external_api
+	//	    generator_type: ogen_client
+	//	    path: [./api/external.yaml]
+	//	    instantiation: dynamic     # static or dynamic (ogen_client only)
+	//	    auth_params:
+	//	      transport: header
+	//	      type: apikey
+	//
+	// See docs/configuration/transports.md for full documentation.
 	Rest struct {
-		Name                 string            `mapstructure:"name"`
-		Path                 []string          `mapstructure:"path"`
-		APIPrefix            string            `mapstructure:"api_prefix"`
-		Port                 uint              `mapstructure:"port"`
-		Version              string            `mapstructure:"version"`
-		PublicService        bool              `mapstructure:"public_service"`
-		GeneratorType        string            `mapstructure:"generator_type"`
-		HealthCheckPath      string            `mapstructure:"health_check_path"`
-		GeneratorTemplate    string            `mapstructure:"generator_template"`
-		GeneratorParams      map[string]string `mapstructure:"generator_params"`
-		AuthParams           AuthParams        `mapstructure:"auth_params"`
-		EmptyConfigAvailable bool              `mapstructure:"empty_config_available"`
-		Instantiation        string            `mapstructure:"instantiation"` // "static" (default) or "dynamic" - only for ogen_client
+		// Name is the transport name. Required.
+		Name string `mapstructure:"name"`
+		// Path contains paths to OpenAPI specs. Required for ogen/ogen_client.
+		Path []string `mapstructure:"path"`
+		// APIPrefix is the URL prefix for the API.
+		APIPrefix string `mapstructure:"api_prefix"`
+		// Port is the HTTP port. Required (except for template sys).
+		Port uint `mapstructure:"port"`
+		// Version is the API version (v1, v2, etc). Required.
+		Version string `mapstructure:"version"`
+		// PublicService marks the service as public (no auth).
+		PublicService bool `mapstructure:"public_service"`
+		// GeneratorType is the generator type: ogen, template, or ogen_client. Required.
+		GeneratorType string `mapstructure:"generator_type"`
+		// HealthCheckPath is the path for health checks.
+		HealthCheckPath string `mapstructure:"health_check_path"`
+		// GeneratorTemplate is the template name (for generator_type: template).
+		GeneratorTemplate string `mapstructure:"generator_template"`
+		// GeneratorParams are additional generator parameters.
+		GeneratorParams map[string]string `mapstructure:"generator_params"`
+		// AuthParams are authentication parameters (for ogen_client).
+		AuthParams AuthParams `mapstructure:"auth_params"`
+		// EmptyConfigAvailable allows empty OnlineConf configuration.
+		EmptyConfigAvailable bool `mapstructure:"empty_config_available"`
+		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
+		// Dynamic mode creates a new client instance for each request.
+		Instantiation string `mapstructure:"instantiation"`
 	}
 
+	// Worker contains background worker configuration.
+	//
+	// YAML example:
+	//
+	//	worker:
+	//	  - name: telegram_bot
+	//	    generator_type: template
+	//	    generator_template: telegram  # telegram or daemon
+	//
+	// See docs/configuration/workers.md for full documentation.
 	Worker struct {
-		Name              string            `mapstructure:"name"`
-		Path              []string          `mapstructure:"path"`
-		Version           string            `mapstructure:"version"`
-		GeneratorType     string            `mapstructure:"generator_type"`
-		GeneratorTemplate string            `mapstructure:"generator_template"`
-		GeneratorParams   map[string]string `mapstructure:"generator_params"`
+		// Name is the unique worker name. Required.
+		Name string `mapstructure:"name"`
+		// Path contains paths to specification files. Optional.
+		Path []string `mapstructure:"path"`
+		// Version is the worker version. Optional.
+		Version string `mapstructure:"version"`
+		// GeneratorType must be "template". Required.
+		GeneratorType string `mapstructure:"generator_type"`
+		// GeneratorTemplate is the template name: telegram or daemon. Required.
+		GeneratorTemplate string `mapstructure:"generator_template"`
+		// GeneratorParams contains additional generator parameters. Optional.
+		GeneratorParams map[string]string `mapstructure:"generator_params"`
 	}
 
 	// CLI represents a command-line interface transport configuration.
 	// CLI is a transport type like REST/GRPC, but requires interactive user communication.
 	// It works like a shell: first word is command, rest are arguments.
+	//
+	// YAML example:
+	//
+	//	cli:
+	//	  - name: admin
+	//	    generator_type: template
+	//	    generator_template: cli
+	//
+	// See docs/configuration/transports.md for full documentation.
 	CLI struct {
-		Name              string            `mapstructure:"name"`
-		Path              []string          `mapstructure:"path"`               // Path to CLI spec files (optional)
-		GeneratorType     string            `mapstructure:"generator_type"`     // template
-		GeneratorTemplate string            `mapstructure:"generator_template"` // cli template name
-		GeneratorParams   map[string]string `mapstructure:"generator_params"`
+		// Name is the unique CLI name. Required.
+		Name string `mapstructure:"name"`
+		// Path contains paths to CLI spec files. Optional.
+		Path []string `mapstructure:"path"`
+		// GeneratorType must be "template". Required.
+		GeneratorType string `mapstructure:"generator_type"`
+		// GeneratorTemplate is the CLI template name. Required.
+		GeneratorTemplate string `mapstructure:"generator_template"`
+		// GeneratorParams contains additional generator parameters. Optional.
+		GeneratorParams map[string]string `mapstructure:"generator_params"`
 	}
 
 	// JSONSchemaItem represents a single JSON schema file with its identifier
@@ -164,11 +290,27 @@ type (
 
 	// JSONSchema represents a JSON Schema configuration for generating Go structs.
 	// Similar to OpenAPI/gRPC but generates only data structures with validation.
+	//
+	// YAML example:
+	//
+	//	jsonschema:
+	//	  - name: models
+	//	    schemas:
+	//	      - id: user
+	//	        path: ./schemas/user.json
+	//	        type: UserSchema  # optional, auto-generated if empty
+	//	    package: models       # optional, defaults to name
+	//
+	// See docs/reference/yaml-schema.md for full documentation.
 	JSONSchema struct {
-		Name    string           `mapstructure:"name"`    // Unique identifier for the schema set
-		Path    []string         `mapstructure:"path"`    // Legacy: Paths to JSON schema files (deprecated, use schemas)
-		Schemas []JSONSchemaItem `mapstructure:"schemas"` // New: Individual schema files with IDs
-		Package string           `mapstructure:"package"` // Optional: override package name (default: schema name)
+		// Name is the unique identifier for the schema set. Required.
+		Name string `mapstructure:"name"`
+		// Path contains paths to JSON schema files. Deprecated: use Schemas instead.
+		Path []string `mapstructure:"path"`
+		// Schemas contains individual schema files with IDs. Recommended.
+		Schemas []JSONSchemaItem `mapstructure:"schemas"`
+		// Package overrides the Go package name. Optional, defaults to Name.
+		Package string `mapstructure:"package"`
 	}
 
 	// KafkaEvent represents a Kafka event with typed messages.
@@ -179,29 +321,77 @@ type (
 		Schema string `mapstructure:"schema"` // Optional: package.TypeName (e.g. "tb.AbonentUserSchemaJson"), empty for raw []byte
 	}
 
-	// Kafka represents Kafka producer/consumer configuration
+	// Kafka represents Kafka producer/consumer configuration.
+	//
+	// YAML example:
+	//
+	//	kafka:
+	//	  - name: events_producer
+	//	    type: producer
+	//	    driver: segmentio         # segmentio (default) or custom
+	//	    client: main_kafka        # Client name for OnlineConf path
+	//	    events:
+	//	      - name: user_events
+	//	        schema: models.user   # Optional: JSON Schema reference
+	//
+	//	  - name: order_consumer
+	//	    type: consumer
+	//	    driver: segmentio
+	//	    client: main_kafka
+	//	    group: my_group           # Required for consumers
+	//	    events:
+	//	      - name: order_events
+	//
+	// See docs/configuration/transports.md for full documentation.
 	Kafka struct {
-		Name          string       `mapstructure:"name"`           // Unique name for reference
-		Type          string       `mapstructure:"type"`           // producer, consumer
-		Driver        string       `mapstructure:"driver"`         // segmentio (default), custom
-		DriverImport  string       `mapstructure:"driver_import"`  // For custom: import path
-		DriverPackage string       `mapstructure:"driver_package"` // For custom: package name
-		DriverObj     string       `mapstructure:"driver_obj"`     // For custom: struct name
-		Client        string       `mapstructure:"client"`         // Client name for OC path
-		Group         string       `mapstructure:"group"`          // Consumer group (for consumer type)
-		Events        []KafkaEvent `mapstructure:"events"`         // List of events to publish/consume
+		// Name is the unique name for reference from applications. Required.
+		Name string `mapstructure:"name"`
+		// Type is "producer" or "consumer". Required.
+		Type string `mapstructure:"type"`
+		// Driver is the Kafka driver: segmentio (default) or custom.
+		Driver string `mapstructure:"driver"`
+		// DriverImport is the import path for custom driver.
+		DriverImport string `mapstructure:"driver_import"`
+		// DriverPackage is the package name for custom driver.
+		DriverPackage string `mapstructure:"driver_package"`
+		// DriverObj is the struct name for custom driver.
+		DriverObj string `mapstructure:"driver_obj"`
+		// Client is the client name used in OnlineConf paths. Required.
+		Client string `mapstructure:"client"`
+		// Group is the consumer group. Required for consumers.
+		Group string `mapstructure:"group"`
+		// Events is the list of events to publish/consume. Required.
+		Events []KafkaEvent `mapstructure:"events"`
 	}
 
 	KafkaList []Kafka
 
+	// Grpc contains gRPC service configuration.
+	//
+	// YAML example:
+	//
+	//	grpc:
+	//	  - name: users
+	//	    path: ./api/users.proto
+	//	    port: 9000
+	//	    generator_type: buf_client
+	//
+	// See docs/configuration/transports.md for full documentation.
 	Grpc struct {
-		Name                 string `mapstructure:"name"`
-		Path                 string `mapstructure:"path"`
-		Short                string `mapstructure:"short"`
-		Port                 uint   `mapstructure:"port"`
-		GeneratorType        string `mapstructure:"generator_type"`
-		BufLocalPlugins      bool   `mapstructure:"buf_local_plugins"`
-		EmptyConfigAvailable bool   `mapstructure:"empty_config_available"`
+		// Name is the unique gRPC service name. Required.
+		Name string `mapstructure:"name"`
+		// Path is the path to .proto file. Required.
+		Path string `mapstructure:"path"`
+		// Short is a short name for package naming. Optional.
+		Short string `mapstructure:"short"`
+		// Port is the gRPC port. Required.
+		Port uint `mapstructure:"port"`
+		// GeneratorType is the generator type: buf_client. Required.
+		GeneratorType string `mapstructure:"generator_type"`
+		// BufLocalPlugins enables local buf plugins instead of remote. Optional.
+		BufLocalPlugins bool `mapstructure:"buf_local_plugins"`
+		// EmptyConfigAvailable allows empty OnlineConf configuration. Optional.
+		EmptyConfigAvailable bool `mapstructure:"empty_config_available"`
 	}
 
 	Ws struct {
@@ -224,11 +414,27 @@ type (
 		Topic   string  `mapstructure:"topic"`
 	}
 
+	// Driver contains custom driver configuration for external integrations.
+	//
+	// YAML example:
+	//
+	//	driver:
+	//	  - name: s3
+	//	    import: github.com/myorg/drivers/s3
+	//	    package: s3
+	//	    obj_name: Client
+	//
+	// See docs/configuration/applications.md for full documentation.
 	Driver struct {
-		Name             string `mapstructure:"name"`
-		Import           string `mapstructure:"import"`
-		Package          string `mapstructure:"package"`
-		ObjName          string `mapstructure:"obj_name"`
+		// Name is the unique driver name. Required.
+		Name string `mapstructure:"name"`
+		// Import is the Go import path. Required.
+		Import string `mapstructure:"import"`
+		// Package is the Go package name. Required.
+		Package string `mapstructure:"package"`
+		// ObjName is the driver struct name. Required.
+		ObjName string `mapstructure:"obj_name"`
+		// ServiceInjection is custom code to inject into Service. Optional.
 		ServiceInjection string `mapstructure:"service_injection"`
 	}
 
@@ -273,23 +479,60 @@ type (
 		Config AppTransportConfig `mapstructure:"config"`
 	}
 
+	// Application contains configuration for an atomic deployment unit.
+	// Each application becomes a separate binary/container that can be scaled independently.
+	//
+	// YAML example:
+	//
+	//	applications:
+	//	  - name: api
+	//	    transport:
+	//	      - name: api
+	//	      - name: sys
+	//	    driver: [postgres, redis]
+	//	    goat_tests: true
+	//
+	//	  - name: workers
+	//	    worker: [telegram_bot]
+	//	    kafka: [order_events]
+	//
+	//	  - name: cli-app
+	//	    cli: admin  # CLI is exclusive with transport/worker
+	//
+	// See docs/configuration/applications.md for full documentation.
 	Application struct {
-		Name                  string           `mapstructure:"name"`
-		TransportListRaw      interface{}      `mapstructure:"transport"` // Raw data from YAML (string[] or object[])
-		TransportList         []AppTransport   `mapstructure:"-"`         // Normalized after loading
-		HasDeprecatedFormat   bool             `mapstructure:"-"`         // True if old string[] format was used
-		DriverList            []AppDriver      `mapstructure:"driver"`
-		WorkerList            []string         `mapstructure:"worker"`
-		KafkaList             []string         `mapstructure:"kafka"` // References to kafka producers/consumers by name
-		CLI                   string           `mapstructure:"cli"`   // CLI app name (only one per application, exclusive with transport/worker)
-		Deploy                AppDeploy        `mapstructure:"deploy"`
-		UseActiveRecord       *bool            `mapstructure:"use_active_record"`
-		DependsOnDockerImages []string         `mapstructure:"depends_on_docker_images"`
-		UseEnvs               *bool            `mapstructure:"use_envs"`
-		Grafana               AppGrafana       `mapstructure:"grafana"`
-		GoatTests             *bool            `mapstructure:"goat_tests"`        // Enable GOAT integration tests generation (simple flag)
-		GoatTestsConfig       *GoatTestsConfig `mapstructure:"goat_tests_config"` // Extended GOAT tests configuration
-		Artifacts             []ArtifactType   `mapstructure:"artifacts"`         // Per-application artifacts (overrides global if set)
+		// Name is the application name (= container name). Required.
+		Name string `mapstructure:"name"`
+		// TransportListRaw is raw YAML data (string[] or object[]).
+		TransportListRaw interface{} `mapstructure:"transport"`
+		// TransportList is the normalized transport list (populated after loading).
+		TransportList []AppTransport `mapstructure:"-"`
+		// HasDeprecatedFormat is true if old string[] format was used.
+		HasDeprecatedFormat bool `mapstructure:"-"`
+		// DriverList contains drivers for this application.
+		DriverList []AppDriver `mapstructure:"driver"`
+		// WorkerList contains worker names for this application.
+		WorkerList []string `mapstructure:"worker"`
+		// KafkaList contains kafka producer/consumer names.
+		KafkaList []string `mapstructure:"kafka"`
+		// CLI is the CLI transport name. Exclusive with transport/worker.
+		CLI string `mapstructure:"cli"`
+		// Deploy contains deployment settings (volumes).
+		Deploy AppDeploy `mapstructure:"deploy"`
+		// UseActiveRecord overrides the global use_active_record setting.
+		UseActiveRecord *bool `mapstructure:"use_active_record"`
+		// DependsOnDockerImages lists Docker images to pre-pull.
+		DependsOnDockerImages []string `mapstructure:"depends_on_docker_images"`
+		// UseEnvs enables environment variable usage.
+		UseEnvs *bool `mapstructure:"use_envs"`
+		// Grafana contains Grafana dashboard settings.
+		Grafana AppGrafana `mapstructure:"grafana"`
+		// GoatTests enables GOAT integration tests (simple flag).
+		GoatTests *bool `mapstructure:"goat_tests"`
+		// GoatTestsConfig contains extended GOAT tests configuration.
+		GoatTestsConfig *GoatTestsConfig `mapstructure:"goat_tests_config"`
+		// Artifacts overrides global artifacts for this application.
+		Artifacts []ArtifactType `mapstructure:"artifacts"`
 	}
 
 	Docker struct {
@@ -348,7 +591,7 @@ type (
 )
 
 const (
-	defaultGolangVersion       = "1.20"
+	defaultGolangVersion       = "1.24"
 	defaultProtobufVersion     = "1.7.0"
 	defaultGolangciVersion     = "1.55.2"
 	defaultOgenVersion         = "v0.78.0"

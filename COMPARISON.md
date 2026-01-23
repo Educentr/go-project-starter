@@ -193,6 +193,6 @@ applications:
 
 ## Следующие шаги
 
-- [Быстрый старт](quick-start.md) - начните за 5 минут
-- [Примеры](examples.md) - готовые конфигурации
-- [Участие в разработке](contributing.md) - как внести вклад
+- [Быстрый старт](docs/getting-started/quickstart.md) — начните за 5 минут
+- [Примеры](docs/examples/index.md) — готовые конфигурации
+- [Участие в разработке](CONTRIBUTING.md) — как внести вклад

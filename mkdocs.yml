@@ -1,0 +1,104 @@
+site_name: Go Project Starter
+site_description: Документация генератора Go микросервисов
+site_url: https://educentr.github.io/go-project-starter/
+repo_url: https://github.com/Educentr/go-project-starter
+repo_name: Educentr/go-project-starter
+
+theme:
+  name: material
+  language: ru
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Тёмная тема
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Светлая тема
+
+plugins:
+  - search:
+      lang: ru
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - tables
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Educentr/go-project-starter
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+
+nav:
+  - Главная: index.md
+  - Начало работы:
+    - getting-started/index.md
+    - Установка: getting-started/installation.md
+    - Быстрый старт: getting-started/quickstart.md
+  - Архитектура:
+    - architecture/index.md
+    - Сгенерированный проект: architecture/generated-project.md
+  - CLI:
+    - cli/index.md
+    - Команды: cli/commands.md
+    - Параметры: cli/options.md
+  - Конфигурация:
+    - configuration/index.md
+    - Основные секции: configuration/main.md
+    - Транспорты: configuration/transports.md
+    - Workers: configuration/workers.md
+    - Applications: configuration/applications.md
+    - Инфраструктура: configuration/infrastructure.md
+  - Рабочий процесс:
+    - workflow/index.md
+    - Регенерация: workflow/regeneration.md
+    - Makefile: workflow/makefile.md
+    - OnlineConf: workflow/onlineconf.md
+  - Примеры:
+    - examples/index.md
+    - REST API: examples/rest-api.md
+    - gRPC сервис: examples/grpc-service.md
+    - Telegram бот: examples/telegram-bot.md
+    - Multi-app: examples/multi-app.md
+  - Тестирование:
+    - testing/index.md
+    - GOAT: testing/goat.md
+  - Разработка генератора:
+    - development/index.md
+    - Архитектура генератора: development/generator.md
+  - Справочник:
+    - YAML Schema: reference/yaml-schema.md
+    - Makefile: reference/makefile-targets.md
+    - Именование: reference/naming.md
+  - Troubleshooting: troubleshooting.md

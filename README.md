@@ -148,22 +148,25 @@ myservice/                    # ~50 files, ~8,000 lines of production-ready code
 
 ## Documentation
 
+📖 **[Full Documentation](https://educentr.github.io/go-project-starter/)** — Complete guides, API references, and examples.
+
 | Section | Description |
 |---------|-------------|
-| [Quick Start](docs/quick-start.md) | Installation and first project in 5 minutes |
-| [Architecture](docs/architecture.md) | Three-layer design, Applications, Drivers |
-| [Configuration](docs/configuration.md) | Complete YAML configuration guide |
-| [Features](docs/features.md) | All generator capabilities |
-| [Examples](docs/examples.md) | Ready-to-use configurations |
-| [Advanced Topics](docs/advanced.md) | Drivers, OnlineConf, monitoring, Grafana |
-| [Comparison](docs/comparison.md) | vs Goa, go-zero, Sponge, grpc-gateway |
-| [Contributing](docs/contributing.md) | How to contribute |
+| [Getting Started](docs/getting-started/index.md) | Installation and first project |
+| [Architecture](docs/architecture/index.md) | Generator and generated project design |
+| [Configuration](docs/configuration/index.md) | Complete YAML configuration guide |
+| [CLI](docs/cli/index.md) | Commands and options |
+| [Workflow](docs/workflow/index.md) | Regeneration, Makefile, OnlineConf |
+| [Examples](docs/examples/index.md) | Ready-to-use configurations |
+| [Testing](docs/testing/index.md) | GOAT integration tests |
+| [Comparison](COMPARISON.md) | vs Goa, go-zero, Sponge, grpc-gateway |
+| [Contributing](CONTRIBUTING.md) | How to contribute |
 
 ### Local Documentation
 
 ```bash
-docker build -f docs/Dockerfile -t mkdocs-app .
-docker run -p 8000:8000 -v $(pwd):/docs mkdocs-app
+pip install mkdocs-material mkdocs-mermaid2-plugin
+mkdocs serve
 ```
 
 Then open http://localhost:8000
@@ -204,6 +207,6 @@ Built with these amazing open-source projects:
 go install github.com/Educentr/go-project-starter/cmd/go-project-starter@latest
 ```
 
-**[Get Started](docs/quick-start.md)** • **[View Examples](docs/examples.md)** • **[Read Docs](docs/index.md)**
+**[Get Started](docs/getting-started/quickstart.md)** • **[View Examples](docs/examples/index.md)** • **[Read Docs](https://educentr.github.io/go-project-starter/)**
 
 </div>

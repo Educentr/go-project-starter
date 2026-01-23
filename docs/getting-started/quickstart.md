@@ -1,14 +1,10 @@
 # Быстрый старт
 
-## Установка
+Создайте свой первый микросервис за 5 минут.
 
-```bash
-go install github.com/Educentr/go-project-starter/cmd/go-project-starter@latest
-```
+## Шаг 1: Создайте файл конфигурации
 
-## Создание первого сервиса
-
-### 1. Создайте файл конфигурации (`config.yaml`)
+Создайте файл `config.yaml`:
 
 ```yaml
 main:
@@ -38,13 +34,13 @@ applications:
     transport: [api, system]
 ```
 
-### 2. Запустите генератор
+## Шаг 2: Запустите генератор
 
 ```bash
 go-project-starter --config=config.yaml
 ```
 
-### 3. Что вы получите
+## Шаг 3: Что вы получите
 
 ```
 myservice/                    # ~50 файлов, ~8000 строк production-ready кода
@@ -64,13 +60,14 @@ myservice/                    # ~50 файлов, ~8000 строк production-re
 ```
 
 **Что генерируется:**
+
 - ~50 файлов, готовых к запуску
 - ~8000 строк production-grade кода
 - Docker образ, оптимизированный до ~50MB
-- Нулевые ошибки компиляции - компилируется с первого раза
+- Нулевые ошибки компиляции — компилируется с первого раза
 - Структура тестов для вашей бизнес-логики
 
-### 4. Начните разработку
+## Шаг 4: Начните разработку
 
 ```bash
 cd myservice
@@ -81,6 +78,7 @@ make run                    # Запуск сервиса
 ```
 
 **Доступ к сервису:**
+
 - REST API: `http://localhost:8080`
 - System endpoints: `http://localhost:9090` (health, metrics, pprof)
 - Prometheus метрики: `http://localhost:9090/metrics`
@@ -101,21 +99,37 @@ go-project-starter --dry-run --config=config.yaml --target=./my-service
 go-project-starter --config=config.yaml --target=./my-service
 ```
 
-**Важно:** Ваш код ниже disclaimer-маркеров будет сохранён:
+!!! note "Важно"
+    Ваш код ниже disclaimer-маркеров будет сохранён:
 
-```go
-// ==========================================
-// GENERATED CODE - DO NOT EDIT ABOVE THIS LINE
-// Changes manually made below will not be overwritten by generator.
-// ==========================================
+    ```go
+    // ==========================================
+    // GENERATED CODE - DO NOT EDIT ABOVE THIS LINE
+    // Changes manually made below will not be overwritten by generator.
+    // ==========================================
 
-func (h *Handler) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
-    // Ваша бизнес-логика здесь - она переживёт регенерацию!
-}
+    func (h *Handler) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
+        // Ваша бизнес-логика здесь - она переживёт регенерацию!
+    }
+    ```
+
+## Интерактивный wizard
+
+Для нового проекта можно использовать интерактивный wizard:
+
+```bash
+go-project-starter init --target=.
 ```
+
+Wizard поможет:
+
+1. Указать имя проекта
+2. Выбрать тип логгера
+3. Настроить Git репозиторий
+4. Выбрать тип проекта (REST API, gRPC, Telegram бот)
 
 ## Следующие шаги
 
-- [Архитектура](architecture.md) - понимание структуры проекта
-- [Конфигурация](configuration.md) - полное руководство по настройке
-- [Примеры](examples.md) - готовые примеры для разных сценариев
+- [Архитектура](../architecture/index.md) — понимание структуры проекта
+- [Конфигурация](../configuration/index.md) — полное руководство по настройке
+- [Примеры](../examples/index.md) — готовые примеры для разных сценариев
