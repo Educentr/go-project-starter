@@ -66,6 +66,16 @@ applications:
 go-project-starter --config=config.yaml
 ```
 
+### Interactive Project Setup (Alternative)
+
+```bash
+# Interactive wizard for new projects
+go-project-starter init --target=./myservice
+
+# Preview changes before generating
+go-project-starter --dry-run --config=config.yaml
+```
+
 **3. Start developing:**
 
 ```bash
@@ -78,6 +88,19 @@ make run          # Start your service
 **Access your service:**
 - REST API: `http://localhost:8080`
 - System endpoints: `http://localhost:9090` (health, metrics, pprof)
+
+---
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `go-project-starter --config=...` | Generate project from YAML config |
+| `go-project-starter init` | Interactive wizard for new projects |
+| `go-project-starter setup` | Configure CI/CD, servers, deploy scripts |
+| `go-project-starter migrate` | Migrate config to new generator version |
+
+Use `--dry-run` to preview changes without writing files.
 
 ---
 
@@ -127,6 +150,34 @@ Every generated project includes:
 - Health checks & graceful shutdown
 - Structured logging (zerolog)
 
+### Dynamic Configuration (OnlineConf)
+
+3-level configuration priority with runtime updates:
+1. **Default** — hardcoded in application
+2. **Transport-level** — `/{service}/transport/rest/{transportName}/{key}`
+3. **App-specific** — `/{service}/transport/rest/{transportName}/{appName}/{key}`
+
+Enable local dev environment with OnlineConf Admin UI:
+
+```yaml
+main:
+  dev_stand: true  # Generates docker-compose-dev.yaml with OnlineConf
+```
+
+### Integration Testing (GOAT)
+
+Generate ready-to-use integration test infrastructure:
+
+```yaml
+main:
+  goat_tests: true
+```
+
+This provides:
+- `TestEnvInitializer` for database and service setup
+- `BaseTestSuite` with common test utilities
+- Mock servers for external API dependencies
+
 ---
 
 ## What You Get
@@ -138,11 +189,26 @@ myservice/                    # ~50 files, ~8,000 lines of production-ready code
 │   ├── app/                 # Transport handlers & workers (your code goes here)
 │   └── pkg/                 # Business logic & repositories
 ├── pkg/                     # Runtime libraries (middleware, logging, metrics)
-├── docker-compose.yaml      # Local dev env (Postgres, Redis, Traefik)
+├── docker-compose.yaml      # Production environment
+├── docker-compose-dev.yaml  # Local dev with OnlineConf (dev_stand: true)
 ├── Dockerfile               # Multi-stage build (50MB final image)
-├── Makefile                 # 40+ targets (build, test, lint, deploy)
+├── Makefile                 # 40+ targets (see docs/reference/makefile-targets.md)
 └── .github/workflows/       # CI/CD (test, build, push to registry)
 ```
+
+---
+
+## Architecture
+
+Generated projects follow a clean three-layer design:
+
+| Layer | Purpose | Config Dependency |
+|-------|---------|-------------------|
+| `pkg/` | Runtime libraries, reusable across projects | No |
+| `internal/pkg/` | Business logic, repositories (returns errors) | No |
+| `internal/app/` | Transport handlers, workers (logs errors) | Yes |
+
+Dependencies flow only downward. This separation enables testing without configuration and clear responsibility boundaries.
 
 ---
 
@@ -159,6 +225,8 @@ myservice/                    # ~50 files, ~8,000 lines of production-ready code
 | [Workflow](docs/workflow/index.md) | Regeneration, Makefile, OnlineConf |
 | [Examples](docs/examples/index.md) | Ready-to-use configurations |
 | [Testing](docs/testing/index.md) | GOAT integration tests |
+| [Reference](docs/reference/naming.md) | Naming conventions, Makefile targets, YAML schema |
+| [Troubleshooting](docs/troubleshooting.md) | FAQ and common issues |
 | [Comparison](COMPARISON.md) | vs Goa, go-zero, Sponge, grpc-gateway |
 | [Contributing](CONTRIBUTING.md) | How to contribute |
 
