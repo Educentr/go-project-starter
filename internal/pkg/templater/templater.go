@@ -373,35 +373,29 @@ func DisclaimerFinish(disclaimerFinish string) {
 func splitDisclaimer(fileContent string, disclaimerStart string, disclaimerFinish string) (string, string, error) {
 
 	// genMeta.StartDisclaimer
-	disclamerFindStart := strings.Index(fileContent, disclaimerStart)
-	if disclamerFindStart == -1 {
+	disclamerStartIndex := strings.Index(fileContent, disclaimerStart)
+	if disclamerStartIndex == -1 {
 		return fileContent, "", errors.New("disclaimerStart not found in file")
 	}
 
-	beforeLine := strings.Index(fileContent[:disclamerFindStart], "\n")
-	if beforeLine != -1 {
-		return fileContent[:disclamerFindStart], "", errors.New("there is a code before the disclaimer")
+	beforeDisclaimerStar := strings.Index(fileContent[:disclamerStartIndex], "\n")
+	if beforeDisclaimerStar != -1 && fileContent[:disclamerStartIndex] != "//" && fileContent[:disclamerStartIndex] != "#" {
+		return fileContent[:disclamerStartIndex], "", errors.New("there is a code before the disclaimer")
 	}
 
-	lineTop := strings.Index(fileContent[disclamerFindStart+len(disclaimerStart):], "\n")
-	if lineTop == -1 {
-		return fileContent[:disclamerFindStart], "", nil
-	}
-
-	foundFileContent := fileContent[disclamerFindStart+len(disclaimerStart)+lineTop+1:]
-	disclamerFindFinish := strings.Index(foundFileContent, disclaimerFinish)
-	if disclamerFindFinish == -1 {
+	disclamerFinishIndex := strings.Index(fileContent, disclaimerFinish)
+	if disclamerFinishIndex == -1 {
 		return fileContent, "", errors.New("disclaimerFinish not found in file")
 	}
 
-	lineBottom := strings.Index(fileContent[disclamerFindFinish+len(disclaimerFinish):], "\n")
-	if lineBottom == -1 {
-		return fileContent[:disclamerFindFinish], "", nil
-	}
+	disclaimerFindStart := fileContent[disclamerStartIndex+len(disclaimerStart)+1]
+	disclaimerFindFinish := fileContent[disclamerFinishIndex+len(disclaimerFinish)+1]
+	codeByGenerator := fileContent[disclaimerFindStart:disclaimerFindFinish]
 
-	userData := fileContent[disclamerFindStart+len(disclaimerStart)+lineTop+1+disclamerFindFinish+len(disclaimerFinish)+lineBottom+1:]
+	userDataIndex := strings.Index(fileContent[disclamerFinishIndex+len(disclaimerFinish)+1:], "\n")
+	userData := fileContent[userDataIndex:]
 
-	return fileContent[:disclamerFindStart+len(disclaimerStart)+lineTop+1], userData, nil
+	return codeByGenerator, userData, nil
 }
 
 const bufferSizeStep = 1024
