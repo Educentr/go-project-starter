@@ -54,6 +54,7 @@ GOPROXY ?=https://proxy.golang.org,direct
 GOPRIVATE ?=github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}
 PACKAGE = $(shell go list -m)
 PKG_LIST_FOR_TEST = $(shell go list ./...)
+PKG_LIST_FOR_UNIT_TEST = $(shell go list ./... | grep -v '/tests$$')
 
 COMMIT_BRANCH = $(shell git branch --no-color --show-current)
 
@@ -186,11 +187,20 @@ test-int-up-deps:
 	docker-compose up -d --build --force-recreate wiremock
 	@echo "Successful up testing dependencies"
 
-# Run unit testing
+# Run unit testing (excludes GOAT integration tests)
+.PHONY: unit-tests
+unit-tests:
+	@echo "Start unit testing $(SERVICE_NAME) \n"
+	go test -race -parallel=10 $(PKG_LIST_FOR_UNIT_TEST) -coverprofile=cover.out -timeout=$(TEST_TIMEOUT)
+
+# Run all tests
+{{- if .Applications.HasGoatTests }}
 .PHONY: test
-test:
-	@echo "Start testing $(SERVICE_NAME) \n"
-	go test -race -parallel=10 $(PKG_LIST_FOR_TEST) -coverprofile=cover.out -timeout=$(TEST_TIMEOUT)
+test: unit-tests goat-tests
+{{- else }}
+.PHONY: test
+test: unit-tests
+{{- end }}
 
 .PHONY: dep-ci
 dep-ci: ## Install dependencies
