@@ -230,7 +230,7 @@ run-{{ $a.Name }}: onlineconf-update
 # Build service {{ $a.Name }}
 .PHONY: build-{{ $a.Name }}
 build-{{ $a.Name }}:
-	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
+	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && CGO_ENABLED=0 go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
 
 .PHONY: build_for_test-{{ $a.Name }}
 build_for_test-{{ $a.Name }}: download
