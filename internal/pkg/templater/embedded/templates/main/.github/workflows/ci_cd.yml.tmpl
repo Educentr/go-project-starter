@@ -604,6 +604,8 @@ jobs:
           for f in $(ls envs-*/.env.*); do
             echo "Processing file: $f"
             echo "INTERNAL_LAN=${{"{{"}} matrix.ips[1] {{"}}"}}" >> $f
+            # Replace deploy-time placeholders (@@SSH_HOST@@, etc.)
+            sed -i "s/@@SSH_HOST@@/${{"{{"}} matrix.ips[0] {{"}}"}}/g" "$f"
           done
 
       - name: Deploy to Server

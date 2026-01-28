@@ -224,6 +224,8 @@ deploy-staging:
       DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
       {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
       EOF
+    # Replace deploy-time placeholders (@@SSH_HOST@@, etc.)
+    - sed -i "s/@@SSH_HOST@@/${SSH_HOST}/g" .env.staging
     - rsync -avz --delete .env.staging docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
     - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.staging envs/ && ./deploy.sh"
   rules:
@@ -253,6 +255,8 @@ deploy-production:
       DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
       {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
       EOF
+    # Replace deploy-time placeholders (@@SSH_HOST@@, etc.)
+    - sed -i "s/@@SSH_HOST@@/${SSH_HOST}/g" .env.main
     - rsync -avz --delete .env.main docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
     - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.main envs/ && ./deploy.sh"
   rules:
