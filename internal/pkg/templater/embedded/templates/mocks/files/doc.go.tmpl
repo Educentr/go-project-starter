@@ -1,0 +1,8 @@
+// Package {{ .Transport.Name }} contains generated mocks for {{ .Transport.Name }} server handler
+package {{ .Transport.Name }}
+
+{{ if .Transport.HasAuthParams -}}
+//go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=mock_handler.go -package={{ .Transport.Name }} {{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }} Handler,SecurityHandler
+{{ else -}}
+//go:generate go run go.uber.org/mock/mockgen@v0.6.0 -destination=mock_handler.go -package={{ .Transport.Name }} {{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }} Handler
+{{ end }}

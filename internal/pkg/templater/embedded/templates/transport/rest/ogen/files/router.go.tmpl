@@ -23,7 +23,7 @@ type API struct {
 	mw.DefaultMiddlewares
 	OgenErrorHandler
 	DefaultOgenMiddlewares
-{{ if ne "off" ( index .TransportParams "auth_handler" ) }}
+{{ if eq "on" ( index .TransportParams "auth_handler" ) }}
 	DefaultOgenSecurityHandler
 {{ end }}
 }
@@ -40,7 +40,7 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 		return errors.Wrap(err, "Handler initialization error")
 	}
 
-	{{ if ne "off" ( index .TransportParams "auth_handler" ) }}
+	{{ if eq "on" ( index .TransportParams "auth_handler" ) }}
 	securityHandler, err := a.NewSecurityHandler(ctx)
 	if err != nil {
 		return errors.Wrap(err, "security handler initialization")
@@ -49,7 +49,7 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 	// TODO	oas.WithTracerProvider(m.TracerProvider()),
 	oasServer, err := oas.NewServer(
 		oasHandler,
-		{{ if ne "off" (index .TransportParams "auth_handler") }}securityHandler,{{ end }}
+		{{ if eq "on" (index .TransportParams "auth_handler") }}securityHandler,{{ end }}
 		oas.WithErrorHandler(a.UnexpectedError),
 		oas.WithNotFound(a.NotFoundError),
 		oas.WithMiddleware(a.GetOgenMiddlewares(ctx)...),

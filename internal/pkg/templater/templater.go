@@ -23,7 +23,7 @@ import (
 
 // MinRuntimeVersion is the minimum supported version of go-project-starter-runtime.
 // This should be updated when new runtime version is released.
-const MinRuntimeVersion = "v0.9.0"
+const MinRuntimeVersion = "v0.11.1"
 
 type GeneratorParams struct {
 	AppInfo             string
@@ -34,6 +34,7 @@ type GeneratorParams struct {
 	ProjectPath         string
 	RegistryType        string
 	UseActiveRecord     bool
+	DevStand            bool
 	Repo                string
 	PrivateRepos        string
 	DockerImagePrefix   string
@@ -44,14 +45,18 @@ type GeneratorParams struct {
 	GolangciVersion     string
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
 	Drivers             ds.Drivers
 	Workers             ds.Workers
 	JSONSchemas         ds.JSONSchemas
+	Kafka               ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
 	Applications ds.Apps
 	Grafana      grafana.Config
+	Artifacts    ds.ArtifactsConfig
 }
 
 // type GeneratorParamDriver struct {
@@ -81,6 +86,14 @@ type GeneratorRunnerParams struct {
 	GeneratorParams
 	Worker       ds.Worker
 	WorkerParams map[string]string
+}
+
+// GeneratorKafkaParams holds parameters for Kafka driver template generation
+//
+//nolint:decorder // follows existing pattern - types after consts
+type GeneratorKafkaParams struct {
+	GeneratorParams
+	Kafka ds.KafkaConfig
 }
 
 type Template struct {
@@ -199,6 +212,7 @@ func GenerateFilenameByTmpl(file *ds.Files, targetPath string, lastVer int) erro
 var (
 	ignoreExistingPath = []string{
 		".git/",
+		"docs/",
 	}
 	ignoreIfExistsFiles = map[string]struct{}{
 		".gitignore":           {},
@@ -225,7 +239,9 @@ func isFileIgnore(path string) bool {
 	return false
 }
 
-func GetUserCodeFromFiles(targetDir string, files []ds.Files, disclaimerStart string, disclaimerFinish string) (ds.FilesDiff, error) {
+// disclaimerStartWithComment, err := MakeComment(path, disclaimerStart)
+
+func GetUserCodeFromFiles(targetDir string, files []ds.Files, disclaimerStartWithComment string, disclaimerFinishWithComment string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
 		IgnoreFiles:    make(map[string]struct{}),
@@ -302,7 +318,17 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, disclaimerStart st
 				return err
 			}
 
-			_, userData, err := splitDisclaimer(string(fileContent), disclaimerStart, disclaimerFinish)
+			disclaimerStartWithComment, err := MakeComment(path, DisclaimerTop)
+			if err != nil {
+				return fmt.Errorf("error while make comment: %w", err)
+			}
+
+			disclaimerFinishtWithComment, err := MakeComment(path, DisclaimerBottom)
+			if err != nil {
+				return fmt.Errorf("error while make comment: %w", err)
+			}
+
+			_, userData, err := splitDisclaimer(string(fileContent), disclaimerStartWithComment, disclaimerFinishtWithComment)
 			if err != nil {
 				// ToDo сделать force режим
 				return errors.Wrap(err, "error split disclaimer in file "+path)
@@ -326,7 +352,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, disclaimerStart st
 			}
 
 			// ToDo сделать удаление старых файлов с дисклеймером которые больше не будут генерироваться
-			_, userData, err := splitDisclaimer(string(fileContent), disclaimerStart, disclaimerFinish)
+			_, userData, err := splitDisclaimer(string(fileContent), disclaimerStartWithComment, disclaimerFinishWithComment)
 			if err == nil && len(userData) > 0 {
 				// ToDo сделать миграции с возможностью указать перемещение файлов из одного места в другое, что бы пользовательский код переносить
 				return errors.New("found user code in stale gen file " + targetDir + " / " + path)
@@ -370,18 +396,29 @@ func DisclaimerFinish(disclaimerFinish string) {
 	}
 }
 
-func splitDisclaimer(fileContent string, disclaimerStart string, disclaimerFinish string) (string, string, error) {
+// disclaimerStartWithComment, err := makeComment(fName, disclaimerStart)
 
+func splitDisclaimer(fileContent string, disclaimerStartWithComment string, disclaimerFinishtWithComment string) (string, string, error) {
 	// genMeta.StartDisclaimer
+	disclaimerStart := disclaimerStartWithComment
+	disclaimerFinish := disclaimerFinishtWithComment
 	disclamerStartIndex := strings.Index(fileContent, disclaimerStart)
 	if disclamerStartIndex == -1 {
 		return fileContent, "", errors.New("disclaimerStart not found in file")
 	}
 
 	beforeDisclaimerStar := strings.Index(fileContent[:disclamerStartIndex], "\n")
-	if beforeDisclaimerStar != -1 && fileContent[:disclamerStartIndex] != "//" && fileContent[:disclamerStartIndex] != "#" {
+	if beforeDisclaimerStar != -1 {
 		return fileContent[:disclamerStartIndex], "", errors.New("there is a code before the disclaimer")
 	}
+
+	/*
+		DisclaimerFinish, err := makeFinishDisclaimer(disclaimerFinish)
+		if err != nil {
+			fmt.Println(" -421  DisclaimerFinish: ", DisclaimerFinish, "\n -  disclaimerFinish: ", disclaimerFinish)
+			return "", "", errors.New("error while make comment for disclaimerFinish")
+		}
+	*/
 
 	disclamerFinishIndex := strings.Index(fileContent, disclaimerFinish)
 	if disclamerFinishIndex == -1 {
@@ -389,11 +426,13 @@ func splitDisclaimer(fileContent string, disclaimerStart string, disclaimerFinis
 	}
 
 	disclaimerFindStart := fileContent[disclamerStartIndex+len(disclaimerStart)+1]
-	disclaimerFindFinish := fileContent[disclamerFinishIndex+len(disclaimerFinish)+1]
-	codeByGenerator := fileContent[disclaimerFindStart:disclaimerFindFinish]
+	// disclaimerFindFinish := fileContent[disclamerFinishIndex+len(DisclaimerFinish)+1]
+	codeByGenerator := fileContent[disclaimerFindStart:disclamerFinishIndex]
 
 	userDataIndex := strings.Index(fileContent[disclamerFinishIndex+len(disclaimerFinish)+1:], "\n")
 	userData := fileContent[userDataIndex:]
+
+	fmt.Println(" -437  disclaimerStart: ", disclaimerStart, "\n -  disclaimerFinish: ", disclaimerFinish)
 
 	return codeByGenerator, userData, nil
 }

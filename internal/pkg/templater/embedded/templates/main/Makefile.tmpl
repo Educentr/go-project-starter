@@ -29,6 +29,11 @@ ARGENVERSION = {{ .ArgenVersion }}
 # go-jsonschema version
 GO_JSONSCHEMA_VERSION = {{ .GoJSONSchemaVersion }}
 {{- end }}
+{{- if .Applications.HasGoatTests }}
+# Goat versions
+GOATVERSION = {{ .GoatVersion }}
+GOATSERVICESVERSION = {{ .GoatServicesVersion }}
+{{- end }}
 # Onlineconf version
 ONLINECONF_UPDATER_VERSION = v3.6.4
 # Build datetime
@@ -192,6 +197,7 @@ dep-ci: ## Install dependencies
 	GOPRIVATE=$(GOPRIVATE) go mod download
 
 {{ range $_, $a := .Applications }}
+{{ if $a.HasDocker -}}
 # Build service {{ $a.Name }} in container
 .PHONY: build_in_docker-{{ $a.Name }}
 build_in_docker-{{ $a.Name }}:
@@ -205,7 +211,7 @@ docker-{{ $a.Name }}:
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:
 	docker push $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
-
+{{ end }}
 # Run service {{ $a.Name }}
 .PHONY: run-{{ $a.Name }}
 run-{{ $a.Name }}: onlineconf-update
@@ -221,20 +227,159 @@ build_for_test-{{ $a.Name }}: download
 	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "all=-N -l" -o /tmp/{{ $a.Name }} ${PACKAGE}/cmd/{{ $a.Name }}
 {{ end }}
 
-.PHONY: docker-list
-artifact-list: 
-	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}"{{ end }}]'
+.PHONY: artifact-list
+artifact-list:
+	@echo '[{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}"$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}", {{ end }}{{ end }}]' | sed 's/, *]$$/]/'
 
 .PHONY: docker-list
-docker-list: 
-	@echo '[{{ range $n, $a := .Applications }}{{ if ne $n 0}}, {{ end }}"docker-{{ $a.Name }}"{{ end }}]'
+docker-list:
+	@echo '[{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}"docker-{{ $a.Name }}", {{ end }}{{ end }}]' | sed 's/, *]$$/]/'
 
 .PHONY: docker
-docker: {{ range $_, $a := .Applications }}docker-{{ $a.Name }} {{ end }}
+docker: {{ range $_, $a := .Applications }}{{ if $a.HasDocker }}docker-{{ $a.Name }} {{ end }}{{ end }}
 
 .PHONY: docker-push
-docker-push: {{ range $_, $a := .Applications }}docker-{{ $a.Name }}-push {{ end }}
+docker-push: {{ range $_, $a := .Applications }}{{ if $a.HasDocker }}docker-{{ $a.Name }}-push {{ end }}{{ end }}
 
+{{ if .Artifacts.HasPackaging }}
+# nfpm tool installation
+NFPM_VERSION ?= 2.35.3
+.PHONY: install-nfpm
+install-nfpm:
+	go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
+
+# Package version (deb-compatible format: YYYYMMDD.HHMM+commit or 0~devYYYYMMDD.HHMM+commit)
+# Deb versions can't start with letters, dashes replaced with dots
+PKG_RELEASE = $(subst -,.,$(RELEASE))
+ifeq ($(COMMIT_BRANCH), main)
+PKG_VERSION ?= $(PKG_RELEASE).$(LAST_COMMIT_HASH)
+else
+PKG_VERSION ?= 0~dev$(PKG_RELEASE).$(LAST_COMMIT_HASH)
+endif
+
+{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}
+{{ if $a.HasDeb }}
+.PHONY: deb-{{ $a.Name }}
+deb-{{ $a.Name }}: build-{{ $a.Name }}
+	VERSION=$(PKG_VERSION) nfpm package -p deb -f packaging/{{ $a.Name }}/nfpm.yaml
+{{ end }}
+{{ if $a.HasRPM }}
+.PHONY: rpm-{{ $a.Name }}
+rpm-{{ $a.Name }}: build-{{ $a.Name }}
+	VERSION=$(PKG_VERSION) nfpm package -p rpm -f packaging/{{ $a.Name }}/nfpm.yaml
+{{ end }}
+{{ if $a.HasAPK }}
+.PHONY: apk-{{ $a.Name }}
+apk-{{ $a.Name }}: build-{{ $a.Name }}
+	VERSION=$(PKG_VERSION) nfpm package -p apk -f packaging/{{ $a.Name }}/nfpm.yaml
+{{ end }}
+{{ end }}{{ end }}
+
+# Aggregate package targets
+.PHONY: packages
+packages: {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDeb }}deb-{{ $a.Name }} {{ end }}{{ if $a.HasRPM }}rpm-{{ $a.Name }} {{ end }}{{ if $a.HasAPK }}apk-{{ $a.Name }} {{ end }}{{ end }}{{ end }}
+
+.PHONY: package-list
+package-list:
+	@echo '[{{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}{{ if $a.HasDeb }}"$(SERVICE_NAME)-{{ $a.Name }}_$(PKG_VERSION)_amd64.deb", {{ end }}{{ if $a.HasRPM }}"$(SERVICE_NAME)-{{ $a.Name }}-$(PKG_VERSION).x86_64.rpm", {{ end }}{{ if $a.HasAPK }}"$(SERVICE_NAME)-{{ $a.Name }}-$(PKG_VERSION).apk", {{ end }}{{ end }}{{ end }}]' | sed 's/, *]$$/]/'
+{{ end }}
+
+{{ if .Artifacts.HasUpload }}
+# Package upload configuration
+# Set these environment variables or pass as make arguments:
+{{- if .Artifacts.IsS3Compatible }}
+#   UPLOAD_BUCKET   - Target bucket name (required)
+#   UPLOAD_REGION   - Bucket region (optional, default: us-east-1)
+#   UPLOAD_PREFIX   - Path prefix in bucket (optional, default: packages)
+{{- if .Artifacts.IsMinio }}
+#   UPLOAD_ENDPOINT - MinIO endpoint URL (required for MinIO)
+{{- end }}
+{{- end }}
+{{- if .Artifacts.IsRsync }}
+#   UPLOAD_HOST - Target SSH host (required)
+#   UPLOAD_PATH - Remote path for packages (required)
+#   UPLOAD_USER - SSH username (required)
+{{- end }}
+UPLOAD_PREFIX ?= packages
+{{- if .Artifacts.IsS3Compatible }}
+UPLOAD_REGION ?= us-east-1
+{{- end }}
+
+# Upload all packages
+.PHONY: upload-packages
+upload-packages: packages
+{{- if .Artifacts.IsMinio }}
+	@echo "Uploading packages to MinIO (endpoint: $(UPLOAD_ENDPOINT))..."
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" {{ if $.Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if $.Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if $.Artifacts.HasAPK }}--include "*.apk" {{ end }}--endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@echo "Uploading packages to AWS S3..."
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" {{ if $.Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if $.Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if $.Artifacts.HasAPK }}--include "*.apk" {{ end }}--region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@echo "Uploading packages via rsync to $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)..."
+	@rsync -avz --progress {{ if $.Artifacts.HasDeb }}*.deb {{ end }}{{ if $.Artifacts.HasRPM }}*.rpm {{ end }}{{ if $.Artifacts.HasAPK }}*.apk {{ end }}$(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+	@echo "Upload complete"
+
+{{ if .Artifacts.HasDeb }}
+# Upload only deb packages
+.PHONY: upload-deb
+upload-deb:
+{{- if .Artifacts.IsMinio }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.deb" --endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.deb" --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@rsync -avz --progress *.deb $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+{{ end }}
+{{ if .Artifacts.HasRPM }}
+# Upload only rpm packages
+.PHONY: upload-rpm
+upload-rpm:
+{{- if .Artifacts.IsMinio }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.rpm" --endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.rpm" --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@rsync -avz --progress *.rpm $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+{{ end }}
+{{ if .Artifacts.HasAPK }}
+# Upload only apk packages
+.PHONY: upload-apk
+upload-apk:
+{{- if .Artifacts.IsMinio }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.apk" --endpoint-url $(UPLOAD_ENDPOINT) --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsAWS }}
+	@aws s3 cp . s3://$(UPLOAD_BUCKET)/$(UPLOAD_PREFIX)/ --recursive --exclude "*" --include "*.apk" --region $(UPLOAD_REGION)
+{{- else if .Artifacts.IsRsync }}
+	@rsync -avz --progress *.apk $(UPLOAD_USER)@$(UPLOAD_HOST):$(UPLOAD_PATH)/
+{{- end }}
+{{ end }}
+{{ end }}
+
+{{ if .DevStand }}
+# Development stand management
+.PHONY: dev-up
+dev-up:
+	docker compose -f docker-compose-dev.yaml up -d
+
+.PHONY: dev-rebuild
+dev-rebuild: dev-down
+	docker compose -f docker-compose-dev.yaml up -d --build{{ range .Applications }} {{ .Name }}{{ end }}
+
+.PHONY: dev-down
+dev-down:
+	docker compose -f docker-compose-dev.yaml down
+
+.PHONY: dev-restart
+dev-restart:
+	docker compose -f docker-compose-dev.yaml restart
+
+.PHONY: dev-drop
+dev-drop:
+	docker compose -f docker-compose-dev.yaml down -v
+{{ end }}
 .PHONY: build
 build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
 
@@ -331,6 +476,20 @@ install-ogen:
 	GOPRIVATE=$(GOPRIVATE) go install github.com/ogen-go/ogen/cmd/ogen@$(OGENVERSION)
 {{- end }}
 
+{{- if .Applications.HasGoatTests }}
+# Install goat and goat-services
+.PHONY: install-goat
+install-goat:
+	GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat@$(GOATVERSION)
+	GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat-services@$(GOATSERVICESVERSION)
+
+.PHONY: get-goat
+get-goat:
+	@echo "Fetching goat..."
+	@GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat@$(GOATVERSION)
+	@GOPRIVATE=$(GOPRIVATE) go get github.com/Educentr/goat-services@$(GOATSERVICESVERSION)
+{{- end }}
+
 # Print release tag
 .PHONY: release-tag
 release-tag:
@@ -363,6 +522,12 @@ install-hooks:
 mock:
 	@echo "Generating mocks..."
 	@go generate ./...
+
+# Generate test mocks only
+.PHONY: generate-mocks
+generate-mocks:
+	@echo "Generating test mocks..."
+	@go generate ./tests/mocks/...
 
 
 .PHONY: get-runtime
@@ -438,7 +603,7 @@ generate-test-env-{{ $a.Name }}:
 		$(MAKE) onlineconf-update-tests || true; \
 	fi
 	@echo "Generating tests/etc/onlineconf/onlineconf.env..."
-	@go run ./cmd/tests generate-env
+	@go run github.com/Educentr/goat/cmd/testutil@$(GOATVERSION) generate-env
 
 .PHONY: goat-tests-{{ $a.Name }}
 goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}

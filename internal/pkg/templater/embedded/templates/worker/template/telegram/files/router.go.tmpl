@@ -122,6 +122,9 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 		{{ .Logger.ErrorMsg "ctx" "err" "Unexpected error from onlineconf" }}
 	}
 
+	// settings/auto_refund_disable - позволяет отключить авторефанд на devstand
+	autoRefundDisable, _ := onlineconf.GetBool(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "auto_refund_disable"), false)
+
 	invoice := telegram.TelegramInvoiceData{
 		Products: srv.NewInvoiceProducts(),
 	}
@@ -134,7 +137,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 	}
 
 	defer func() {
-		if devstand {
+		if devstand && !autoRefundDisable {
 			err = srv.TelegramRefundPayment(ctx, message.From.ID, message.SuccessfulPayment.TelegramPaymentChargeID)
 			if err != nil {
 				{{ .Logger.ErrorMsg "ctx" "err" "Error refunding payment" }}

@@ -1,0 +1,110 @@
+package {{ .Kafka.Name | ToLower }}
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"strings"
+
+	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/plain"
+	"github.com/segmentio/kafka-go/sasl/scram"
+)
+
+// buildTransport creates a kafka.Transport with appropriate SASL/TLS configuration
+func buildTransport(ctx context.Context, serviceName string) (*kafka.Transport, error) {
+	authType, err := getAuthType(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get auth type: %w", err)
+	}
+
+	tlsEnabled, err := getTLSEnabled(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get tls enabled: %w", err)
+	}
+
+	tlsSkipVerify, err := getTLSSkipVerify(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get tls skip verify: %w", err)
+	}
+
+	tlsCACert, err := getTLSCACert(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get tls ca cert: %w", err)
+	}
+
+	transport := &kafka.Transport{}
+
+	// Configure TLS if enabled
+	if tlsEnabled {
+		tlsConfig := &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: tlsSkipVerify, //nolint:gosec // configurable for self-signed certs
+		}
+
+		// Load CA certificate if provided (PEM-encoded certificate content)
+		if tlsCACert != "" {
+			// Convert literal \n to actual newlines (OnlineConf stores them escaped)
+			tlsCACert = strings.ReplaceAll(tlsCACert, "\\n", "\n")
+
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM([]byte(tlsCACert)) {
+				return nil, fmt.Errorf("failed to parse CA certificate from tls_ca_cert")
+			}
+
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		transport.TLS = tlsConfig
+	}
+
+	// Configure SASL if not "none"
+	if authType != "none" && authType != "" {
+		mechanism, err := buildSASLMechanism(ctx, serviceName, authType)
+		if err != nil {
+			return nil, fmt.Errorf("build SASL mechanism: %w", err)
+		}
+		transport.SASL = mechanism
+	}
+
+	return transport, nil
+}
+
+// buildSASLMechanism creates the appropriate SASL mechanism based on auth type
+func buildSASLMechanism(ctx context.Context, serviceName, authType string) (sasl.Mechanism, error) {
+	username, password, err := getCredentials(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get credentials: %w", err)
+	}
+
+	if username == "" || password == "" {
+		return nil, fmt.Errorf("username and password required for %s authentication", authType)
+	}
+
+	switch authType {
+	case "PLAIN":
+		return plain.Mechanism{
+			Username: username,
+			Password: password,
+		}, nil
+
+	case "SCRAM-SHA-256":
+		mechanism, err := scram.Mechanism(scram.SHA256, username, password)
+		if err != nil {
+			return nil, fmt.Errorf("create SCRAM-SHA-256 mechanism: %w", err)
+		}
+		return mechanism, nil
+
+	case "SCRAM-SHA-512":
+		mechanism, err := scram.Mechanism(scram.SHA512, username, password)
+		if err != nil {
+			return nil, fmt.Errorf("create SCRAM-SHA-512 mechanism: %w", err)
+		}
+		return mechanism, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported auth type: %s (supported: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)", authType)
+	}
+}

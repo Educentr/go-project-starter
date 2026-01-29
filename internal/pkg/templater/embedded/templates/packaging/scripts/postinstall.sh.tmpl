@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+# Create service user if not exists
+if ! getent passwd {{ .ProjectName }} > /dev/null; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin {{ .ProjectName }}
+fi
+
+# Create config directory
+mkdir -p {{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}
+chown {{ .ProjectName }}:{{ .ProjectName }} {{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}
+{{- if .Application.UseEnvs }}
+
+# Create systemd override for EnvironmentFile (use_envs mode)
+mkdir -p /etc/systemd/system/{{ .ProjectName }}-{{ .Application.Name }}.service.d
+cat > /etc/systemd/system/{{ .ProjectName }}-{{ .Application.Name }}.service.d/environment.conf << 'EOF'
+[Service]
+EnvironmentFile={{ .Artifacts.Packaging.ConfigDir }}/{{ .Application.Name }}/environment
+EOF
+{{- end }}
+
+# Enable and start service
+systemctl daemon-reload
+systemctl enable {{ .ProjectName }}-{{ .Application.Name }} || true
+systemctl start {{ .ProjectName }}-{{ .Application.Name }} || true

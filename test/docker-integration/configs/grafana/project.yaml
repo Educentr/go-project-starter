@@ -1,18 +1,18 @@
 main:
-  name: grafana-test
+  name: grafanatest
   logger: zerolog
   registry_type: github
 
 post_generate: []
 
 git:
-  repo: git@github.com:test/grafana-test.git
-  module_path: github.com/test/grafana-test
+  repo: git@github.com:test/grafanatest.git
+  module_path: github.com/test/grafanatest
 
 tools:
   protobuf_version: 1.7.0
   golang_version: "1.24"
-  ogen_version: v1.8.1
+  ogen_version: v1.18.0
   golangci_version: 1.64.8
 
 grafana:
@@ -37,6 +37,7 @@ rest:
     api_prefix: /
     version: "v1"
     port: 8080
+    public_service: true
     generator_type: ogen
     generator_params:
       auth_handler: "off"
@@ -47,7 +48,7 @@ rest:
     generator_template: sys
 
 applications:
-  - name: apiServer
+  - name: api
     transport:
       - api
       - sys

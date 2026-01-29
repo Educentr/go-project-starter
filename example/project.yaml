@@ -31,8 +31,126 @@ rest:
     generator_type: template
     generator_template: sys
 
+<<<<<<< HEAD
+=======
+# worker:
+#   - name: worker
+#     generator_type: template
+#     generator_template: worker
+
+# CLI transport - interactive command-line interface
+# Works like a shell: first word is command, rest are arguments
+# CLI is exclusive - application with CLI cannot have REST/GRPC transports or workers
+# cli:
+#   - name: admin
+#     generator_type: template
+#     generator_template: cli
+# - name: migrate
+#   generator_type: template
+#   generator_template: cli
+
+# driver:
+#   - name: clickhouse_batcher
+
+# grpc:
+#   - name: ExampleService
+#     short: example
+#     path: ./example.proto
+#     port: 8083
+#   - name: AdminService
+#     short: admin
+#     path: ./admin.proto
+#     port: 8084
+
+# repository:
+#   - name: exampledb1
+#     type_db: psql
+#     driver_db: sqlc
+# #  - name: exampledb2
+# #    type_db: psql
+# #    driver_db: sqlc
+#   - name: examplecache
+#     alias: Cache # important: case-sensitive
+#     type_db: redis
+#     driver_db: redis
+
+# consumer:
+#  - name: petstore
+#    path: ./kafka_example.proto
+#    backend: kafka
+#    group: pets_store
+#    topic: pets_store_events
+
+# Kafka producer/consumer configuration
+# Generates typed Kafka driver with per-event publish methods
+# Configuration (brokers, auth) is read from OnlineConf at runtime:
+#   {service}/kafka/{client}/brokers                    - comma-separated broker list
+#   {service}/kafka/{client}/auth_type                  - none, PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+#   {service}/kafka/{client}/username                   - SASL username (if auth enabled)
+#   {service}/kafka/{client}/password                   - SASL password (if auth enabled)
+#   {service}/kafka/{client}/tls_enabled                - 0 or 1
+#   {service}/kafka/{client}/tls_skip_verify            - 0 or 1 (skip TLS cert verification, use only for dev)
+#   {service}/kafka/{client}/tls_ca_cert                - PEM-encoded CA certificate content (optional)
+#   {service}/kafka/{client}/events/{event_name}/topic  - topic name override (default = event name)
+kafka:
+  # Auto-generated producer using segmentio/kafka-go
+  # Events are published to topics with the same name by default.
+  # Topic names can be overridden per environment in OnlineConf:
+  #   staging: /myapp/kafka/main_kafka/events/user_events/topic = "staging_user_events"
+  #   prod:    /myapp/kafka/main_kafka/events/user_events/topic = "prod_user_events"
+  - name: events_producer
+    type: producer
+    driver: segmentio           # segmentio (default) - auto-generated, custom - user-provided
+    client: main_kafka          # client name for OnlineConf path
+    events:
+      - name: user_events       # event name = default topic name (override via OnlineConf)
+        # schema: models.user   # optional: jsonschema_name.schema_id for typed messages
+
+  # Example with custom driver (user implements their own)
+  # - name: custom_producer
+  #   type: producer
+  #   driver: custom
+  #   driver_import: github.com/myorg/kafka-driver
+  #   driver_package: kafkadriver
+  #   driver_obj: Producer
+  #   client: confluent_kafka
+  #   events:
+  #     - name: orders
+  #       schema: orders.OrderEvent
+
+>>>>>>> origin/main
 applications:
   - name: apiServer
     transport:
       - api
       - sys
+<<<<<<< HEAD
+=======
+      #- ExampleService
+    kafka:
+      - events_producer
+    driver:
+      # - clickhouse_batcher
+    # depends_on_docker_images:
+      # - ghcr.io/org/image:latest  # Docker images to pull before starting
+    # Grafana dashboard settings for this application
+    # References datasources defined in global grafana section
+    grafana:
+      datasources:
+        - Prometheus
+        - Loki
+    deploy:
+      volumes:
+        - path: ./backupdata
+          mount: /backup
+  # - name: internalApi
+  #   transport:
+  #     - AdminService
+  #     - sys
+  # CLI application example - uses cli field instead of transport
+  # CLI apps work like shell: ./admin-cli <command> [args...]
+  # - name: admin-cli
+  #   cli: admin
+  #   driver:
+  #     - name: postgres
+>>>>>>> origin/main

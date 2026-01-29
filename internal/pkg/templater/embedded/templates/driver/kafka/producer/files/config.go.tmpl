@@ -1,0 +1,90 @@
+package {{ .Kafka.Name | ToLower }}
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+)
+
+// getBrokers returns broker addresses from OnlineConf
+// Path: {serviceName}/kafka/{clientName}/brokers
+func getBrokers(ctx context.Context, serviceName string) ([]string, error) {
+	path := onlineconf.MakePath(serviceName, "kafka", clientName, "brokers")
+	brokers, err := onlineconf.GetString(ctx, path, "")
+	if err != nil {
+		return nil, fmt.Errorf("get brokers from %s: %w", path, err)
+	}
+	if brokers == "" {
+		return nil, fmt.Errorf("brokers not configured at %s", path)
+	}
+	return strings.Split(brokers, ","), nil
+}
+
+// getAuthType returns authentication type from OnlineConf
+// Path: {serviceName}/kafka/{clientName}/auth_type
+// Possible values: none, PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+func getAuthType(ctx context.Context, serviceName string) (string, error) {
+	path := onlineconf.MakePath(serviceName, "kafka", clientName, "auth_type")
+	return onlineconf.GetString(ctx, path, "none")
+}
+
+// getCredentials returns SASL credentials from OnlineConf
+// Path: {serviceName}/kafka/{clientName}/username
+// Path: {serviceName}/kafka/{clientName}/password
+func getCredentials(ctx context.Context, serviceName string) (username, password string, err error) {
+	userPath := onlineconf.MakePath(serviceName, "kafka", clientName, "username")
+	passPath := onlineconf.MakePath(serviceName, "kafka", clientName, "password")
+
+	username, err = onlineconf.GetString(ctx, userPath, "")
+	if err != nil {
+		return "", "", fmt.Errorf("get username from %s: %w", userPath, err)
+	}
+	password, err = onlineconf.GetString(ctx, passPath, "")
+	if err != nil {
+		return "", "", fmt.Errorf("get password from %s: %w", passPath, err)
+	}
+	return username, password, nil
+}
+
+// getTLSEnabled returns whether TLS is enabled from OnlineConf
+// Path: {serviceName}/kafka/{clientName}/tls_enabled
+func getTLSEnabled(ctx context.Context, serviceName string) (bool, error) {
+	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_enabled")
+	return onlineconf.GetBool(ctx, path, false)
+}
+
+// getTLSSkipVerify returns whether to skip TLS certificate verification
+// Path: {serviceName}/kafka/{clientName}/tls_skip_verify
+// Use only for development/testing with self-signed certificates
+func getTLSSkipVerify(ctx context.Context, serviceName string) (bool, error) {
+	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_skip_verify")
+	return onlineconf.GetBool(ctx, path, false)
+}
+
+// getTLSCACert returns the CA certificate content from OnlineConf
+// Path: {serviceName}/kafka/{clientName}/tls_ca_cert
+// The value should be a PEM-encoded CA certificate content
+func getTLSCACert(ctx context.Context, serviceName string) (string, error) {
+	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_ca_cert")
+	return onlineconf.GetString(ctx, path, "")
+}
+
+// loadEventTopics loads topic names for events from OnlineConf.
+// Default: event name = topic name, can be overridden via OnlineConf.
+// Path: {serviceName}/kafka/{clientName}/events/{eventName}/topic
+func loadEventTopics(ctx context.Context, serviceName string) (map[string]string, error) {
+	eventTopics := make(map[string]string)
+{{- range $_, $event := .Kafka.Events }}
+	{
+		path := onlineconf.MakePath(serviceName, "kafka", clientName, "events", "{{ $event.Name }}", "topic")
+		topic, err := onlineconf.GetString(ctx, path, "{{ $event.Name }}")
+		if err != nil {
+			return nil, fmt.Errorf("get topic for event {{ $event.Name }}: %w", err)
+		}
+		eventTopics["{{ $event.Name }}"] = topic
+	}
+{{- end }}
+	return eventTopics, nil
+}

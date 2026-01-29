@@ -7,17 +7,18 @@ import (
 )
 
 const (
-	extYaml = ".yaml"
-	extYml  = ".yml"
-	extGo   = ".go"
-	extMod  = ".mod"
-	extSum  = ".sum"
-	extSQL  = ".sql"
-	extMD   = ".md"
-	extTxt  = ".txt"
-	extSh   = ".sh"
-	extDot  = "."
-	extJSON = ".json"
+	extYaml    = ".yaml"
+	extYml     = ".yml"
+	extGo      = ".go"
+	extMod     = ".mod"
+	extSum     = ".sum"
+	extSQL     = ".sql"
+	extMD      = ".md"
+	extTxt     = ".txt"
+	extSh      = ".sh"
+	extDot     = "."
+	extJSON    = ".json"
+	extService = ".service"
 )
 
 func isFileIgnored(fName string) bool {
@@ -54,7 +55,7 @@ func makeStartDisclaimer(fName string) (string, error) {
 		prefix = "# " + fname + "\n\n"
 	}
 
-	text, err := makeComment(fname, DisclaimerTop)
+	text, err := MakeComment(fname, DisclaimerTop)
 	if err != nil {
 		return "", fmt.Errorf("error while make comment: %w", err)
 	}
@@ -70,10 +71,10 @@ func makeFinishDisclaimer(fName string) (string, error) {
 		return "", nil
 	}
 
-	return makeComment(fname, DisclaimerBottom)
+	return MakeComment(fname, DisclaimerBottom)
 }
 
-func makeComment(fName, text string) (string, error) {
+func MakeComment(fName, text string) (string, error) {
 	var (
 		res         string
 		commPrefix  string
@@ -92,6 +93,8 @@ func makeComment(fName, text string) (string, error) {
 
 		fallthrough
 	case extSh:
+		fallthrough
+	case extService:
 		fallthrough
 	case ".gitignore":
 		fallthrough

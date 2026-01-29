@@ -6,9 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Go Project Starter is a **code generator** (not a running microservice). It generates production-ready Go microservices from YAML configuration files. The generator uses 78+ embedded templates to produce ~8,000 lines of production-grade code including REST APIs, gRPC services, Kafka consumers, Telegram bots, and complete infrastructure.
 
-## IMPORTANT: Runtime Version Update
+## IMPORTANT: Release Checklist
 
-**При каждом релизе go-project-starter необходимо обновить `MinRuntimeVersion`:**
+**При каждом релизе go-project-starter выполнить:**
+
+### 1. Runtime Version Update
 
 1. Проверить последний тег в репозитории go-project-starter-runtime
 2. Обновить константу `MinRuntimeVersion` в файле `internal/pkg/templater/templater.go`
@@ -18,6 +20,35 @@ Go Project Starter is a **code generator** (not a running microservice). It gene
 // internal/pkg/templater/templater.go
 const MinRuntimeVersion = "vX.Y.Z"  // <- обновить до последней версии runtime
 ```
+
+### 2. Deprecation Cleanup
+
+1. Проверить `internal/pkg/migrate/migrate.go` на константы `RemovalVersion*`
+2. Если текущая версия >= версия удаления:
+   - Удалить код обратной совместимости
+   - Удалить миграционную логику для этой функции
+   - Обновить `DEPRECATION.md`
+
+См. полную политику deprecation в [DEPRECATION.md](DEPRECATION.md)
+
+### 3. GitHub Release (ОБЯЗАТЕЛЬНО)
+
+**Тег != релиз!** После пуша тега обязательно создать GitHub Release.
+
+1. Найти последний релиз (не тег!): `gh release list --limit 1`
+2. Получить коммит последнего релиза: `gh release view <version> --json targetCommitish`
+3. Посмотреть изменения относительно последнего релиза:
+   ```bash
+   # Diff между релизами (не тегами!)
+   gh release view <prev-version> --json targetCommitish -q .targetCommitish
+   git log --oneline <prev-commit>..HEAD
+   ```
+4. Создать релиз с release notes:
+   ```bash
+   gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "Release notes..."
+   ```
+
+**Важно:** Release notes составлять относительно коммита последнего релиза, а не последнего тега!
 
 ## Build/Test/Lint Commands
 
@@ -89,6 +120,22 @@ templater/embedded/templates/
 - **Driver** - External service integration implementing `Runnable` interface (Init, Run, Shutdown, GracefulShutdown)
 - **Disclaimer Markers** - Separates generated code from manual code; code below marker survives regeneration
 
+### Naming Hierarchy
+
+| Name | Source | Example | Access |
+|------|--------|---------|--------|
+| **ServiceName** | `Main.Name` | `"my-api"` | `constant.ServiceName` |
+| **AppName** | `Application.Name` | `"web-app"` | `ds.AppInfo.AppName` |
+| **TransportName** | `Transport.Name` | `"api_v1"` | Function parameter |
+| **WorkerName** | `Worker.Name` | `"telegram"` | Function parameter |
+
+**OnlineConf paths** (3-level priority):
+1. Default from code
+2. Transport: `/{serviceName}/transport/rest/{transportName}/{key}`
+3. App-specific: `/{serviceName}/transport/rest/{transportName}/{appName}/{key}`
+
+See [docs/NAMING.md](docs/NAMING.md) for detailed documentation.
+
 ### Generator Types
 
 - `ogen` - OpenAPI 3.0 code generation for REST
@@ -106,3 +153,52 @@ templater/embedded/templates/
 
 - `test/generate_test.go` - Integration tests
 - `test/configs/` - Test configurations (config1.yml, example.proto, example.swagger.yml)
+
+## Manual Testing
+
+### Testing Generator Changes
+
+После изменений в генераторе или шаблонах:
+
+```bash
+# Установить и сгенерировать тестовый проект
+go install ./cmd/go-project-starter && \
+  rm -rf ~/Develop/tmp/test-app && \
+  mkdir ~/Develop/tmp/test-app && \
+  go-project-starter --configDir=./test/docker-integration/configs/rest-only --target=~/Develop/tmp/test-app
+```
+
+### Testing dev_stand Feature
+
+Функция `dev_stand: true` генерирует локальное окружение с OnlineConf.
+
+**Важно:** При изменениях в SQL-шаблонах нужно удалить MySQL volume, иначе init-скрипты не применятся повторно.
+
+```bash
+# 1. Остановить контейнеры и удалить volumes (если были запущены ранее)
+cd ~/Develop/tmp/test-app && docker compose -f docker-compose-dev.yaml down -v
+
+# 2. Установить генератор и пересоздать проект
+go install ./cmd/go-project-starter && \
+  rm -rf ~/Develop/tmp/test-app && \
+  mkdir ~/Develop/tmp/test-app && \
+  go-project-starter --configDir=./test/docker-integration/configs/rest-only --target=~/Develop/tmp/test-app
+
+# 3. Запустить dev-окружение
+cd ~/Develop/tmp/test-app && docker compose -f docker-compose-dev.yaml up
+```
+
+**Что проверить:**
+- OnlineConf Admin UI доступен на http://localhost:8888
+- Traefik dashboard на http://localhost:9080
+- API на http://localhost:8080
+- Sys metrics на http://localhost:8085
+- `onlineconf-updater` в статусе healthy (создан файл TREE.cdb)
+
+### Docker Integration Tests
+
+```bash
+# Собрать образ и запустить интеграционные тесты
+make buildfortest
+TEST_IMAGE=go-project-starter-test:latest go test -v -count=1 -run TestIntegrationRESTOnly ./test/docker-integration/...
+```

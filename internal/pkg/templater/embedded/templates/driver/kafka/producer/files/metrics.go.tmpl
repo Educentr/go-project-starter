@@ -1,0 +1,95 @@
+package {{ .Kafka.Name | ToLower }}
+
+import (
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+// Metrics holds Prometheus metrics for the Kafka producer
+type Metrics struct {
+	publishDuration *prometheus.HistogramVec
+	publishTotal    *prometheus.CounterVec
+	publishErrors   *prometheus.CounterVec
+}
+
+// NewMetrics creates new Prometheus metrics for the Kafka producer
+func NewMetrics(registry *prometheus.Registry, producerName string) *Metrics {
+	m := &Metrics{
+		publishDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "kafka_producer_publish_duration_seconds",
+				Help:    "Duration of Kafka publish operations",
+				Buckets: prometheus.DefBuckets,
+				ConstLabels: prometheus.Labels{
+					"producer": producerName,
+				},
+			},
+			[]string{"topic"},
+		),
+		publishTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "kafka_producer_publish_total",
+				Help: "Total number of messages published to Kafka",
+				ConstLabels: prometheus.Labels{
+					"producer": producerName,
+				},
+			},
+			[]string{"topic"},
+		),
+		publishErrors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "kafka_producer_publish_errors_total",
+				Help: "Total number of Kafka publish errors",
+				ConstLabels: prometheus.Labels{
+					"producer": producerName,
+				},
+			},
+			[]string{"topic", "error_type"},
+		),
+	}
+
+	if registry != nil {
+		registry.MustRegister(m.publishDuration)
+		registry.MustRegister(m.publishTotal)
+		registry.MustRegister(m.publishErrors)
+	}
+
+	return m
+}
+
+// RecordLatency records the publish latency for a topic
+func (m *Metrics) RecordLatency(topic string, duration time.Duration) {
+	if m.publishDuration != nil {
+		m.publishDuration.WithLabelValues(topic).Observe(duration.Seconds())
+	}
+}
+
+// RecordSuccess records a successful publish for a topic
+func (m *Metrics) RecordSuccess(topic string) {
+	if m.publishTotal != nil {
+		m.publishTotal.WithLabelValues(topic).Inc()
+	}
+}
+
+// RecordError records a publish error for a topic
+func (m *Metrics) RecordError(topic, errorType string) {
+	if m.publishErrors != nil {
+		m.publishErrors.WithLabelValues(topic, errorType).Inc()
+	}
+}
+
+// PublishSuccess records a successful async publish
+func (m *Metrics) PublishSuccess(topic string) {
+	m.RecordSuccess(topic)
+}
+
+// PublishError records a failed async publish
+func (m *Metrics) PublishError(topic string) {
+	m.RecordError(topic, "write_error")
+}
+
+// PublishDropped records a dropped message (queue full)
+func (m *Metrics) PublishDropped(topic string) {
+	m.RecordError(topic, "queue_full")
+}

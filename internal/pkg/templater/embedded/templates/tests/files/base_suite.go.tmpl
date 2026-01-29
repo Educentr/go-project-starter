@@ -21,7 +21,8 @@ type BaseTestSuite struct {
 	{{ $tr.Name }}Client *HTTPClient
 {{ end }}{{ end }}
 {{ if .Application.HasOgenClients }}
-	mocks  *MockServers
+	mocks      *MockServers
+	mocksSetup *MocksSetup
 {{ end }}
 }
 
@@ -45,15 +46,16 @@ func (s *BaseTestSuite) SetupSuite() {
 {{ end }}
 
 {{ if .Application.HasOgenClients }}
-	// Initialize mocks holder
+	// Initialize mocks holder and setup
 	s.mocks = &MockServers{}
+	s.mocksSetup = NewMocksSetup(s.mocks)
 
 	// Create flow with HTTP mocks
 	s.flow = gtt.NewFlow(
 		s.T(),
 		s.env,
 		NewTestApp(s.env),
-		HTTPMocksSetup(s.mocks),
+		s.mocksSetup.HTTPMocksSetup(),
 		nil, // No gRPC mocks needed
 	)
 {{ else }}

@@ -95,6 +95,10 @@ coverage:
 race:
 	@go test ./... -race -parallel=10
 
+.PHONY: local-install
+local-install:
+	@go install -ldflags="$(LD_FLAGS)" ./cmd/go-project-starter
+
 # Build binary for integration tests
 .PHONY: buildfortest
 buildfortest:

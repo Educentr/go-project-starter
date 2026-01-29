@@ -1,18 +1,18 @@
 main:
-  name: combined-test
+  name: combinedtest
   logger: zerolog
   registry_type: github
 
 post_generate: []
 
 git:
-  repo: git@github.com:test/combined-test.git
-  module_path: github.com/test/combined-test
+  repo: git@github.com:test/combinedtest.git
+  module_path: github.com/test/combinedtest
 
 tools:
   protobuf_version: 1.7.0
   golang_version: "1.24"
-  ogen_version: v1.8.1
+  ogen_version: v1.18.0
   golangci_version: 1.64.8
   buf_version: 1.47.2
 
@@ -23,6 +23,7 @@ rest:
     api_prefix: /
     version: "v1"
     port: 8080
+    public_service: true
     generator_type: ogen
     generator_params:
       auth_handler: "off"
@@ -38,6 +39,8 @@ grpc:
     path: ./item.proto
     port: 8090
     generator_type: buf_client
+    buf_local_plugins: true
+    empty_config_available: true
 
 worker:
   - name: telegrambot
@@ -49,7 +52,7 @@ worker:
 
 driver:
   - name: telegram
-    import: github.com/test/combined-test/pkg/drivers/telegram
+    import: github.com/test/combinedtest/pkg/drivers/telegram
     package: telegram
     obj_name: Telegram
     service_injection: |
@@ -57,13 +60,14 @@ driver:
       telegram.UnimplementedPayment
 
 applications:
-  - name: apiServer
+  - name: api
     transport:
       - api
       - sys
+      - ItemService
     worker:
       - daemon
-  - name: botServer
+  - name: bot
     transport:
       - sys
     worker:

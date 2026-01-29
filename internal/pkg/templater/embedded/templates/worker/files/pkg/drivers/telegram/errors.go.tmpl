@@ -18,3 +18,35 @@ func IsBotBlockedError(err error) bool {
 		strings.Contains(errStr, "user is deactivated") ||
 		strings.Contains(errStr, "bot can't initiate conversation")
 }
+
+// IsMessageDeleteError проверяет, является ли ошибка ожидаемой при удалении сообщения
+// Telegram API возвращает ошибки:
+// - "Bad Request: message can't be deleted for everyone" (сообщение старше 48 часов)
+// - "Bad Request: message to delete not found" (сообщение уже удалено)
+func IsMessageDeleteError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	return strings.Contains(errStr, "message can't be deleted") ||
+		strings.Contains(errStr, "message to delete not found")
+}
+
+// IsMessageEditError проверяет, является ли ошибка ожидаемой при редактировании сообщения
+// Telegram API возвращает ошибки:
+// - "Bad Request: there is no text in the message to edit"
+// - "Bad Request: message is not modified" (сообщение не изменилось)
+// - "Bad Request: message to edit not found" (сообщение не найдено)
+func IsMessageEditError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	return strings.Contains(errStr, "no text in the message to edit") ||
+		strings.Contains(errStr, "message is not modified") ||
+		strings.Contains(errStr, "message to edit not found")
+}

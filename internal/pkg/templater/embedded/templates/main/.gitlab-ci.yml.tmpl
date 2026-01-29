@@ -1,0 +1,307 @@
+stages:
+  - prepare
+  - test
+  - build
+  - deploy
+  - notify
+{{ if .Artifacts.HasDocker }}
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_DRIVER: overlay2
+
+# Default image for jobs
+default:
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+{{ end }}
+# Cache configuration
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .cache/go/mod/
+
+# Prepare environment variables and version info
+prepare-env:
+  stage: prepare
+  image: golang:{{ .GoLangVersion }}
+  script:
+    - echo "RELEASE=$(make release-tag)" >> build.env
+{{- if .Artifacts.HasDocker }}
+    - echo "CONTAINERS=$(make docker-list)" >> build.env
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+    - echo "ARTIFACTS=$(make artifact-list)" >> build.env
+{{- end }}
+  artifacts:
+    reports:
+      dotenv: build.env
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
+
+{{ if .Artifacts.HasDocker }}
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
+# GOAT tests for {{ $a.Name }}
+goat-tests-{{ $a.Name | ReplaceDash }}:
+  stage: test
+  image: golang:{{ $.GoLangVersion }}
+  needs:
+    - prepare-env
+  before_script:
+    {{ if eq $.RegistryType "github" -}}
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+    {{ else if eq $.RegistryType "digitalocean" -}}
+    - apt-get update && apt-get install -y snapd
+    - snap install doctl
+    - doctl registry login -t "$REGISTRY_PASSWORD"
+    {{ else if eq $.RegistryType "aws" -}}
+    - apt-get update && apt-get install -y awscli
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
+    {{ else if eq $.RegistryType "selfhosted" -}}
+    - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
+    {{ end -}}
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
+    {{ if $.PrivateRepos -}}
+    - go env -w GOPRIVATE="gitlab.com{{ if $.PrivateRepos }},{{ $.PrivateRepos }}{{ end }}"
+    {{ end -}}
+  script:
+    - make goat-tests-{{ $a.Name }}
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging") && $SKIP_GOAT_TESTS != "true"
+{{ end }}{{ end }}
+
+# Build job template for Docker images
+.build-template: &build-template
+  stage: build
+  needs:
+    - prepare-env
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}    - job: goat-tests-{{ $a.Name | ReplaceDash }}
+      optional: true
+{{ end }}{{ end }}
+  before_script:
+    {{ if eq .RegistryType "github" -}}
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+    {{ else if eq .RegistryType "digitalocean" -}}
+    - apk add --no-cache curl
+    - curl -sL https://github.com/digitalocean/doctl/releases/download/v1.94.0/doctl-1.94.0-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+    - doctl registry login -t "$REGISTRY_PASSWORD"
+    {{ else if eq .RegistryType "aws" -}}
+    - apk add --no-cache aws-cli
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
+    {{ else if eq .RegistryType "selfhosted" -}}
+    - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
+    {{ end -}}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
+
+# Build Docker images for each application
+{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}
+build-{{ $a.Name | ReplaceDash }}:
+  <<: *build-template
+  script:
+    - export REGISTRY_SERVER="${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}"
+    - make docker-{{ $a.Name }}
+    - make docker-{{ $a.Name }}-push
+{{ end }}{{ end }}
+{{ end }}
+
+{{ if .Artifacts.HasPackaging }}
+# Build system packages (deb/rpm/apk)
+build-packages:
+  stage: build
+  image: golang:{{ .GoLangVersion }}
+  needs:
+    - prepare-env
+{{ range $_, $a := .Applications }}{{ if $a.GoatTests }}    - job: goat-tests-{{ $a.Name | ReplaceDash }}
+      optional: true
+{{ end }}{{ end }}  before_script:
+    - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+  script:
+    - make packages
+  artifacts:
+    paths:
+      {{- if .Artifacts.HasDeb }}
+      - "*.deb"
+      {{- end }}
+      {{- if .Artifacts.HasRPM }}
+      - "*.rpm"
+      {{- end }}
+      {{- if .Artifacts.HasAPK }}
+      - "*.apk"
+      {{- end }}
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+{{ if .Artifacts.HasUpload }}
+# Upload packages to storage
+# Required CI/CD variables:
+{{- if .Artifacts.IsMinio }}
+#   MINIO_ACCESS_KEY, MINIO_SECRET_KEY - MinIO credentials
+#   UPLOAD_ENDPOINT - MinIO endpoint URL (e.g., https://minio.example.com)
+#   UPLOAD_BUCKET - Target bucket name
+#   UPLOAD_PREFIX - Path prefix in bucket (optional, default: packages)
+{{- else if .Artifacts.IsAWS }}
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY - AWS credentials
+#   UPLOAD_BUCKET - Target S3 bucket name
+#   UPLOAD_REGION - Bucket region (optional, default: us-east-1)
+#   UPLOAD_PREFIX - Path prefix in bucket (optional, default: packages)
+{{- else if .Artifacts.IsRsync }}
+#   UPLOAD_SSH_PRIVATE_KEY - SSH private key for rsync
+#   UPLOAD_HOST - Target SSH host
+#   UPLOAD_USER - SSH username
+#   UPLOAD_PATH - Remote path for packages
+{{- end }}
+upload-packages:
+  stage: deploy
+  image: {{ if .Artifacts.IsMinio }}minio/mc:latest{{ else if .Artifacts.IsAWS }}amazon/aws-cli:latest{{ else }}alpine:latest{{ end }}
+  needs:
+    - build-packages
+  before_script:
+    {{- if .Artifacts.IsRsync }}
+    - apk add --no-cache openssh-client rsync
+    - eval $(ssh-agent -s)
+    - echo "$UPLOAD_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H "$UPLOAD_HOST" >> ~/.ssh/known_hosts
+    {{- else if .Artifacts.IsMinio }}
+    - mc alias set minio ${UPLOAD_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}
+    {{- else if .Artifacts.IsAWS }}
+    - aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+    - aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+    {{- end }}
+  script:
+    {{- if .Artifacts.IsMinio }}
+    - mc cp {{ if .Artifacts.HasDeb }}*.deb {{ end }}{{ if .Artifacts.HasRPM }}*.rpm {{ end }}{{ if .Artifacts.HasAPK }}*.apk {{ end }}minio/${UPLOAD_BUCKET}/${UPLOAD_PREFIX:-packages}/
+    {{- else if .Artifacts.IsAWS }}
+    - aws s3 cp . s3://${UPLOAD_BUCKET}/${UPLOAD_PREFIX:-packages}/ --recursive --exclude "*" {{ if .Artifacts.HasDeb }}--include "*.deb" {{ end }}{{ if .Artifacts.HasRPM }}--include "*.rpm" {{ end }}{{ if .Artifacts.HasAPK }}--include "*.apk" {{ end }}--region ${UPLOAD_REGION:-us-east-1}
+    {{- else if .Artifacts.IsRsync }}
+    - rsync -avz --progress {{ if .Artifacts.HasDeb }}*.deb {{ end }}{{ if .Artifacts.HasRPM }}*.rpm {{ end }}{{ if .Artifacts.HasAPK }}*.apk {{ end }}${UPLOAD_USER}@${UPLOAD_HOST}:${UPLOAD_PATH}/
+    {{- end }}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+{{ end }}
+{{ end }}
+
+{{ if .Artifacts.HasDocker }}
+# Deploy job template (Docker-based deployments)
+.deploy-template: &deploy-template
+  stage: deploy
+  image: alpine:latest
+  needs:
+{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}    - build-{{ $a.Name | ReplaceDash }}
+{{ end }}{{ end }}{{ if .Artifacts.HasUpload }}    - upload-packages
+{{ end }}  before_script:
+    - apk add --no-cache openssh-client rsync
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+# Deploy to staging
+deploy-staging:
+  <<: *deploy-template
+  environment:
+    name: staging
+  script:
+    - |
+      # Create env file
+      cat > .env.staging << EOF
+      OC_HOST=${OC_HOST}
+      OC_PORT=${OC_PORT}
+      OC_USER=${OC_USER}
+      OC_PASSWORD=${OC_PASSWORD}
+      APP_VERSION=${RELEASE}
+      REGISTRY_SERVER=${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}
+      INTERNAL_SUBNET=${INTERNAL_SUBNET}
+      {{ range $_, $a := $.Applications }}{{ if $a.HasDocker -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
+      {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
+      {{ if $t.PublicService -}}
+      DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
+      {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
+      EOF
+    - rsync -avz --delete .env.staging docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
+    - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.staging envs/ && ./deploy.sh"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "staging"
+
+# Deploy to production
+deploy-production:
+  <<: *deploy-template
+  environment:
+    name: production
+  script:
+    - |
+      # Create env file
+      cat > .env.main << EOF
+      OC_HOST=${OC_HOST}
+      OC_PORT=${OC_PORT}
+      OC_USER=${OC_USER}
+      OC_PASSWORD=${OC_PASSWORD}
+      APP_VERSION=${RELEASE}
+      REGISTRY_SERVER=${REGISTRY_LOGIN_SERVER}/${REGISTRY_CONTAINER}
+      INTERNAL_SUBNET=${INTERNAL_SUBNET}
+      {{ range $_, $a := $.Applications }}{{ if $a.HasDocker -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
+      {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
+      PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
+      {{ if $t.PublicService -}}
+      DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
+      {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
+      EOF
+    - rsync -avz --delete .env.main docker-compose-*.yaml "${SSH_USER}@${SSH_HOST}:/opt/{{ .ProjectName }}-cd/"
+    - ssh "${SSH_USER}@${SSH_HOST}" "cd /opt/{{ .ProjectName }}-cd && mv .env.main envs/ && ./deploy.sh"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: manual
+
+# Notification job
+notify:
+  stage: notify
+  image: curlimages/curl:latest
+  needs:
+{{ range $_, $a := .Applications }}{{ if $a.HasDocker }}    - build-{{ $a.Name | ReplaceDash }}
+{{ end }}{{ end }}
+{{- if .Artifacts.HasPackaging }}
+    - build-packages
+{{- end }}
+  script:
+    - |
+      if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+        ESCAPED_COMMIT_MSG=$(echo "$CI_COMMIT_MESSAGE" | head -1 | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')
+        MESSAGE="Репозиторий: *$(echo "$CI_PROJECT_PATH" | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')*
+      Коммит: _${ESCAPED_COMMIT_MSG}_
+      ✅ Успех: *CI Pipeline* завершен на ветке *$CI_COMMIT_BRANCH*"
+
+{{- if .Artifacts.HasDocker }}
+        DOCKER_LIST=$(echo "$CONTAINERS" | tr -d '[]"' | tr ',' '\n' | sed 's/^/      /')
+        MESSAGE="$MESSAGE
+
+      *Docker образы:*
+      $DOCKER_LIST"
+{{- end }}
+
+{{- if .Artifacts.HasPackaging }}
+        PKG_LIST=$(echo "$ARTIFACTS" | tr -d '[]"' | tr ',' '\n' | sed 's/^/      /')
+        MESSAGE="$MESSAGE
+
+      *Пакеты:*
+      $PKG_LIST"
+{{- end }}
+
+        MESSAGE="$MESSAGE
+
+      [Посмотреть билд]($CI_PIPELINE_URL)"
+
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="$MESSAGE" \
+          -d parse_mode="MarkdownV2"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
+{{ end }}

@@ -22,17 +22,220 @@ type DeployType struct {
 	LogCollector LogCollectorType
 }
 
+// ArtifactType represents a build artifact type
+type ArtifactType string
+
+// PackageUploadType represents package upload storage type
+type PackageUploadType string
+
+// PackageUploadConfig contains package upload configuration.
+// Connection details (endpoint, bucket, credentials) are passed via CI/CD variables.
+type PackageUploadConfig struct {
+	Type PackageUploadType // minio, aws, rsync
+}
+
+// PackagingConfig contains system package configuration for nfpm
+type PackagingConfig struct {
+	Maintainer  string
+	Description string
+	Homepage    string
+	License     string
+	Vendor      string
+	InstallDir  string
+	ConfigDir   string
+	Upload      PackageUploadConfig
+}
+
+// ArtifactsConfig holds artifacts and packaging configuration
+type ArtifactsConfig struct {
+	Types     []ArtifactType
+	Packaging PackagingConfig
+}
+
+// Artifact type constants
+const (
+	ArtifactDocker ArtifactType = "docker"
+	ArtifactDeb    ArtifactType = "deb"
+	ArtifactRPM    ArtifactType = "rpm"
+	ArtifactAPK    ArtifactType = "apk"
+)
+
+// Package upload type constants
+const (
+	PackageUploadMinio PackageUploadType = "minio"
+	PackageUploadAWS   PackageUploadType = "aws"
+	PackageUploadRsync PackageUploadType = "rsync"
+)
+
+// IsEnabled returns true if upload is configured
+func (u PackageUploadConfig) IsEnabled() bool {
+	return u.Type != ""
+}
+
+// HasDocker returns true if docker artifact is enabled
+func (a ArtifactsConfig) HasDocker() bool {
+	for _, t := range a.Types {
+		if t == ArtifactDocker {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasDeb returns true if deb artifact is enabled
+func (a ArtifactsConfig) HasDeb() bool {
+	for _, t := range a.Types {
+		if t == ArtifactDeb {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasRPM returns true if rpm artifact is enabled
+func (a ArtifactsConfig) HasRPM() bool {
+	for _, t := range a.Types {
+		if t == ArtifactRPM {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasAPK returns true if apk artifact is enabled
+func (a ArtifactsConfig) HasAPK() bool {
+	for _, t := range a.Types {
+		if t == ArtifactAPK {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasPackaging returns true if any system package artifact (deb/rpm/apk) is enabled
+func (a ArtifactsConfig) HasPackaging() bool {
+	return a.HasDeb() || a.HasRPM() || a.HasAPK()
+}
+
+// HasUpload returns true if package upload is enabled
+func (a ArtifactsConfig) HasUpload() bool {
+	return a.Packaging.Upload.IsEnabled() && a.HasPackaging()
+}
+
+// IsMinio returns true if upload type is MinIO
+func (a ArtifactsConfig) IsMinio() bool {
+	return a.HasUpload() && a.Packaging.Upload.Type == PackageUploadMinio
+}
+
+// IsAWS returns true if upload type is AWS S3
+func (a ArtifactsConfig) IsAWS() bool {
+	return a.HasUpload() && a.Packaging.Upload.Type == PackageUploadAWS
+}
+
+// IsRsync returns true if upload type is rsync
+func (a ArtifactsConfig) IsRsync() bool {
+	return a.HasUpload() && a.Packaging.Upload.Type == PackageUploadRsync
+}
+
+// IsS3Compatible returns true if upload type is S3-compatible (MinIO or AWS)
+func (a ArtifactsConfig) IsS3Compatible() bool {
+	return a.IsMinio() || a.IsAWS()
+}
+
 //type WorkerType string
+
+// JSONSchemaItem represents a single JSON schema file with its identifier
+type JSONSchemaItem struct {
+	ID   string // Unique identifier for referencing from kafka topics
+	Path string // Path to JSON schema file (absolute)
+	Type string // Generated Go type name (e.g. "AbonentUserSchemaJson")
+}
 
 // JSONSchema represents a JSON Schema configuration for code generation.
 type JSONSchema struct {
-	Name    string   // Unique identifier for the schema set
-	Package string   // Package name for generated code
-	Path    []string // Paths to JSON schema files (absolute)
+	Name    string           // Unique identifier for the schema set
+	Package string           // Package name for generated code
+	Path    []string         // Legacy: Paths to JSON schema files (absolute)
+	Schemas []JSONSchemaItem // New: Individual schema files with IDs
 }
 
 // JSONSchemas is a map of JSONSchema by name
 type JSONSchemas map[string]JSONSchema
+
+// KafkaEvent represents a Kafka event with typed messages.
+// Event name is used for Go method generation and as default topic name.
+// Topic can be overridden per environment via OnlineConf.
+type KafkaEvent struct {
+	Name   string // Event name (used for method naming and as default topic name)
+	Schema string // Optional: package.TypeName (e.g. "tb.AbonentUserSchemaJson"), empty for raw []byte
+	// Computed at generation time
+	GoType   string // Full Go type (pkg.MessageType) or empty for []byte
+	GoImport string // Import path for the message type or empty for []byte
+}
+
+// Kafka driver and type constants
+const (
+	KafkaTypeProducer    = "producer"
+	KafkaTypeConsumer    = "consumer"
+	KafkaDriverCustom    = "custom"
+	KafkaObjNameProducer = "Producer"
+)
+
+// KafkaConfig represents Kafka producer/consumer configuration
+//
+//nolint:decorder // follows existing pattern - types after consts
+type KafkaConfig struct {
+	Name          string        // Unique name for reference
+	Type          string        // producer, consumer
+	Driver        string        // segmentio, custom
+	DriverImport  string        // For custom driver: import path
+	DriverPackage string        // For custom driver: package name
+	DriverObj     string        // For custom driver: struct name
+	ClientName    string        // Client name for OC path
+	Group         string        // Consumer group (for consumer type)
+	Events        []KafkaEvent  // Events configuration
+}
+
+// KafkaConfigs is a map of KafkaConfig by name
+//
+//nolint:decorder // follows existing pattern
+type KafkaConfigs map[string]KafkaConfig
+
+// IsCustomDriver returns true if using custom driver
+func (k KafkaConfig) IsCustomDriver() bool {
+	return k.Driver == KafkaDriverCustom
+}
+
+// GetImport returns import path (generated or custom)
+func (k KafkaConfig) GetImport(modulePath string) string {
+	if k.IsCustomDriver() {
+		return k.DriverImport
+	}
+
+	return modulePath + "/pkg/drivers/kafka/" + strings.ToLower(k.Name)
+}
+
+// GetPackage returns package name
+func (k KafkaConfig) GetPackage() string {
+	if k.IsCustomDriver() {
+		return k.DriverPackage
+	}
+
+	return strings.ToLower(k.Name)
+}
+
+// GetObjName returns struct name
+func (k KafkaConfig) GetObjName() string {
+	if k.IsCustomDriver() {
+		return k.DriverObj
+	}
+
+	return KafkaObjNameProducer
+}
 
 const (
 	RestTransportType  TransportType = "rest"
@@ -85,7 +288,8 @@ type App struct {
 	Transports            Transports
 	Drivers               Drivers
 	Workers               Workers
-	CLI                   *CLIApp // CLI app config (exclusive with Transports/Workers)
+	Kafka                 KafkaConfigs // Kafka producers/consumers for this app
+	CLI                   *CLIApp      // CLI app config (exclusive with Transports/Workers)
 	Deploy                DeployParams
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
@@ -93,13 +297,14 @@ type App struct {
 	Grafana               grafana.Config
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
+	Artifacts             []ArtifactType   // Per-application artifacts
 }
 
 // CLIApp represents a CLI transport configuration
 type CLIApp struct {
 	Name              string
-	Import            string            // Import path for the CLI handler
-	Init              string            // Initialization code
+	Import            string // Import path for the CLI handler
+	Init              string // Initialization code
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
@@ -123,6 +328,55 @@ func (a App) HasSysTransport() bool {
 		}
 	}
 	return false
+}
+
+// HasDocker returns true if this application has docker artifact enabled
+func (a App) HasDocker() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactDocker {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasDeb returns true if this application has deb artifact enabled
+func (a App) HasDeb() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactDeb {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasRPM returns true if this application has rpm artifact enabled
+func (a App) HasRPM() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactRPM {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasAPK returns true if this application has apk artifact enabled
+func (a App) HasAPK() bool {
+	for _, t := range a.Artifacts {
+		if t == ArtifactAPK {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasPackaging returns true if this application has any system package artifact (deb/rpm/apk)
+func (a App) HasPackaging() bool {
+	return a.HasDeb() || a.HasRPM() || a.HasAPK()
 }
 
 type Transports map[string]Transport
@@ -191,12 +445,12 @@ type AuthParams struct {
 }
 
 type Transport struct {
-	Name                 string
-	PkgName              string
-	Import               []string // ToDo точно ли нужен срез?
-	PublicService        bool
-	Init                 string
-	HealthCheckPath      string
+	Name            string
+	PkgName         string
+	Import          []string // ToDo точно ли нужен срез?
+	PublicService   bool
+	Init            string
+	HealthCheckPath string
 	// Handler        Handler
 	Type                 TransportType
 	GeneratorType        string
@@ -208,6 +462,17 @@ type Transport struct {
 	Port                 string // перенесено из Hendler
 	EmptyConfigAvailable bool
 	BufLocalPlugins      bool   // Use local buf instead of docker for proto generation
+	Instantiation        string // "static" (default) or "dynamic" - only for ogen_client
+}
+
+// IsDynamic returns true if client should be created at runtime (not at startup)
+func (t Transport) IsDynamic() bool {
+	return t.Instantiation == "dynamic"
+}
+
+// HasAuthParams returns true if transport has authentication parameters configured
+func (t Transport) HasAuthParams() bool {
+	return t.AuthParams.Type != ""
 }
 
 type Worker struct {
@@ -253,6 +518,23 @@ func (a App) HasOgenClients() bool {
 	return false
 }
 
+// GetOgenClients returns all ogen_client transports sorted by name
+func (a App) GetOgenClients() []Transport {
+	clients := make([]Transport, 0)
+
+	for _, transport := range a.Transports {
+		if transport.GeneratorType == "ogen_client" {
+			clients = append(clients, transport)
+		}
+	}
+
+	sort.Slice(clients, func(i, j int) bool {
+		return strings.Compare(clients[i].Name, clients[j].Name) < 0
+	})
+
+	return clients
+}
+
 func (a App) TransportImports() []string {
 	imports := make([]string, 0)
 
@@ -284,6 +566,51 @@ func (a App) WorkerImports() []string {
 	return imports
 }
 
+// KafkaImports returns import paths for kafka producers
+func (a App) KafkaImports(modulePath string) []string {
+	imports := make([]string, 0)
+
+	for _, kafka := range a.Kafka {
+		if kafka.Type == KafkaTypeProducer {
+			imports = append(imports, kafka.GetImport(modulePath))
+		}
+	}
+
+	sort.Slice(imports, func(i, j int) bool {
+		return strings.Compare(imports[i], imports[j]) < 0
+	})
+
+	return imports
+}
+
+// GetKafkaProducers returns all kafka producers for this app
+func (a App) GetKafkaProducers() []KafkaConfig {
+	producers := make([]KafkaConfig, 0)
+
+	for _, kafka := range a.Kafka {
+		if kafka.Type == KafkaTypeProducer {
+			producers = append(producers, kafka)
+		}
+	}
+
+	sort.Slice(producers, func(i, j int) bool {
+		return strings.Compare(producers[i].Name, producers[j].Name) < 0
+	})
+
+	return producers
+}
+
+// HasKafkaProducers returns true if app has any kafka producers
+func (a App) HasKafkaProducers() bool {
+	for _, kafka := range a.Kafka {
+		if kafka.Type == KafkaTypeProducer {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetTransportInfos returns transport info for Grafana dashboard generation.
 func (a App) GetTransportInfos() []grafana.TransportInfo {
 	infos := make([]grafana.TransportInfo, 0, len(a.Transports))
@@ -301,7 +628,6 @@ func (a App) GetTransportInfos() []grafana.TransportInfo {
 
 	return infos
 }
-
 
 func (app App) getTransport(t TransportType) []Transport {
 	retTransports := []Transport{}
@@ -343,6 +669,10 @@ func (a Apps) getTransport(t TransportType) []Transport {
 
 func (app App) GetRestTransport() []Transport {
 	return app.getTransport(RestTransportType)
+}
+
+func (a App) GetGrpcTransport() []Transport {
+	return a.getTransport(GrpcTransportType)
 }
 
 func (a Apps) GetRestTransport() []Transport {
@@ -406,6 +736,10 @@ func (t Transport) GetOgenConfigPath(targetDir string) string {
 }
 
 func (t Transport) GetTargetSpecDir(targetDir string) string {
+	if t.Type == GrpcTransportType {
+		return filepath.Join(targetDir, "api", "grpc", t.Name)
+	}
+
 	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 
@@ -450,9 +784,19 @@ func (j JSONSchema) GetPackageName() string {
 
 // GetSchemaFilenames returns the base filenames without extension for all schema paths
 func (j JSONSchema) GetSchemaFilenames() []string {
-	filenames := make([]string, 0, len(j.Path))
+	// Collect paths from both legacy Path[] and new Schemas[]
+	var paths []string
+	if len(j.Schemas) > 0 {
+		for _, item := range j.Schemas {
+			paths = append(paths, item.Path)
+		}
+	} else {
+		paths = j.Path
+	}
 
-	for _, path := range j.Path {
+	filenames := make([]string, 0, len(paths))
+
+	for _, path := range paths {
 		base := filepath.Base(path)
 		// Remove .json extension if present
 		if ext := filepath.Ext(base); ext == ".json" {

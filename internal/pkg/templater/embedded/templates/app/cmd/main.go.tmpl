@@ -18,9 +18,27 @@ import (
 	{{ range $_, $imp := .Application.TransportImports }}
 	{{ $imp }}
 	{{- end }}
+	{{- /* Client imports for ogen_client (static only) and buf_client */ -}}
+	{{ range $_, $tr := .Application.GetRestTransport }}
+	{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
+	{{ range $_, $imp := $tr.Import }}
+	{{ $imp }}
+	{{- end }}
+	{{- end }}
+	{{- end }}
+	{{ range $_, $tr := .Application.GetGrpcTransport }}
+	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ range $_, $imp := $tr.Import }}
+	{{ $imp }}
+	{{- end }}
+	{{- end }}
+	{{- end }}
 	{{ range $_, $drv := .Application.Drivers }}
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
+	{{ range $_, $imp := .Application.KafkaImports $.ProjectPath }}
+	"{{ $imp }}"
+	{{- end }}
 	{{ range $_, $imp := .Application.WorkerImports }}
 	{{ $imp }}
 	{{- end }}
@@ -47,7 +65,9 @@ const (
 )
 
 const (
-	envFileName = ".env"
+	envFileName            = ".env"
+	defaultOnlineconfDir   = "etc/onlineconf"
+	onlineconfDirEnvVar    = "ONLINECONF_DIR"
 )
 
 // ldflags
@@ -75,7 +95,7 @@ func main() {
 	}
 
 	// Initialize onlineconf
-	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir("etc/onlineconf"))
+	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir(getOnlineconfDir()))
 	if err != nil {
 		log.Printf("failed to initialize onlineconf: %v", err)
 		os.Exit(ExitCodeErrorConfig)
@@ -125,6 +145,24 @@ func main() {
 		{{ range $_, $drv := .Application.Drivers }}
 		{{ $drv.Package }}.Create( {{ range $_, $param := $drv.CreateParams }}{{ $drv.Package }}.{{ $param }}, {{ end }} ),
 		{{ end }}
+		{{ range $_, $kafka := .Application.GetKafkaProducers }}
+		{{ $kafka.GetPackage }}.Create(),
+		{{ end }}
+	)
+
+	// Register clients (ogen_client static only, buf_client) for initialization in service
+	// Dynamic clients are created at runtime, not at startup
+	application.SetClient(
+		{{ range $_, $tr := .Application.GetRestTransport }}
+		{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
+		{{ $tr.Name }}.NewClient(),
+		{{- end }}
+		{{- end }}
+		{{ range $_, $tr := .Application.GetGrpcTransport }}
+		{{ if eq $tr.GeneratorType "buf_client" }}
+		{{ $tr.Name }}Client.NewClient(),
+		{{- end }}
+		{{- end }}
 	)
 
 	err = application.SetTransport(
@@ -141,7 +179,7 @@ func main() {
 
 	err = application.SetWorker(
 		{{ range $_, $wr := .Application.Workers }}
-		{{ $wr.Name }}.Create(),
+		{{ $wr.Name }}Worker.Create(),
 		{{ end }}
 	)
 	if err != nil {
@@ -188,9 +226,19 @@ func main() {
 }
 
 func getAppInfo() *ds.AppInfo {
-	return ds.NewAppInfo(constant.ServiceName).
+	return ds.NewAppInfo("{{ .Application.Name }}").
 		WithVersion(Version).
 		WithBuildTime(BuildTime).
 		WithBuildOS(BuildOS).
 		WithBuildCommit(BuildCommit)
+}
+
+// getOnlineconfDir returns the onlineconf config directory path.
+// It checks ONLINECONF_DIR environment variable first, falls back to default.
+func getOnlineconfDir() string {
+	if dir := os.Getenv(onlineconfDirEnvVar); dir != "" {
+		return dir
+	}
+
+	return defaultOnlineconfDir
 }

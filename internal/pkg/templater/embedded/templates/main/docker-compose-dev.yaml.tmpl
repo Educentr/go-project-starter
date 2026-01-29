@@ -1,0 +1,266 @@
+{{- $allRestTransports := .Applications.GetRestTransport }}
+{{- $needRealIP := false }}
+{{- range $_, $t := $allRestTransports }}{{ if ne $t.GeneratorType "ogen_client" }}{{ $needRealIP = true }}{{ end }}{{ end }}
+services:
+  # ============================================
+  # OnlineConf Database (MySQL) - extends from submodule
+  # ============================================
+  onlineconf-database:
+    extends:
+      file: ./etc/repo-oc/admin/docker-compose.yml
+      service: onlineconf-database
+    platform: linux/amd64  # Required for ARM64/Apple Silicon compatibility
+    volumes:
+      - onlineconf-data:/var/lib/mysql
+      - ./etc/onlineconf/dev/init-config.sql:/docker-entrypoint-initdb.d/5-init-config.sql
+    networks:
+      - {{ .ProjectName }}-dev
+
+  # ============================================
+  # OnlineConf Admin UI - extends from submodule
+  # ============================================
+  onlineconf-admin:
+    extends:
+      file: ./etc/repo-oc/admin/docker-compose.yml
+      service: onlineconf-admin
+    build:
+      context: ./etc/repo-oc/admin
+    ports:
+      - "${DEV_ONLINECONF_ADMIN_PORT:-8888}:80"
+    depends_on:
+      onlineconf-database:
+        condition: service_healthy
+    networks:
+      - {{ .ProjectName }}-dev
+
+  # ============================================
+  # Shared Traefik Reverse Proxy
+  # ============================================
+  traefik:
+    image: traefik:latest
+    restart: always
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.traefik.address=:9080"
+{{- range $i, $t := $allRestTransports }}{{ if ne $t.GeneratorType "ogen_client" }}
+      - "--entrypoints.ep-{{ $t.Name }}.address=:{{ $t.Port }}"
+      - "--entryPoints.ep-{{ $t.Name }}.forwardedHeaders.trustedIPs=${INTERNAL_SUBNET:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+{{- end }}{{- end }}
+{{- if $needRealIP }}
+      - "--experimental.plugins.traefik-get-real-ip.modulename=github.com/romracer/traefik-get-real-ip"
+      - "--experimental.plugins.traefik-get-real-ip.version=v1.0.2-1"
+{{- end }}
+    ports:
+      - "${DEV_TRAEFIK_PORT:-9080}:9080"
+{{- range $_, $t := $allRestTransports }}{{ if ne $t.GeneratorType "ogen_client" }}
+      - "${DEV_PORT_{{ $t.Name | ToUpper | ReplaceDash }}:-{{ $t.Port }}}:{{ $t.Port }}"
+{{- end }}{{- end }}
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - {{ .ProjectName }}-dev
+
+  # ============================================
+  # Shared OnlineConf Updater
+  # ============================================
+  onlineconf-updater:
+    image: ghcr.io/nikolo/onlineconf-updater:5ee228a
+    volumes:
+      - ./etc/onlineconf/dev:/usr/local/etc/onlineconf
+    environment:
+      ONLINECONF_ADMIN_HOST: onlineconf-admin
+      ONLINECONF_ADMIN_PORT: 80
+      ONLINECONF_UPDATER_USER: ${OC_USER:-admin}
+      ONLINECONF_UPDATER_PASSWORD: ${OC_PASSWORD:-admin}
+    restart: always
+    depends_on:
+      onlineconf-admin:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/local/etc/onlineconf/TREE.cdb"]
+      timeout: 10s
+      interval: 1s
+      retries: 60
+    networks:
+      - {{ .ProjectName }}-dev
+
+{{- range $_, $app := .Applications }}
+{{- range $_, $image := $app.DependsOnDockerImages }}
+  # Image puller: {{ $image }}
+  {{ $image | ImageNameToPullerService }}-{{ $app.Name }}:
+    image: {{ $image }}
+    pull_policy: always
+    restart: "no"
+    networks:
+      - {{ $.ProjectName }}-dev
+{{- end }}
+{{- end }}
+
+{{- range $_, $app := .Applications }}
+  # ============================================
+  # Application: {{ $app.Name }}
+  # ============================================
+  {{ $app.Name }}:
+    build:
+      context: .
+      dockerfile: Dockerfile-{{ $app.Name }}
+      args:
+        - GOPROXY=${GOPROXY:-}
+      ssh:
+        - default
+    image: {{ $.ProjectName }}-{{ $app.Name }}:dev
+{{ if $app.UseEnvs }}
+    env_file: envs/.env.{{ $app.Name }}
+{{ end }}
+    volumes:
+      - ./etc/onlineconf/dev:/etc/onlineconf
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+{{- range $_, $vol := $app.Deploy.Volumes }}
+      - {{ $vol.Path }}:{{ $vol.Mount }}
+{{- end }}
+    depends_on:
+      traefik:
+        condition: service_started
+{{ if not $app.UseEnvs }}
+      onlineconf-updater:
+        condition: service_healthy
+{{ end }}
+{{- range $_, $image := $app.DependsOnDockerImages }}
+      {{ $image | ImageNameToPullerService }}-{{ $app.Name }}:
+        condition: service_completed_successfully
+{{- end }}
+{{ if $.Applications.HasActiveRecord }}
+      postgres:
+        condition: service_healthy
+{{ end }}
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.real-ip.plugin.traefik-get-real-ip.Proxy[0].proxyHeadername=*"
+      - "traefik.http.middlewares.real-ip.plugin.traefik-get-real-ip.Proxy[0].realIP=X-Forwarded-For"
+{{- $restTransport := $app.GetRestTransport }}
+{{- range $_, $t := $restTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
+      - "traefik.http.services.{{ $app.Name }}-{{ $t.Name }}.loadbalancer.server.port={{ $t.Port }}"
+{{- if $t.HealthCheckPath }}
+      - "traefik.http.services.{{ $app.Name }}-{{ $t.Name }}.loadbalancer.healthcheck.path={{ $t.HealthCheckPath }}"
+      - "traefik.http.services.{{ $app.Name }}-{{ $t.Name }}.loadbalancer.healthcheck.interval=2s"
+{{- end }}
+{{- if $t.PublicService }}
+      - "traefik.http.routers.{{ $app.Name }}-{{ $t.Name }}.middlewares=real-ip"
+{{- end }}
+      - "traefik.http.routers.{{ $app.Name }}-{{ $t.Name }}.service={{ $app.Name }}-{{ $t.Name }}"
+      - "traefik.http.routers.{{ $app.Name }}-{{ $t.Name }}.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.{{ $app.Name }}-{{ $t.Name }}.entrypoints=ep-{{ $t.Name }}"
+{{- end }}{{- end }}
+    networks:
+      - {{ $.ProjectName }}-dev
+
+{{- end }}
+
+  # ============================================
+  # Infrastructure Services
+  # ============================================
+
+{{ if .Applications.HasActiveRecord }}
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-{{ .ProjectName }}}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${DEV_POSTGRES_PORT:-5432}:5432"
+    networks:
+      - {{ .ProjectName }}-dev
+{{ end }}
+
+{{ if .Grafana.HasDatasources }}
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning
+      - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    ports:
+      - "${DEV_GRAFANA_PORT:-3000}:3000"
+    depends_on:
+{{ if .Grafana.HasPrometheus }}
+      prometheus:
+        condition: service_started
+{{ end }}
+{{ if .Grafana.HasLoki }}
+      loki:
+        condition: service_started
+{{ end }}
+    networks:
+      - {{ .ProjectName }}-dev
+{{ end }}
+
+{{ if .Grafana.HasPrometheus }}
+  # Prometheus Metrics
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - prometheus-data:/prometheus
+      - ./configs/dev/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${DEV_PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - {{ .ProjectName }}-dev
+{{ end }}
+
+{{ if .Grafana.HasLoki }}
+  # Loki Log Aggregation
+  loki:
+    image: grafana/loki:latest
+    restart: always
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+      - ./configs/dev/loki/local-config.yaml:/etc/loki/local-config.yaml:ro
+    ports:
+      - "${DEV_LOKI_PORT:-3100}:3100"
+    networks:
+      - {{ .ProjectName }}-dev
+{{ end }}
+
+networks:
+  {{ .ProjectName }}-dev:
+    driver: bridge
+
+volumes:
+  onlineconf-data:
+{{ if .Applications.HasActiveRecord }}
+  postgres-data:
+{{ end }}
+{{ if .Grafana.HasDatasources }}
+  grafana-data:
+{{ end }}
+{{ if .Grafana.HasPrometheus }}
+  prometheus-data:
+{{ end }}
+{{ if .Grafana.HasLoki }}
+  loki-data:
+{{ end }}

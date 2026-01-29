@@ -27,9 +27,9 @@ require (
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.8.0
 	golang.org/x/sync v0.0.0-20220929204114-8fcdb60fdcc0
-	google.golang.org/genproto v0.0.0-20220630174209-ad1d48641aa7
-	google.golang.org/grpc v1.47.0
-	google.golang.org/protobuf v1.28.1
+	google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
+	google.golang.org/grpc v1.68.0
+	google.golang.org/protobuf v1.35.2
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools v2.2.0+incompatible
@@ -112,7 +112,11 @@ require (
 {{ if .Applications.HasGoatTests }}
 // GOAT test dependencies
 require (
-	github.com/Educentr/goat v0.0.21
-	github.com/Educentr/goat-services v0.0.7
+	github.com/Educentr/goat {{ .GoatVersion }}
+	github.com/Educentr/goat-services {{ .GoatServicesVersion }}
 )
+{{ end }}
+{{ if .DevStand }}
+// Local development: resolve internal packages from local directory
+replace {{ .ProjectPath }} => ./
 {{ end }}

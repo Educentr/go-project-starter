@@ -33,7 +33,9 @@ const (
 )
 
 const (
-	envFileName = ".env"
+	envFileName            = ".env"
+	defaultOnlineconfDir   = "etc/onlineconf"
+	onlineconfDirEnvVar    = "ONLINECONF_DIR"
 )
 
 // ldflags
@@ -62,7 +64,7 @@ func run() int {
 	}
 
 	// Initialize onlineconf
-	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir("etc/onlineconf"))
+	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir(getOnlineconfDir()))
 	if err != nil {
 		log.Printf("failed to initialize onlineconf: %v", err)
 		return ExitCodeErrorConfig
@@ -122,4 +124,14 @@ func run() int {
 
 	{{ .Logger.DebugMsg "mainCtx" "CLI command completed successfully" }}
 	return ExitCodeOK
+}
+
+// getOnlineconfDir returns the onlineconf config directory path.
+// It checks ONLINECONF_DIR environment variable first, falls back to default.
+func getOnlineconfDir() string {
+	if dir := os.Getenv(onlineconfDirEnvVar); dir != "" {
+		return dir
+	}
+
+	return defaultOnlineconfDir
 }

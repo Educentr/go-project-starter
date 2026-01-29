@@ -18,6 +18,8 @@ const (
 	devPrometheusPath       = "configs/dev/prometheus"
 	devLokiPath             = "configs/dev/loki"
 	testsPath               = "tests"
+	mocksPath               = "tests/mocks"
+	packagingPath           = "packaging"
 )
 
 //go:embed all:embedded
@@ -71,6 +73,37 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 	dirs, files, err = GetTemplates(templates, "embedded/templates/main", params)
 	if err != nil {
 		err = errors.Wrap(err, "error while get main templates")
+		return
+	}
+
+	// Filter out dev-stand specific templates if DevStand is false
+	if !params.DevStand {
+		filteredDirs := make([]ds.Files, 0, len(dirs))
+
+		for _, d := range dirs {
+			// Skip etc/onlineconf/ directory
+			if strings.Contains(d.DestName, "etc/onlineconf") {
+				continue
+			}
+
+			filteredDirs = append(filteredDirs, d)
+		}
+
+		dirs = filteredDirs
+
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			// Skip docker-compose-dev.yaml and etc/onlineconf/ files
+			if strings.HasPrefix(f.DestName, "docker-compose-dev") ||
+				strings.Contains(f.DestName, "etc/onlineconf") {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
 	}
 
 	return
@@ -273,6 +306,22 @@ func GetAppTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fil
 		err = errors.Wrap(err, "error while get app templates")
 
 		return
+	}
+
+	// Filter out Docker-related files if app doesn't have docker artifacts
+	if !params.Application.HasDocker() {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			// Skip Dockerfile and docker-compose for non-docker apps
+			if strings.HasPrefix(f.DestName, "Dockerfile") || strings.HasPrefix(f.DestName, "docker-compose") {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
 	}
 
 	for i := range files {
@@ -503,4 +552,162 @@ func GetTestTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fi
 	}
 
 	return
+}
+
+// GetKafkaDriverTemplates returns Kafka driver templates for auto-generated producers/consumers
+// kafkaType should be "producer" or "consumer"
+func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds.Files, []ds.Files, error) {
+	// Only generate templates for segmentio driver (not custom)
+	if kafka.IsCustomDriver() {
+		return nil, nil, nil
+	}
+
+	kafkaParams := GeneratorKafkaParams{
+		GeneratorParams: params,
+		Kafka:           kafka,
+	}
+
+	templatePath := filepath.Join("embedded/templates/driver/kafka", kafka.Type, "files")
+
+	dirs, files, err := GetTemplates(templates, templatePath, kafkaParams)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+
+		return nil, nil, errors.Wrapf(err, "error while get kafka driver templates for %s", kafka.Name)
+	}
+
+	// Set destination path: pkg/drivers/kafka/{name}
+	kafkaPrefix := "pkg/drivers/kafka/{{ .Kafka.Name | ToLower }}"
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(kafkaPrefix, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(kafkaPrefix, files[i].DestName)
+	}
+
+	return dirs, files, nil
+}
+
+// GetMockTemplates returns mock templates for an application with ogen_clients.
+// It generates:
+// - tests/mocks/mocks.go - MockServers struct and MocksSetup
+// - tests/mocks/{transport_name}/doc.go - for each ogen_client transport
+func GetMockTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error) {
+	// Skip if no ogen clients
+	if !params.Application.HasOgenClients() {
+		return nil, nil, nil
+	}
+
+	dirs := []ds.Files{}
+	files := []ds.Files{}
+
+	// Generate mocks.go from mocks.go.tmpl (in tests/ directory, same package as base_suite)
+	mocksTemplate := "embedded/templates/mocks/mocks.go.tmpl"
+	files = append(files, ds.Files{
+		SourceName: mocksTemplate,
+		DestName:   filepath.Join(testsPath, "mocks.go"),
+		ParamsTmpl: params,
+	})
+
+	// For each ogen_client transport, generate doc.go
+	docTemplate := "embedded/templates/mocks/files/doc.go.tmpl"
+	for _, transport := range params.Application.GetOgenClients() {
+		// Create handler params for this transport
+		handlerParams := GeneratorHandlerParams{
+			GeneratorParams: params.GeneratorParams,
+			Transport:       transport,
+			TransportParams: transport.GeneratorParams,
+		}
+
+		// Add directory for this transport's mocks
+		transportMocksPath := filepath.Join(mocksPath, transport.Name)
+		dirs = append(dirs, ds.Files{
+			SourceName: docTemplate,
+			DestName:   transportMocksPath,
+			ParamsTmpl: handlerParams,
+		})
+
+		// Add doc.go file
+		files = append(files, ds.Files{
+			SourceName: docTemplate,
+			DestName:   filepath.Join(transportMocksPath, "doc.go"),
+			ParamsTmpl: handlerParams,
+		})
+	}
+
+	return dirs, files, nil
+}
+
+// GetPackagingTemplates returns packaging templates for an application (nfpm, systemd, scripts).
+// It generates files per application when packaging artifacts (deb/rpm/apk) are enabled.
+func GetPackagingTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error) {
+	// Skip if packaging is not enabled
+	if !params.Artifacts.HasPackaging() {
+		return nil, nil, nil
+	}
+
+	// Skip CLI applications (they don't have systemd services)
+	if params.Application.IsCLI() {
+		return nil, nil, nil
+	}
+
+	dirs := []ds.Files{}
+	files := []ds.Files{}
+
+	appPackagingPath := filepath.Join(packagingPath, params.Application.Name)
+	systemdPath := filepath.Join(appPackagingPath, "systemd")
+	scriptsPath := filepath.Join(appPackagingPath, "scripts")
+
+	// Create directories
+	dirs = append(dirs, ds.Files{
+		DestName:   appPackagingPath,
+		ParamsTmpl: params,
+	})
+	dirs = append(dirs, ds.Files{
+		DestName:   systemdPath,
+		ParamsTmpl: params,
+	})
+	dirs = append(dirs, ds.Files{
+		DestName:   scriptsPath,
+		ParamsTmpl: params,
+	})
+
+	// nfpm.yaml configuration
+	nfpmTemplate := "embedded/templates/packaging/nfpm.yaml.tmpl"
+	files = append(files, ds.Files{
+		SourceName: nfpmTemplate,
+		DestName:   filepath.Join(appPackagingPath, "nfpm.yaml"),
+		ParamsTmpl: params,
+	})
+
+	// Systemd service file
+	serviceTemplate := "embedded/templates/packaging/systemd/service.tmpl"
+	serviceName := params.ProjectName + "-" + params.Application.Name + ".service"
+	files = append(files, ds.Files{
+		SourceName: serviceTemplate,
+		DestName:   filepath.Join(systemdPath, serviceName),
+		ParamsTmpl: params,
+	})
+
+	// Postinstall script
+	postinstallTemplate := "embedded/templates/packaging/scripts/postinstall.sh.tmpl"
+	files = append(files, ds.Files{
+		SourceName: postinstallTemplate,
+		DestName:   filepath.Join(scriptsPath, "postinstall.sh"),
+		ParamsTmpl: params,
+	})
+
+	// Preremove script
+	preremoveTemplate := "embedded/templates/packaging/scripts/preremove.sh.tmpl"
+	files = append(files, ds.Files{
+		SourceName: preremoveTemplate,
+		DestName:   filepath.Join(scriptsPath, "preremove.sh"),
+		ParamsTmpl: params,
+	})
+
+	return dirs, files, nil
 }

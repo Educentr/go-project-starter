@@ -18,6 +18,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
+	"golang.org/x/mod/semver"
 )
 
 type Generator struct {
@@ -31,6 +32,7 @@ type Generator struct {
 	Author              string
 	ProjectPath         string
 	UseActiveRecord     bool
+	DevStand            bool
 	Repo                string
 	PrivateRepos        string
 	GoLangVersion       string
@@ -39,6 +41,8 @@ type Generator struct {
 	GolangciVersion     string
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
 	TargetDir           string
 	ConfigPath          string // Source config file path for copying to target
 	DockerImagePrefix   string
@@ -48,8 +52,10 @@ type Generator struct {
 	Workers             ds.Workers
 	Drivers             ds.Drivers
 	JSONSchemas         ds.JSONSchemas
+	Kafka               ds.KafkaConfigs
 	Applications        ds.Apps
 	Grafana             grafana.Config
+	Artifacts           ds.ArtifactsConfig
 }
 
 type ExecCmd struct {
@@ -57,6 +63,8 @@ type ExecCmd struct {
 	Arg []string
 	Msg string
 }
+
+var errUnknownTransport = errors.New("unknown transport")
 
 func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
 	g := Generator{
@@ -66,6 +74,7 @@ func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (
 		Workers:      make(ds.Workers),
 		Drivers:      make(ds.Drivers),
 		JSONSchemas:  make(ds.JSONSchemas),
+		Kafka:        make(ds.KafkaConfigs),
 		DryRun:       dryrun,
 		Meta:         genMeta,
 	}
@@ -86,6 +95,7 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.SkipInitService = config.Main.SkipServiceInit
 	g.ProjectPath = config.Git.ModulePath
 	g.UseActiveRecord = config.Main.UseActiveRecord
+	g.DevStand = config.Main.DevStand
 	g.Repo = config.Git.Repo
 	g.PrivateRepos = config.Git.PrivateRepos
 	g.GoLangVersion = config.Tools.GolangVersion
@@ -93,12 +103,17 @@ func (g *Generator) processConfig(config config.Config) error {
 	g.ArgenVersion = config.Tools.ArgenVersion
 	g.GolangciVersion = config.Tools.GolangciVersion
 	g.GoJSONSchemaVersion = config.Tools.GoJSONSchemaVersion
+	g.GoatVersion = config.Tools.GoatVersion
+	g.GoatServicesVersion = config.Tools.GoatServicesVersion
 
 	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
 	if config.Tools.RuntimeVersion != "" {
-		// Validate that config version >= MinRuntimeVersion
-		if config.Tools.RuntimeVersion < templater.MinRuntimeVersion {
-			return fmt.Errorf("runtime_version %s is lower than minimum required version %s", config.Tools.RuntimeVersion, templater.MinRuntimeVersion)
+		// Validate that config version >= MinRuntimeVersion using semantic version comparison
+		if semver.Compare(config.Tools.RuntimeVersion, templater.MinRuntimeVersion) < 0 {
+			return errors.Errorf(
+				"runtime_version %s is lower than minimum %s required by this generator",
+				config.Tools.RuntimeVersion, templater.MinRuntimeVersion,
+			)
 		}
 		g.RuntimeVersion = config.Tools.RuntimeVersion
 	} else {
@@ -158,6 +173,11 @@ func (g *Generator) processConfig(config config.Config) error {
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)
 			transport.SpecPath = paths
+			// Set instantiation mode: default to "static" if not specified
+			transport.Instantiation = rest.Instantiation
+			if transport.Instantiation == "" {
+				transport.Instantiation = "static"
+			}
 		} else {
 			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/internal/app/transport/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
 			transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
@@ -178,7 +198,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		worker := ds.Worker{
-			Import:            []string{fmt.Sprintf(`"%s/internal/app/worker/%s"`, g.ProjectPath, w.Name)},
+			Import:            []string{fmt.Sprintf(`%sWorker "%s/internal/app/worker/%s"`, w.Name, g.ProjectPath, w.Name)},
 			Name:              w.Name,
 			GeneratorType:     w.GeneratorType,
 			GeneratorTemplate: w.GeneratorTemplate,
@@ -224,7 +244,7 @@ func (g *Generator) processConfig(config config.Config) error {
 
 		if grpc.GeneratorType == "buf_client" {
 			transport.Import = []string{
-				fmt.Sprintf(`"%s/internal/app/transport/grpc/%s"`, g.ProjectPath, grpc.Name),
+				fmt.Sprintf(`%sClient "%s/internal/app/transport/grpc/%s"`, grpc.Name, g.ProjectPath, grpc.Name),
 			}
 		}
 
@@ -252,18 +272,127 @@ func (g *Generator) processConfig(config config.Config) error {
 			return errors.New("jsonschema name is empty")
 		}
 
-		paths := make([]string, 0, len(js.Path))
-		for _, path := range js.Path {
-			paths = append(paths, filepath.Join(config.BasePath, path))
-		}
-
 		schema := ds.JSONSchema{
 			Name:    js.Name,
 			Package: js.Package,
-			Path:    paths,
+		}
+
+		// Support both legacy path[] and new schemas[] format
+		if len(js.Schemas) > 0 {
+			schema.Schemas = make([]ds.JSONSchemaItem, 0, len(js.Schemas))
+			for _, s := range js.Schemas {
+				schemaType := s.Type
+				if schemaType == "" {
+					// Auto-calculate type from filename: abonent.user.schema.json → AbonentUserSchemaJson
+					schemaType = filenameToTypeName(s.Path)
+				}
+				schema.Schemas = append(schema.Schemas, ds.JSONSchemaItem{
+					ID:   s.ID,
+					Path: filepath.Join(config.BasePath, s.Path),
+					Type: schemaType,
+				})
+			}
+		} else {
+			// Legacy format: plain path list
+			schema.Path = make([]string, 0, len(js.Path))
+			for _, path := range js.Path {
+				schema.Path = append(schema.Path, filepath.Join(config.BasePath, path))
+			}
 		}
 
 		g.JSONSchemas[js.Name] = schema
+	}
+
+	// Process Kafka configurations
+	for _, kafka := range config.KafkaList {
+		if kafka.Name == "" {
+			return errors.New("kafka name is empty")
+		}
+
+		driver := kafka.Driver
+		if driver == "" {
+			driver = "segmentio" // default driver
+		}
+
+		events := make([]ds.KafkaEvent, 0, len(kafka.Events))
+
+		for _, e := range kafka.Events {
+			event := ds.KafkaEvent{
+				Name:   e.Name,
+				Schema: e.Schema,
+			}
+
+			// Compute GoType and GoImport from Schema field (format: "jsonschema_name.schema_id")
+			// If Schema is empty, event will use raw []byte
+			if e.Schema != "" {
+				parts := strings.SplitN(e.Schema, ".", 2)
+				if len(parts) == 2 {
+					schemaSetName := parts[0]
+					schemaID := parts[1]
+					// Lookup jsonschema by name
+					if schemaSet, exists := g.JSONSchemas[schemaSetName]; exists {
+						// Find schema item by ID
+						for _, item := range schemaSet.Schemas {
+							if item.ID == schemaID {
+								event.GoImport = g.ProjectPath + "/pkg/schema/" + schemaSet.Name
+								event.GoType = schemaSet.GetPackageName() + "." + item.Type
+								break
+							}
+						}
+					}
+				}
+			}
+
+			events = append(events, event)
+		}
+
+		kafkaConfig := ds.KafkaConfig{
+			Name:          kafka.Name,
+			Type:          kafka.Type,
+			Driver:        driver,
+			DriverImport:  kafka.DriverImport,
+			DriverPackage: kafka.DriverPackage,
+			DriverObj:     kafka.DriverObj,
+			ClientName:    kafka.Client,
+			Group:         kafka.Group,
+			Events:        events,
+		}
+
+		g.Kafka[kafka.Name] = kafkaConfig
+	}
+
+	// Process artifacts configuration BEFORE applications loop
+	// Default to docker only if not specified at root level
+	if len(config.Artifacts) == 0 {
+		g.Artifacts.Types = []ds.ArtifactType{ds.ArtifactDocker}
+	} else {
+		g.Artifacts.Types = make([]ds.ArtifactType, len(config.Artifacts))
+		for i, a := range config.Artifacts {
+			g.Artifacts.Types[i] = ds.ArtifactType(a)
+		}
+	}
+
+	// Process packaging config with defaults
+	g.Artifacts.Packaging = ds.PackagingConfig{
+		Maintainer:  config.Packaging.Maintainer,
+		Description: config.Packaging.Description,
+		Homepage:    config.Packaging.Homepage,
+		License:     config.Packaging.License,
+		Vendor:      config.Packaging.Vendor,
+		InstallDir:  config.Packaging.InstallDir,
+		ConfigDir:   config.Packaging.ConfigDir,
+		Upload: ds.PackageUploadConfig{
+			Type: ds.PackageUploadType(config.Packaging.Upload.Type),
+		},
+	}
+
+	// Set defaults for packaging paths
+	if g.Artifacts.Packaging.InstallDir == "" {
+		g.Artifacts.Packaging.InstallDir = "/usr/bin"
+	}
+
+	if g.Artifacts.Packaging.ConfigDir == "" {
+		g.Artifacts.Packaging.ConfigDir = "/etc/" + g.ProjectName
 	}
 
 	for _, app := range config.Applications {
@@ -302,16 +431,30 @@ func (g *Generator) processConfig(config config.Config) error {
 			}
 		}
 
+		// Process per-application artifacts
+		// If application has its own artifacts, use those; otherwise fall back to global
+		var appArtifacts []ds.ArtifactType
+		if len(app.Artifacts) > 0 {
+			appArtifacts = make([]ds.ArtifactType, len(app.Artifacts))
+			for i, a := range app.Artifacts {
+				appArtifacts[i] = ds.ArtifactType(a)
+			}
+		} else {
+			appArtifacts = g.Artifacts.Types
+		}
+
 		application := ds.App{
 			Name:                  app.Name,
 			Transports:            make(ds.Transports),
 			Workers:               make(ds.Workers),
 			Drivers:               make(ds.Drivers),
+			Kafka:                 make(ds.KafkaConfigs),
 			UseActiveRecord:       useActiveRecord,
 			DependsOnDockerImages: app.DependsOnDockerImages,
 			UseEnvs:               useEnvs,
 			GoatTests:             goatTests,
 			GoatTestsConfig:       goatTestsConfig,
+			Artifacts:             appArtifacts,
 		}
 
 		// Resolve Grafana datasources for this app
@@ -335,12 +478,17 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		for _, transport := range app.TransportList {
-			tr, ex := g.Transports[transport]
+			tr, ex := g.Transports[transport.Name]
 			if !ex {
-				return fmt.Errorf("unknown transport: %s", transport)
+				return errors.Wrapf(errUnknownTransport, "%s", transport.Name)
 			}
 
-			application.Transports[transport] = tr
+			// Apply per-app config override for instantiation
+			if transport.Config.Instantiation != "" {
+				tr.Instantiation = transport.Config.Instantiation
+			}
+
+			application.Transports[transport.Name] = tr
 		}
 
 		for _, worker := range app.WorkerList {
@@ -385,7 +533,33 @@ func (g *Generator) processConfig(config config.Config) error {
 			}
 		}
 
+		// Add Kafka producers/consumers to this application
+		for _, kafkaName := range app.KafkaList {
+			kafka, ex := g.Kafka[kafkaName]
+			if !ex {
+				return errors.Errorf("unknown kafka: %s in application: %s", kafkaName, app.Name)
+			}
+
+			application.Kafka[kafkaName] = kafka
+		}
+
 		g.Applications = append(g.Applications, application)
+	}
+
+	// Recompute global artifacts based on union of all application artifacts
+	// This ensures HasDocker() returns true if ANY application has docker artifacts
+	artifactSet := make(map[ds.ArtifactType]bool)
+
+	for _, app := range g.Applications {
+		for _, a := range app.Artifacts {
+			artifactSet[a] = true
+		}
+	}
+
+	g.Artifacts.Types = make([]ds.ArtifactType, 0, len(artifactSet))
+
+	for a := range artifactSet {
+		g.Artifacts.Types = append(g.Artifacts.Types, a)
 	}
 
 	for _, postGenerate := range config.PostGenerate {
@@ -406,6 +580,9 @@ func (g *Generator) processConfig(config config.Config) error {
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"generate"}, Msg: "generate"})
 		case "go_get_u":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"go-get-u"}, Msg: "updating dependencies"})
+		case "git_initial_commit":
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "git", Arg: []string{"add", "."}, Msg: "git add ."})
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "git", Arg: []string{"commit", "-m", "Initial commit"}, Msg: "git initial commit"})
 		default:
 			cmd := strings.Split(postGenerate, " ")
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: cmd[0], Arg: cmd[1:], Msg: "custom command"})
@@ -476,6 +653,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Year:                time.Now().Format("2006"),
 		ProjectPath:         g.ProjectPath,
 		UseActiveRecord:     g.UseActiveRecord,
+		DevStand:            g.DevStand,
 		Repo:                g.Repo,
 		PrivateRepos:        g.PrivateRepos,
 		DockerImagePrefix:   g.DockerImagePrefix,
@@ -486,11 +664,15 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		GolangciVersion:     g.GolangciVersion,
 		RuntimeVersion:      g.RuntimeVersion,
 		GoJSONSchemaVersion: g.GoJSONSchemaVersion,
+		GoatVersion:         g.GoatVersion,
+		GoatServicesVersion: g.GoatServicesVersion,
 		Applications:        g.Applications,
 		Drivers:             g.Drivers,
 		Workers:             g.Workers,
 		JSONSchemas:         g.JSONSchemas,
+		Kafka:               g.Kafka,
 		Grafana:             g.Grafana,
+		Artifacts:           g.Artifacts,
 	}
 }
 
@@ -554,7 +736,17 @@ func (g *Generator) CopySchemas() error {
 			return fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
 		}
 
-		for _, schemaPath := range schema.Path {
+		// Collect paths from both legacy Path[] and new Schemas[]
+		var paths []string
+		if len(schema.Schemas) > 0 {
+			for _, item := range schema.Schemas {
+				paths = append(paths, item.Path)
+			}
+		} else {
+			paths = schema.Path
+		}
+
+		for _, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
 				return errors.Wrapf(err, "schema file not found: %s", schemaPath)
 			}
@@ -690,8 +882,20 @@ func (g *Generator) Generate() error {
 	// Copy config file to target's .project-config for regeneration support
 	if g.ConfigPath != "" {
 		targetConfigPath := filepath.Join(projectConfigDir, "project.yaml")
+
+		// Resolve both paths to absolute for proper comparison
+		absSourcePath, err := filepath.Abs(g.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("error resolving source config path: %w", err)
+		}
+
+		absTargetPath, err := filepath.Abs(targetConfigPath)
+		if err != nil {
+			return fmt.Errorf("error resolving target config path: %w", err)
+		}
+
 		// Only copy if source is different from target
-		if g.ConfigPath != targetConfigPath {
+		if absSourcePath != absTargetPath {
 			if err = tools.CopyFile(g.ConfigPath, targetConfigPath); err != nil {
 				return fmt.Errorf("error copying config to target: %w", err)
 			}
@@ -717,6 +921,64 @@ func (g *Generator) Generate() error {
 
 		if len(out) > 0 {
 			log.Printf("result: %s\n", out)
+		}
+	}
+
+	// Add onlineconf submodule when dev_stand is true (skip if already exists)
+	if g.DevStand {
+		submodulePath := filepath.Join(targetPath, "etc/repo-oc")
+
+		if _, err := os.Stat(submodulePath); os.IsNotExist(err) {
+			// Add submodule
+			cmd := exec.Command("git", "submodule", "add", "--depth", "1",
+				"https://github.com/onlineconf/onlineconf", "etc/repo-oc")
+			cmd.Dir = targetPath
+
+			log.Println("run: add onlineconf submodule")
+
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("error adding submodule: %w (output: %s)", err, out)
+			}
+
+			// Note: Using default branch (main) which contains the node:18 fix
+			// Tag v3.5.0 has a bug with FROM node (uses latest which is v25, incompatible with postcss)
+		} else {
+			log.Println("skip: onlineconf submodule already exists")
+		}
+
+		// Create initial commit so that git HEAD works for docker builds
+		// Check if HEAD exists (i.e., there are commits)
+		checkCmd := exec.Command("git", "rev-parse", "HEAD")
+		checkCmd.Dir = targetPath
+
+		if err := checkCmd.Run(); err != nil {
+			// No commits yet, create initial commit
+			cmd := exec.Command("git", "add", ".")
+			cmd.Dir = targetPath
+
+			log.Println("run: git add .")
+
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("error git add: %w (output: %s)", err, out)
+			}
+
+			// Use -c to set author/committer for this commit only (works without global git config)
+			cmd = exec.Command("git",
+				"-c", "user.name=go-project-starter",
+				"-c", "user.email=go-project-starter@localhost",
+				"commit", "-m", "Initial commit (auto-generated by go-project-starter)")
+			cmd.Dir = targetPath
+
+			log.Println("run: git commit -m 'Initial commit'")
+
+			out, err = cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("error git commit: %w (output: %s)", err, out)
+			}
+		} else {
+			log.Println("skip: git repository already has commits")
 		}
 	}
 
@@ -806,6 +1068,17 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	dirs = append(dirs, dirsL...)
 	files = append(files, filesL...)
 
+	// Generate Kafka driver templates for segmentio drivers
+	for _, kafka := range g.Kafka {
+		dirsK, filesK, err := templater.GetKafkaDriverTemplates(kafka, g.GetTmplParams())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get kafka driver templates for %s: %w", kafka.Name, err)
+		}
+
+		dirs = append(dirs, dirsK...)
+		files = append(files, filesK...)
+	}
+
 	for _, app := range g.Applications {
 		dirApp, filesApp, err := templater.GetAppTemplates(g.GetTmplAppParams(app))
 		if err != nil {
@@ -835,7 +1108,27 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 			dirs = append(dirs, dirsTest...)
 			files = append(files, filesTest...)
+
+			// Generate mock templates for applications with ogen_clients
+			if app.HasOgenClients() {
+				dirsMock, filesMock, err := templater.GetMockTemplates(g.GetTmplAppParams(app))
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to get mock templates for %s: %w", app.Name, err)
+				}
+
+				dirs = append(dirs, dirsMock...)
+				files = append(files, filesMock...)
+			}
 		}
+
+		// Generate packaging templates for applications when packaging artifacts are enabled
+		dirsPkg, filesPkg, err := templater.GetPackagingTemplates(g.GetTmplAppParams(app))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get packaging templates for %s: %w", app.Name, err)
+		}
+
+		dirs = append(dirs, dirsPkg...)
+		files = append(files, filesPkg...)
 	}
 
 	// Generate Grafana templates if any datasources are configured
@@ -902,4 +1195,26 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	}
 
 	return dirs, files, nil
+}
+
+// filenameToTypeName converts a schema filename to a Go type name
+// Example: abonent.user.schema.json → AbonentUserSchemaJson
+func filenameToTypeName(path string) string {
+	// Get base filename (keep .json extension for type name)
+	base := filepath.Base(path)
+
+	// Split by dots and dashes, convert each part to title case
+	var result strings.Builder
+	parts := strings.FieldsFunc(base, func(r rune) bool {
+		return r == '.' || r == '-' || r == '_'
+	})
+
+	for _, part := range parts {
+		if len(part) > 0 {
+			result.WriteString(strings.ToUpper(string(part[0])))
+			result.WriteString(strings.ToLower(part[1:]))
+		}
+	}
+
+	return result.String()
 }
