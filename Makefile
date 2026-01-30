@@ -155,3 +155,8 @@ integration-test-combined: buildfortest build-test-image
 .PHONY: integration-test-grafana
 integration-test-grafana: buildfortest build-test-image
 	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGrafana ./test/docker-integration/...
+
+# Run documentation server locally
+.PHONY: docs
+docs:
+	docker run --rm -p 8000:8000 -v $(PWD):/docs squidfunk/mkdocs-material serve --dev-addr=0.0.0.0:8000 --watch-theme

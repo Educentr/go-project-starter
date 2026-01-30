@@ -4,61 +4,58 @@
 
 ## Общая архитектура
 
-Сгенерированный проект следует принципам чистой архитектуры с чётким разделением ответственности. Зависимости направлены **только сверху вниз** — верхние слои зависят от нижних, но не наоборот.
+Сгенерированный проект следует принципам слоистой архитектуры с чётким разделением ответственности. Зависимости направлены **только сверху вниз** — транспортный слой обращается к сервису, сервис — к данным.
 
 ```mermaid
 flowchart TB
-    subgraph CMD["cmd/"]
-        MAIN[main.go<br/>Точка входа]
+    NET_IN((Network)) -.-> TRANSPORT
+
+    subgraph TRANSPORT["Transport Layer"]
+        direction LR
+        API["<b>API</b><br/>Authorise · Helpers<br/>Handlers"]
+        CLI["<b>CLI</b><br/>Authorise<br/>Handlers"]
+        WORKERS["<b>Workers</b><br/>Jobs"]
+        BOTS["<b>Bots</b><br/>Authorise · Helpers<br/>Handlers"]
     end
 
-    subgraph INTERNAL_APP["internal/app/ — Проект-специфичный код"]
-        direction TB
-        TRANSPORT[transport/<br/>REST/gRPC handlers]
-        WORKER[worker/<br/>Telegram, Daemon]
-        APP_SERVICE[service/<br/>Бизнес-логика]
+    TRANSPORT --> SERVICE["<b>Service</b>"]
+
+    SERVICE --> DATA
+
+    subgraph DATA["Data Layer"]
+        direction LR
+        CLIENTS[Clients]
+        MODELS[Models]
+        DRIVERS[Drivers]
     end
 
-    subgraph INTERNAL_PKG["internal/pkg/ — Переиспользуемый код"]
-        direction TB
-        MODEL[model/<br/>Модели данных]
-        REPOSITORY[repository/<br/>Доступ к данным]
-        IPK_SERVICE[service/<br/>Интерфейсы]
-    end
+    MODELS --> DB_CONN[DB connectors] -.-> DB[(DB)]
+    CLIENTS & DRIVERS -.-> NET_OUT((Network))
 
-    subgraph PKG["pkg/ — Runtime библиотеки"]
-        direction TB
-        PKG_APP[app/<br/>Lifecycle]
-        PKG_DRIVERS[drivers/<br/>Интеграции]
-        PKG_REST[rest/<br/>REST клиенты]
-    end
-
-    subgraph EXTERNAL["Внешние сервисы"]
-        DB[(PostgreSQL)]
-        REDIS[(Redis)]
-        KAFKA[Kafka]
-        TELEGRAM[Telegram API]
-    end
-
-    MAIN --> TRANSPORT
-    MAIN --> WORKER
-    TRANSPORT --> APP_SERVICE
-    WORKER --> APP_SERVICE
-    APP_SERVICE --> MODEL
-    APP_SERVICE --> REPOSITORY
-    APP_SERVICE --> IPK_SERVICE
-    REPOSITORY --> PKG_DRIVERS
-    PKG_DRIVERS --> DB
-    PKG_DRIVERS --> REDIS
-    PKG_DRIVERS --> KAFKA
-    PKG_DRIVERS --> TELEGRAM
-
-    style CMD fill:#e1f5fe
-    style INTERNAL_APP fill:#fff3e0
-    style INTERNAL_PKG fill:#e8f5e9
-    style PKG fill:#f3e5f5
-    style EXTERNAL fill:#fce4ec
+    style TRANSPORT fill:#e3f2fd
+    style DATA fill:#fff3e0
+    style SERVICE fill:#e8f5e9,stroke:#4caf50
 ```
+
+!!! note "Config (OnlineConf)"
+    Конфигурация доступна на **всех слоях** — Transport, Service, Data.
+    Реализована как синглтон через OnlineConf.
+
+**Ключевые слои:**
+
+| Слой | Компоненты | Назначение |
+|------|------------|------------|
+| **Transport** | API, CLI, Workers, Bots | Точки входа с Authorise, Helpers, Handlers/Jobs |
+| **Service** | Бизнес-логика | Центральный компонент, единственное место для бизнес-логики |
+| **Data** | Clients, Models, Drivers | Доступ к данным и внешним сервисам |
+| **DB connectors** | Коннекторы к БД | Подключение к базам данных |
+| **Config** | OnlineConf | Конфигурация, доступна на всех слоях |
+
+**Внешние связи:**
+
+- **Network** (вверху) → входящие запросы к API и Bots
+- **Network** (внизу) ← исходящие запросы от Clients и Drivers
+- **DB** ← запросы к базе данных через DB connectors
 
 ## Трёхслойный дизайн
 
@@ -679,50 +676,3 @@ myservice/                         # ~50 файлов, ~8000 строк кода
 | GET | `/metrics` | Prometheus метрики |
 | GET | `/debug/pprof/*` | Go pprof профилирование |
 
-## Связь компонентов
-
-```mermaid
-flowchart TB
-    subgraph ENTRY["Точки входа"]
-        REST[REST API<br/>:8080]
-        GRPC[gRPC<br/>:9090]
-        SYS[System<br/>:8085]
-    end
-
-    subgraph HANDLERS["Handlers (internal/app)"]
-        REST_H[REST Handler]
-        GRPC_H[gRPC Handler]
-    end
-
-    subgraph SERVICES["Services"]
-        SVC[UserService<br/>OrderService]
-    end
-
-    subgraph DATA["Data Layer"]
-        REPO[Repository]
-        AR[ActiveRecord]
-    end
-
-    subgraph EXTERNAL["External"]
-        DB[(PostgreSQL)]
-        REDIS[(Redis)]
-        KAFKA[Kafka]
-    end
-
-    REST --> REST_H
-    GRPC --> GRPC_H
-    REST_H --> SVC
-    GRPC_H --> SVC
-    SVC --> REPO
-    SVC --> AR
-    REPO --> DB
-    AR --> DB
-    SVC --> REDIS
-    SVC --> KAFKA
-
-    style ENTRY fill:#e3f2fd
-    style HANDLERS fill:#fff3e0
-    style SERVICES fill:#e8f5e9
-    style DATA fill:#f3e5f5
-    style EXTERNAL fill:#fce4ec
-```
