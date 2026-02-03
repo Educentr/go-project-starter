@@ -31,10 +31,11 @@ grpc:
     public_service: true
     generator_type: buf_client
     buf_local_plugins: true
-    empty_config_available: true
 
 applications:
   - name: api
     transport:
-      - sys
-      - ItemService
+      - name: sys
+      - name: ItemService
+        config:
+          optional: true

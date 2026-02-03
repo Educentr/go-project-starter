@@ -40,7 +40,6 @@ grpc:
     port: 8090
     generator_type: buf_client
     buf_local_plugins: true
-    empty_config_available: true
 
 worker:
   - name: telegrambot
@@ -62,14 +61,16 @@ driver:
 applications:
   - name: api
     transport:
-      - api
-      - sys
-      - ItemService
+      - name: api
+      - name: sys
+      - name: ItemService
+        config:
+          optional: true
     worker:
       - daemon
   - name: bot
     transport:
-      - sys
+      - name: sys
     worker:
       - telegrambot
     driver:

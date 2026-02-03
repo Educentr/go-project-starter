@@ -5,14 +5,58 @@ import (
 	"fmt"
 	"time"
 
+	{{ if not .Transport.IsDynamic -}}
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	{{- end }}
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	zlog "github.com/rs/zerolog"
 )
+{{ if .Transport.IsDynamic }}
+const (
+	defaultTimeout = 10 * time.Second
+)
 
+// NewDynamicClient creates a gRPC client connection for the given address.
+// Use this when client endpoints are discovered at runtime.
+func NewDynamicClient(ctx context.Context, address string) (*Client, error) {
+	if address == "" {
+		return nil, errors.New("address cannot be empty")
+	}
+
+	//nolint:staticcheck // grpc.DialContext is deprecated but provides better compatibility
+	client, err := grpc.DialContext(ctx, address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create client for %s", address)
+	}
+
+	zlog.Ctx(ctx).Info().Str("address", address).Msg("Created dynamic gRPC client")
+
+	return &Client{
+		client: client,
+	}, nil
+}
+
+// Client holds the initialized gRPC connection
+type Client struct {
+	client *grpc.ClientConn
+}
+
+func (c *Client) GetClient() *grpc.ClientConn {
+	return c.client
+}
+
+func (c *Client) Close() error {
+	if c.client != nil {
+		return c.client.Close()
+	}
+	return nil
+}
+{{ else }}
 // Client holds the initialized gRPC connection
 type Client struct {
 	client *grpc.ClientConn
@@ -71,7 +115,7 @@ func (c *ClientWrapper) Init(ctx context.Context, serviceName string) (*Client, 
 			break
 		}
 	}
-{{ if .Transport.EmptyConfigAvailable }}
+{{ if .Applications.IsTransportOptional .Transport.Name }}
 	if host == "" || port == "" {
 		zlog.Ctx(ctx).Info().Msg("gRPC client {{ .Transport.Name }} not configured, skipping")
 		return nil, nil
@@ -110,3 +154,4 @@ func (c *Client) Close() error {
 	}
 	return nil
 }
+{{ end }}

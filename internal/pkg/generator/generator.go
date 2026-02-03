@@ -160,8 +160,12 @@ func (g *Generator) processConfig(config config.Config) error {
 				Transport: rest.AuthParams.Transport,
 				Type:      rest.AuthParams.Type,
 			},
-			PublicService:        rest.PublicService,
-			EmptyConfigAvailable: rest.EmptyConfigAvailable,
+			PublicService: rest.PublicService,
+		}
+
+		// Convert deprecated empty_config_available to optional
+		if rest.EmptyConfigAvailable {
+			transport.Optional = true
 		}
 
 		if rest.GeneratorType == "ogen_client" {
@@ -232,19 +236,28 @@ func (g *Generator) processConfig(config config.Config) error {
 		paths := []string{filepath.Join(config.BasePath, grpc.Path)}
 
 		transport := ds.Transport{
-			Name:                 grpc.Name,
-			PkgName:              grpc.Name,
-			Type:                 ds.GrpcTransportType,
-			GeneratorType:        grpc.GeneratorType,
-			Port:                 strconv.FormatUint(uint64(grpc.Port), 10),
-			SpecPath:             paths,
-			EmptyConfigAvailable: grpc.EmptyConfigAvailable,
-			BufLocalPlugins:      grpc.BufLocalPlugins,
+			Name:            grpc.Name,
+			PkgName:         grpc.Name,
+			Type:            ds.GrpcTransportType,
+			GeneratorType:   grpc.GeneratorType,
+			Port:            strconv.FormatUint(uint64(grpc.Port), 10),
+			SpecPath:        paths,
+			BufLocalPlugins: grpc.BufLocalPlugins,
+		}
+
+		// Convert deprecated empty_config_available to optional
+		if grpc.EmptyConfigAvailable {
+			transport.Optional = true
 		}
 
 		if grpc.GeneratorType == "buf_client" {
 			transport.Import = []string{
 				fmt.Sprintf(`%sClient "%s/internal/app/transport/grpc/%s"`, grpc.Name, g.ProjectPath, grpc.Name),
+			}
+			// Set instantiation mode: default to "static" if not specified
+			transport.Instantiation = grpc.Instantiation
+			if transport.Instantiation == "" {
+				transport.Instantiation = "static"
 			}
 		}
 

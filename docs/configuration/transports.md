@@ -47,7 +47,6 @@ rest:
 | `health_check_path` | Нет | Путь для health check |
 | `public_service` | Нет | Публичный сервис (без аутентификации) |
 | `auth_params` | Нет | Параметры аутентификации (для ogen_client) |
-| `empty_config_available` | Нет | Разрешить пустую конфигурацию |
 | `instantiation` | Нет | `static` или `dynamic` (только для ogen_client) |
 
 ### Типы генераторов
@@ -156,10 +155,38 @@ grpc:
 | `port` | Да | gRPC порт |
 | `generator_type` | Да | Тип генератора: `buf_client` |
 | `buf_local_plugins` | Нет | Использовать локальные buf плагины |
-| `empty_config_available` | Нет | Разрешить пустую конфигурацию |
+| `instantiation` | Нет | `static` или `dynamic` (только для buf_client) |
 
 !!! note "Только клиенты"
     В текущей версии поддерживается только генерация gRPC **клиентов** (`buf_client`). Генерация серверов (`buf_server`) пока не реализована.
+
+### Динамический режим инстанцирования (buf_client)
+
+По умолчанию gRPC-клиенты создаются один раз при старте приложения (`static`).
+Режим `dynamic` позволяет создавать клиенты в рантайме через `NewDynamicClient(ctx, address)`:
+
+```yaml
+grpc:
+  - name: users
+    path: ./proto/users.proto
+    port: 9000
+    generator_type: buf_client
+    instantiation: dynamic  # Клиент создаётся при каждом вызове
+```
+
+**Что меняется в `dynamic` режиме:**
+
+- Клиент **не регистрируется** при старте (`SetClient`)
+- Клиент **не добавляется** в Service struct
+- Клиент **не валидируется** в `ValidateFor*`
+- Вместо `NewClient()` + `Init()` генерируется `NewDynamicClient(ctx, address)`
+- Адрес (host:port) передаётся как параметр, без OnlineConf
+
+**Когда использовать `dynamic`:**
+
+- Адрес gRPC сервера определяется в рантайме
+- Нужна изоляция подключений между запросами
+- Тестирование с разными конфигурациями
 
 ## Секция `kafka`
 

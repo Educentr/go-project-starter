@@ -42,6 +42,8 @@ const (
 const (
 	// RemovalVersionTransportStringArray is when transport string array format will be removed
 	RemovalVersionTransportStringArray = "0.12.0"
+	// RemovalVersionEmptyConfigAvailable is when empty_config_available will be removed
+	RemovalVersionEmptyConfigAvailable = "0.13.0"
 )
 
 // Error message constants
@@ -52,7 +54,8 @@ const (
 
 // Deprecation description templates
 const (
-	deprecationDescTransportFormat = "Application '%s' uses deprecated string array format for transports"
+	deprecationDescTransportFormat        = "Application '%s' uses deprecated string array format for transports"
+	deprecationDescEmptyConfigAvailable   = "%s '%s' uses deprecated 'empty_config_available'. Use 'optional: true' in application transport config instead"
 )
 
 // File permission for config files
@@ -214,6 +217,40 @@ func CheckDeprecations(configPath string) ([]DeprecationWarning, error) {
 	}
 
 	var warnings []DeprecationWarning
+
+	// Check empty_config_available in REST section
+	if restList, ok := config["rest"].([]any); ok {
+		for _, restRaw := range restList {
+			if rest, ok := restRaw.(map[string]any); ok {
+				if eca, ok := rest["empty_config_available"].(bool); ok && eca {
+					name, _ := rest["name"].(string)
+					warnings = append(warnings, DeprecationWarning{
+						Feature:       "empty_config_available",
+						Description:   fmt.Sprintf(deprecationDescEmptyConfigAvailable, "REST", name),
+						RemovalVer:    RemovalVersionEmptyConfigAvailable,
+						MigrationHint: "Remove 'empty_config_available' from REST config and add 'config: { optional: true }' to the transport in applications section",
+					})
+				}
+			}
+		}
+	}
+
+	// Check empty_config_available in gRPC section
+	if grpcList, ok := config["grpc"].([]any); ok {
+		for _, grpcRaw := range grpcList {
+			if grpc, ok := grpcRaw.(map[string]any); ok {
+				if eca, ok := grpc["empty_config_available"].(bool); ok && eca {
+					name, _ := grpc["name"].(string)
+					warnings = append(warnings, DeprecationWarning{
+						Feature:       "empty_config_available",
+						Description:   fmt.Sprintf(deprecationDescEmptyConfigAvailable, "gRPC", name),
+						RemovalVer:    RemovalVersionEmptyConfigAvailable,
+						MigrationHint: "Remove 'empty_config_available' from gRPC config and add 'config: { optional: true }' to the transport in applications section",
+					})
+				}
+			}
+		}
+	}
 
 	// Check transport format
 	apps, ok := config["applications"].([]any)

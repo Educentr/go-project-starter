@@ -19,13 +19,13 @@ import (
 	{{- end }}
 	{{- end }}
 	{{ range $_, $tr := .Applications.GetGrpcTransport }}
-	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}
 	{{ range $_, $imp := $tr.Import }}
 	{{ $imp }}
 	{{- end }}
 	{{- end }}
 	{{- end }}
-	
+
 	{{ range $_, $driver := .Drivers }}
 	"{{ $driver.Import }}"
 	{{ end }}
@@ -55,7 +55,7 @@ type Service struct {
 	{{ end }}
 	{{ end }}
 	{{ range $_, $tr := .Applications.GetGrpcTransport }}
-	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}
 	{{ $tr.Name | ToLower }} *{{ $tr.Name }}Client.Client
 	{{ end }}
 	{{ end }}
@@ -87,7 +87,7 @@ func (s *Service) tryGet{{ $tr.Name | CapitalizeFirst }}(ctx context.Context, fn
 {{- end }}
 {{- end }}
 {{- range $_, $tr := .Applications.GetGrpcTransport }}
-{{- if and (eq $tr.GeneratorType "buf_client") ($.Applications.IsTransportOptional $tr.Name) }}
+{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) ($.Applications.IsTransportOptional $tr.Name) }}
 
 func (s *Service) tryGet{{ $tr.Name | CapitalizeFirst }}(ctx context.Context, fn func(*{{ $tr.Name }}Client.Client) error) {
 	if s.{{ $tr.Name | ToLower }} == nil {
@@ -135,14 +135,14 @@ func (s *Service) tryGet{{ $kafka.Name | CapitalizeFirst }}(ctx context.Context,
 func (s *Service) ValidateFor{{ $app.Name | CapitalizeFirst }}() error {
 	var missing []string
 	{{- range $_, $tr := $app.GetRestTransport }}
-	{{- if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) (not $tr.Optional) (not $tr.EmptyConfigAvailable) }}
+	{{- if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) (not $tr.Optional) }}
 	if s.{{ $tr.Name | ToLower }} == nil {
 		missing = append(missing, "{{ $tr.Name }} (REST client)")
 	}
 	{{- end }}
 	{{- end }}
 	{{- range $_, $tr := $app.GetGrpcTransport }}
-	{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.Optional) (not $tr.EmptyConfigAvailable) }}
+	{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) (not $tr.Optional) }}
 	if s.{{ $tr.Name | ToLower }} == nil {
 		missing = append(missing, "{{ $tr.Name }} (gRPC client)")
 	}
@@ -266,7 +266,7 @@ func (s *Service) setDrivers(drvs []ds.Runnable) error {
 {{ end }}
 {{ $hasGrpcClients := false }}
 {{ range $_, $tr := .Applications.GetGrpcTransport }}
-{{ if eq $tr.GeneratorType "buf_client" }}{{ $hasGrpcClients = true }}{{ end }}
+{{ if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}{{ $hasGrpcClients = true }}{{ end }}
 {{ end }}
 {{ if or $hasOgenClients $hasGrpcClients }}
 func (s *Service) setClients(ctx context.Context, clients []ds.ClientInitializer) error {
@@ -283,7 +283,7 @@ func (s *Service) setClients(ctx context.Context, clients []ds.ClientInitializer
 		{{- end }}
 		{{- end }}
 		{{ range $_, $tr := .Applications.GetGrpcTransport }}
-		{{ if eq $tr.GeneratorType "buf_client" }}
+		{{ if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}
 		case *{{ $tr.Name }}Client.ClientWrapper:
 			s.{{ $tr.Name | ToLower }}, err = c.Init(ctx, constant.ServiceName)
 			if err != nil {

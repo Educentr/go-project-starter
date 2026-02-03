@@ -392,6 +392,8 @@ type (
 		BufLocalPlugins bool `mapstructure:"buf_local_plugins"`
 		// EmptyConfigAvailable allows empty OnlineConf configuration. Optional.
 		EmptyConfigAvailable bool `mapstructure:"empty_config_available"`
+		// Instantiation mode: "static" (default) or "dynamic". Only for buf_client.
+		Instantiation string `mapstructure:"instantiation"`
 	}
 
 	Ws struct {
@@ -791,7 +793,12 @@ func (g Grpc) IsValid(baseConfigDir string) (bool, string) {
 
 	switch g.GeneratorType {
 	case "buf_client":
-		// valid
+		// Validate instantiation: only "static" or "dynamic" allowed
+		if g.Instantiation != "" &&
+			g.Instantiation != InstantiationStatic &&
+			g.Instantiation != InstantiationDynamic {
+			return false, "instantiation must be 'static' or 'dynamic'"
+		}
 	case "buf_server":
 		return false, "buf_server not yet implemented"
 	case "":

@@ -462,8 +462,7 @@ type Transport struct {
 	SpecPath             []string
 	ApiVersion           string // перенесено из Hendler
 	Port                 string // перенесено из Hendler
-	EmptyConfigAvailable bool
-	BufLocalPlugins      bool   // Use local buf instead of docker for proto generation
+	BufLocalPlugins bool // Use local buf instead of docker for proto generation
 	Instantiation        string // "static" (default) or "dynamic" - only for ogen_client
 	Optional             bool   // true = optional dependency for this app
 }

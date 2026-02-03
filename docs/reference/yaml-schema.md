@@ -97,7 +97,6 @@ rest:
     api_prefix: string          # [optional] URL префикс для API
     health_check_path: string   # [optional] Путь для health check
     public_service: bool        # [optional] Публичный сервис (без авторизации)
-    empty_config_available: bool # [optional] Разрешить пустую OnlineConf конфигурацию
 
     # Только для ogen_client:
     instantiation: string       # [optional] static (default) или dynamic
@@ -135,8 +134,17 @@ grpc:
     port: int                   # [required] gRPC порт
     generator_type: string      # [required] Тип: buf_client
     buf_local_plugins: bool     # [optional] Использовать локальные buf плагины
-    empty_config_available: bool # [optional] Разрешить пустую OnlineConf конфигурацию
+
+    # Только для buf_client:
+    instantiation: string       # [optional] static (default) или dynamic
 ```
+
+### Instantiation modes (buf_client)
+
+| Режим | Описание |
+|-------|----------|
+| `static` | Один экземпляр клиента на всё приложение (default) |
+| `dynamic` | Клиент создаётся в рантайме через `NewDynamicClient(ctx, address)` |
 
 ---
 

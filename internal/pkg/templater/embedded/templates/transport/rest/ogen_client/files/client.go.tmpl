@@ -63,7 +63,7 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 	}
 
 	if !ex || url == "" {
-		{{ if .Transport.EmptyConfigAvailable -}}
+		{{ if .Applications.IsTransportOptional .Transport.Name -}}
 		return nil, nil
 		{{- else -}}
 		return nil, errors.New("{{ .Transport.PkgName }} client URL not configured")

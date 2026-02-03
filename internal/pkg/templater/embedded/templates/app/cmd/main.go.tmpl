@@ -27,7 +27,7 @@ import (
 	{{- end }}
 	{{- end }}
 	{{ range $_, $tr := .Application.GetGrpcTransport }}
-	{{ if eq $tr.GeneratorType "buf_client" }}
+	{{ if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}
 	{{ range $_, $imp := $tr.Import }}
 	{{ $imp }}
 	{{- end }}
@@ -159,7 +159,7 @@ func main() {
 		{{- end }}
 		{{- end }}
 		{{ range $_, $tr := .Application.GetGrpcTransport }}
-		{{ if eq $tr.GeneratorType "buf_client" }}
+		{{ if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}
 		{{ $tr.Name }}Client.NewClient(),
 		{{- end }}
 		{{- end }}
