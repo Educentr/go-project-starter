@@ -488,6 +488,11 @@ func (g *Generator) processConfig(config config.Config) error {
 				tr.Instantiation = transport.Config.Instantiation
 			}
 
+			// Apply per-app optional flag
+			if transport.Config.Optional {
+				tr.Optional = true
+			}
+
 			application.Transports[transport.Name] = tr
 		}
 
@@ -503,7 +508,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		for _, driver := range app.DriverList {
 			dr, ex := g.Drivers[driver.Name]
 			if !ex {
-				return fmt.Errorf("unknown driver: %s", driver)
+				return fmt.Errorf("unknown driver: %s", driver.Name)
 			}
 
 			application.Drivers[driver.Name] = ds.Driver{
@@ -513,6 +518,7 @@ func (g *Generator) processConfig(config config.Config) error {
 				ObjName:          dr.ObjName,
 				ServiceInjection: dr.ServiceInjection,
 				CreateParams:     driver.Params,
+				Optional:         driver.Optional,
 			}
 		}
 
@@ -534,13 +540,14 @@ func (g *Generator) processConfig(config config.Config) error {
 		}
 
 		// Add Kafka producers/consumers to this application
-		for _, kafkaName := range app.KafkaList {
-			kafka, ex := g.Kafka[kafkaName]
+		for _, appKafka := range app.KafkaList {
+			kafka, ex := g.Kafka[appKafka.Name]
 			if !ex {
-				return errors.Errorf("unknown kafka: %s in application: %s", kafkaName, app.Name)
+				return errors.Errorf("unknown kafka: %s in application: %s", appKafka.Name, app.Name)
 			}
 
-			application.Kafka[kafkaName] = kafka
+			kafka.Optional = appKafka.Optional
+			application.Kafka[appKafka.Name] = kafka
 		}
 
 		g.Applications = append(g.Applications, application)

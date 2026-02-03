@@ -172,6 +172,14 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 				fmt.Sprintf("application[%d] '%s': %s", i, appName, err.Error()))
 		}
 
+		// Normalize kafka list (supports both old string[] and new object[] format)
+		if err := config.Applications[i].NormalizeKafka(); err != nil {
+			appName := config.Applications[i].Name
+
+			return config, errors.WithMessage(ErrInvalidConfig,
+				fmt.Sprintf("application[%d] '%s': %s", i, appName, err.Error()))
+		}
+
 		app := config.Applications[i]
 
 		if ok, msg := app.IsValid(); !ok {
@@ -230,9 +238,9 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		}
 
 		// Validate Kafka references
-		for _, kafkaName := range app.KafkaList {
-			if _, ex := config.KafkaMap[kafkaName]; !ex {
-				return config, errors.WithMessage(ErrInvalidConfig, "unknown kafka: "+kafkaName+" in application: "+app.Name)
+		for _, appKafka := range app.KafkaList {
+			if _, ex := config.KafkaMap[appKafka.Name]; !ex {
+				return config, errors.WithMessage(ErrInvalidConfig, "unknown kafka: "+appKafka.Name+" in application: "+app.Name)
 			}
 		}
 
@@ -340,7 +348,7 @@ func validateEntityUsage(config *Config) error {
 		}
 
 		for _, k := range app.KafkaList {
-			usedKafka[k] = true
+			usedKafka[k.Name] = true
 		}
 
 		for _, d := range app.DriverList {

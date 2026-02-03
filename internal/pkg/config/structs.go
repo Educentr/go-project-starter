@@ -449,8 +449,15 @@ type (
 	DriverList     []Driver
 
 	AppDriver struct {
-		Name   string   `mapstructure:"name"`
-		Params []string `mapstructure:"params"`
+		Name     string   `mapstructure:"name"`
+		Params   []string `mapstructure:"params"`
+		Optional bool     `mapstructure:"optional"`
+	}
+
+	// AppKafka references a kafka producer/consumer with optional per-app config
+	AppKafka struct {
+		Name     string `mapstructure:"name"`
+		Optional bool   `mapstructure:"optional"`
 	}
 
 	DeployVolume struct {
@@ -471,6 +478,7 @@ type (
 	// AppTransportConfig holds per-application transport configuration overrides
 	AppTransportConfig struct {
 		Instantiation string `mapstructure:"instantiation"` // "static" or "dynamic" - overrides REST-level setting
+		Optional      bool   `mapstructure:"optional"`      // true = optional dependency for this app
 	}
 
 	// AppTransport references a transport with optional per-app config overrides
@@ -513,8 +521,10 @@ type (
 		DriverList []AppDriver `mapstructure:"driver"`
 		// WorkerList contains worker names for this application.
 		WorkerList []string `mapstructure:"worker"`
-		// KafkaList contains kafka producer/consumer names.
-		KafkaList []string `mapstructure:"kafka"`
+		// KafkaListRaw is raw YAML data (string[] or object[]).
+		KafkaListRaw interface{} `mapstructure:"kafka"`
+		// KafkaList is the normalized kafka list (populated after loading).
+		KafkaList []AppKafka `mapstructure:"-"`
 		// CLI is the CLI transport name. Exclusive with transport/worker.
 		CLI string `mapstructure:"cli"`
 		// Deploy contains deployment settings (volumes).
@@ -878,6 +888,10 @@ func (a *Application) NormalizeTransports() error {
 					if inst, ok := configMap["instantiation"].(string); ok {
 						appTransport.Config.Instantiation = inst
 					}
+
+					if opt, ok := configMap["optional"].(bool); ok {
+						appTransport.Config.Optional = opt
+					}
 				}
 			}
 
@@ -885,6 +899,51 @@ func (a *Application) NormalizeTransports() error {
 
 		default:
 			return errors.Errorf("transport[%d]: invalid format, expected string or object", i)
+		}
+	}
+
+	return nil
+}
+
+// NormalizeKafka converts KafkaListRaw to KafkaList
+// Supports both old format ([]string) and new format ([]AppKafka)
+func (a *Application) NormalizeKafka() error {
+	if a.KafkaListRaw == nil {
+		a.KafkaList = nil
+
+		return nil
+	}
+
+	rawList, ok := a.KafkaListRaw.([]interface{})
+	if !ok {
+		return errors.New("kafka must be an array")
+	}
+
+	a.KafkaList = make([]AppKafka, 0, len(rawList))
+
+	for i, item := range rawList {
+		switch v := item.(type) {
+		case string:
+			// Old format: just kafka name (required by default)
+			a.KafkaList = append(a.KafkaList, AppKafka{Name: v})
+
+		case map[string]interface{}:
+			// New format: object with name and optional
+			name, ok := v["name"].(string)
+			if !ok || name == "" {
+				return errors.Errorf("kafka[%d]: name is required", i)
+			}
+
+			appKafka := AppKafka{Name: name}
+
+			if opt, ok := v["optional"].(bool); ok {
+				appKafka.Optional = opt
+			}
+
+			a.KafkaList = append(a.KafkaList, appKafka)
+
+		default:
+			return errors.Errorf("kafka[%d]: invalid format, expected string or object", i)
 		}
 	}
 

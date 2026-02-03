@@ -387,8 +387,24 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		"ToUpper":     strings.ToUpper,
 		"ReplaceDash": func(s string) string { return strings.ReplaceAll(s, "-", "_") },
 		"Capitalize":  cases.Title(language.Und).String,
-		"errorf":      func(format string, args ...any) error { return fmt.Errorf(format, args...) },
-		"add":         func(a, b int) int { return a + b },
+		"CapitalizeFirst": func(s string) string {
+			if s == "" {
+				return s
+			}
+			// Split by both "-" and "_" to produce PascalCase
+			parts := strings.FieldsFunc(s, func(r rune) bool {
+				return r == '-' || r == '_'
+			})
+			for i, p := range parts {
+				if p == "" {
+					continue
+				}
+				parts[i] = strings.ToUpper(p[:1]) + p[1:]
+			}
+			return strings.Join(parts, "")
+		},
+		"errorf": func(format string, args ...any) error { return fmt.Errorf(format, args...) },
+		"add":    func(a, b int) int { return a + b },
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string
 			s = strings.ReplaceAll(s, `\`, `\\`)

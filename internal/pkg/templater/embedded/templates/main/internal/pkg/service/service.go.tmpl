@@ -72,6 +72,103 @@ type Service struct {
 	{{ end }}
 }
 
+{{- range $_, $tr := .Applications.GetRestTransport }}
+{{- if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) ($.Applications.IsTransportOptional $tr.Name) }}
+
+func (s *Service) tryGet{{ $tr.Name | CapitalizeFirst }}(ctx context.Context, fn func(*{{ $tr.PkgName }}.Client) error) {
+	if s.{{ $tr.Name | ToLower }} == nil {
+		{{ $.Logger.WarnMsg "ctx" (printf "%s client is nil, skipping" $tr.Name) }}
+		return
+	}
+	if err := fn(s.{{ $tr.Name | ToLower }}); err != nil {
+		{{ $.Logger.ErrorMsg "ctx" "err" (printf "can't execute %s client callback" $tr.Name) }}
+	}
+}
+{{- end }}
+{{- end }}
+{{- range $_, $tr := .Applications.GetGrpcTransport }}
+{{- if and (eq $tr.GeneratorType "buf_client") ($.Applications.IsTransportOptional $tr.Name) }}
+
+func (s *Service) tryGet{{ $tr.Name | CapitalizeFirst }}(ctx context.Context, fn func(*{{ $tr.Name }}Client.Client) error) {
+	if s.{{ $tr.Name | ToLower }} == nil {
+		{{ $.Logger.WarnMsg "ctx" (printf "%s gRPC client is nil, skipping" $tr.Name) }}
+		return
+	}
+	if err := fn(s.{{ $tr.Name | ToLower }}); err != nil {
+		{{ $.Logger.ErrorMsg "ctx" "err" (printf "can't execute %s gRPC client callback" $tr.Name) }}
+	}
+}
+{{- end }}
+{{- end }}
+{{- range $_, $driver := .Drivers }}
+{{- if ($.Applications.IsDriverOptional $driver.Name) }}
+
+func (s *Service) tryGet{{ $driver.Name | CapitalizeFirst }}(ctx context.Context, fn func(*{{ $driver.Package }}.{{ $driver.ObjName }}) error) {
+	if s.{{ $driver.Name | ToLower }} == nil {
+		{{ $.Logger.WarnMsg "ctx" (printf "%s driver is nil, skipping" $driver.Name) }}
+		return
+	}
+	if err := fn(s.{{ $driver.Name | ToLower }}); err != nil {
+		{{ $.Logger.ErrorMsg "ctx" "err" (printf "can't execute %s driver callback" $driver.Name) }}
+	}
+}
+{{- end }}
+{{- end }}
+{{- range $_, $kafka := .Kafka }}
+{{- if eq $kafka.Type "producer" }}
+{{- if ($.Applications.IsKafkaOptional $kafka.Name) }}
+
+func (s *Service) tryGet{{ $kafka.Name | CapitalizeFirst }}(ctx context.Context, fn func(*{{ $kafka.GetPackage }}.{{ $kafka.GetObjName }}) error) {
+	if s.{{ $kafka.Name | ToLower }} == nil {
+		{{ $.Logger.WarnMsg "ctx" (printf "%s kafka producer is nil, skipping" $kafka.Name) }}
+		return
+	}
+	if err := fn(s.{{ $kafka.Name | ToLower }}); err != nil {
+		{{ $.Logger.ErrorMsg "ctx" "err" (printf "can't execute %s kafka producer callback" $kafka.Name) }}
+	}
+}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $_, $app := .Applications }}
+
+func (s *Service) ValidateFor{{ $app.Name | CapitalizeFirst }}() error {
+	var missing []string
+	{{- range $_, $tr := $app.GetRestTransport }}
+	{{- if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) (not $tr.Optional) }}
+	if s.{{ $tr.Name | ToLower }} == nil {
+		missing = append(missing, "{{ $tr.Name }} (REST client)")
+	}
+	{{- end }}
+	{{- end }}
+	{{- range $_, $tr := $app.GetGrpcTransport }}
+	{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.Optional) }}
+	if s.{{ $tr.Name | ToLower }} == nil {
+		missing = append(missing, "{{ $tr.Name }} (gRPC client)")
+	}
+	{{- end }}
+	{{- end }}
+	{{- range $_, $driver := $app.Drivers }}
+	{{- if not $driver.Optional }}
+	if s.{{ $driver.Name | ToLower }} == nil {
+		missing = append(missing, "{{ $driver.Name }} (driver)")
+	}
+	{{- end }}
+	{{- end }}
+	{{- range $_, $kafka := $app.GetKafkaProducers }}
+	{{- if not $kafka.Optional }}
+	if s.{{ $kafka.Name | ToLower }} == nil {
+		missing = append(missing, "{{ $kafka.Name }} (kafka producer)")
+	}
+	{{- end }}
+	{{- end }}
+	if len(missing) > 0 {
+		return errors.Errorf("service validation failed for app {{ $app.Name }}: missing dependencies: %v", missing)
+	}
+	return nil
+}
+{{- end }}
+
 type ActionEnableUsers string
 
 const (

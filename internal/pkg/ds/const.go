@@ -189,15 +189,16 @@ const (
 //
 //nolint:decorder // follows existing pattern - types after consts
 type KafkaConfig struct {
-	Name          string        // Unique name for reference
-	Type          string        // producer, consumer
-	Driver        string        // segmentio, custom
-	DriverImport  string        // For custom driver: import path
-	DriverPackage string        // For custom driver: package name
-	DriverObj     string        // For custom driver: struct name
-	ClientName    string        // Client name for OC path
-	Group         string        // Consumer group (for consumer type)
-	Events        []KafkaEvent  // Events configuration
+	Name          string       // Unique name for reference
+	Type          string       // producer, consumer
+	Driver        string       // segmentio, custom
+	DriverImport  string       // For custom driver: import path
+	DriverPackage string       // For custom driver: package name
+	DriverObj     string       // For custom driver: struct name
+	ClientName    string       // Client name for OC path
+	Group         string       // Consumer group (for consumer type)
+	Events        []KafkaEvent // Events configuration
+	Optional      bool         // true = optional dependency for this app
 }
 
 // KafkaConfigs is a map of KafkaConfig by name
@@ -437,6 +438,7 @@ type Driver struct {
 	// Т.е. это должно находиться в папке рядом с шаблонами, а не в конфигурационном файле генерируемого приложения.
 	// Это единая настройка на все приложения, которые используют этот драйвер.
 	ServiceInjection string // Структура которая будет добавлена в Service
+	Optional         bool   // true = optional dependency for this app
 }
 
 type AuthParams struct {
@@ -463,6 +465,7 @@ type Transport struct {
 	EmptyConfigAvailable bool
 	BufLocalPlugins      bool   // Use local buf instead of docker for proto generation
 	Instantiation        string // "static" (default) or "dynamic" - only for ogen_client
+	Optional             bool   // true = optional dependency for this app
 }
 
 // IsDynamic returns true if client should be created at runtime (not at startup)
@@ -489,6 +492,39 @@ type Apps []App
 func (a Apps) HasActiveRecord() bool {
 	for _, app := range a {
 		if app.UseActiveRecord {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsTransportOptional returns true if the transport is marked optional in at least one application
+func (a Apps) IsTransportOptional(name string) bool {
+	for _, app := range a {
+		if tr, ok := app.Transports[name]; ok && tr.Optional {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsDriverOptional returns true if the driver is marked optional in at least one application
+func (a Apps) IsDriverOptional(name string) bool {
+	for _, app := range a {
+		if dr, ok := app.Drivers[name]; ok && dr.Optional {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsKafkaOptional returns true if the kafka config is marked optional in at least one application
+func (a Apps) IsKafkaOptional(name string) bool {
+	for _, app := range a {
+		if k, ok := app.Kafka[name]; ok && k.Optional {
 			return true
 		}
 	}

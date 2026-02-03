@@ -205,6 +205,14 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize application" }}
 		os.Exit(ExitCodeInit)
 	}
+
+	// Validate service configuration for this application
+	if emptySrv, ok := srv.(*service.EmptyService); ok {
+		if err := emptySrv.ValidateFor{{ .Application.Name | CapitalizeFirst }}(); err != nil {
+			{{ .Logger.ErrorMsg "mainCtx" "err" "service validation failed" }}
+			os.Exit(ExitCodeErrorService)
+		}
+	}
 	{{ if .Application.UseActiveRecord }}
 	// Initialize ActiveRecord
 	activerecord.InitActiveRecord(
