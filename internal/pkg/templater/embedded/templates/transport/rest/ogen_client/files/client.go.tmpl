@@ -27,7 +27,7 @@ func NewDynamicClient(ctx context.Context, baseURL string) (*{{ .Transport.PkgNa
 
 	return {{ .Transport.PkgName }}.NewClient(
 		baseURL,
-		{{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey") -}}
+		{{ if or (and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey")) (and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "bearer")) -}}
 		&SecuritySource{},
 		{{ end -}}
 		{{ .Transport.PkgName }}.WithClient(&http.Client{
@@ -77,7 +77,7 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 
 	return {{ .Transport.PkgName }}.NewClient(
 		url,
-        {{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey")}}
+        {{ if or (and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey")) (and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "bearer")) }}
 		&SecuritySource{},
         {{ end }}
 		{{ .Transport.PkgName }}.WithClient(&http.Client{

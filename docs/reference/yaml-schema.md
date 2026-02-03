@@ -102,7 +102,7 @@ rest:
     instantiation: string       # [optional] static (default) или dynamic
     auth_params:                # [optional] Параметры аутентификации
       transport: header         # Тип транспорта (только header)
-      type: apikey              # Тип аутентификации (только apikey)
+      type: apikey              # Тип аутентификации: apikey или bearer
 ```
 
 ### Типы генераторов REST

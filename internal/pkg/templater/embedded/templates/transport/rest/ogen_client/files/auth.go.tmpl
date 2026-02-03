@@ -31,6 +31,23 @@ func (ak *SecuritySource) AuthHeader(ctx context.Context, operationName {{ .Tran
         Roles:  []string{"default"}, // You can modify this to include specific roles if needed
     }, nil
 }
+{{ else if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "bearer") }}
+type SecuritySource struct {}
+
+func (s *SecuritySource) BearerAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.BearerAuth, error) {
+    token, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "auth_params", "token"))
+    if err != nil {
+        return {{ .Transport.PkgName }}.BearerAuth{}, errors.Wrap(err, "error getting Bearer token")
+    }
+
+    if token == "" {
+        return {{ .Transport.PkgName }}.BearerAuth{}, errors.New("Bearer token not set")
+    }
+
+    return {{ .Transport.PkgName }}.BearerAuth{
+        Token: token,
+    }, nil
+}
 {{ else if and .Transport.AuthParams.Type (ne .Transport.AuthParams.Type "") }}
     {{- errorf "Unsupported auth type: %s" .Transport.AuthParams.Type -}}
 {{- end }}

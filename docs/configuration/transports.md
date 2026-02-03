@@ -67,10 +67,15 @@ rest:
     generator_type: ogen_client
     auth_params:
       transport: header    # Способ передачи (пока только header)
-      type: apikey         # Тип аутентификации (пока только apikey)
+      type: apikey         # Тип аутентификации: apikey или bearer
 ```
 
-API ключ читается из OnlineConf: `{service_name}/transport/rest/{rest_name}/auth_params/apikey`
+**Типы аутентификации:**
+
+| Тип | OnlineConf путь | Описание |
+|-----|-----------------|----------|
+| `apikey` | `{service_name}/transport/rest/{rest_name}/auth_params/apikey` | API key в заголовке |
+| `bearer` | `{service_name}/transport/rest/{rest_name}/auth_params/token` | Bearer token в заголовке Authorization |
 
 ### Динамический режим инстанцирования (ogen_client)
 
