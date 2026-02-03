@@ -135,14 +135,14 @@ func (s *Service) tryGet{{ $kafka.Name | CapitalizeFirst }}(ctx context.Context,
 func (s *Service) ValidateFor{{ $app.Name | CapitalizeFirst }}() error {
 	var missing []string
 	{{- range $_, $tr := $app.GetRestTransport }}
-	{{- if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) (not $tr.Optional) }}
+	{{- if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) (not $tr.Optional) (not $tr.EmptyConfigAvailable) }}
 	if s.{{ $tr.Name | ToLower }} == nil {
 		missing = append(missing, "{{ $tr.Name }} (REST client)")
 	}
 	{{- end }}
 	{{- end }}
 	{{- range $_, $tr := $app.GetGrpcTransport }}
-	{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.Optional) }}
+	{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.Optional) (not $tr.EmptyConfigAvailable) }}
 	if s.{{ $tr.Name | ToLower }} == nil {
 		missing = append(missing, "{{ $tr.Name }} (gRPC client)")
 	}
