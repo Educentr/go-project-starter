@@ -45,7 +45,7 @@ const MinRuntimeVersion = "vX.Y.Z"  // <- обновить до последне
    ```
 4. Создать релиз с release notes:
    ```bash
-   gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "Release notes..."
+   gh release create vX.Y.Z --title "vX.Y.Z" --notes "Release notes..."
    ```
 
 **Важно:** Release notes составлять относительно коммита последнего релиза, а не последнего тега!
