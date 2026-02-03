@@ -49,7 +49,7 @@ func (tg *Telegram) AnswerPreCheckout(_ context.Context, preCheckoutID string, e
 }
 
 func (tg *Telegram) RefundPayment(ctx context.Context, userID int64, chargeID string) error {
-	zlog.Ctx(ctx).Info().Int64("user_id", userID).Str("charge_id", chargeID).Msg("Refunding payment")
+	{{ .Logger.InfoMsg "ctx" "Refunding payment" "int64::user_id::userID" "str::charge_id::chargeID" }}
 
 	ret, err := tg.bot.Request(tgbotapi.RefundStarPaymentConfig{
 		UserID:                  userID,
@@ -86,7 +86,7 @@ func (tg *Telegram) GetPayments(ctx context.Context, skip, limit int64) (*tgbota
 
 	res := &tgbotapi.StarTransactions{}
 
-	zlog.Ctx(ctx).Info().Str("result", string(ret.Result)).Msg("GetPayments")
+	{{ .Logger.InfoMsg "ctx" "GetPayments" "str::result::string(ret.Result)" }}
 
 	err = json.Unmarshal(ret.Result, res)
 	if err != nil {

@@ -54,7 +54,7 @@ func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prome
 func GetEnabledJobs(ctx context.Context) []string {
 	enabledJobs, err := onlineconf.GetStrings(ctx, GetConfigPath("jobs", "enabled"), []string{})
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("get enabled jobs")
+		{{ $.Logger.ErrorMsg "ctx" "err" "get enabled jobs" }}
 
 		return []string{}
 	}
@@ -65,13 +65,13 @@ func GetEnabledJobs(ctx context.Context) []string {
 func GetBatchSize(ctx context.Context) uint32 {
 	batchSize, err := onlineconf.GetInt(ctx, GetConfigPath("batch_size"), DefaultBatchSize)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("get batch size")
+		{{ $.Logger.ErrorMsg "ctx" "err" "get batch size" }}
 
 		return DefaultBatchSize
 	}
 
 	if batchSize <= 0 || batchSize > math.MaxUint32 {
-		zlog.Ctx(ctx).Error().Err(err).Msg("invalid batch size")
+		{{ $.Logger.ErrorMsg "ctx" "err" "invalid batch size" }}
 
 		return DefaultBatchSize
 	}
@@ -90,18 +90,18 @@ func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) 
 	ocPrefix := GetConfigPath()
 	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
 	if err != nil {
-		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "str::$nameFieldLogger::WorkerName" }}
 		return err
 	}
 	{{ .Logger.ReWrap "ctx" "ctxJob" "ocPrefix" "\"job\"" }}
-	{{ .Logger.UpdateContext "ctxJob" "Str(\"taskID\", task.GetID(ctxJob)).Str(nameFieldLogger, WorkerName)" }}
+	{{ .Logger.UpdateContext "ctxJob" "str::taskID::task.GetID(ctxJob)" "str::$nameFieldLogger::WorkerName" }}
 
 	err = errors.New("unexpected error")
 
 	defer func() {
 		err := recover()
 		if err != nil {
-			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "Interface(\"panic error\", err)" "Str(\"Stack\", strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1))" }}
+			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "any::panic error::err" "str::Stack::strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1)" }}
 		}
 
 		cancel()
@@ -109,7 +109,7 @@ func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) 
 
 	err = task.Do(ctxJob, w.Srv)
 	if err != nil {
-		{{ .Logger.ErrorMsg "ctxJob" "err" "Error job starter" "Str(nameFieldLogger, WorkerName)" "Str(\"taskID\", task.GetID(ctxJob))"}}
+		{{ .Logger.ErrorMsg "ctxJob" "err" "Error job starter" "str::$nameFieldLogger::WorkerName" "str::taskID::task.GetID(ctxJob)"}}
 	}
 
 	return
@@ -119,7 +119,7 @@ func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) 
 func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 	// initialization worker
 	errGr.Go(func() error {
-		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.InfoMsg "ctx" "Run worker" "str::$nameFieldLogger::WorkerName" }}
 
 		timer := time.NewTimer(time.Millisecond * 500)
 		iterNum := 1
@@ -130,12 +130,12 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 			case <-timer.C:
 				iterNum++
 				if iterNum % 100 == 0 {
-					{{ .Logger.InfoMsg "ctx" "worker iteration" "Int(\"iterNum\", iterNum)" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.InfoMsg "ctx" "worker iteration" "int::iterNum::iterNum" "str::$nameFieldLogger::WorkerName" }}
 				}
 
 				tasks, jobState, err := w.GetTasks(ctx, w.jobState)
 				if err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "str::$nameFieldLogger::WorkerName" }}
 					timer = time.NewTimer(ErrorTimeout)
 					continue
 				}
@@ -143,20 +143,20 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				w.jobState = jobState
 
 				if tasks == nil {
-					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "str::$nameFieldLogger::WorkerName" }}
 					timer = time.NewTimer(NewCycleTimeout)
 					continue
 				}
 
 				if len(tasks) == 0 {
-					{{ .Logger.InfoMsg "ctx" "no tasks to run" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.InfoMsg "ctx" "no tasks to run" "str::$nameFieldLogger::WorkerName" }}
 					timer = time.NewTimer(NextIterationTimeout)
 					continue
 				}
 
 				MaxWorkers, err := onlineconf.GetInt(ctx, GetConfigPath("max_workers"), 5)
 				if err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Error get max_workers config" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "Error get max_workers config" "str::$nameFieldLogger::WorkerName" }}
 					MaxWorkers = 5 // default value
 				}
 
@@ -168,7 +168,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 					wgWorkers.Go(func() error {
 						for task := range tasksChan {
 							if err := w.JobStarter(ctx, task); err != nil {
-								{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "Str(nameFieldLogger, WorkerName)" "Str(\"taskID\", task.GetID(ctx))"}}
+								{{ .Logger.ErrorMsg "ctx" "err" "Error job starter" "str::$nameFieldLogger::WorkerName" "str::taskID::task.GetID(ctx)"}}
 							}
 						}
 
@@ -183,7 +183,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				close(tasksChan)
 
 				if err := wgWorkers.Wait(); err != nil {
-					{{ .Logger.ErrorMsg "ctx" "err" "Worker pool error" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "Worker pool error" "str::$nameFieldLogger::WorkerName" }}
 				}
 
 				{{ .Logger.DebugMsg "ctx" "worker finished cycle" }}
@@ -193,7 +193,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 			}
 		}
 
-		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.InfoMsg "ctx" "worker stopped" "str::$nameFieldLogger::WorkerName" }}
 
 		return nil
 	})

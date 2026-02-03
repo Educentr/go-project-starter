@@ -55,7 +55,7 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 					return
 				}
 				{{ .Logger.ReWrap "ctx" "reqCtx" "ocPrefix" "r.URL.Path" }}
-				{{ .Logger.UpdateContext "reqCtx" "Str(\"Method\", r.Method)" "Str(\"URI\", r.RequestURI)" }}
+				{{ .Logger.UpdateContext "reqCtx" "str::Method::r.Method" "str::URI::r.RequestURI" }}
 				next.ServeHTTP(w, r.WithContext(reqCtx))
 				cancel()
 			})
@@ -107,7 +107,7 @@ func PanicRecoveryMiddleware(ctx context.Context) func (next http.Handler) http.
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					{{ .Logger.ErrorMsg "r.Context()" "nil" "Panic recovered" "Str(\"Stack\", strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1))" "Interface(\"Error\", err)" }}
+					{{ .Logger.ErrorMsg "r.Context()" "nil" "Panic recovered" "str::Stack::strings.Replace(strings.Replace(string(debug.Stack()), \"\\n\\t/\", \" --> /\", -1), \"\\n\", \" => \", -1)" "any::Error::err" }}
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 				}
 			}()

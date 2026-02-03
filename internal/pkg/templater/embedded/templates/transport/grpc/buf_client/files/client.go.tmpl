@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	zlog "github.com/rs/zerolog"
+	{{ .Logger.Import }}
 )
 {{ if .Transport.IsDynamic }}
 const (
@@ -34,7 +34,7 @@ func NewDynamicClient(ctx context.Context, address string) (*Client, error) {
 		return nil, errors.Wrapf(err, "failed to create client for %s", address)
 	}
 
-	zlog.Ctx(ctx).Info().Str("address", address).Msg("Created dynamic gRPC client")
+	{{ .Logger.InfoMsg "ctx" "Created dynamic gRPC client" "str::address::address" }}
 
 	return &Client{
 		client: client,
@@ -117,7 +117,7 @@ func (c *ClientWrapper) Init(ctx context.Context, serviceName string) (*Client, 
 	}
 {{ if .Applications.IsTransportOptional .Transport.Name }}
 	if host == "" || port == "" {
-		zlog.Ctx(ctx).Info().Msg("gRPC client {{ .Transport.Name }} not configured, skipping")
+		{{ .Logger.InfoMsg "ctx" "gRPC client not configured, skipping" }}
 		return nil, nil
 	}
 {{ else }}
@@ -137,7 +137,7 @@ func (c *ClientWrapper) Init(ctx context.Context, serviceName string) (*Client, 
 		return nil, errors.Wrapf(err, "failed to create client for %s", address)
 	}
 
-	zlog.Ctx(ctx).Info().Str("address", address).Msg("Created gRPC client")
+	{{ .Logger.InfoMsg "ctx" "Created gRPC client" "str::address::address" }}
 
 	return &Client{
 		client: client,

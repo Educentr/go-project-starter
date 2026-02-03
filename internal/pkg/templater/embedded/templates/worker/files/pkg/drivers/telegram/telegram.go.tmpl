@@ -75,19 +75,19 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		if tg.startUpdatePoller {
 			bufferSize, err := onlineconf.GetInt(ctx, bufferSizeConfigPath, defaultBufferSize)
 			if err != nil {
-				zlog.Ctx(ctx).Error().Err(err).Msg("Error getting buffer_size")
+				{{ $.Logger.ErrorMsg "ctx" "err" "Error getting buffer_size" }}
 
 				bufferSize = 0
 			}
 
 			if bufferSize < 1 {
-				zlog.Ctx(ctx).Error().Int64("buffer_size", bufferSize).Msg("buffer_size is less than 1")
+				{{ $.Logger.ErrorMsg "ctx" "nil" "buffer_size is less than 1" "int64::buffer_size::bufferSize" }}
 
 				bufferSize = 0
 			}
 
 			if bufferSize > defaultChannelSize {
-				zlog.Ctx(ctx).Error().Int64("buffer_size", bufferSize).Msg("buffer_size is more than 100")
+				{{ $.Logger.ErrorMsg "ctx" "nil" "buffer_size is more than 100" "int64::buffer_size::bufferSize" }}
 
 				bufferSize = 0
 			}
@@ -104,7 +104,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 
 	err := onlineconf.RegisterSubscription(ctx, "TREE", []string{GetTgTokenPath(ctx, serviceName)},
 		func() error {
-			zlog.Ctx(ctx).Info().Msg("tg_token updated")
+			{{ $.Logger.InfoMsg "ctx" "tg_token updated" }}
 
 			return updateTgToken(ctx)
 		})
@@ -115,7 +115,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 
 	err = updateTgToken(ctx)
 	if err != nil {
-		zlog.Ctx(ctx).Error().Err(err).Msg("Error updating tg_token")
+		{{ $.Logger.ErrorMsg "ctx" "err" "Error updating tg_token" }}
 
 		return err
 	}

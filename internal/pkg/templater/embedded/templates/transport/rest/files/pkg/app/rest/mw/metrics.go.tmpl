@@ -62,12 +62,12 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, serviceName, transportName
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			{{ .Logger.InfoMsg "r.Context()" "Start request"
-				"Str(\"Method\", r.Method)"
-				"Str(\"Content-Length\", r.Header.Get(\"content-length\"))"
-				"Str(\"X-Real-IP\", r.Header.Get(\"x-real-ip\"))"
-				"Str(\"Content-Type\", r.Header.Get(\"content-type\"))"
-				"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
-				"Str(\"Referer\", r.Header.Get(\"referer\"))"
+				"str::Method::r.Method"
+				"str::Content-Length::r.Header.Get(\"content-length\")"
+				"str::X-Real-IP::r.Header.Get(\"x-real-ip\")"
+				"str::Content-Type::r.Header.Get(\"content-type\")"
+				"str::User-Agent::r.Header.Get(\"user-agent\")"
+				"str::Referer::r.Header.Get(\"referer\")"
 			}}
 
 			StartedAt := time.Now()
@@ -123,33 +123,33 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, serviceName, transportName
 			statusCode := rw.Status()
 			if statusCode >= 500 {
 				{{ .Logger.ErrorMsg "r.Context()" "nil" "Done request"
-					"Int(\"Status\", statusCode)"
-					"Str(\"Method\", r.Method)"
-					"Int(\"Content-Length\", rw.Size())"
-					"Str(\"X-Real-IP\", userIP)"
-					"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
-					"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
-					"Str(\"Referer\", r.Header.Get(\"referer\"))"
+					"int::Status::statusCode"
+					"str::Method::r.Method"
+					"int::Content-Length::rw.Size()"
+					"str::X-Real-IP::userIP"
+					"str::Content-Type::rw.Header().Get(\"Content-Type\")"
+					"str::User-Agent::r.Header.Get(\"user-agent\")"
+					"str::Referer::r.Header.Get(\"referer\")"
 				}}
 			} else if statusCode >= 400 {
 				{{ .Logger.WarnMsg "r.Context()" "Done request"
-					"Int(\"Status\", statusCode)"
-					"Str(\"Method\", r.Method)"
-					"Int(\"Content-Length\", rw.Size())"
-					"Str(\"X-Real-IP\", userIP)"
-					"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
-					"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
-					"Str(\"Referer\", r.Header.Get(\"referer\"))"
+					"int::Status::statusCode"
+					"str::Method::r.Method"
+					"int::Content-Length::rw.Size()"
+					"str::X-Real-IP::userIP"
+					"str::Content-Type::rw.Header().Get(\"Content-Type\")"
+					"str::User-Agent::r.Header.Get(\"user-agent\")"
+					"str::Referer::r.Header.Get(\"referer\")"
 				}}
 			} else {
 				{{ .Logger.InfoMsg "r.Context()" "Done request"
-					"Int(\"Status\", statusCode)"
-					"Str(\"Method\", r.Method)"
-					"Int(\"Content-Length\", rw.Size())"
-					"Str(\"X-Real-IP\", userIP)"
-					"Str(\"Content-Type\", rw.Header().Get(\"Content-Type\"))"
-					"Str(\"User-Agent\", r.Header.Get(\"user-agent\"))"
-					"Str(\"Referer\", r.Header.Get(\"referer\"))"
+					"int::Status::statusCode"
+					"str::Method::r.Method"
+					"int::Content-Length::rw.Size()"
+					"str::X-Real-IP::userIP"
+					"str::Content-Type::rw.Header().Get(\"Content-Type\")"
+					"str::User-Agent::r.Header.Get(\"user-agent\")"
+					"str::Referer::r.Header.Get(\"referer\")"
 				}}
 			}
 		})

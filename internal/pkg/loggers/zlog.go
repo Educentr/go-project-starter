@@ -7,10 +7,65 @@ import (
 
 type ZlogLogger struct{}
 
+// formatKey formats a key parameter. If the key starts with "$", it's treated as a variable reference.
+// Otherwise, it's treated as a string literal and quoted.
+func formatKey(key string) string {
+	if strings.HasPrefix(key, "$") {
+		return key[1:]
+	}
+
+	return fmt.Sprintf(`"%s"`, key)
+}
+
+// convertParam converts a universal format param (type::key::value) to zerolog method call.
+// Supported formats:
+//   - str::key::value  → Str("key", value)
+//   - int::key::value  → Int("key", value)
+//   - int64::key::value → Int64("key", value)
+//   - any::key::value  → Interface("key", value)
+//   - bool::key::value → Bool("key", value)
+//   - err::value       → Err(value)
+//
+// Key prefixed with "$" is treated as a variable reference (no quotes).
+func (zl *ZlogLogger) convertParam(param string) string {
+	parts := strings.SplitN(param, "::", 3)
+
+	if len(parts) == 2 && parts[0] == "err" {
+		return fmt.Sprintf("Err(%s)", parts[1])
+	}
+
+	if len(parts) != 3 {
+		return param // fallback: pass through as-is for backward compatibility
+	}
+
+	key := formatKey(parts[1])
+	value := parts[2]
+
+	switch parts[0] {
+	case "str":
+		return fmt.Sprintf("Str(%s, %s)", key, value)
+	case "int":
+		return fmt.Sprintf("Int(%s, %s)", key, value)
+	case "int64":
+		return fmt.Sprintf("Int64(%s, %s)", key, value)
+	case "any":
+		return fmt.Sprintf("Interface(%s, %s)", key, value)
+	case "bool":
+		return fmt.Sprintf("Bool(%s, %s)", key, value)
+	default:
+		return param // fallback
+	}
+}
+
 func (zl *ZlogLogger) getAddParams(params ...string) string {
-	addParams := strings.Join(params, ".")
+	converted := make([]string, 0, len(params))
+	for _, p := range params {
+		converted = append(converted, zl.convertParam(p))
+	}
+
+	addParams := strings.Join(converted, ".")
 	if len(addParams) > 100 {
-		addParams = strings.Join(params, ".\n")
+		addParams = strings.Join(converted, ".\n")
 	}
 
 	if addParams != "" {
@@ -42,10 +97,19 @@ func (zl *ZlogLogger) DebugMsg(ctx, msg string, params ...string) string {
 	return fmt.Sprintf("zlog.Ctx(%s).Debug()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
 }
 
+func (zl *ZlogLogger) ErrorMsgCaller(ctx, err, msg string, callerSkip int, params ...string) string {
+	return fmt.Sprintf("zlog.Ctx(%s).Error().Caller(%d)%sErr(%s).Msg(\"%s\")", ctx, callerSkip, zl.getAddParams(params...), err, msg)
+}
+
 func (zl *ZlogLogger) UpdateContext(params ...string) string {
+	converted := make([]string, 0, len(params)-1)
+	for _, p := range params[1:] {
+		converted = append(converted, zl.convertParam(p))
+	}
+
 	return fmt.Sprintf(`zlog.Ctx(%s).UpdateContext(func(c zlog.Context) zlog.Context {
 		return c.%s
-	})`, params[0], strings.Join(params[1:], "."))
+	})`, params[0], strings.Join(converted, "."))
 }
 
 // ToDo сделать проверку на то, что логгер не используется в шаблонах напрямую и положить в CI
@@ -73,4 +137,14 @@ func (zl *ZlogLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
 // SetLoggerUpdater generates code to set the global logger updater for reqctx
 func (zl *ZlogLogger) SetLoggerUpdater() string {
 	return "reqctx.SetLoggerUpdater(runtimelogger.NewZerologUpdater())"
+}
+
+// SetupTestLogger generates code to create a test zerolog logger and attach it to context
+func (zl *ZlogLogger) SetupTestLogger(ctxVar string) string {
+	return fmt.Sprintf(`testLogger := zlog.New(os.Stdout).With().
+		Timestamp().
+		Str("service", "test").
+		Logger()
+
+	%s = testLogger.WithContext(%s)`, ctxVar, ctxVar)
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/pkg/errors"
 	"github.com/ogen-go/ogen/ogenerrors"
-	zlog "github.com/rs/zerolog"
+	{{ .Logger.Import }}
 
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/app/rest"
@@ -28,7 +28,7 @@ func (h *ogenDefaultError) NewError(ctx context.Context, err error) *oas.ErrorDe
 		}
 	}
 
-	zlog.Ctx(ctx).Error().Caller(2).Err(err).Msg("Unexpected error from handler")
+	{{ .Logger.ErrorMsgCaller "ctx" "err" "Unexpected error from handler" 2 }}
 
 	return &oas.ErrorDefaultStatusCode{
 		StatusCode: 500,

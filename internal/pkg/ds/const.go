@@ -744,6 +744,13 @@ type Logger interface {
 	WarnMsg(string, string, ...string) string
 	InfoMsg(string, string, ...string) string
 	DebugMsg(string, string, ...string) string
+	// ErrorMsgCaller generates error log with caller information
+	// ctx - context variable name
+	// err - error variable name
+	// msg - log message
+	// callerSkip - number of stack frames to skip for caller info
+	// params - additional log fields in type::key::value format
+	ErrorMsgCaller(ctx, err, msg string, callerSkip int, params ...string) string
 	UpdateContext(...string) string
 	Import() string
 	FilesToGenerate() string
@@ -757,6 +764,9 @@ type Logger interface {
 	ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
 	// SetLoggerUpdater generates code to set the global logger updater for reqctx
 	SetLoggerUpdater() string
+	// SetupTestLogger generates code to create a test logger and attach it to context
+	// ctxVar - context variable name to attach logger to
+	SetupTestLogger(ctxVar string) string
 }
 
 func (t Transport) GetOgenConfigPath(targetDir string) string {

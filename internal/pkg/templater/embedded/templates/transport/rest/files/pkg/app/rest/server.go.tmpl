@@ -91,7 +91,7 @@ func (s *Server) GetHTTPServer(ctx context.Context, serviceName string, appName 
 	if err != nil {
 		ip = defaultListenIP
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" "Str(\"Default\", defaultListenIP)" }}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" "str::Default::defaultListenIP" }}
 	}
 
 	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "port", nil, &port)
@@ -103,7 +103,7 @@ func (s *Server) GetHTTPServer(ctx context.Context, serviceName string, appName 
 	if err != nil {
 		timeout = defaultHTTPTimeout
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout from onlineconf" "Str(\"Default\", defaultHTTPTimeout.String())"}}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout from onlineconf" "str::Default::defaultHTTPTimeout.String()"}}
 	}
 
 	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_read_header", &timeout, &headerTimeout)
@@ -166,11 +166,11 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 }
 
 func (s *Server) Run(ctx context.Context, errGr *errgroup.Group) {
-	{{ .Logger.InfoMsg "ctx" "Run rest server" "Str(nameFieldLogger, s.name)"}}
+	{{ .Logger.InfoMsg "ctx" "Run rest server" "str::$nameFieldLogger::s.name"}}
 
 	// initialization http server
 	errGr.Go(func() error {
-		{{ .Logger.InfoMsg "ctx" "server started serving" "Str(\"addr\", s.httpSrv.Addr)" "Str(nameFieldLogger, s.name)" }}
+		{{ .Logger.InfoMsg "ctx" "server started serving" "str::addr::s.httpSrv.Addr" "str::$nameFieldLogger::s.name" }}
 
 		err := s.httpSrv.ListenAndServe()
 		if err != nil {
@@ -178,7 +178,7 @@ func (s *Server) Run(ctx context.Context, errGr *errgroup.Group) {
 				return nil
 			}
 
-			{{ .Logger.ErrorMsg "ctx" "err).Str(nameFieldLogger, s.name" "server initialization/runtime error"}}
+			{{ .Logger.ErrorMsg "ctx" "err" "server initialization/runtime error" "str::$nameFieldLogger::s.name"}}
 		}
 
 		return err

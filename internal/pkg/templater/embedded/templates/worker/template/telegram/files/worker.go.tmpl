@@ -34,7 +34,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c tel
 			var ok bool
 			c, ok = cmdMaps[resp.InternalRedirect.Cmd]
 			if !ok {
-				{{ .Logger.ErrorMsg "ctx" "nil" "Unknown command for internal redirect" "Str(\"Cmd\", resp.InternalRedirect.Cmd.String())" }}
+				{{ .Logger.ErrorMsg "ctx" "nil" "Unknown command for internal redirect" "str::Cmd::resp.InternalRedirect.Cmd.String()" }}
 
 				w.postProcessRequest(ctx, hdl.Rd, telegram.Response{}, telegram.ErrInternalError)
 
@@ -185,14 +185,14 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 				msgID, err = srv.TelegramUpdateMessageButtons(ctx, requestData, requestData.MessageID, tgMsg)
 				if err != nil {
 					if telegram.IsMessageEditError(err) {
-						{{ .Logger.WarnMsg "ctx" "Error updating message (expected)" "Err(err)" }}
+						{{ .Logger.WarnMsg "ctx" "Error updating message (expected)" "err::err" }}
 					} else {
 						{{ .Logger.ErrorMsg "ctx" "err" "Error updating message" }}
 					}
 
 					err = srv.TelegramDeleteMessage(ctx, requestData.ChatID, requestData.MessageID)
 					if err != nil && !telegram.IsMessageDeleteError(err) {
-						{{ .Logger.WarnMsg "ctx" "Error deleting message after failed update" "Err(err)" }}
+						{{ .Logger.WarnMsg "ctx" "Error deleting message after failed update" "err::err" }}
 					}
 
 					msgID, err = srv.TelegramSendMessageButtons(ctx, requestData, tgMsg)
@@ -202,7 +202,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 			}
 
 			if err != nil {
-				{{ .Logger.ErrorMsg "ctx" "err" "Error sending message" "Interface(\"Message\", tgMsg)" }}
+				{{ .Logger.ErrorMsg "ctx" "err" "Error sending message" "any::Message::tgMsg" }}
 
 				origErr := err
 
@@ -225,7 +225,7 @@ func (w *Worker) postProcessRequest(ctx context.Context, requestData telegram.Re
 				return
 			}
 		default:
-			{{ .Logger.ErrorMsg "ctx" "nil" "Empty message" "Interface(\"Message\", tgMsg)" }}
+			{{ .Logger.ErrorMsg "ctx" "nil" "Empty message" "any::Message::tgMsg" }}
 
 			continue
 		}

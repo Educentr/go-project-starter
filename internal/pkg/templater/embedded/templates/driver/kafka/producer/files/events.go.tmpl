@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	zlog "github.com/rs/zerolog"
+	{{ $.Logger.Import }}
 {{- $hasSchema := false }}
 {{- range $_, $event := .Kafka.Events }}
 {{- if $event.GoType }}{{ $hasSchema = true }}{{ end }}
@@ -29,7 +29,7 @@ func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}(ctx conte
 func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}(ctx context.Context, key []byte, msg []byte) error {
 {{- end }}
 	if p.disabled {
-		zlog.Ctx(ctx).Warn().Str("producer", "{{ $.Kafka.Name }}").Str("event", "{{ $event.Name }}").Msg("kafka disabled: message not published")
+		{{ $.Logger.WarnMsg "ctx" "kafka disabled: message not published" "str::producer::\"{{ $.Kafka.Name }}\"" "str::event::\"{{ $event.Name }}\"" }}
 		return nil
 	}
 

@@ -216,7 +216,7 @@ func UserEnabled(ctx context.Context, tgID int64, action ActionEnableUsers) (boo
 	for _, eu := range enabledUsers {
 		uID, err := strconv.ParseInt(eu, 10, 64)
 		if err != nil {
-			{{ .Logger.ErrorMsg "ctx" "err" "error parse user_id" "Str(\"user_id\", eu)"}}
+			{{ .Logger.ErrorMsg "ctx" "err" "error parse user_id" "str::user_id::eu"}}
 
 			continue
 		}

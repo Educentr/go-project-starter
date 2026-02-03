@@ -18,7 +18,7 @@ func ConvertButtonCMDToTgButton(ctx context.Context, btn [][]ButtonCmd) ([][]tgb
 		for j := range btn[i] {
 			if btn[i][j].URL != "" {
 				if len(btn[i][j].URL) > 256 {
-					zlog.Ctx(ctx).Error().Int("Len", len(btn[i][j].URL)).Str("Text", btn[i][j].Text).Str("URL", btn[i][j].URL).Msg("Button URL too long")
+					{{ $.Logger.ErrorMsg "ctx" "nil" "Button URL too long" "int::Len::len(btn[i][j].URL)" "str::Text::btn[i][j].Text" "str::URL::btn[i][j].URL" }}
 					
 					continue
 				}
@@ -29,20 +29,20 @@ func ConvertButtonCMDToTgButton(ctx context.Context, btn [][]ButtonCmd) ([][]tgb
 			}
 
 			if btn[i][j].Name == EmptyCommandName {
-				zlog.Ctx(ctx).Error().Msg("Empty button command name")
+				{{ $.Logger.ErrorMsg "ctx" "nil" "Empty button command name" }}
 
 				continue
 			}
 
 			if btn[i][j].Text == "" {
-				zlog.Ctx(ctx).Error().Msg("Empty button command text")
+				{{ $.Logger.ErrorMsg "ctx" "nil" "Empty button command text" }}
 
 				continue
 			}
 
 			data := "/" + string(btn[i][j].Name) + ":" + btn[i][j].Params
 			if len(data) > 64 {
-				zlog.Ctx(ctx).Error().Int("Len", len(data)).Str("Text", btn[i][j].Text).Str("Data", data).Msg("Button text too long")
+				{{ $.Logger.ErrorMsg "ctx" "nil" "Button text too long" "int::Len::len(data)" "str::Text::btn[i][j].Text" "str::Data::data" }}
 
 				continue
 			}

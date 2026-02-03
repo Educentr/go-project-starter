@@ -47,7 +47,7 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 			body = body[:1024]
 		}
 
-		zlog.Ctx(ctx).Warn().Str("Body", string(body)).Err(errHdl).Msg("Error decode body")
+		{{ .Logger.WarnMsg "ctx" "Error decode body" "str::Body::string(body)" "err::errHdl"}}
 
 		errResp = oas.ErrorDefault{
 			Code:  http.StatusBadRequest,
@@ -56,21 +56,21 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 	case errors.As(errHdl, &decodeParamErr):
 		fallthrough
 	case errors.As(errHdl, &decodeRequestErr):
-		{{ .Logger.WarnMsg "ctx" "Error decode params" "Err(errHdl)"}}
+		{{ .Logger.WarnMsg "ctx" "Error decode params" "err::errHdl"}}
 	
 		errResp = oas.ErrorDefault{
 			Code:  http.StatusBadRequest,
 			Error: fmt.Sprintf("bad request, error: %s", errHdl.Error()),
 		}
 	case errors.Is(errHdl, ogenerrors.ErrSecurityRequirementIsNotSatisfied):
-		zlog.Ctx(ctx).Warn().Err(errHdl).Msg("Auth error")
+		{{ .Logger.WarnMsg "ctx" "Auth error" "err::errHdl"}}
 
 		errResp = oas.ErrorDefault{
 				Code:  http.StatusUnauthorized,
 				Error: "not authorized",
 		}
 	case errors.As(errHdl, &securityError):
-		zlog.Ctx(ctx).Warn().Err(errHdl).Msg("Auth error")
+		{{ .Logger.WarnMsg "ctx" "Auth error" "err::errHdl"}}
 
 		errResp = oas.ErrorDefault{
 				Code:  http.StatusUnauthorized,

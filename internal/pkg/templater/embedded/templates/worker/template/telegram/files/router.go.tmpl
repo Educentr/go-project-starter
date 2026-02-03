@@ -69,7 +69,7 @@ func (w *Worker) PreCheckout(ctx context.Context, preCheckoutQuery *tgbotapi.Pre
 
 	_, desc, ok := srv.CheckInvoiceProducts(ctx, invoice, telegram.PaymentTypeStars, preCheckoutQuery.TotalAmount)
 	if !ok {
-		{{ .Logger.ErrorMsg "ctx" "nil" "invalid invoice products" "Str(\"description\", desc)" }}
+		{{ .Logger.ErrorMsg "ctx" "nil" "invalid invoice products" "str::description::desc" }}
 
 		return ctx, errors.New("Invalid invoice")
 	}
@@ -152,7 +152,7 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 }
 
 func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQuery) (context.Context, error) {
-	{{ .Logger.DebugMsg "ctx" "Text callback received" "Interface(\"text\", callback)" }}
+	{{ .Logger.DebugMsg "ctx" "Text callback received" "any::text::callback" }}
 
 	data := strings.SplitN(callback.Data[1:], ":", 2)
 
@@ -190,7 +190,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 
 	c, ex := cmdMaps[command]
 	if !ex {
-		{{ .Logger.InfoMsg "ctx" "Unknown command" "Str(\"Cmd\", string(command))" }}
+		{{ .Logger.InfoMsg "ctx" "Unknown command" "str::Cmd::string(command)" }}
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -216,7 +216,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 }
 
 func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
-	{{ .Logger.DebugMsg "ctx" "Text message received" "Interface(\"text\", message)" }}
+	{{ .Logger.DebugMsg "ctx" "Text message received" "any::text::message" }}
 
 	var command telegram.CommandName
 
@@ -290,7 +290,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 
 	c, ex := cmdMaps[command]
 	if !ex {
-		{{ .Logger.InfoMsg "ctx" "Unknown command" "Str(\"Cmd\", string(command))" }}
+		{{ .Logger.InfoMsg "ctx" "Unknown command" "str::Cmd::string(command)" }}
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -337,7 +337,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 }
 
 func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message) (context.Context, error) {
-	{{ .Logger.DebugMsg "ctx" "Document message received" "Interface(\"document\", message.Document)" }}
+	{{ .Logger.DebugMsg "ctx" "Document message received" "any::document::message.Document" }}
 
 	// Получаем состояние пользователя для определения команды
 	userState, err := w.GetUserState(ctx, message.From.ID)
@@ -401,7 +401,7 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 
 	c, ex := cmdMaps[command]
 	if !ex {
-		{{ .Logger.InfoMsg "ctx" "Unknown command" "Str(\"Cmd\", string(command))" }}
+		{{ .Logger.InfoMsg "ctx" "Unknown command" "str::Cmd::string(command)" }}
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil

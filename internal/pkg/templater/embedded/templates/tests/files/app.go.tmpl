@@ -13,7 +13,7 @@ import (
 	"github.com/Educentr/goat/services"
 {{ end }}
 	gtt "github.com/Educentr/goat"
-	zlog "github.com/rs/zerolog"
+	{{ .Logger.Import }}
 
 	"github.com/Educentr/goat/testutil"
 )
@@ -138,13 +138,7 @@ func CleanupTestData(ctx context.Context, e *gtt.Env) error {
 func SetupTestContext() context.Context {
 	ctx := context.Background()
 
-	// For tests, we use a simple zerolog logger without onlineconf dependency
-	testLogger := zlog.New(os.Stdout).With().
-		Timestamp().
-		Str("service", "test").
-		Logger()
-
-	ctx = testLogger.WithContext(ctx)
+	{{ .Logger.SetupTestLogger "ctx" }}
 	return ctx
 }
 

@@ -110,11 +110,11 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	ocPrefix := GetConfigPath()
 	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
 	if err != nil {
-		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "str::$nameFieldLogger::WorkerName" }}
 		return err
 	}
 	{{ .Logger.ReWrap "ctx" "ctxJob" "ocPrefix" "\"job\"" }}
-	{{ .Logger.UpdateContext "ctxJob" "Int(\"updateID\", update.UpdateID)" "Str(nameFieldLogger, WorkerName)" }}
+	{{ .Logger.UpdateContext "ctxJob" "int::updateID::update.UpdateID" "str::$nameFieldLogger::WorkerName" }}
 
 	pi := reqctx.RequestProcessInfo{}
 	ctxJob = reqctx.SetProcessInfo(ctxJob, &pi)
@@ -128,7 +128,7 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	defer func() {
 		err := recover()
 		if err != nil {
-			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "Interface(\"panic error\", err)" "Str(\"Stack\", strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), \"\\n\\t/\", \" --> /\"), \"\\n\", \" => \"))" }}
+			{{ .Logger.ErrorMsg "ctxJob" "errors.New(\"panic catch\")" "panic" "any::panic error::err" "str::Stack::strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), \"\\n\\t/\", \" --> /\"), \"\\n\", \" => \")" }}
 		}
 
 		cancel()
@@ -136,7 +136,7 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 
 	srv, err := w.GetEmptySrv()
 	if err != nil {
-		zlog.Ctx(ctxJob).Error().Err(err).Msg("Failed to get service")
+		{{ .Logger.ErrorMsg "ctxJob" "err" "Failed to get service" }}
 
 		return err
 	}
@@ -175,7 +175,7 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	case update.CallbackQuery != nil:
 		ctxJob, err = w.CallbackQuery(ctxJob, update.CallbackQuery)
 	default:
-		zlog.Ctx(ctxJob).Info().Interface("Update", update).Msg("Skipping update")
+		{{ .Logger.InfoMsg "ctxJob" "Skipping update" "any::Update::update" }}
 		
 		err = telegram.ErrUnsupportedHandler
 	}
@@ -211,29 +211,29 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 	// initialization worker
 	errGr.Go(func() error {
-		{{ .Logger.InfoMsg "ctx" "Run worker" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.InfoMsg "ctx" "Run worker" "str::$nameFieldLogger::WorkerName" }}
 
 	JOB:
 		for {
 			select {
 			case update := <- w.tgSrv.GetUpdateChannel(ctx):
-				{{ .Logger.InfoMsg "ctx" "worker get update" "Int(\"updateID\", update.UpdateID)" "Interface(\"update\", update)" "Str(nameFieldLogger, WorkerName)" }}
+				{{ .Logger.InfoMsg "ctx" "worker get update" "int::updateID::update.UpdateID" "any::update::update" "str::$nameFieldLogger::WorkerName" }}
 
 				err := w.JobStarter(ctx, update)
 				if err != nil {
 					if errors.Is(err, telegram.ErrUnimplementedHandler) {
-						{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "Str(nameFieldLogger, WorkerName)" }}
+						{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "str::$nameFieldLogger::WorkerName" }}
 
 						continue
 					}
 
 					if errors.Is(err, telegram.ErrUnsupportedHandler) {
-						{{ .Logger.InfoMsg "ctx" "unsupported. skip" "Str(nameFieldLogger, WorkerName)" }}
+						{{ .Logger.InfoMsg "ctx" "unsupported. skip" "str::$nameFieldLogger::WorkerName" }}
 
 						continue
 					}
 
-					{{ .Logger.ErrorMsg "ctx" "err" "worker error" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.ErrorMsg "ctx" "err" "worker error" "str::$nameFieldLogger::WorkerName" }}
 				}
 
 			case <-ctx.Done():
@@ -241,14 +241,14 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 			}
 		}
 
-		{{ .Logger.InfoMsg "ctx" "worker stopped" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.InfoMsg "ctx" "worker stopped" "str::$nameFieldLogger::WorkerName" }}
 
 		return nil
 	})
 
 	if w.tgSrv.NeedStartHiddenMessageJob(ctx) {
 		errGr.Go(func() error {
-			zlog.Ctx(ctx).Info().Str(nameFieldLogger, WorkerName).Msg("Run hidden message job")
+			{{ .Logger.InfoMsg "ctx" "Run hidden message job" "str::$nameFieldLogger::WorkerName" }}
 
 			timerDuration := time.Second * 1
 			iterNum := 1
@@ -265,12 +265,12 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				case <-timer.C:
 					iterNum++
 					if iterNum%100 == 0 {
-						zlog.Ctx(ctx).Info().Int("iterNum", iterNum).Str(nameFieldLogger, WorkerName).Msg("worker iteration")
+						{{ .Logger.InfoMsg "ctx" "worker iteration" "int::iterNum::iterNum" "str::$nameFieldLogger::WorkerName" }}
 					}
 
 					hiddenMessages, err := w.GetHiddenMessages(ctx)
 					if err != nil {
-						zlog.Ctx(ctx).Error().Str(nameFieldLogger, WorkerName).Err(err).Msg("Error get hidden message")
+						{{ .Logger.ErrorMsg "ctx" "err" "Error get hidden message" "str::$nameFieldLogger::WorkerName" }}
 
 						continue
 					}
@@ -284,21 +284,16 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 						ocPrefix := GetConfigPath()
 						hmCtx, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
 						if err != nil {
-							zlog.Ctx(ctx).Error().Err(err).Str(nameFieldLogger, WorkerName).Msg("Failed to create context for hidden message")
+							{{ .Logger.ErrorMsg "ctx" "err" "Failed to create context for hidden message" "str::$nameFieldLogger::WorkerName" }}
 							continue
 						}
-						hmCtx = logger.ReWrapZlog(ctx, hmCtx, ocPrefix, "job")
-						zlog.Ctx(hmCtx).UpdateContext(func(c zlog.Context) zlog.Context {
-							return c.Int("hiddenMsgID", hm.MsgID).Str(nameFieldLogger, WorkerName)
-						})
+						{{ .Logger.ReWrap "ctx" "hmCtx" "ocPrefix" "\"job\"" }}
+						{{ .Logger.UpdateContext "hmCtx" "int::hiddenMsgID::hm.MsgID" "str::$nameFieldLogger::WorkerName" }}
 
 						defer func() {
 							err := recover()
 							if err != nil {
-								zlog.Ctx(hmCtx).Error().
-									Interface("panic error", err).
-									Str("Stack", strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), "\n\t/", " --> /"), "\n", " => ")).
-									Err(errors.New("panic catch")).Msg("panic")
+								{{ .Logger.ErrorMsg "hmCtx" "errors.New(\"panic catch\")" "panic" "any::panic error::err" "str::Stack::strings.ReplaceAll(strings.ReplaceAll(string(debug.Stack()), \"\\n\\t/\", \" --> /\"), \"\\n\", \" => \")" }}
 							}
 
 							cancel()
@@ -306,7 +301,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 						srv, err := w.GetEmptySrv()
 						if err != nil {
-							zlog.Ctx(hmCtx).Error().Err(err).Msg("Failed to get service")
+							{{ .Logger.ErrorMsg "hmCtx" "err" "Failed to get service" }}
 
 							continue
 						}
@@ -317,11 +312,11 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 							err := srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 							if err != nil {
-								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+								{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 
 								err := w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 								}
 
 								continue
@@ -329,16 +324,16 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 						case telegram.UpdateHiddenAction:
 							c, ex := cmdMaps[hm.CmdName]
 							if !ex {
-								zlog.Ctx(hmCtx).Info().Str("Cmd", string(hm.CmdName)).Msg("Unknown command")
+								{{ .Logger.InfoMsg "hmCtx" "Unknown command" "str::Cmd::string(hm.CmdName)" }}
 
 								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 								}
 
 								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 								}
 
 								timerDuration = time.Second
@@ -359,22 +354,22 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 							_, hdl, err := w.GetServiceAndHandler(hmCtx, requestData)
 							if err != nil {
-								zlog.Ctx(hmCtx).Error().Err(err).Msg("Error getting handler")
+								{{ .Logger.ErrorMsg "hmCtx" "err" "Error getting handler" }}
 
 								continue
 							}
 
 							hmCtx, aclErr := hdl.Authorization(hmCtx, requestData, hm.Params)
 							if aclErr != nil {
-								zlog.Ctx(hmCtx).Error().Err(aclErr).Msg("Authorization error for hidden message")
+								{{ .Logger.ErrorMsg "hmCtx" "aclErr" "Authorization error for hidden message" }}
 
 								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 								}
 								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 								}
 
 								timerDuration = time.Second
@@ -384,16 +379,16 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 							aclErr = w.Authorization(hmCtx, hdl.Rd)
 							if aclErr != nil {
-								zlog.Ctx(hmCtx).Error().Err(aclErr).Msg("Authorization error for hidden message")
+								{{ .Logger.ErrorMsg "hmCtx" "aclErr" "Authorization error for hidden message" }}
 
 								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 								}
 
 								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 								}
 
 								timerDuration = time.Second
@@ -403,22 +398,22 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 							resp, err := c.Handler(hmCtx, hdl, hm.Params)
 							if err != nil {
-								zlog.Ctx(hmCtx).Error().Err(err).Msg("Error handling hidden message")
+								{{ .Logger.ErrorMsg "hmCtx" "err" "Error handling hidden message" }}
 
 								continue
 							}
 
 							if resp.InternalRedirect != nil {
-								zlog.Ctx(hmCtx).Error().Str("Cmd", resp.InternalRedirect.Cmd.String()).Msg("Internal redirect not supported for hidden message")
+								{{ .Logger.ErrorMsg "hmCtx" "nil" "Internal redirect not supported for hidden message" "str::Cmd::resp.InternalRedirect.Cmd.String()" }}
 
 								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 								}
 
 								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 								}
 
 								timerDuration = time.Second
@@ -427,16 +422,16 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 							}
 
 							if len(resp.Messages) == 0 {
-								zlog.Ctx(hmCtx).Error().Msg("No messages in response for hidden message")
+								{{ .Logger.ErrorMsg "hmCtx" "nil" "No messages in response for hidden message" }}
 
 								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 								}
 
 								err = w.DoneHiddenMessages(hmCtx, hm)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 								}
 
 								timerDuration = time.Second
@@ -455,17 +450,17 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 							}
 							_, err = srv.TelegramUpdateMessageButtons(hmCtx, hmRequestData, hm.MsgID, resp.Messages[0])
 							if err != nil {
-								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't update hidden message")
+								{{ .Logger.ErrorMsg "hmCtx" "err" "Can't update hidden message" }}
 
 								err = srv.TelegramDeleteMessage(hmCtx, hm.ChatID, hm.MsgID)
 								if err != nil {
-									zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't delete hidden messge")
+									{{ .Logger.ErrorMsg "hmCtx" "err" "Can't delete hidden messge" }}
 								}
 							}
 
 							err = w.DoneHiddenMessages(hmCtx, hm)
 							if err != nil {
-								zlog.Ctx(hmCtx).Error().Err(err).Msg("Can't mark hidden message as done")
+								{{ .Logger.ErrorMsg "hmCtx" "err" "Can't mark hidden message as done" }}
 							}
 
 							continue
@@ -474,7 +469,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 							timerDuration = time.Second
 
 						default:
-							zlog.Ctx(hmCtx).Error().Str("Action", string(hm.Action)).Msg("Unknown hidden action")
+							{{ .Logger.ErrorMsg "hmCtx" "nil" "Unknown hidden action" "str::Action::string(hm.Action)" }}
 						}
 					}
 
@@ -483,7 +478,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				}
 			}
 
-			zlog.Ctx(ctx).Info().Str(nameFieldLogger, WorkerName).Msg("hidden message job stopped")
+			{{ .Logger.InfoMsg "ctx" "hidden message job stopped" "str::$nameFieldLogger::WorkerName" }}
 
 			return nil
 		})
@@ -497,21 +492,21 @@ func (w *Worker) Shutdown(_ context.Context) error {
 
 // GracefulStop do graceful stop telegram worker
 func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
-	{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
+	{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "str::$nameFieldLogger::WorkerName" }}
 	w.tgSrv.StopChannel(ctx)
 	stopped := make(chan struct{})
 
 	go func() {
-		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "str::$nameFieldLogger::WorkerName" }}
 		// wait for all jobs to finish
 		// or timeout
 		c := time.NewTicker(time.Millisecond * 100)
-		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
+		{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "str::$nameFieldLogger::WorkerName" }}
 		for {
 			select {
 			case <-c.C:
 				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 {
-					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "Str(nameFieldLogger, WorkerName)" }}
+					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "str::$nameFieldLogger::WorkerName" }}
 
 					close(stopped)
 					
