@@ -7,10 +7,12 @@ import (
 
 type LogrusLogger struct{}
 
-func (ll *LogrusLogger) convertParam(param string) string {
-	parts := strings.SplitN(param, "::", 3)
+const logrusToContextFmt = "%s = rlog.LogrusToContext(%s, rlog.LogrusFromContext(%s).%s)"
 
-	if len(parts) == 2 && parts[0] == "err" {
+func (ll *LogrusLogger) convertParam(param string) string {
+	parts := strings.SplitN(param, "::", paramParts)
+
+	if len(parts) == 2 && parts[0] == errParam {
 		return fmt.Sprintf("WithError(%s)", parts[1])
 	}
 
@@ -39,7 +41,7 @@ func (ll *LogrusLogger) getAddParams(params ...string) string {
 }
 
 func (ll *LogrusLogger) ErrorMsg(ctx, err, msg string, params ...string) string {
-	if err == "nil" {
+	if err == nilErr {
 		return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.Error(\"%s\")", ctx, ll.getAddParams(params...), msg)
 	}
 
@@ -63,7 +65,7 @@ func (ll *LogrusLogger) ErrorMsgCaller(ctx, err, msg string, callerSkip int, par
 	// Use runtime.Caller to get the caller info and add it as a field.
 	callerCode := fmt.Sprintf("func() string { _, file, line, _ := runtime.Caller(%d); return file + \":\" + strconv.Itoa(line) }()", callerSkip)
 
-	if err == "nil" {
+	if err == nilErr {
 		return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.WithField(\"caller\", %s).Error(\"%s\")",
 			ctx, ll.getAddParams(params...), callerCode, msg)
 	}
@@ -84,7 +86,7 @@ func (ll *LogrusLogger) UpdateContext(params ...string) string {
 		converted = append(converted, ll.convertParam(p))
 	}
 
-	return fmt.Sprintf(`%s = rlog.LogrusToContext(%s, rlog.LogrusFromContext(%s).%s)`,
+	return fmt.Sprintf(logrusToContextFmt,
 		ctxVar, ctxVar, ctxVar, strings.Join(converted, "."))
 }
 
@@ -94,7 +96,7 @@ func (ll *LogrusLogger) SubContext(ctxVar string, params ...string) string {
 		converted = append(converted, ll.convertParam(p))
 	}
 
-	return fmt.Sprintf("%s = rlog.LogrusToContext(%s, rlog.LogrusFromContext(%s).%s)",
+	return fmt.Sprintf(logrusToContextFmt,
 		ctxVar, ctxVar, ctxVar, strings.Join(converted, "."))
 }
 
@@ -107,7 +109,7 @@ func (ll *LogrusLogger) FilesToGenerate() string {
 }
 
 func (ll *LogrusLogger) DestDir() string {
-	return "pkg/app/logger"
+	return destDir
 }
 
 func (ll *LogrusLogger) InitLogger(ctx string, serviceName string) string {

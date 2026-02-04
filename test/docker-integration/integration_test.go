@@ -221,6 +221,14 @@ func getTestConfigs() map[string]testConfig {
 			serviceName: "grafanatest",
 			projectName: "grafanatest",
 		},
+		"rest-logrus": {
+			name:        "rest-logrus",
+			configDir:   "rest-logrus",
+			appName:     "api",
+			requiresTG:  false,
+			serviceName: "resttest",
+			projectName: "resttest",
+		},
 	}
 }
 
@@ -498,4 +506,13 @@ func TestIntegrationGrafana(t *testing.T) {
 	}
 
 	runTest(t, "grafana", "grafana")
+}
+
+// TestIntegrationRESTLogrus tests REST project generation with logrus logger
+func TestIntegrationRESTLogrus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "rest-logrus", "rest-logrus")
 }

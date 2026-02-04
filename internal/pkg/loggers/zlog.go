@@ -28,9 +28,9 @@ func formatKey(key string) string {
 //
 // Key prefixed with "$" is treated as a variable reference (no quotes).
 func (zl *ZlogLogger) convertParam(param string) string {
-	parts := strings.SplitN(param, "::", 3)
+	parts := strings.SplitN(param, "::", paramParts)
 
-	if len(parts) == 2 && parts[0] == "err" {
+	if len(parts) == 2 && parts[0] == errParam {
 		return fmt.Sprintf("Err(%s)", parts[1])
 	}
 
@@ -82,7 +82,7 @@ func (zl *ZlogLogger) getAddParams(params ...string) string {
 }
 
 func (zl *ZlogLogger) ErrorMsg(ctx, err, msg string, params ...string) string {
-	if err == "nil" {
+	if err == nilErr {
 		return fmt.Sprintf("zlog.Ctx(%s).Error()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
 	}
 
@@ -102,7 +102,7 @@ func (zl *ZlogLogger) DebugMsg(ctx, msg string, params ...string) string {
 }
 
 func (zl *ZlogLogger) ErrorMsgCaller(ctx, err, msg string, callerSkip int, params ...string) string {
-	if err == "nil" {
+	if err == nilErr {
 		return fmt.Sprintf("zlog.Ctx(%s).Error().Caller(%d)%sMsg(\"%s\")", ctx, callerSkip, zl.getAddParams(params...), msg)
 	}
 
@@ -130,7 +130,7 @@ func (zl *ZlogLogger) FilesToGenerate() string {
 }
 
 func (zl *ZlogLogger) DestDir() string {
-	return "pkg/app/logger"
+	return destDir
 }
 
 func (zl *ZlogLogger) InitLogger(ctx string, serviceName string) string {
