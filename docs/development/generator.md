@@ -91,7 +91,7 @@ templater/embedded/templates/
 │       ├── telegram/  # Telegram бот
 │       └── daemon/    # Background daemon
 ├── app/               # Application layer
-└── logger/            # Logger implementations (zerolog)
+└── logger/            # Logger implementations (zerolog, logrus)
 ```
 
 ### meta/

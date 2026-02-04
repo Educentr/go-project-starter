@@ -65,7 +65,7 @@ type (
 	//	main:
 	//	  name: myproject           # Project name (used in paths, Docker images)
 	//	  registry_type: github     # github, digitalocean, aws, selfhosted
-	//	  logger: zerolog           # Logger type (only zerolog supported)
+	//	  logger: zerolog           # Logger type: zerolog or logrus
 	//	  author: "Your Name"       # Author for generated files
 	//	  use_active_record: true   # Enable PostgreSQL ActiveRecord generation
 	//	  dev_stand: true           # Generate docker-compose-dev.yaml with OnlineConf
@@ -77,7 +77,7 @@ type (
 		Name string `mapstructure:"name"`
 		// RegistryType specifies the container registry type: github, digitalocean, aws, or selfhosted.
 		RegistryType string `mapstructure:"registry_type"`
-		// Logger specifies the logger type. Currently only "zerolog" is supported.
+		// Logger specifies the logger type: "zerolog" or "logrus".
 		Logger string `mapstructure:"logger"`
 		// Author is used in generated file headers.
 		Author string `mapstructure:"author"`

@@ -37,7 +37,7 @@ post_generate:             # Шаги после генерации
 ```yaml
 main:
   name: string              # [required] Имя проекта (используется в путях, Docker образах)
-  logger: zerolog           # [optional] Тип логгера (только zerolog)
+  logger: zerolog           # [optional] Тип логгера: zerolog|logrus
   registry_type: github     # [required] Тип registry: github|digitalocean|aws|selfhosted
   author: string            # [optional] Автор для заголовков файлов
   use_active_record: bool   # [optional] Включить PostgreSQL ActiveRecord
@@ -446,7 +446,7 @@ post_generate:
 ```yaml
 main:
   name: myservice
-  logger: zerolog
+  logger: zerolog              # или logrus
   registry_type: github
   use_active_record: true
   dev_stand: true

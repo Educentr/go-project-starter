@@ -104,7 +104,7 @@ templater/embedded/templates/
 │   └── kafka/      # Kafka consumers
 ├── worker/         # Background workers (telegram, daemon)
 ├── app/            # Application layer templates
-└── logger/         # Logger implementations (zerolog)
+└── logger/         # Logger implementations (zerolog, logrus)
 ```
 
 ### Three-Layer Architecture (Generated Projects)

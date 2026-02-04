@@ -148,7 +148,7 @@ Every generated project includes:
 - Traefik reverse proxy
 - Prometheus metrics & Grafana dashboards
 - Health checks & graceful shutdown
-- Structured logging (zerolog)
+- Structured logging (zerolog or logrus)
 
 ### Dynamic Configuration (OnlineConf)
 
@@ -254,6 +254,7 @@ Built with these amazing open-source projects:
 - [ogen](https://github.com/ogen-go/ogen) - OpenAPI 3.0 code generation
 - [go-activerecord](https://github.com/Educentr/go-activerecord) - Database ORM and migrations
 - [zerolog](https://github.com/rs/zerolog) - Structured logging
+- [logrus](https://github.com/sirupsen/logrus) - Structured logging
 - [Prometheus](https://prometheus.io/) - Monitoring and metrics
 - [Traefik](https://traefik.io/) - Reverse proxy and load balancer
 

@@ -22,11 +22,37 @@ main:
 |------|-------------|----------|
 | `name` | Да | Имя проекта (используется в путях, Docker образах) |
 | `registry_type` | Нет | `github`, `digitalocean`, `aws`, или `selfhosted` |
-| `logger` | Нет | Тип логгера (сейчас только `zerolog`) |
+| `logger` | Нет | Тип логгера: `zerolog` (по умолчанию) или `logrus` |
 | `author` | Нет | Автор проекта |
 | `use_active_record` | Нет | Включает генерацию кода для PostgreSQL |
 | `dev_stand` | Нет | Генерировать docker-compose-dev.yaml с OnlineConf |
 | `skip_service_init` | Нет | Пропустить генерацию Service layer |
+
+### Выбор логгера
+
+Генератор поддерживает два логгера:
+
+| Логгер | Значение | Описание |
+|--------|----------|----------|
+| [zerolog](https://github.com/rs/zerolog) | `zerolog` | Высокопроизводительный JSON-логгер с zero allocation. Структурированное логирование с типизированными полями (`.Str()`, `.Int()`, `.Err()`). |
+| [logrus](https://github.com/sirupsen/logrus) | `logrus` | Широко распространённый структурированный логгер. Простой API через `.WithField()` / `.WithError()`. |
+
+```yaml
+# zerolog (по умолчанию)
+main:
+  logger: zerolog
+
+# logrus
+main:
+  logger: logrus
+```
+
+Логгер влияет на:
+
+- **Инициализацию** — генерируется `pkg/app/logger/` с функциями `InitZlog` или `InitLogrus`
+- **Импорты** — zerolog использует `zlog "github.com/rs/zerolog"`, logrus — `rlog "github.com/Educentr/go-project-starter-runtime/pkg/logger"`
+- **Вызовы логирования** — все шаблоны используют абстракцию `{{ .Logger }}`, переключение логгера не требует изменений в пользовательском коде
+- **Тесты** — тестовый логгер настраивается автоматически под выбранный тип
 
 ### Типы Container Registry
 
