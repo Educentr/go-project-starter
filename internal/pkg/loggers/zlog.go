@@ -130,7 +130,7 @@ func (zl *ZlogLogger) FilesToGenerate() string {
 }
 
 func (zl *ZlogLogger) DestDir() string {
-	return "pkg/logger"
+	return "pkg/app/logger"
 }
 
 func (zl *ZlogLogger) InitLogger(ctx string, serviceName string) string {
@@ -139,7 +139,7 @@ func (zl *ZlogLogger) InitLogger(ctx string, serviceName string) string {
 
 // ReWrap generates code to rewrap logger from source context to destination context
 func (zl *ZlogLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string {
-	return fmt.Sprintf("%s = logger.ReWrapZlog(%s, %s, %s, %s)", destCtx, sourceCtx, destCtx, ocPrefix, ocPath)
+	return fmt.Sprintf("%s = logger.ReWrap(%s, %s, %s, %s)", destCtx, sourceCtx, destCtx, ocPrefix, ocPath)
 }
 
 // SetLoggerUpdater generates code to set the global logger updater for reqctx

@@ -1,0 +1,79 @@
+package logger
+
+import (
+	"context"
+	"os"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
+	{{ .Logger.Import }}
+)
+
+const (
+	onlineconfLevelPath = "log_level"
+)
+
+func InitLogrus(ctx context.Context, serviceName string) context.Context {
+	applog := logger.InitAppLogrus(func(onlineconfPrefix, ocPath string) *logrus.Entry {
+		log := logrus.New()
+		log.SetOutput(os.Stdout)
+
+		// Создаём новый экземпляр логгера
+		devStand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(serviceName, "devstand"), false)
+		if err == nil && devStand {
+			log.SetFormatter(&logrus.TextFormatter{
+				FullTimestamp: true,
+			})
+		} else {
+			log.SetFormatter(&logrus.JSONFormatter{})
+		}
+
+		var (
+			levelGlob = logrus.InfoLevel
+			levelEP   = logrus.InfoLevel
+		)
+
+		levelCfg, err := onlineconf.GetString(
+			ctx,
+			onlineconf.MakePath(serviceName, onlineconfPrefix, "default", onlineconfLevelPath),
+			logrus.InfoLevel.String(),
+		)
+		if err == nil {
+			// Уровень логирования по умолчанию
+			levelGlob, err = logrus.ParseLevel(levelCfg)
+			if err != nil {
+				levelGlob = logrus.InfoLevel
+			}
+		}
+
+		// Уровень логирования переопределённый для данного endpoint-а
+		levelCfgEndpoint, err := onlineconf.GetString(
+			ctx,
+			onlineconf.MakePath(serviceName, onlineconfPrefix, ocPath, onlineconfLevelPath),
+			"",
+		)
+		if err == nil {
+			levelEP, err = logrus.ParseLevel(levelCfgEndpoint)
+			// Если не получилось распарсить уровень то выставляем Info
+			if err != nil {
+				levelEP = logrus.InfoLevel
+			}
+		}
+
+		if levelCfgEndpoint != "" && levelCfgEndpoint != levelCfg {
+			log.SetLevel(levelEP)
+		} else {
+			log.SetLevel(levelGlob)
+		}
+
+		return logrus.NewEntry(log)
+	})
+
+	// Добавим в контекст информацию о логгере
+	ctx = applog.WrapLogger(ctx, "", "")
+
+	{{ .Logger.InfoMsg "ctx" "logrus initialized"}}
+
+	// Проинициализируем Logrus
+	return logger.Wrap(ctx, applog)
+}
