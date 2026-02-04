@@ -14,7 +14,8 @@ import (
 {{ end }}
 	gtt "github.com/Educentr/goat"
 	{{ .Logger.Import }}
-
+{{ if eq (.Logger.FilesToGenerate) "logrus" }}	"github.com/sirupsen/logrus"
+{{ end }}
 	"github.com/Educentr/goat/testutil"
 )
 

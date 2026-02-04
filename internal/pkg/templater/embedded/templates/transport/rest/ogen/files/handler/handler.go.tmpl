@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
-	"github.com/pkg/errors"
+{{ if eq (.Logger.FilesToGenerate) "logrus" }}	"runtime"
+	"strconv"
+{{ end }}	"github.com/pkg/errors"
 	"github.com/ogen-go/ogen/ogenerrors"
 	{{ .Logger.Import }}
 

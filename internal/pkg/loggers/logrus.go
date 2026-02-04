@@ -40,22 +40,22 @@ func (ll *LogrusLogger) getAddParams(params ...string) string {
 
 func (ll *LogrusLogger) ErrorMsg(ctx, err, msg string, params ...string) string {
 	if err == "nil" {
-		return fmt.Sprintf("logger.LogrusFromContext(%s)%s.Error(\"%s\")", ctx, ll.getAddParams(params...), msg)
+		return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.Error(\"%s\")", ctx, ll.getAddParams(params...), msg)
 	}
 
-	return fmt.Sprintf("logger.LogrusFromContext(%s)%s.WithError(%s).Error(\"%s\")", ctx, ll.getAddParams(params...), err, msg)
+	return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.WithError(%s).Error(\"%s\")", ctx, ll.getAddParams(params...), err, msg)
 }
 
 func (ll *LogrusLogger) WarnMsg(ctx, msg string, params ...string) string {
-	return fmt.Sprintf("logger.LogrusFromContext(%s)%s.Warn(\"%s\")", ctx, ll.getAddParams(params...), msg)
+	return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.Warn(\"%s\")", ctx, ll.getAddParams(params...), msg)
 }
 
 func (ll *LogrusLogger) InfoMsg(ctx, msg string, params ...string) string {
-	return fmt.Sprintf("logger.LogrusFromContext(%s)%s.Info(\"%s\")", ctx, ll.getAddParams(params...), msg)
+	return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.Info(\"%s\")", ctx, ll.getAddParams(params...), msg)
 }
 
 func (ll *LogrusLogger) DebugMsg(ctx, msg string, params ...string) string {
-	return fmt.Sprintf("logger.LogrusFromContext(%s)%s.Debug(\"%s\")", ctx, ll.getAddParams(params...), msg)
+	return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.Debug(\"%s\")", ctx, ll.getAddParams(params...), msg)
 }
 
 func (ll *LogrusLogger) ErrorMsgCaller(ctx, err, msg string, callerSkip int, params ...string) string {
@@ -64,11 +64,11 @@ func (ll *LogrusLogger) ErrorMsgCaller(ctx, err, msg string, callerSkip int, par
 	callerCode := fmt.Sprintf("func() string { _, file, line, _ := runtime.Caller(%d); return file + \":\" + strconv.Itoa(line) }()", callerSkip)
 
 	if err == "nil" {
-		return fmt.Sprintf("logger.LogrusFromContext(%s)%s.WithField(\"caller\", %s).Error(\"%s\")",
+		return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.WithField(\"caller\", %s).Error(\"%s\")",
 			ctx, ll.getAddParams(params...), callerCode, msg)
 	}
 
-	return fmt.Sprintf("logger.LogrusFromContext(%s)%s.WithField(\"caller\", %s).WithError(%s).Error(\"%s\")",
+	return fmt.Sprintf("rlog.LogrusFromContext(%s)%s.WithField(\"caller\", %s).WithError(%s).Error(\"%s\")",
 		ctx, ll.getAddParams(params...), callerCode, err, msg)
 }
 
@@ -84,7 +84,7 @@ func (ll *LogrusLogger) UpdateContext(params ...string) string {
 		converted = append(converted, ll.convertParam(p))
 	}
 
-	return fmt.Sprintf(`%s = logger.LogrusToContext(%s, logger.LogrusFromContext(%s).%s)`,
+	return fmt.Sprintf(`%s = rlog.LogrusToContext(%s, rlog.LogrusFromContext(%s).%s)`,
 		ctxVar, ctxVar, ctxVar, strings.Join(converted, "."))
 }
 
@@ -94,12 +94,12 @@ func (ll *LogrusLogger) SubContext(ctxVar string, params ...string) string {
 		converted = append(converted, ll.convertParam(p))
 	}
 
-	return fmt.Sprintf("%s = logger.LogrusToContext(%s, logger.LogrusFromContext(%s).%s)",
+	return fmt.Sprintf("%s = rlog.LogrusToContext(%s, rlog.LogrusFromContext(%s).%s)",
 		ctxVar, ctxVar, ctxVar, strings.Join(converted, "."))
 }
 
 func (ll *LogrusLogger) Import() string {
-	return `"github.com/sirupsen/logrus"`
+	return `rlog "github.com/Educentr/go-project-starter-runtime/pkg/logger"`
 }
 
 func (ll *LogrusLogger) FilesToGenerate() string {
@@ -115,11 +115,11 @@ func (ll *LogrusLogger) InitLogger(ctx string, serviceName string) string {
 }
 
 func (ll *LogrusLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string {
-	return fmt.Sprintf("%s = logger.ReWrap(%s, %s, %s, %s)", destCtx, sourceCtx, destCtx, ocPrefix, ocPath)
+	return fmt.Sprintf("%s = rlog.ReWrap(%s, %s, %s, %s)", destCtx, sourceCtx, destCtx, ocPrefix, ocPath)
 }
 
 func (ll *LogrusLogger) SetLoggerUpdater() string {
-	return "reqctx.SetLoggerUpdater(runtimelogger.NewLogrusUpdater())"
+	return "reqctx.SetLoggerUpdater(rlog.NewLogrusUpdater())"
 }
 
 func (ll *LogrusLogger) SetupTestLogger(ctxVar string) string {
@@ -127,5 +127,5 @@ func (ll *LogrusLogger) SetupTestLogger(ctxVar string) string {
 	testLogger.SetOutput(os.Stdout)
 	testLogger.SetLevel(logrus.DebugLevel)
 	testEntry := testLogger.WithField("service", "test")
-	%s = logger.LogrusToContext(%s, testEntry)`, ctxVar, ctxVar)
+	%s = rlog.LogrusToContext(%s, testEntry)`, ctxVar, ctxVar)
 }

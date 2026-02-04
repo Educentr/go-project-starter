@@ -6,7 +6,7 @@ import (
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
-	{{ .Logger.Import }}
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -72,7 +72,7 @@ func InitLogrus(ctx context.Context, serviceName string) context.Context {
 	// Добавим в контекст информацию о логгере
 	ctx = applog.WrapLogger(ctx, "", "")
 
-	{{ .Logger.InfoMsg "ctx" "logrus initialized"}}
+	logger.LogrusFromContext(ctx).Info("logrus initialized")
 
 	// Проинициализируем Logrus
 	return logger.Wrap(ctx, applog)

@@ -15,8 +15,8 @@ import (
 
 	"{{ .ProjectPath }}/pkg/app/daemon"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
-	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
-	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
+{{ if ne (.Logger.FilesToGenerate) "logrus" }}	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
+{{ end }}	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/internal/app/constant"
 )
 
