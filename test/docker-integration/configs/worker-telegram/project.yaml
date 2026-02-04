@@ -39,7 +39,7 @@ driver:
 applications:
   - name: bot
     transport:
-      - sys
+      - name: sys
     worker:
       - telegrambot
     driver:

@@ -13,29 +13,13 @@ This document describes the deprecation policy for go-project-starter configurat
 
 | Feature | Deprecated In | Removal Version | Migration |
 |---------|---------------|-----------------|-----------|
-| Transport string array format | 0.10.0 | 0.12.0 | Run `go-project-starter migrate` |
+| `empty_config_available` | 0.11.0 | 0.13.0 | Use `optional: true` in application transport config |
 
-### Transport String Array Format
+## Removed Deprecations
 
-**Old format (deprecated):**
-```yaml
-applications:
-  - name: myapp
-    transport:
-      - rest_api
-      - grpc_api
-```
-
-**New format:**
-```yaml
-applications:
-  - name: myapp
-    transport:
-      - name: rest_api
-      - name: grpc_api
-        config:
-          instantiation: dynamic  # optional per-transport config
-```
+| Feature | Deprecated In | Removed In | Migration |
+|---------|---------------|------------|-----------|
+| Transport string array format | 0.10.0 | 0.12.0 | Use object format: `- name: transport_name` |
 
 ## Migration
 

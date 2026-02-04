@@ -236,15 +236,10 @@ driver:
 applications:
   - name: string                # [required] Имя приложения (= имя контейнера)
 
-    # Транспорты (новый формат с config):
     transport:
       - name: string            # Имя REST транспорта
         config:                 # [optional] Переопределение настроек
           instantiation: string # static|dynamic (для ogen_client)
-
-    # Или старый формат (deprecated, будет удалён в v0.12.0):
-    transport:
-      - string                  # Просто имя транспорта
 
     kafka:                      # [optional] Kafka producers/consumers
       - string

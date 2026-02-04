@@ -2,12 +2,10 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
-	"github.com/Educentr/go-project-starter/internal/pkg/migrate"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 )
@@ -276,62 +274,12 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, err
 	}
 
-	// Print deprecation warnings
-	printDeprecationWarnings(&config)
-
 	config.BasePath = baseDir
 	config.ConfigFilePath = realConfigPath
 
 	return config, nil
 }
 
-// collectDeprecationWarnings collects all deprecation warnings from config
-func collectDeprecationWarnings(config *Config) []migrate.DeprecationWarning {
-	var warnings []migrate.DeprecationWarning
-
-	for _, app := range config.Applications {
-		if app.HasDeprecatedFormat {
-			warnings = append(warnings, migrate.DeprecationWarning{
-				Feature:       "transport string array format",
-				Description:   fmt.Sprintf("Application '%s' uses deprecated string array format for transports", app.Name),
-				RemovalVer:    migrate.RemovalVersionTransportStringArray,
-				MigrationHint: "Run 'go-project-starter migrate' to auto-migrate",
-			})
-		}
-	}
-
-	return warnings
-}
-
-// printDeprecationWarnings prints warnings for deprecated config formats
-func printDeprecationWarnings(config *Config) {
-	warnings := collectDeprecationWarnings(config)
-
-	if len(warnings) == 0 {
-		return
-	}
-
-	// Group warnings by removal version
-	byVersion := make(map[string][]migrate.DeprecationWarning)
-	for _, w := range warnings {
-		byVersion[w.RemovalVer] = append(byVersion[w.RemovalVer], w)
-	}
-
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "⚠️  DEPRECATION WARNINGS:")
-	fmt.Fprintln(os.Stderr, "========================")
-
-	for version, versionWarnings := range byVersion {
-		fmt.Fprintf(os.Stderr, "\nWill be REMOVED in version %s:\n", version)
-
-		for _, w := range versionWarnings {
-			fmt.Fprintf(os.Stderr, "  - %s\n", w.Description)
-			fmt.Fprintf(os.Stderr, "    Migration: %s\n", w.MigrationHint)
-		}
-	}
-
-	fmt.Fprintln(os.Stderr, "")
-}
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
 // are referenced in at least one application

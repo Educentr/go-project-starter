@@ -163,9 +163,9 @@ kafka:
 applications:
   - name: publicApi
     transport:
-      - example
-      - sys
-      #- ExampleService
+      - name: example
+      - name: sys
+      #- name: ExampleService
     kafka:
       - events_producer
     driver:

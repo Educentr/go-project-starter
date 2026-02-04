@@ -40,8 +40,6 @@ const (
 
 // Deprecation removal version constants - each deprecation has its own removal version
 const (
-	// RemovalVersionTransportStringArray is when transport string array format will be removed
-	RemovalVersionTransportStringArray = "0.12.0"
 	// RemovalVersionEmptyConfigAvailable is when empty_config_available will be removed
 	RemovalVersionEmptyConfigAvailable = "0.13.0"
 )
@@ -54,8 +52,7 @@ const (
 
 // Deprecation description templates
 const (
-	deprecationDescTransportFormat        = "Application '%s' uses deprecated string array format for transports"
-	deprecationDescEmptyConfigAvailable   = "%s '%s' uses deprecated 'empty_config_available'. Use 'optional: true' in application transport config instead"
+	deprecationDescEmptyConfigAvailable = "%s '%s' uses deprecated 'empty_config_available'. Use 'optional: true' in application transport config instead"
 )
 
 // File permission for config files
@@ -75,133 +72,8 @@ func (m *Migrator) Migrate() (*MigrationResult, error) {
 		OriginalPath: m.configPath,
 	}
 
-	// Read the config file
-	data, err := os.ReadFile(m.configPath)
-	if err != nil {
-		return nil, errors.Wrap(err, errMsgReadConfigFile)
-	}
-
-	// Parse as generic YAML to preserve structure
-	var config map[string]any
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, errors.Wrap(err, errMsgParseConfigFile)
-	}
-
-	// Migrate transport format in applications
-	modified, warnings := m.migrateApplicationTransports(config)
-	result.Modified = modified
-	result.Warnings = warnings
-
-	if !modified {
-		return result, nil
-	}
-
-	if m.dryRun {
-		fmt.Println("Dry run mode - no changes will be written")
-		m.printMigrationPlan(config)
-
-		return result, nil
-	}
-
-	// Create backup
-	backupPath := m.configPath + ".bak"
-	if err := os.WriteFile(backupPath, data, configFilePermission); err != nil {
-		return nil, errors.Wrap(err, "failed to create backup")
-	}
-
-	result.BackupPath = backupPath
-
-	// Write migrated config
-	newData, err := yaml.Marshal(config)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal migrated config")
-	}
-
-	if err := os.WriteFile(m.configPath, newData, configFilePermission); err != nil {
-		return nil, errors.Wrap(err, "failed to write migrated config")
-	}
-
+	// No migrations currently needed — transport string array format removed in v0.12.0
 	return result, nil
-}
-
-// migrateApplicationTransports migrates old transport format to new format
-func (m *Migrator) migrateApplicationTransports(config map[string]any) (bool, []DeprecationWarning) {
-	var warnings []DeprecationWarning
-
-	modified := false
-
-	apps, ok := config["applications"].([]any)
-	if !ok {
-		return false, nil
-	}
-
-	for i, appRaw := range apps {
-		app, ok := appRaw.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		transports, ok := app["transport"].([]any)
-		if !ok {
-			continue
-		}
-
-		newTransports := make([]any, 0, len(transports))
-		appModified := false
-
-		for _, t := range transports {
-			switch v := t.(type) {
-			case string:
-				// Old format: convert string to object
-				newTransports = append(newTransports, map[string]any{
-					"name": v,
-				})
-				appModified = true
-
-			case map[string]any:
-				// Already new format
-				newTransports = append(newTransports, v)
-
-			default:
-				// Unknown format, keep as is
-				newTransports = append(newTransports, t)
-			}
-		}
-
-		if appModified {
-			app["transport"] = newTransports
-			apps[i] = app
-			modified = true
-
-			appName, _ := app["name"].(string)
-			warnings = append(warnings, DeprecationWarning{
-				Feature:       "transport string array format",
-				Description:   fmt.Sprintf(deprecationDescTransportFormat, appName),
-				RemovalVer:    RemovalVersionTransportStringArray,
-				MigrationHint: "Run 'go-project-starter migrate' to auto-migrate",
-			})
-		}
-	}
-
-	if modified {
-		config["applications"] = apps
-	}
-
-	return modified, warnings
-}
-
-func (m *Migrator) printMigrationPlan(config map[string]any) {
-	fmt.Println("\n=== Migration Plan ===")
-
-	newData, err := yaml.Marshal(config)
-	if err != nil {
-		fmt.Printf("Error generating preview: %v\n", err)
-		return
-	}
-
-	fmt.Println("\nMigrated config would be:")
-	fmt.Println("---")
-	fmt.Println(string(newData))
 }
 
 // CheckDeprecations checks config for deprecated features without migrating
@@ -248,38 +120,6 @@ func CheckDeprecations(configPath string) ([]DeprecationWarning, error) {
 						MigrationHint: "Remove 'empty_config_available' from gRPC config and add 'config: { optional: true }' to the transport in applications section",
 					})
 				}
-			}
-		}
-	}
-
-	// Check transport format
-	apps, ok := config["applications"].([]any)
-	if !ok {
-		return warnings, nil
-	}
-
-	for _, appRaw := range apps {
-		app, ok := appRaw.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		transports, ok := app["transport"].([]any)
-		if !ok {
-			continue
-		}
-
-		for _, t := range transports {
-			if _, isString := t.(string); isString {
-				appName, _ := app["name"].(string)
-				warnings = append(warnings, DeprecationWarning{
-					Feature:       "transport string array format",
-					Description:   fmt.Sprintf(deprecationDescTransportFormat, appName),
-					RemovalVer:    RemovalVersionTransportStringArray,
-					MigrationHint: "Run 'go-project-starter migrate' to auto-migrate",
-				})
-
-				break // One warning per app is enough
 			}
 		}
 	}

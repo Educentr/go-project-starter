@@ -513,12 +513,10 @@ type (
 	Application struct {
 		// Name is the application name (= container name). Required.
 		Name string `mapstructure:"name"`
-		// TransportListRaw is raw YAML data (string[] or object[]).
+		// TransportListRaw is raw YAML data (object[]).
 		TransportListRaw interface{} `mapstructure:"transport"`
 		// TransportList is the normalized transport list (populated after loading).
 		TransportList []AppTransport `mapstructure:"-"`
-		// HasDeprecatedFormat is true if old string[] format was used.
-		HasDeprecatedFormat bool `mapstructure:"-"`
 		// DriverList contains drivers for this application.
 		DriverList []AppDriver `mapstructure:"driver"`
 		// WorkerList contains worker names for this application.
@@ -847,11 +845,9 @@ func (w Ws) IsValid(baseConfigDir string) (bool, string) {
 	return true, ""
 }
 
-// NormalizeTransports converts TransportListRaw to TransportList
-// Supports both old format ([]string) and new format ([]AppTransport)
+// NormalizeTransports converts TransportListRaw to TransportList.
 //
-// Deprecated: The string array format for transports is deprecated and will be removed in v0.12.0.
-// Use the new object format instead:
+// Transport format:
 //
 //	transport:
 //	  - name: transport_name
@@ -870,43 +866,35 @@ func (a *Application) NormalizeTransports() error {
 	}
 
 	a.TransportList = make([]AppTransport, 0, len(rawList))
-	a.HasDeprecatedFormat = false
 
 	for i, item := range rawList {
-		switch v := item.(type) {
-		case string:
-			// Old format: just transport name
-			// DEPRECATED: Will be removed in v0.12.0
-			a.TransportList = append(a.TransportList, AppTransport{Name: v})
-			a.HasDeprecatedFormat = true
+		v, ok := item.(map[string]interface{})
+		if !ok {
+			return errors.Errorf("transport[%d]: expected object with 'name' field, got string. "+
+				"Run 'go-project-starter migrate' to convert old format", i)
+		}
 
-		case map[string]interface{}:
-			// New format: object with name and optional config
-			name, ok := v["name"].(string)
-			if !ok || name == "" {
-				return errors.Errorf("transport[%d]: name is required", i)
-			}
+		name, ok := v["name"].(string)
+		if !ok || name == "" {
+			return errors.Errorf("transport[%d]: name is required", i)
+		}
 
-			appTransport := AppTransport{Name: name}
+		appTransport := AppTransport{Name: name}
 
-			// Parse config if present
-			if configRaw, exists := v["config"]; exists {
-				if configMap, ok := configRaw.(map[string]interface{}); ok {
-					if inst, ok := configMap["instantiation"].(string); ok {
-						appTransport.Config.Instantiation = inst
-					}
+		// Parse config if present
+		if configRaw, exists := v["config"]; exists {
+			if configMap, ok := configRaw.(map[string]interface{}); ok {
+				if inst, ok := configMap["instantiation"].(string); ok {
+					appTransport.Config.Instantiation = inst
+				}
 
-					if opt, ok := configMap["optional"].(bool); ok {
-						appTransport.Config.Optional = opt
-					}
+				if opt, ok := configMap["optional"].(bool); ok {
+					appTransport.Config.Optional = opt
 				}
 			}
-
-			a.TransportList = append(a.TransportList, appTransport)
-
-		default:
-			return errors.Errorf("transport[%d]: invalid format, expected string or object", i)
 		}
+
+		a.TransportList = append(a.TransportList, appTransport)
 	}
 
 	return nil

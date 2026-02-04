@@ -39,5 +39,5 @@ rest:
 applications:
   - name: api
     transport:
-      - api
-      - sys
+      - name: api
+      - name: sys
