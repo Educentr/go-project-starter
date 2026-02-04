@@ -53,7 +53,7 @@ func (p *Producer) Init(ctx context.Context, serviceName string, _ ds.ServerBuck
 
 	brokers, err := getBrokers(ctx, serviceName)
 	if err != nil {
-		{{ .Logger.WarnMsg "ctx" "kafka producer disabled: brokers not configured" "err::err" "str::producer::\"{{ .Kafka.Name }}\"" }}
+		{{ .Logger.WarnMsg "ctx" "kafka producer disabled: brokers not configured" "err::err" (printf "str::producer::\"%s\"" .Kafka.Name) }}
 		p.disabled = true
 		return nil
 	}
@@ -82,9 +82,9 @@ func (p *Producer) Init(ctx context.Context, serviceName string, _ ds.ServerBuck
 
 	// Warm up connection by fetching metadata
 	if err := p.warmup(ctx, brokers[0], transport); err != nil {
-		{{ .Logger.WarnMsg "ctx" "kafka warmup failed, first request may be slow" "err::err" "str::producer::\"{{ .Kafka.Name }}\"" }}
+		{{ .Logger.WarnMsg "ctx" "kafka warmup failed, first request may be slow" "err::err" (printf "str::producer::\"%s\"" .Kafka.Name) }}
 	} else {
-		{{ .Logger.InfoMsg "ctx" "kafka connection warmed up" "str::producer::\"{{ .Kafka.Name }}\"" "str::broker::brokers[0]" }}
+		{{ .Logger.InfoMsg "ctx" "kafka connection warmed up" (printf "str::producer::\"%s\"" .Kafka.Name) "str::broker::brokers[0]" }}
 	}
 
 	return nil
@@ -131,7 +131,7 @@ func (p *Producer) Run(ctx context.Context, _ *errgroup.Group) {
 
 // asyncWorker processes async messages from the channel
 func (p *Producer) asyncWorker(ctx context.Context) {
-	{{ .Logger.UpdateContext "ctx" "str::producer::\"{{ .Kafka.Name }}\"" }}
+	{{ .Logger.SubContext "ctx" (printf "str::producer::\"%s\"" .Kafka.Name) }}
 	{{ .Logger.InfoMsg "ctx" "kafka async worker started" }}
 
 	for {

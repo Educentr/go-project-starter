@@ -82,6 +82,10 @@ func (zl *ZlogLogger) getAddParams(params ...string) string {
 }
 
 func (zl *ZlogLogger) ErrorMsg(ctx, err, msg string, params ...string) string {
+	if err == "nil" {
+		return fmt.Sprintf("zlog.Ctx(%s).Error()%sMsg(\"%s\")", ctx, zl.getAddParams(params...), msg)
+	}
+
 	return fmt.Sprintf("zlog.Ctx(%s).Error()%sErr(%s).Msg(\"%s\")", ctx, zl.getAddParams(params...), err, msg)
 }
 
@@ -98,6 +102,10 @@ func (zl *ZlogLogger) DebugMsg(ctx, msg string, params ...string) string {
 }
 
 func (zl *ZlogLogger) ErrorMsgCaller(ctx, err, msg string, callerSkip int, params ...string) string {
+	if err == "nil" {
+		return fmt.Sprintf("zlog.Ctx(%s).Error().Caller(%d)%sMsg(\"%s\")", ctx, callerSkip, zl.getAddParams(params...), msg)
+	}
+
 	return fmt.Sprintf("zlog.Ctx(%s).Error().Caller(%d)%sErr(%s).Msg(\"%s\")", ctx, callerSkip, zl.getAddParams(params...), err, msg)
 }
 
@@ -137,6 +145,19 @@ func (zl *ZlogLogger) ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
 // SetLoggerUpdater generates code to set the global logger updater for reqctx
 func (zl *ZlogLogger) SetLoggerUpdater() string {
 	return "reqctx.SetLoggerUpdater(runtimelogger.NewZerologUpdater())"
+}
+
+// SubContext generates code to create a new context with a derived logger.
+// Unlike UpdateContext which mutates the logger in-place, this creates a new
+// sub-logger with additional fields and reassigns the context variable.
+func (zl *ZlogLogger) SubContext(ctxVar string, params ...string) string {
+	converted := make([]string, 0, len(params))
+	for _, p := range params {
+		converted = append(converted, zl.convertParam(p))
+	}
+
+	return fmt.Sprintf("%s = zlog.Ctx(%s).With().%s.Logger().WithContext(%s)",
+		ctxVar, ctxVar, strings.Join(converted, "."), ctxVar)
 }
 
 // SetupTestLogger generates code to create a test zerolog logger and attach it to context

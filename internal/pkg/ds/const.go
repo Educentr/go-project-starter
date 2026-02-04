@@ -767,6 +767,12 @@ type Logger interface {
 	// SetupTestLogger generates code to create a test logger and attach it to context
 	// ctxVar - context variable name to attach logger to
 	SetupTestLogger(ctxVar string) string
+	// SubContext generates code to create a new context with a derived logger
+	// that has additional fields. Unlike UpdateContext, this does NOT mutate
+	// the parent logger — it creates a new one and reassigns the context variable.
+	// ctxVar - context variable name to reassign
+	// params - additional log fields in type::key::value format
+	SubContext(ctxVar string, params ...string) string
 }
 
 func (t Transport) GetOgenConfigPath(targetDir string) string {

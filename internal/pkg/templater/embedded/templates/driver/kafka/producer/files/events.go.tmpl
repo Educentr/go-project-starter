@@ -29,7 +29,7 @@ func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}(ctx conte
 func (p *Producer) Publish{{ $event.Name | Capitalize | ReplaceDash }}(ctx context.Context, key []byte, msg []byte) error {
 {{- end }}
 	if p.disabled {
-		{{ $.Logger.WarnMsg "ctx" "kafka disabled: message not published" "str::producer::\"{{ $.Kafka.Name }}\"" "str::event::\"{{ $event.Name }}\"" }}
+		{{ $.Logger.WarnMsg "ctx" "kafka disabled: message not published" (printf "str::producer::\"%s\"" $.Kafka.Name) (printf "str::event::\"%s\"" $event.Name) }}
 		return nil
 	}
 
