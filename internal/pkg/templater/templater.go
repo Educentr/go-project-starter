@@ -378,10 +378,10 @@ func DisclaimerStart(disclaimerStart string) {
 	d := disclaimerStart
 	if len(d) == 0 {
 		disclaimerStart = ""
-		// fmt.Println(disclaimerStart)
+
 	} else {
 		d = disclaimerStart
-		// fmt.Println(disclaimerStart)
+
 	}
 }
 
@@ -389,41 +389,39 @@ func DisclaimerFinish(disclaimerFinish string) {
 	d := disclaimerFinish
 	if len(d) == 0 {
 		disclaimerFinish = ""
-		// fmt.Println(disclaimerFinish)
+
 	} else {
 		d = disclaimerFinish
-		// fmt.Println(disclaimerFinish)
+
 	}
 }
 
-// disclaimerStartWithComment, err := makeComment(fName, disclaimerStart)
-
 func splitDisclaimer(fileContent string, disclaimerStartWithComment string, disclaimerFinishtWithComment string) (string, string, error) {
 	// genMeta.StartDisclaimer
-	disclaimerStart := disclaimerStartWithComment
-	disclaimerFinish := disclaimerFinishtWithComment
 
-	disclamerStartIndex := strings.Index(fileContent, disclaimerStart)
+	disclamerFinishIndex := strings.Index(fileContent, disclaimerFinishtWithComment)
+
+	if disclamerFinishIndex == -1 {
+		codeByGenerator := fileContent
+
+		return codeByGenerator, "", errors.New("DisclaimerFinish not found in file, userData is not defined.")
+	}
+
+	userData := fileContent[disclamerFinishIndex+len(disclaimerFinishtWithComment):]
+
+	disclamerStartIndex := strings.Index(fileContent, disclaimerStartWithComment)
 	if disclamerStartIndex == -1 {
-		return fileContent, "", errors.New("DisclaimerStart not found in file")
+		codeByGenerator := fileContent[:disclamerFinishIndex+len(disclaimerFinishtWithComment)]
+		return codeByGenerator, userData, errors.New("DisclaimerStart not found in file")
 	}
 
 	beforeDisclaimerStar := fileContent[:disclamerStartIndex]
-	// fmt.Println(" -412  fileContent: ", fileContent, "\n -412  beforeDisclaimerStar: ", beforeDisclaimerStar)
+
 	if len(beforeDisclaimerStar) != 0 {
-		return fileContent[:disclamerStartIndex], "", errors.New("There is code before disclaimerStart that will not be saved after the update.")
+		return fileContent[:disclamerFinishIndex+len(disclaimerFinishtWithComment)], userData, errors.New("There is code before disclaimerStart that will not be saved after the update.")
 	}
 
-	disclamerFinishIndex := strings.Index(fileContent, disclaimerFinish)
-	fmt.Println(" -418  disclamerFinishIndex: ", disclamerFinishIndex)
-	if disclamerFinishIndex == -1 {
-		return fileContent, "", errors.New("DisclaimerFinish not found in file")
-	}
-
-	codeByGenerator := fileContent[disclamerStartIndex+len(disclaimerStart)+1 : disclamerFinishIndex-1]
-	fmt.Println(" -424  fileContent: ", fileContent, "\n -424  disclamerStartIndex: ", disclamerStartIndex, "\n -424  len(disclaimerStart): ", len(disclaimerStart), "\n -424  disclamerFinishIndex: ", disclamerFinishIndex)
-
-	userData := fileContent[disclamerFinishIndex+len(disclaimerFinish):]
+	codeByGenerator := fileContent[disclamerStartIndex+len(disclaimerStartWithComment)+1 : disclamerFinishIndex]
 
 	return codeByGenerator, userData, nil
 }
