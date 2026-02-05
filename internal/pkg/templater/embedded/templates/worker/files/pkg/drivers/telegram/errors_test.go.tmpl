@@ -1,0 +1,148 @@
+package telegram
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestIsBotBlockedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "bot was blocked by user",
+			err:  errors.New("Forbidden: bot was blocked by the user"),
+			want: true,
+		},
+		{
+			name: "user is deactivated",
+			err:  errors.New("Forbidden: user is deactivated"),
+			want: true,
+		},
+		{
+			name: "bot can't initiate conversation",
+			err:  errors.New("Forbidden: bot can't initiate conversation with a user"),
+			want: true,
+		},
+		{
+			name: "unrelated error",
+			err:  errors.New("Internal server error"),
+			want: false,
+		},
+		{
+			name: "partial match - blocked",
+			err:  errors.New("Error: bot was blocked by the user - chat not found"),
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsBotBlockedError(tt.err)
+
+			if got != tt.want {
+				t.Errorf("IsBotBlockedError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsMessageDeleteError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "message can't be deleted",
+			err:  errors.New("Bad Request: message can't be deleted for everyone"),
+			want: true,
+		},
+		{
+			name: "message to delete not found",
+			err:  errors.New("Bad Request: message to delete not found"),
+			want: true,
+		},
+		{
+			name: "unrelated error",
+			err:  errors.New("Internal server error"),
+			want: false,
+		},
+		{
+			name: "blocked error should not match",
+			err:  errors.New("Forbidden: bot was blocked by the user"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsMessageDeleteError(tt.err)
+
+			if got != tt.want {
+				t.Errorf("IsMessageDeleteError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsMessageEditError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "no text in message",
+			err:  errors.New("Bad Request: there is no text in the message to edit"),
+			want: true,
+		},
+		{
+			name: "message is not modified",
+			err:  errors.New("Bad Request: message is not modified: specified new message content is the same as current"),
+			want: true,
+		},
+		{
+			name: "message to edit not found",
+			err:  errors.New("Bad Request: message to edit not found"),
+			want: true,
+		},
+		{
+			name: "unrelated error",
+			err:  errors.New("Internal server error"),
+			want: false,
+		},
+		{
+			name: "delete error should not match",
+			err:  errors.New("Bad Request: message to delete not found"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsMessageEditError(tt.err)
+
+			if got != tt.want {
+				t.Errorf("IsMessageEditError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

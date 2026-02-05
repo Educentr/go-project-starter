@@ -1,0 +1,161 @@
+package telegram
+
+import (
+	"testing"
+)
+
+func TestCommandName_String(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  CommandName
+		want string
+	}{
+		{
+			name: "empty command",
+			cmd:  EmptyCommandName,
+			want: "",
+		},
+		{
+			name: "start command",
+			cmd:  CommandName("/start"),
+			want: "/start",
+		},
+		{
+			name: "custom command",
+			cmd:  CommandName("/help"),
+			want: "/help",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cmd.String()
+
+			if got != tt.want {
+				t.Errorf("CommandName.String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRequestData_ChatType(t *testing.T) {
+	tests := []struct {
+		name   string
+		rd     RequestData
+		want   ChatType
+	}{
+		{
+			name: "private chat - chatID equals actor ID",
+			rd: RequestData{
+				ChatID: 12345,
+				Actor:  Actor{ID: 12345},
+			},
+			want: PrivateChat,
+		},
+		{
+			name: "group chat - chatID differs from actor ID",
+			rd: RequestData{
+				ChatID: -100123456789, // Group chats have negative IDs
+				Actor:  Actor{ID: 12345},
+			},
+			want: GroupChat,
+		},
+		{
+			name: "supergroup chat",
+			rd: RequestData{
+				ChatID: -1001234567890,
+				Actor:  Actor{ID: 54321},
+			},
+			want: GroupChat,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.rd.ChatType()
+
+			if got != tt.want {
+				t.Errorf("RequestData.ChatType() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdminRole_Constants(t *testing.T) {
+	if RootRole != AdminRole("root") {
+		t.Errorf("RootRole = %q, want %q", RootRole, "root")
+	}
+}
+
+func TestRequestType_Constants(t *testing.T) {
+	tests := []struct {
+		name     string
+		reqType  RequestType
+		expected string
+	}{
+		{"callback", CallbackRequest, "callback"},
+		{"text", TextRequest, "text"},
+		{"document", DocumentRequest, "document"},
+		{"purchase", PurchaseRequest, "purchase"},
+		{"pre_checkout", PreCheckoutRequest, "pre_checkout"},
+		{"hidden_message", HiddenMessageRequest, "hidden_message"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if string(tt.reqType) != tt.expected {
+				t.Errorf("RequestType %s = %q, want %q", tt.name, tt.reqType, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHiddenAction_Constants(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   HiddenAction
+		expected string
+	}{
+		{"nothing", NothingHiddenAction, ""},
+		{"delete", DeleteHiddenAction, "delete"},
+		{"update", UpdateHiddenAction, "update"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if string(tt.action) != tt.expected {
+				t.Errorf("HiddenAction %s = %q, want %q", tt.name, tt.action, tt.expected)
+			}
+		})
+	}
+}
+
+func TestActor_Fields(t *testing.T) {
+	actor := Actor{
+		ID:           12345,
+		FirstName:    "John",
+		LastName:     "Doe",
+		Username:     "johndoe",
+		LanguageCode: "en",
+	}
+
+	if actor.ID != 12345 {
+		t.Errorf("Actor.ID = %d, want %d", actor.ID, 12345)
+	}
+
+	if actor.FirstName != "John" {
+		t.Errorf("Actor.FirstName = %q, want %q", actor.FirstName, "John")
+	}
+
+	if actor.LastName != "Doe" {
+		t.Errorf("Actor.LastName = %q, want %q", actor.LastName, "Doe")
+	}
+
+	if actor.Username != "johndoe" {
+		t.Errorf("Actor.Username = %q, want %q", actor.Username, "johndoe")
+	}
+
+	if actor.LanguageCode != "en" {
+		t.Errorf("Actor.LanguageCode = %q, want %q", actor.LanguageCode, "en")
+	}
+}

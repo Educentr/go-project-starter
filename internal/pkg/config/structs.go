@@ -225,6 +225,7 @@ type (
 		// AuthParams are authentication parameters (for ogen_client).
 		AuthParams AuthParams `mapstructure:"auth_params"`
 		// EmptyConfigAvailable allows empty OnlineConf configuration.
+		// Deprecated: Use 'optional: true' in application transport config instead. Will be removed in v0.13.0.
 		EmptyConfigAvailable bool `mapstructure:"empty_config_available"`
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
@@ -605,7 +606,7 @@ const (
 	defaultProtobufVersion     = "1.7.0"
 	defaultGolangciVersion     = "1.55.2"
 	defaultOgenVersion         = "v0.78.0"
-	defaultArgenVersion        = "v1.0.0"
+	defaultArgenVersion        = "v3.1.22"
 	defaultGoJSONSchemaVersion = "v0.16.0"
 
 	errInstantiationOnlyOgenClient = "instantiation is only supported for ogen_client"

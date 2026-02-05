@@ -1,0 +1,15 @@
+package constant
+
+import "testing"
+
+func TestServiceName(t *testing.T) {
+	if ServiceName == "" {
+		t.Error("ServiceName should not be empty")
+	}
+
+	// ServiceName should match the configured project name
+	expectedName := "{{ .ProjectName }}"
+	if ServiceName != expectedName {
+		t.Errorf("ServiceName = %q, want %q", ServiceName, expectedName)
+	}
+}

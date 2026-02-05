@@ -1,0 +1,161 @@
+package telegram
+
+import (
+	"testing"
+)
+
+func TestParseFileParam(t *testing.T) {
+	tests := []struct {
+		name           string
+		params         string
+		wantFileParam  FileParam
+		wantRemaining  string
+		wantHasFile    bool
+	}{
+		{
+			name:   "valid file param with remaining",
+			params: "file#http://example.com/image.png#photo.png#other_data",
+			wantFileParam: FileParam{
+				URL:      "http://example.com/image.png",
+				FileName: "photo.png",
+			},
+			wantRemaining: "other_data",
+			wantHasFile:   true,
+		},
+		{
+			name:   "valid file param without remaining",
+			params: "file#http://example.com/doc.pdf#document.pdf",
+			wantFileParam: FileParam{
+				URL:      "http://example.com/doc.pdf",
+				FileName: "document.pdf",
+			},
+			wantRemaining: "",
+			wantHasFile:   true,
+		},
+		{
+			name:           "no file prefix",
+			params:         "other#http://example.com/image.png#photo.png",
+			wantFileParam:  FileParam{},
+			wantRemaining:  "other#http://example.com/image.png#photo.png",
+			wantHasFile:    false,
+		},
+		{
+			name:           "simple params without file",
+			params:         "simple_param",
+			wantFileParam:  FileParam{},
+			wantRemaining:  "simple_param",
+			wantHasFile:    false,
+		},
+		{
+			name:           "empty params",
+			params:         "",
+			wantFileParam:  FileParam{},
+			wantRemaining:  "",
+			wantHasFile:    false,
+		},
+		{
+			name:           "file prefix without enough parts",
+			params:         "file#onlyurl",
+			wantFileParam:  FileParam{},
+			wantRemaining:  "file#onlyurl",
+			wantHasFile:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotFile, gotRemaining, gotHasFile := ParseFileParam(tt.params)
+
+			if gotHasFile != tt.wantHasFile {
+				t.Errorf("ParseFileParam() hasFile = %v, want %v", gotHasFile, tt.wantHasFile)
+			}
+
+			if gotRemaining != tt.wantRemaining {
+				t.Errorf("ParseFileParam() remaining = %q, want %q", gotRemaining, tt.wantRemaining)
+			}
+
+			if gotFile.URL != tt.wantFileParam.URL {
+				t.Errorf("ParseFileParam() URL = %q, want %q", gotFile.URL, tt.wantFileParam.URL)
+			}
+
+			if gotFile.FileName != tt.wantFileParam.FileName {
+				t.Errorf("ParseFileParam() FileName = %q, want %q", gotFile.FileName, tt.wantFileParam.FileName)
+			}
+		})
+	}
+}
+
+func TestPackFileParam(t *testing.T) {
+	tests := []struct {
+		name        string
+		fileURL     string
+		fileName    string
+		otherParams string
+		want        string
+	}{
+		{
+			name:        "with other params",
+			fileURL:     "http://example.com/image.png",
+			fileName:    "photo.png",
+			otherParams: "callback_data",
+			want:        "file#http://example.com/image.png#photo.png#callback_data",
+		},
+		{
+			name:        "without other params",
+			fileURL:     "http://example.com/doc.pdf",
+			fileName:    "document.pdf",
+			otherParams: "",
+			want:        "file#http://example.com/doc.pdf#document.pdf",
+		},
+		{
+			name:        "empty URL and filename",
+			fileURL:     "",
+			fileName:    "",
+			otherParams: "",
+			want:        "file##",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PackFileParam(tt.fileURL, tt.fileName, tt.otherParams)
+
+			if got != tt.want {
+				t.Errorf("PackFileParam() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseFileParam_RoundTrip(t *testing.T) {
+	// Test that packing and parsing produces consistent results
+	testCases := []struct {
+		url         string
+		filename    string
+		otherParams string
+	}{
+		{"http://example.com/image.png", "photo.png", "callback"},
+		{"http://example.com/doc.pdf", "document.pdf", ""},
+	}
+
+	for _, tc := range testCases {
+		packed := PackFileParam(tc.url, tc.filename, tc.otherParams)
+		parsed, remaining, hasFile := ParseFileParam(packed)
+
+		if !hasFile {
+			t.Errorf("RoundTrip: ParseFileParam should return hasFile=true for packed value")
+		}
+
+		if parsed.URL != tc.url {
+			t.Errorf("RoundTrip: URL = %q, want %q", parsed.URL, tc.url)
+		}
+
+		if parsed.FileName != tc.filename {
+			t.Errorf("RoundTrip: FileName = %q, want %q", parsed.FileName, tc.filename)
+		}
+
+		if remaining != tc.otherParams {
+			t.Errorf("RoundTrip: remaining = %q, want %q", remaining, tc.otherParams)
+		}
+	}
+}
