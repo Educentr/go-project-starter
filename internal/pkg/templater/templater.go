@@ -409,18 +409,19 @@ func splitDisclaimer(fileContent string, disclaimerStartWithComment string, disc
 	}
 
 	beforeDisclaimerStar := fileContent[:disclamerStartIndex]
-	fmt.Println(" -414  fileContent: ", fileContent, "\n -414  beforeDisclaimerStar: ", beforeDisclaimerStar)
+	// fmt.Println(" -412  fileContent: ", fileContent, "\n -412  beforeDisclaimerStar: ", beforeDisclaimerStar)
 	if len(beforeDisclaimerStar) != 0 {
-		return fileContent[:disclamerStartIndex], "", errors.New("There is a code before the disclaimer")
+		return fileContent[:disclamerStartIndex], "", errors.New("There is code before disclaimerStart that will not be saved after the update.")
 	}
 
 	disclamerFinishIndex := strings.Index(fileContent, disclaimerFinish)
-
+	fmt.Println(" -418  disclamerFinishIndex: ", disclamerFinishIndex)
 	if disclamerFinishIndex == -1 {
 		return fileContent, "", errors.New("DisclaimerFinish not found in file")
 	}
 
 	codeByGenerator := fileContent[disclamerStartIndex+len(disclaimerStart)+1 : disclamerFinishIndex-1]
+	fmt.Println(" -424  fileContent: ", fileContent, "\n -424  disclamerStartIndex: ", disclamerStartIndex, "\n -424  len(disclaimerStart): ", len(disclaimerStart), "\n -424  disclamerFinishIndex: ", disclamerFinishIndex)
 
 	userData := fileContent[disclamerFinishIndex+len(disclaimerFinish):]
 
