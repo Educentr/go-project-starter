@@ -450,7 +450,7 @@ generate-ogen:
 # Generate activerecord files from all openapi specifications
 .PHONY: generate-argen
 generate-argen:
-	argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl"
+	argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl" --schema_path etc/database
 
 .PHONY: install-argen
 install-argen:
