@@ -20,7 +20,7 @@ workers:
 | Поле | Обязательно | Описание |
 |------|-------------|----------|
 | `name` | Да | Имя воркера |
-| `generator_type` | Да | Тип генератора: `telegram` или `daemon` |
+| `generator_type` | Да | Тип генератора: `telegram`, `daemon` или `queue` |
 | `generator_template` | Нет | Имя кастомного шаблона |
 
 ## Типы воркеров
@@ -53,6 +53,34 @@ internal/app/{app}/worker/telegram/{worker_name}/
 │   └── handler.go    # Обработчики (ваш код)
 └── commands/
     └── commands.go   # Команды бота
+```
+
+### Queue
+
+Обработчик очередей с гарантированной доставкой заданий.
+
+```yaml
+workers:
+  - name: order_processor
+    generator_type: template
+    generator_template: queue
+    path:
+      - ./contracts/queues.yaml
+```
+
+Очереди описываются в отдельном YAML-файле (контракт), аналогично OpenAPI спецификациям для REST. Генератор создаёт типизированные структуры, сериализаторы и интерфейсы handler-ов для каждой очереди.
+
+Подробное описание: [Queue Contract](queue-contract.md) | [Архитектура системы очередей](../architecture/queue-system.md)
+
+#### Генерируемая структура
+
+```
+internal/app/{app}/worker/queue/{worker_name}/
+├── types.go          # Go struct для каждой очереди
+├── serializer.go     # iproto сериализация/десериализация
+├── handler.go        # Интерфейсы handler-ов
+├── dispatcher.go     # Маппинг queue_id → handler
+└── queue_worker.go   # Worker (реализация Runnable)
 ```
 
 ### Daemon

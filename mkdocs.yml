@@ -69,6 +69,7 @@ nav:
   - Архитектура:
     - architecture/index.md
     - Сгенерированный проект: architecture/generated-project.md
+    - Система очередей: architecture/queue-system.md
   - CLI:
     - cli/index.md
     - Команды: cli/commands.md
@@ -78,6 +79,7 @@ nav:
     - Основные секции: configuration/main.md
     - Транспорты: configuration/transports.md
     - Workers: configuration/workers.md
+    - Queue Contract: configuration/queue-contract.md
     - Applications: configuration/applications.md
     - Инфраструктура: configuration/infrastructure.md
   - Рабочий процесс:

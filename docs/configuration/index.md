@@ -6,7 +6,8 @@
 
 - [Основные секции](main.md) — секции main, git, tools
 - [Транспорты](transports.md) — REST, gRPC, Kafka, CLI
-- [Workers](workers.md) — Telegram, Daemon
+- [Workers](workers.md) — Telegram, Daemon, Queue
+- [Queue Contract](queue-contract.md) — Контракт очередей
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 
@@ -43,7 +44,7 @@ kafka:
 
 workers:
   - name: string            # Имя воркера
-    generator_type: telegram # Тип: telegram/daemon
+    generator_type: telegram # Тип: telegram/daemon/queue
 
 applications:
   - name: string            # Имя приложения
@@ -106,6 +107,7 @@ applications:
 
 - [Основные секции](main.md) — main, git, tools
 - [Транспорты](transports.md) — REST, gRPC, Kafka, CLI
-- [Workers](workers.md) — Telegram, Daemon
+- [Workers](workers.md) — Telegram, Daemon, Queue
+- [Queue Contract](queue-contract.md) — Контракт очередей
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy

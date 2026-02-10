@@ -8,6 +8,7 @@
 ## Содержание раздела
 
 - [Архитектура сгенерированного проекта](generated-project.md) — структура и паттерны сгенерированных проектов
+- [Система очередей](queue-system.md) — архитектура Worker/JobProcessor/Handler для обработки очередей
 
 !!! tip "Архитектура генератора"
     Описание внутреннего устройства генератора находится в разделе [Разработка генератора](../development/generator.md).
@@ -93,4 +94,5 @@ func (h *Handler) CreateUser(ctx context.Context, req *CreateUserRequest) (*User
 ## Следующие шаги
 
 - [Архитектура сгенерированного проекта](generated-project.md) — структура проектов
+- [Система очередей](queue-system.md) — Worker, JobProcessor, Storage, Handler
 - [Архитектура генератора](../development/generator.md) — внутреннее устройство генератора
