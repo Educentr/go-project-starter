@@ -47,14 +47,15 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 				// 2. /{serviceName}/transport/rest/{transportName}/handler/{path} - transport-level
 				// The path is resolved in CreateContext with fallback logic
 				ocPrefix := onlineconf.MakePath(serviceName, "transport/rest", transportName, appName, "handler")
+				pathKey := r.Method + "_" + strings.ReplaceAll(strings.TrimPrefix(r.URL.Path, "/"), "/", "__")
 				// r.Context() - контекст запроса (основной), ctx - контекст приложения (для onlineconf)
-				reqCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, ocPrefix, r.URL.Path)
+				reqCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, ocPrefix, pathKey)
 				if err != nil {
 					{{ .Logger.ErrorMsg "r.Context()" "err" "Failed to create request context" }}
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					return
 				}
-				{{ .Logger.ReWrap "ctx" "reqCtx" "ocPrefix" "r.URL.Path" }}
+				{{ .Logger.ReWrap "ctx" "reqCtx" "ocPrefix" "pathKey" }}
 				{{ .Logger.UpdateContext "reqCtx" "str::Method::r.Method" "str::URI::r.RequestURI" }}
 				next.ServeHTTP(w, r.WithContext(reqCtx))
 				cancel()
