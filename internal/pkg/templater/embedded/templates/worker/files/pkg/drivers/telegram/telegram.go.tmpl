@@ -102,7 +102,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		return nil
 	}
 
-	err := onlineconf.RegisterSubscription(ctx, "TREE", []string{GetTgTokenPath(ctx, serviceName)},
+	err := onlineconf.RegisterSubscription(ctx, onlineconf.DefaultModule, []string{GetTgTokenPath(ctx, serviceName)},
 		func() error {
 			{{ $.Logger.InfoMsg "ctx" "tg_token updated" }}
 

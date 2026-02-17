@@ -42,6 +42,10 @@ const (
 const (
 	// RemovalVersionEmptyConfigAvailable is when empty_config_available will be removed
 	RemovalVersionEmptyConfigAvailable = "0.13.0"
+
+	// RemovalVersionCreateContext is when reqctx.CreateContext (deprecated in favor of
+	// CreateContextWithTimeout) will be removed from go-project-starter-runtime
+	RemovalVersionCreateContext = "0.15.0"
 )
 
 // Error message constants

@@ -23,9 +23,16 @@ OnlineConf позволяет изменять конфигурацию без �
 ├── transport/
 │   └── rest/
 │       └── {name}_{version}/
-│           ├── ip              # 0.0.0.0
-│           ├── port            # 8080
-│           └── timeout         # 2s
+│           ├── ip                  # 0.0.0.0
+│           ├── port                # 8080
+│           ├── timeout_read        # 30s (ReadTimeout + IdleTimeout)
+│           ├── timeout_write       # 60s (WriteTimeout)
+│           ├── timeout_read_header # 30s (ReadHeaderTimeout, default = timeout_read)
+│           └── handler/
+│               ├── default/
+│               │   └── timeout     # 2s (default handler timeout)
+│               └── {path}/
+│                   └── timeout     # per-path handler timeout
 ├── db/
 │   └── main/
 │       ├── host                # localhost:5432
@@ -53,13 +60,39 @@ OnlineConf пути следуют 3-уровневой иерархии для 
 
 ```
 # Transport-level (для всех apps с этим транспортом)
-/my-api/transport/rest/api_v1/timeout
+/my-api/transport/rest/api_v1/timeout_read
+/my-api/transport/rest/api_v1/timeout_write
 /my-api/transport/rest/api_v1/port
 
 # App-specific (override для конкретного application)
-/my-api/transport/rest/api_v1/web-app/timeout
+/my-api/transport/rest/api_v1/web-app/timeout_read
+/my-api/transport/rest/api_v1/web-app/timeout_write
 /my-api/transport/rest/api_v1/web-app/port
 ```
+
+## Динамическое обновление таймаутов
+
+Серверные таймауты (`timeout_read`, `timeout_write`, `timeout_read_header`) подписаны на изменения в OnlineConf через `RegisterSubscription`. При изменении значения в OnlineConf Admin UI:
+
+1. Callback обновляет `http.Server` поля без рестарта
+2. В логе появляется сообщение "REST server timeouts updated"
+3. Новые значения применяются к следующим соединениям
+
+## Handler Timeouts
+
+Handler timeout — таймаут на обработку одного HTTP-запроса. Устанавливается через `context.WithTimeout` в middleware.
+
+### 3-level fallback
+
+1. **Per-path app-specific**: `/{svc}/transport/rest/{transport}/{app}/handler/{urlPath}/timeout`
+2. **Per-path transport-level**: `/{svc}/transport/rest/{transport}/handler/{urlPath}/timeout`
+3. **Default app-specific**: `/{svc}/transport/rest/{transport}/{app}/handler/default/timeout`
+4. **Default transport-level**: `/{svc}/transport/rest/{transport}/handler/default/timeout`
+5. **Code default**: `2s`
+
+### Валидация handler timeout vs write timeout
+
+Если handler timeout превышает server write timeout, он автоматически уменьшается до write timeout с предупреждением в логе. Это предотвращает ситуацию, когда handler продолжает работать после того, как сервер уже закрыл соединение.
 
 ## Переменные окружения
 
@@ -73,7 +106,8 @@ OC_{ProjectName}__log__level=info
 # REST API settings
 OC_{ProjectName}__transport__rest__{name}_{version}__ip=0.0.0.0
 OC_{ProjectName}__transport__rest__{name}_{version}__port=8081
-OC_{ProjectName}__transport__rest__{name}_{version}__timeout=2s
+OC_{ProjectName}__transport__rest__{name}_{version}__timeout_read=30s
+OC_{ProjectName}__transport__rest__{name}_{version}__timeout_write=60s
 
 # Database settings
 OC_{ProjectName}__db__main=127.0.0.1:5432

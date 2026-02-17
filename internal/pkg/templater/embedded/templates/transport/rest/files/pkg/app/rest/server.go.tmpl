@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
@@ -11,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	{{ .Logger.Import }}
 	"golang.org/x/sync/errgroup"
-	
+
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 )
 
@@ -27,6 +28,11 @@ type Server struct {
 
 	// АПИ как презентационный уровень для сервиса
 	router Router
+
+	// Для динамического обновления и доступа из middleware
+	serviceName  string
+	appName      string
+	writeTimeout atomic.Int64 // наносекунды, для потокобезопасного чтения из middleware
 }
 
 const (
@@ -81,9 +87,10 @@ func GetConfigValue[T string|time.Duration](ctx context.Context, serviceName str
 
 func (s *Server) GetHTTPServer(ctx context.Context, serviceName string, appName string) (*http.Server, error) {
 	var (
-		ip string
-		port string
-		timeout time.Duration
+		ip            string
+		port          string
+		timeoutRead   time.Duration
+		timeoutWrite  time.Duration
 		headerTimeout time.Duration
 	)
 
@@ -99,26 +106,34 @@ func (s *Server) GetHTTPServer(ctx context.Context, serviceName string, appName 
 		return nil, fmt.Errorf("error get port: %w", err)
 	}
 
-	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout", &defaultHTTPTimeout, &timeout)
+	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_read", &defaultHTTPReadTimeout, &timeoutRead)
 	if err != nil {
-		timeout = defaultHTTPTimeout
+		timeoutRead = defaultHTTPReadTimeout
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout from onlineconf" "str::Default::defaultHTTPTimeout.String()"}}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout_read from onlineconf" "str::Default::defaultHTTPReadTimeout.String()"}}
 	}
 
-	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_read_header", &timeout, &headerTimeout)
+	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_write", &defaultHTTPWriteTimeout, &timeoutWrite)
 	if err != nil {
-		headerTimeout = timeout
+		timeoutWrite = defaultHTTPWriteTimeout
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout read header from onlineconf. Set to timeout"}}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout_write from onlineconf" "str::Default::defaultHTTPWriteTimeout.String()"}}
 	}
 
-	// ToDo split timeout for read and write
+	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_read_header", &timeoutRead, &headerTimeout)
+	if err != nil {
+		headerTimeout = timeoutRead
+
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout_read_header from onlineconf. Set to timeout_read"}}
+	}
+
+	s.writeTimeout.Store(int64(timeoutWrite))
+
 	return &http.Server{
 		Addr:              ip + ":" + port,
-		WriteTimeout:      timeout * 2,
-		ReadTimeout:       timeout,
-		IdleTimeout:       timeout,
+		WriteTimeout:      timeoutWrite,
+		ReadTimeout:       timeoutRead,
+		IdleTimeout:       timeoutRead,
 		ReadHeaderTimeout: headerTimeout,
 	}, nil
 }
@@ -138,10 +153,30 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 	var err error
 
 	s.srv = srv
+	s.serviceName = serviceName
+	s.appName = appName
 
 	s.httpSrv, err = s.GetHTTPServer(ctx, serviceName, appName)
 	if err != nil {
 		return errors.Wrap(err, "http server initialization")
+	}
+
+	// Subscribe to timeout changes in OnlineConf
+	timeoutPaths := []string{
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "timeout_read"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "timeout_read"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "timeout_write"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "timeout_write"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "timeout_read_header"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "timeout_read_header"),
+	}
+
+	err = onlineconf.RegisterSubscription(ctx, onlineconf.DefaultModule, timeoutPaths, func() error {
+		s.updateTimeouts(ctx)
+		return nil
+	})
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "failed to register timeout subscription"}}
 	}
 
 	err = s.router.InitRouters(ctx, s.httpSrv, s.srv, metrics)
@@ -153,7 +188,7 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 	// - appName: Application.Name (e.g., "web-app")
 	// - serviceName: Main.Name (constant.ServiceName, e.g., "my-api")
 	// - s.Name(): Transport.Name (e.g., "api_v1")
-	mws, err := s.router.GetMiddlewares(ctx, appName, metrics, srv, serviceName, s.Name(), s.router.GetErrorHandler())
+	mws, err := s.router.GetMiddlewares(ctx, appName, metrics, srv, serviceName, s.Name(), s.router.GetErrorHandler(), s.GetWriteTimeout)
 	if err != nil {
 		return errors.Wrap(err, "error initialization API middlewares")
 	}
@@ -163,6 +198,27 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 	}
 
 	return nil
+}
+
+func (s *Server) updateTimeouts(ctx context.Context) {
+	var timeoutRead, timeoutWrite, headerTimeout time.Duration
+
+	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "timeout_read", &defaultHTTPReadTimeout, &timeoutRead)
+	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "timeout_write", &defaultHTTPWriteTimeout, &timeoutWrite)
+	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "timeout_read_header", &timeoutRead, &headerTimeout)
+
+	s.httpSrv.WriteTimeout = timeoutWrite
+	s.httpSrv.ReadTimeout = timeoutRead
+	s.httpSrv.IdleTimeout = timeoutRead
+	s.httpSrv.ReadHeaderTimeout = headerTimeout
+	s.writeTimeout.Store(int64(timeoutWrite))
+
+	{{ .Logger.InfoMsg "ctx" "REST server timeouts updated" "str::$nameFieldLogger::s.name" "str::timeout_read::timeoutRead.String()" "str::timeout_write::timeoutWrite.String()" "str::timeout_read_header::headerTimeout.String()" }}
+}
+
+// GetWriteTimeout returns the current server WriteTimeout for handler timeout validation.
+func (s *Server) GetWriteTimeout() time.Duration {
+	return time.Duration(s.writeTimeout.Load())
 }
 
 func (s *Server) Run(ctx context.Context, errGr *errgroup.Group) {

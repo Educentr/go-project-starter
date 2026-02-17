@@ -84,6 +84,16 @@ func HTTPServerMiddlewareMetrics(ctx context.Context, serviceName, transportName
 			r = r.WithContext(workCtx)
 			next.ServeHTTP(rw, r)
 
+			// Check if request context deadline was exceeded (handler timeout fired)
+			if deadline, ok := r.Context().Deadline(); ok && time.Now().After(deadline) {
+				{{ .Logger.WarnMsg "r.Context()" "Request handler timeout exceeded"
+					"str::Method::r.Method"
+					"str::Path::r.URL.Path"
+					"str::HandlerTimeout::deadline.Sub(StartedAt).String()"
+					"str::ExecTime::time.Since(StartedAt).String()"
+				}}
+			}
+
 			status := strconv.Itoa(rw.Status())
 
 			reqctx.FlushCumulativeMetric(r.Context(), r.URL.Path, r.Method, status)

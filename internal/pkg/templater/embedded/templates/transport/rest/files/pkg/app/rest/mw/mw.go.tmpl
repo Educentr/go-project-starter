@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,6 +26,7 @@ type EmptyMiddlewares struct{}
 // - appName: Application.Name (e.g., "web-app") - the specific application instance
 // - serviceName: Main.Name (e.g., "my-api") - the service-level name (constant.ServiceName)
 // - transportName: Transport.Name (e.g., "api_v1") - the REST transport name
+// - getWriteTimeout: returns current server WriteTimeout for handler timeout validation
 func (dmw *DefaultMiddlewares) GetMiddlewares(
 	ctx context.Context,
 	appName string,
@@ -32,6 +34,7 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 	srv ds.IService,
 	serviceName, transportName string,
 	errHdl rest.RestErrorHandler,
+	getWriteTimeout func() time.Duration,
 ) (
 	[]func(next http.Handler) http.Handler,
 	error,
@@ -42,19 +45,30 @@ func (dmw *DefaultMiddlewares) GetMiddlewares(
 		// Создаём контекст запроса
 		func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// OnlineConf path hierarchy (3 levels):
-				// 1. /{serviceName}/transport/rest/{transportName}/{appName}/handler/{path} - app-specific
-				// 2. /{serviceName}/transport/rest/{transportName}/handler/{path} - transport-level
-				// The path is resolved in CreateContext with fallback logic
-				ocPrefix := onlineconf.MakePath(serviceName, "transport/rest", transportName, appName, "handler")
+				// Combine method + path for OnlineConf key (e.g., GET_payment__token)
 				pathKey := r.Method + "_" + strings.ReplaceAll(strings.TrimPrefix(r.URL.Path, "/"), "/", "__")
+
+				// 3-level handler timeout fallback:
+				// 1. App-specific: /{svc}/transport/rest/{transport}/{app}/handler/{pathKey}/timeout
+				// 2. Transport-level: /{svc}/transport/rest/{transport}/handler/{pathKey}/timeout
+				// 3. Default from code: defaultHandlerTimeout
+				handlerTimeout := resolveHandlerTimeout(ctx, serviceName, transportName, appName, pathKey)
+
+				// Validate: handler timeout must be <= write timeout
+				writeTimeout := getWriteTimeout()
+				if writeTimeout > 0 && handlerTimeout > writeTimeout {
+					{{ .Logger.WarnMsg "r.Context()" "handler timeout exceeds write timeout, clamping" "str::handler_timeout::handlerTimeout.String()" "str::write_timeout::writeTimeout.String()" "str::path::r.URL.Path" }}
+					handlerTimeout = writeTimeout
+				}
+
 				// r.Context() - контекст запроса (основной), ctx - контекст приложения (для onlineconf)
-				reqCtx, cancel, err := reqctx.CreateContext(r.Context(), ctx, ocPrefix, pathKey)
+				reqCtx, cancel, err := reqctx.CreateContextWithTimeout(r.Context(), ctx, handlerTimeout)
 				if err != nil {
 					{{ .Logger.ErrorMsg "r.Context()" "err" "Failed to create request context" }}
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					return
 				}
+				ocPrefix := onlineconf.MakePath(serviceName, "transport/rest", transportName, appName, "handler")
 				{{ .Logger.ReWrap "ctx" "reqCtx" "ocPrefix" "pathKey" }}
 				{{ .Logger.UpdateContext "reqCtx" "str::Method::r.Method" "str::URI::r.RequestURI" }}
 				next.ServeHTTP(w, r.WithContext(reqCtx))
@@ -96,11 +110,44 @@ func (emw *EmptyMiddlewares) GetMiddlewares(
 	_ ds.IService,
 	_, _ string,
 	_ rest.RestErrorHandler,
+	_ func() time.Duration,
 ) (
 	[]func(next http.Handler) http.Handler,
 	error,
 ) {
 	return []func(next http.Handler) http.Handler{}, nil
+}
+
+// resolveHandlerTimeout resolves handler timeout using 3-level fallback:
+// 1. Per-path app-specific: /{svc}/transport/rest/{transport}/{app}/handler/{urlPath}/timeout
+// 2. Per-path transport-level: /{svc}/transport/rest/{transport}/handler/{urlPath}/timeout
+// 3. Default app-specific: /{svc}/transport/rest/{transport}/{app}/handler/default/timeout
+// 4. Default transport-level: /{svc}/transport/rest/{transport}/handler/default/timeout
+// 5. Code default: rest.defaultHandlerTimeout
+func resolveHandlerTimeout(ctx context.Context, serviceName, transportName, appName, urlPath string) time.Duration {
+	// Per-path timeout (most specific)
+	for _, prefix := range []string{
+		onlineconf.MakePath(serviceName, "transport/rest", transportName, appName, "handler"),
+		onlineconf.MakePath(serviceName, "transport/rest", transportName, "handler"),
+	} {
+		path := onlineconf.MakePath(prefix, urlPath, "timeout")
+		if t, ex, err := onlineconf.GetDurationIfExists(ctx, path); err == nil && ex {
+			return t
+		}
+	}
+
+	// Default handler timeout
+	for _, prefix := range []string{
+		onlineconf.MakePath(serviceName, "transport/rest", transportName, appName, "handler"),
+		onlineconf.MakePath(serviceName, "transport/rest", transportName, "handler"),
+	} {
+		path := onlineconf.MakePath(prefix, "default/timeout")
+		if t, ex, err := onlineconf.GetDurationIfExists(ctx, path); err == nil && ex {
+			return t
+		}
+	}
+
+	return rest.DefaultHandlerTimeout()
 }
 
 func PanicRecoveryMiddleware(ctx context.Context) func (next http.Handler) http.Handler {

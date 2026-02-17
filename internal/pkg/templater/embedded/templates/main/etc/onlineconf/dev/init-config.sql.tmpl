@@ -164,9 +164,14 @@ INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `
 VALUES (LAST_INSERT_ID(), 1, '{{ $t.Port }}', 'text/plain', 'go-project-starter', 'Auto-generated');
 
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
-VALUES ('timeout', @rest_{{ $transportName | ReplaceDash }}_id, '30s', 'text/plain', 'Request timeout');
+VALUES ('timeout_read', @rest_{{ $transportName | ReplaceDash }}_id, '30s', 'text/plain', 'Read timeout (ReadTimeout + IdleTimeout)');
 INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
 VALUES (LAST_INSERT_ID(), 1, '30s', 'text/plain', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('timeout_write', @rest_{{ $transportName | ReplaceDash }}_id, '60s', 'text/plain', 'Write timeout (WriteTimeout)');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '60s', 'text/plain', 'go-project-starter', 'Auto-generated');
 
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
 VALUES ('timeout_read_header', @rest_{{ $transportName | ReplaceDash }}_id, '10s', 'text/plain', 'Read header timeout');

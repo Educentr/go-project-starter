@@ -151,3 +151,81 @@ func TestGenerateRESTLogrus(t *testing.T) {
 		t.Error("Zerolog file should NOT exist in logrus project")
 	}
 }
+
+// TestGenerateRESTTimeouts verifies that split timeout configuration
+// is correctly generated in REST server, middleware, and SQL files.
+func TestGenerateRESTTimeouts(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate REST project for timeout tests ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("REST project created in %s: %s", tmpDir, out)
+
+	// Helper to read file and check multiple strings
+	assertFileContains := func(t *testing.T, relPath string, expected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, exp := range expected {
+			if !strings.Contains(s, exp) {
+				t.Errorf("%s should contain %q", relPath, exp)
+			}
+		}
+	}
+
+	// pkg/app/rest/psg_server_gen.go — split timeouts, atomic field, subscription
+	assertFileContains(t, "pkg/app/rest/psg_server_gen.go", []string{
+		`"timeout_read"`,
+		`"timeout_write"`,
+		"writeTimeout atomic.Int64",
+		"RegisterSubscription",
+		"GetWriteTimeout",
+		"updateTimeouts",
+	})
+
+	// pkg/app/rest/mw/psg_mw_gen.go — CreateContextWithTimeout, fallback, clamping
+	assertFileContains(t, "pkg/app/rest/mw/psg_mw_gen.go", []string{
+		"CreateContextWithTimeout",
+		"resolveHandlerTimeout",
+		"getWriteTimeout()",
+		"handlerTimeout = writeTimeout",
+	})
+
+	// pkg/app/rest/psg_rest_gen.go — split default constants, exported accessor
+	assertFileContains(t, "pkg/app/rest/psg_rest_gen.go", []string{
+		"defaultHTTPReadTimeout",
+		"defaultHTTPWriteTimeout",
+		"DefaultHandlerTimeout",
+	})
+
+	// pkg/app/rest/mw/psg_metrics_gen.go — timeout logging
+	assertFileContains(t, "pkg/app/rest/mw/psg_metrics_gen.go", []string{
+		"Request handler timeout exceeded",
+		"r.Context().Deadline()",
+	})
+
+	// etc/onlineconf/dev/init-config.sql — SQL init for split timeouts
+	assertFileContains(t, "etc/onlineconf/dev/init-config.sql", []string{
+		"timeout_read",
+		"timeout_write",
+	})
+}

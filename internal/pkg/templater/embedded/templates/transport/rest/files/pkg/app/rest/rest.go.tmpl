@@ -22,7 +22,8 @@ type Router interface {
 	// - appName: Application.Name (e.g., "web-app") - the specific application instance
 	// - serviceName: Main.Name (e.g., "my-api") - the service-level name (constant.ServiceName)
 	// - transportName: Transport.Name (e.g., "api_v1") - the REST transport name
-	GetMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName, transportName string, errHdl RestErrorHandler) ([]func(next http.Handler) http.Handler, error)
+	// - getWriteTimeout: returns current server WriteTimeout for handler timeout validation
+	GetMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName, transportName string, errHdl RestErrorHandler, getWriteTimeout func() time.Duration) ([]func(next http.Handler) http.Handler, error)
 	GetErrorHandler() RestErrorHandler
 }
 
@@ -38,9 +39,17 @@ const (
 )
 
 var (
-	defaultHTTPTimeout = 2 * time.Second
-	defaultListenIP    = "0.0.0.0"
+	defaultHTTPReadTimeout  = 30 * time.Second
+	defaultHTTPWriteTimeout = 60 * time.Second
+	defaultHandlerTimeout   = 2 * time.Second
+	defaultListenIP         = "0.0.0.0"
 )
+
+// DefaultHandlerTimeout returns the default handler timeout used as fallback
+// when no handler-specific timeout is configured in OnlineConf.
+func DefaultHandlerTimeout() time.Duration {
+	return defaultHandlerTimeout
+}
 
 type EmptyErrorHandler struct{}
 
