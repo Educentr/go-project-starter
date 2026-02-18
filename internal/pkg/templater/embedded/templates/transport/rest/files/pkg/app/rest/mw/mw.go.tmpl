@@ -118,12 +118,12 @@ func (emw *EmptyMiddlewares) GetMiddlewares(
 	return []func(next http.Handler) http.Handler{}, nil
 }
 
-// resolveHandlerTimeout resolves handler timeout using 3-level fallback:
+// resolveHandlerTimeout resolves handler timeout using 4-level fallback:
 // 1. Per-path app-specific: /{svc}/transport/rest/{transport}/{app}/handler/{urlPath}/timeout
 // 2. Per-path transport-level: /{svc}/transport/rest/{transport}/handler/{urlPath}/timeout
 // 3. Default app-specific: /{svc}/transport/rest/{transport}/{app}/handler/default/timeout
 // 4. Default transport-level: /{svc}/transport/rest/{transport}/handler/default/timeout
-// 5. Code default: rest.defaultHandlerTimeout
+// If none configured, returns 0 (no timeout).
 func resolveHandlerTimeout(ctx context.Context, serviceName, transportName, appName, urlPath string) time.Duration {
 	// Per-path timeout (most specific)
 	for _, prefix := range []string{
@@ -147,7 +147,7 @@ func resolveHandlerTimeout(ctx context.Context, serviceName, transportName, appN
 		}
 	}
 
-	return rest.DefaultHandlerTimeout()
+	return 0
 }
 
 func PanicRecoveryMiddleware(ctx context.Context) func (next http.Handler) http.Handler {

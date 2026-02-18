@@ -33,5 +33,9 @@ func (s *Server) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
 
 // ShutdownHTTP shutting down one of your http server
 func (s *Server) ShutdownHTTP(ctx context.Context) error {
+	s.shuttingDown.Store(true) // запретить рестарт
+	s.mu.Lock()                // дождаться завершения текущего рестарта
+	defer s.mu.Unlock()
+
 	return s.httpSrv.Shutdown(ctx)
 }

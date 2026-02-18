@@ -41,15 +41,8 @@ const (
 var (
 	defaultHTTPReadTimeout  = 30 * time.Second
 	defaultHTTPWriteTimeout = 60 * time.Second
-	defaultHandlerTimeout   = 2 * time.Second
 	defaultListenIP         = "0.0.0.0"
 )
-
-// DefaultHandlerTimeout returns the default handler timeout used as fallback
-// when no handler-specific timeout is configured in OnlineConf.
-func DefaultHandlerTimeout() time.Duration {
-	return defaultHandlerTimeout
-}
 
 type EmptyErrorHandler struct{}
 

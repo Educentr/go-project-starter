@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,10 +30,21 @@ type Server struct {
 	// АПИ как презентационный уровень для сервиса
 	router Router
 
-	// Для динамического обновления и доступа из middleware
-	serviceName  string
-	appName      string
-	writeTimeout atomic.Int64 // наносекунды, для потокобезопасного чтения из middleware
+	// Для динамического обновления таймаутов через OnlineConf.
+	// Таймауты хранятся в atomic-полях, а не в http.Server напрямую,
+	// т.к. net/http читает поля Server без синхронизации.
+	// При изменении таймаутов — graceful restart http.Server.
+	serviceName       string
+	appName           string
+	readTimeout       atomic.Int64 // наносекунды
+	writeTimeout      atomic.Int64 // наносекунды
+	idleTimeout       atomic.Int64 // наносекунды
+	readHeaderTimeout atomic.Int64 // наносекунды
+
+	// Для пересоздания сервера при изменении таймаутов
+	mu           sync.Mutex          // защита httpSrv при замене
+	errGr        *errgroup.Group     // из Run(), для запуска нового сервера
+	shuttingDown atomic.Bool         // true = финальный shutdown, не перезапускать
 }
 
 const (
@@ -106,28 +118,31 @@ func (s *Server) GetHTTPServer(ctx context.Context, serviceName string, appName 
 		return nil, fmt.Errorf("error get port: %w", err)
 	}
 
-	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_read", &defaultHTTPReadTimeout, &timeoutRead)
+	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "server/timeout/read", &defaultHTTPReadTimeout, &timeoutRead)
 	if err != nil {
 		timeoutRead = defaultHTTPReadTimeout
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout_read from onlineconf" "str::Default::defaultHTTPReadTimeout.String()"}}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting server/timeout/read from onlineconf" "str::Default::defaultHTTPReadTimeout.String()"}}
 	}
 
-	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_write", &defaultHTTPWriteTimeout, &timeoutWrite)
+	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "server/timeout/write", &defaultHTTPWriteTimeout, &timeoutWrite)
 	if err != nil {
 		timeoutWrite = defaultHTTPWriteTimeout
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout_write from onlineconf" "str::Default::defaultHTTPWriteTimeout.String()"}}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting server/timeout/write from onlineconf" "str::Default::defaultHTTPWriteTimeout.String()"}}
 	}
 
-	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "timeout_read_header", &timeoutRead, &headerTimeout)
+	err = GetConfigValue(ctx, serviceName, s.Name(), appName, "server/timeout/read_header", &timeoutRead, &headerTimeout)
 	if err != nil {
 		headerTimeout = timeoutRead
 
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting timeout_read_header from onlineconf. Set to timeout_read"}}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting server/timeout/read_header from onlineconf. Set to server/timeout/read"}}
 	}
 
+	s.readTimeout.Store(int64(timeoutRead))
 	s.writeTimeout.Store(int64(timeoutWrite))
+	s.idleTimeout.Store(int64(timeoutRead))
+	s.readHeaderTimeout.Store(int64(headerTimeout))
 
 	return &http.Server{
 		Addr:              ip + ":" + port,
@@ -163,12 +178,12 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 
 	// Subscribe to timeout changes in OnlineConf
 	timeoutPaths := []string{
-		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "timeout_read"),
-		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "timeout_read"),
-		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "timeout_write"),
-		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "timeout_write"),
-		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "timeout_read_header"),
-		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "timeout_read_header"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "server/timeout/read"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "server/timeout/read"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "server/timeout/write"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "server/timeout/write"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), appName, "server/timeout/read_header"),
+		onlineconf.MakePath(serviceName, "transport/rest/", s.Name(), "server/timeout/read_header"),
 	}
 
 	err = onlineconf.RegisterSubscription(ctx, onlineconf.DefaultModule, timeoutPaths, func() error {
@@ -203,17 +218,26 @@ func (s *Server) Init(ctx context.Context, serviceName, appName string, metrics 
 func (s *Server) updateTimeouts(ctx context.Context) {
 	var timeoutRead, timeoutWrite, headerTimeout time.Duration
 
-	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "timeout_read", &defaultHTTPReadTimeout, &timeoutRead)
-	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "timeout_write", &defaultHTTPWriteTimeout, &timeoutWrite)
-	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "timeout_read_header", &timeoutRead, &headerTimeout)
+	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "server/timeout/read", &defaultHTTPReadTimeout, &timeoutRead)
+	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "server/timeout/write", &defaultHTTPWriteTimeout, &timeoutWrite)
+	_ = GetConfigValue(ctx, s.serviceName, s.Name(), s.appName, "server/timeout/read_header", &timeoutRead, &headerTimeout)
 
-	s.httpSrv.WriteTimeout = timeoutWrite
-	s.httpSrv.ReadTimeout = timeoutRead
-	s.httpSrv.IdleTimeout = timeoutRead
-	s.httpSrv.ReadHeaderTimeout = headerTimeout
+	// Сравниваем с текущими значениями
+	changed := s.readTimeout.Load() != int64(timeoutRead) ||
+		s.writeTimeout.Load() != int64(timeoutWrite) ||
+		s.readHeaderTimeout.Load() != int64(headerTimeout)
+
+	// Обновляем atomic-поля немедленно (middleware видит новые значения сразу)
+	s.readTimeout.Store(int64(timeoutRead))
 	s.writeTimeout.Store(int64(timeoutWrite))
+	s.idleTimeout.Store(int64(timeoutRead))
+	s.readHeaderTimeout.Store(int64(headerTimeout))
 
-	{{ .Logger.InfoMsg "ctx" "REST server timeouts updated" "str::$nameFieldLogger::s.name" "str::timeout_read::timeoutRead.String()" "str::timeout_write::timeoutWrite.String()" "str::timeout_read_header::headerTimeout.String()" }}
+	{{ .Logger.InfoMsg "ctx" "REST server timeouts updated" "str::$nameFieldLogger::s.name" "str::server_timeout_read::timeoutRead.String()" "str::server_timeout_write::timeoutWrite.String()" "str::server_timeout_read_header::headerTimeout.String()" }}
+
+	if changed && s.errGr != nil {
+		go s.restartServer(ctx)
+	}
 }
 
 // GetWriteTimeout returns the current server WriteTimeout for handler timeout validation.
@@ -221,7 +245,14 @@ func (s *Server) GetWriteTimeout() time.Duration {
 	return time.Duration(s.writeTimeout.Load())
 }
 
+// GetReadTimeout returns the current server ReadTimeout.
+func (s *Server) GetReadTimeout() time.Duration {
+	return time.Duration(s.readTimeout.Load())
+}
+
 func (s *Server) Run(ctx context.Context, errGr *errgroup.Group) {
+	s.errGr = errGr
+
 	{{ .Logger.InfoMsg "ctx" "Run rest server" "str::$nameFieldLogger::s.name"}}
 
 	// initialization http server
@@ -229,14 +260,51 @@ func (s *Server) Run(ctx context.Context, errGr *errgroup.Group) {
 		{{ .Logger.InfoMsg "ctx" "server started serving" "str::addr::s.httpSrv.Addr" "str::$nameFieldLogger::s.name" }}
 
 		err := s.httpSrv.ListenAndServe()
-		if err != nil {
-			if errors.Is(err, http.ErrServerClosed) {
-				return nil
-			}
-
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			{{ .Logger.ErrorMsg "ctx" "err" "server initialization/runtime error" "str::$nameFieldLogger::s.name"}}
+			return err
 		}
 
-		return err
+		return nil
+	})
+}
+
+func (s *Server) restartServer(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.shuttingDown.Load() {
+		return
+	}
+
+	newSrv := &http.Server{
+		Addr:              s.httpSrv.Addr,
+		Handler:           s.httpSrv.Handler,
+		WriteTimeout:      time.Duration(s.writeTimeout.Load()),
+		ReadTimeout:       time.Duration(s.readTimeout.Load()),
+		IdleTimeout:       time.Duration(s.idleTimeout.Load()),
+		ReadHeaderTimeout: time.Duration(s.readHeaderTimeout.Load()),
+	}
+
+	// Graceful shutdown старого сервера: закрывает listener, ждёт завершения активных соединений
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "server shutdown error during restart" }}
+	}
+
+	s.httpSrv = newSrv
+
+	s.errGr.Go(func() error {
+		{{ .Logger.InfoMsg "ctx" "server restarted with new timeouts" "str::addr::newSrv.Addr" "str::$nameFieldLogger::s.name" }}
+
+		err := newSrv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			{{ .Logger.ErrorMsg "ctx" "err" "server error after restart" "str::$nameFieldLogger::s.name" }}
+			return err
+		}
+
+		return nil
 	})
 }
