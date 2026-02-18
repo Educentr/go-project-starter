@@ -20,10 +20,11 @@ type PackageUploadType string
 type DocumentationType string
 
 // DocumentationConfig contains documentation generation settings.
-// Connection details for S3 are passed via CI/CD variables.
+// Connection details for S3/MinIO are passed via CI/CD variables.
 type DocumentationConfig struct {
-	Type     DocumentationType `mapstructure:"type"`      // s3, github_pages
+	Type     DocumentationType `mapstructure:"type"`      // s3, github_pages, minio
 	SiteName string            `mapstructure:"site_name"` // optional, default: Main.Name
+	Headers  []string          `mapstructure:"headers"`   // custom HTTP headers for mc (minio type only)
 }
 
 // PackageUploadConfig contains package upload configuration.
@@ -71,6 +72,7 @@ const (
 const (
 	DocumentationS3          DocumentationType = "s3"
 	DocumentationGitHubPages DocumentationType = "github_pages"
+	DocumentationMinio       DocumentationType = "minio"
 )
 
 type (
@@ -1261,10 +1263,15 @@ func (d DocumentationConfig) IsValid() (bool, string) {
 	validTypes := map[DocumentationType]bool{
 		DocumentationS3:          true,
 		DocumentationGitHubPages: true,
+		DocumentationMinio:       true,
 	}
 
 	if !validTypes[d.Type] {
-		return false, "documentation.type must be 's3' or 'github_pages'"
+		return false, "documentation.type must be 's3', 'github_pages', or 'minio'"
+	}
+
+	if len(d.Headers) > 0 && d.Type != DocumentationMinio {
+		return false, "documentation.headers is only supported for type 'minio'"
 	}
 
 	return true, ""

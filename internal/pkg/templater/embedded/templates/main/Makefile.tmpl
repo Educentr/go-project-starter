@@ -424,6 +424,18 @@ docs-deploy: docs-build
 		aws s3 sync ./site/ s3://$(DOCS_BUCKET)/$(DOCS_PREFIX)/ --delete --region $(DOCS_REGION); \
 	fi
 	@echo "Documentation deployed"
+{{- else if .Documentation.IsMinio }}
+# MinIO docs deployment variables:
+#   DOCS_ENDPOINT   - MinIO endpoint URL (required)
+#   DOCS_BUCKET     - Target bucket name (required)
+#   DOCS_ACCESS_KEY / DOCS_SECRET_KEY - MinIO credentials (required)
+DOCS_PREFIX ?= $(SERVICE_NAME)
+
+docs-deploy: docs-build
+	@echo "Deploying documentation to MinIO..."
+	@mc alias set docs $(DOCS_ENDPOINT) $(DOCS_ACCESS_KEY) $(DOCS_SECRET_KEY){{ range .Documentation.Headers }} --api-header "{{ . }}"{{ end }}
+	@mc mirror --remove --overwrite ./site/ docs/$(DOCS_BUCKET)/$(DOCS_PREFIX)/
+	@echo "Documentation deployed"
 {{- else if .Documentation.IsGitHubPages }}
 docs-deploy:
 	@echo "Deploying documentation to GitHub Pages..."

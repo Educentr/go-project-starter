@@ -187,9 +187,18 @@ upload-packages:
 {{ if .Documentation.IsEnabled }}
 deploy-docs:
   stage: deploy
+{{- if .Documentation.IsMinio }}
   image: squidfunk/mkdocs-material
   script:
-{{- if .Documentation.IsS3 }}
+    - mkdocs build
+    - |
+      curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+      chmod +x /usr/local/bin/mc
+      mc alias set docs ${DOCS_MINIO_ENDPOINT} ${DOCS_MINIO_ACCESS_KEY} ${DOCS_MINIO_SECRET_KEY}{{ range .Documentation.Headers }} --api-header "{{ . }}"{{ end }}
+      mc mirror --remove --overwrite ./site/ docs/${DOCS_BUCKET}/${DOCS_PREFIX:-{{ .ProjectName }}}/
+{{- else if .Documentation.IsS3 }}
+  image: squidfunk/mkdocs-material
+  script:
     - mkdocs build
     - |
       pip install awscli
@@ -200,6 +209,8 @@ deploy-docs:
       aws s3 sync ./site/ s3://${DOCS_BUCKET}/${DOCS_PREFIX:-{{ .ProjectName }}}/ \
         --delete $ENDPOINT_FLAG --region ${DOCS_REGION:-us-east-1}
 {{- else if .Documentation.IsGitHubPages }}
+  image: squidfunk/mkdocs-material
+  script:
     - |
       git config user.name "gitlab-ci[bot]"
       git config user.email "gitlab-ci[bot]@users.noreply.github.com"

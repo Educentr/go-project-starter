@@ -612,6 +612,20 @@ jobs:
           fi
           aws s3 sync ./site/ s3://${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}/ \
             --delete $ENDPOINT_FLAG
+{{- else if .Documentation.IsMinio }}
+
+      - name: Build docs
+        run: docker run --rm -v ${{"{{"}} github.workspace {{"}}"}}:/docs squidfunk/mkdocs-material build
+
+      - name: Install MinIO Client
+        run: |
+          curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+          chmod +x /usr/local/bin/mc
+
+      - name: Deploy to MinIO
+        run: |
+          mc alias set docs ${{"{{"}} vars.DOCS_MINIO_ENDPOINT {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_ACCESS_KEY {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_SECRET_KEY {{"}}"}}{{ range .Documentation.Headers }} --api-header "{{ . }}"{{ end }}
+          mc mirror --remove --overwrite ./site/ docs/${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}/
 {{- else if .Documentation.IsGitHubPages }}
 
       - name: Deploy to GitHub Pages

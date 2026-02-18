@@ -406,6 +406,7 @@ func (g *Generator) processConfig(config config.Config) error {
 		g.Documentation = ds.DocsConfig{
 			Type:     ds.DocsDeployType(config.Documentation.Type),
 			SiteName: config.Documentation.SiteName,
+			Headers:  config.Documentation.Headers,
 		}
 
 		if g.Documentation.SiteName == "" {

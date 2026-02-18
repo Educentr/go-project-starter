@@ -59,6 +59,7 @@ type DocsDeployType string
 type DocsConfig struct {
 	Type     DocsDeployType
 	SiteName string
+	Headers  []string // Custom HTTP headers for mc (minio type only)
 }
 
 // Artifact type constants
@@ -80,6 +81,7 @@ const (
 const (
 	DocsDeployS3          DocsDeployType = "s3"
 	DocsDeployGitHubPages DocsDeployType = "github_pages"
+	DocsDeployMinio       DocsDeployType = "minio"
 )
 
 // IsEnabled returns true if upload is configured
@@ -174,6 +176,11 @@ func (d DocsConfig) IsS3() bool {
 // IsGitHubPages returns true if deploy type is GitHub Pages
 func (d DocsConfig) IsGitHubPages() bool {
 	return d.Type == DocsDeployGitHubPages
+}
+
+// IsMinio returns true if deploy type is MinIO
+func (d DocsConfig) IsMinio() bool {
+	return d.Type == DocsDeployMinio
 }
 
 //type WorkerType string
