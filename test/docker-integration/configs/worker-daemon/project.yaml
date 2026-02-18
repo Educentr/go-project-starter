@@ -25,7 +25,14 @@ rest:
     generator_template: sys
     health_check_path: /live
 
+worker:
+  - name: daemon
+    generator_type: template
+    generator_template: daemon
+
 applications:
   - name: server
     transport:
       - name: sys
+    worker:
+      - daemon
