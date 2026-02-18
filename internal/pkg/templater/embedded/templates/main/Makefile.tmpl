@@ -433,8 +433,8 @@ DOCS_PREFIX ?= $(SERVICE_NAME)
 
 docs-deploy: docs-build
 	@echo "Deploying documentation to MinIO..."
-	@mc alias set docs $(DOCS_ENDPOINT) $(DOCS_ACCESS_KEY) $(DOCS_SECRET_KEY){{ range .Documentation.Headers }} --api-header "{{ . }}"{{ end }}
-	@mc mirror --remove --overwrite ./site/ docs/$(DOCS_BUCKET)/$(DOCS_PREFIX)/
+	@mc alias set docs $(DOCS_ENDPOINT) $(DOCS_ACCESS_KEY) $(DOCS_SECRET_KEY)
+	@mc mirror --remove --overwrite{{ range .Documentation.Headers }} --header "{{ . }}"{{ end }} ./site/ docs/$(DOCS_BUCKET)/$(DOCS_PREFIX)/
 	@echo "Documentation deployed"
 {{- else if .Documentation.IsGitHubPages }}
 docs-deploy:

@@ -426,6 +426,11 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			}
 			return name + "-image-puller"
 		},
+		"ToGitHubSecret": func(s string) string {
+			// Replace ${VAR_NAME} with ${{ secrets.VAR_NAME }} for GitHub Actions
+			re := regexp.MustCompile(`\$\{([^}]+)\}`)
+			return re.ReplaceAllString(s, `${{ secrets.$1 }}`)
+		},
 	}
 
 	buf := &bytes.Buffer{}

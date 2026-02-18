@@ -194,8 +194,8 @@ deploy-docs:
     - |
       curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
       chmod +x /usr/local/bin/mc
-      mc alias set docs ${DOCS_MINIO_ENDPOINT} ${DOCS_MINIO_ACCESS_KEY} ${DOCS_MINIO_SECRET_KEY}{{ range .Documentation.Headers }} --api-header "{{ . }}"{{ end }}
-      mc mirror --remove --overwrite ./site/ docs/${DOCS_BUCKET}/${DOCS_PREFIX:-{{ .ProjectName }}}/
+      mc alias set docs ${DOCS_MINIO_ENDPOINT} ${DOCS_MINIO_ACCESS_KEY} ${DOCS_MINIO_SECRET_KEY}
+      mc mirror --remove --overwrite{{ range .Documentation.Headers }} --header "{{ . }}"{{ end }} ./site/ docs/${DOCS_BUCKET}/${DOCS_PREFIX:-{{ .ProjectName }}}/
 {{- else if .Documentation.IsS3 }}
   image: squidfunk/mkdocs-material
   script:
