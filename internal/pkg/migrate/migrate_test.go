@@ -92,7 +92,7 @@ rest:
 			wantWarnings: 0,
 		},
 		{
-			name: "REST with empty_config_available",
+			name: "empty_config_available is ignored (removed in 0.13.0)",
 			configContent: `
 main:
   name: myproject
@@ -100,49 +100,6 @@ rest:
   - name: api
     generator_type: ogen
     empty_config_available: true
-`,
-			wantWarnings: 1,
-			wantFeature:  "empty_config_available",
-		},
-		{
-			name: "gRPC with empty_config_available",
-			configContent: `
-main:
-  name: myproject
-grpc:
-  - name: users
-    path: ./users.proto
-    generator_type: buf_client
-    empty_config_available: true
-`,
-			wantWarnings: 1,
-			wantFeature:  "empty_config_available",
-		},
-		{
-			name: "multiple deprecations",
-			configContent: `
-main:
-  name: myproject
-rest:
-  - name: api
-    empty_config_available: true
-  - name: sys
-    empty_config_available: true
-grpc:
-  - name: users
-    empty_config_available: true
-`,
-			wantWarnings: 3,
-			wantFeature:  "empty_config_available",
-		},
-		{
-			name: "empty_config_available false is not deprecated",
-			configContent: `
-main:
-  name: myproject
-rest:
-  - name: api
-    empty_config_available: false
 `,
 			wantWarnings: 0,
 		},
@@ -382,7 +339,7 @@ func TestConstants(t *testing.T) {
 		t.Error("CurrentVersion is empty")
 	}
 
-	if RemovalVersionEmptyConfigAvailable == "" {
-		t.Error("RemovalVersionEmptyConfigAvailable is empty")
+	if RemovalVersionCreateContext == "" {
+		t.Error("RemovalVersionCreateContext is empty")
 	}
 }

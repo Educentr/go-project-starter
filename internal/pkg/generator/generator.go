@@ -166,11 +166,6 @@ func (g *Generator) processConfig(config config.Config) error {
 			PublicService: rest.PublicService,
 		}
 
-		// Convert deprecated empty_config_available to optional
-		if rest.EmptyConfigAvailable {
-			transport.Optional = true
-		}
-
 		if rest.GeneratorType == "ogen_client" {
 			transport.Import = []string{
 				fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version),
@@ -246,11 +241,6 @@ func (g *Generator) processConfig(config config.Config) error {
 			Port:            strconv.FormatUint(uint64(grpc.Port), 10),
 			SpecPath:        paths,
 			BufLocalPlugins: grpc.BufLocalPlugins,
-		}
-
-		// Convert deprecated empty_config_available to optional
-		if grpc.EmptyConfigAvailable {
-			transport.Optional = true
 		}
 
 		if grpc.GeneratorType == "buf_client" {

@@ -40,9 +40,6 @@ const (
 
 // Deprecation removal version constants - each deprecation has its own removal version
 const (
-	// RemovalVersionEmptyConfigAvailable is when empty_config_available will be removed
-	RemovalVersionEmptyConfigAvailable = "0.13.0"
-
 	// RemovalVersionCreateContext is when reqctx.CreateContext (deprecated in favor of
 	// CreateContextWithTimeout) will be removed from go-project-starter-runtime
 	RemovalVersionCreateContext = "0.15.0"
@@ -52,11 +49,6 @@ const (
 const (
 	errMsgReadConfigFile  = "failed to read config file"
 	errMsgParseConfigFile = "failed to parse config file"
-)
-
-// Deprecation description templates
-const (
-	deprecationDescEmptyConfigAvailable = "%s '%s' uses deprecated 'empty_config_available'. Use 'optional: true' in application transport config instead"
 )
 
 // File permission for config files
@@ -93,40 +85,6 @@ func CheckDeprecations(configPath string) ([]DeprecationWarning, error) {
 	}
 
 	var warnings []DeprecationWarning
-
-	// Check empty_config_available in REST section
-	if restList, ok := config["rest"].([]any); ok {
-		for _, restRaw := range restList {
-			if rest, ok := restRaw.(map[string]any); ok {
-				if eca, ok := rest["empty_config_available"].(bool); ok && eca {
-					name, _ := rest["name"].(string)
-					warnings = append(warnings, DeprecationWarning{
-						Feature:       "empty_config_available",
-						Description:   fmt.Sprintf(deprecationDescEmptyConfigAvailable, "REST", name),
-						RemovalVer:    RemovalVersionEmptyConfigAvailable,
-						MigrationHint: "Remove 'empty_config_available' from REST config and add 'config: { optional: true }' to the transport in applications section",
-					})
-				}
-			}
-		}
-	}
-
-	// Check empty_config_available in gRPC section
-	if grpcList, ok := config["grpc"].([]any); ok {
-		for _, grpcRaw := range grpcList {
-			if grpc, ok := grpcRaw.(map[string]any); ok {
-				if eca, ok := grpc["empty_config_available"].(bool); ok && eca {
-					name, _ := grpc["name"].(string)
-					warnings = append(warnings, DeprecationWarning{
-						Feature:       "empty_config_available",
-						Description:   fmt.Sprintf(deprecationDescEmptyConfigAvailable, "gRPC", name),
-						RemovalVer:    RemovalVersionEmptyConfigAvailable,
-						MigrationHint: "Remove 'empty_config_available' from gRPC config and add 'config: { optional: true }' to the transport in applications section",
-					})
-				}
-			}
-		}
-	}
 
 	return warnings, nil
 }

@@ -242,9 +242,6 @@ type (
 		GeneratorParams map[string]string `mapstructure:"generator_params"`
 		// AuthParams are authentication parameters (for ogen_client).
 		AuthParams AuthParams `mapstructure:"auth_params"`
-		// EmptyConfigAvailable allows empty OnlineConf configuration.
-		// Deprecated: Use 'optional: true' in application transport config instead. Will be removed in v0.13.0.
-		EmptyConfigAvailable bool `mapstructure:"empty_config_available"`
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
 		Instantiation string `mapstructure:"instantiation"`
@@ -409,8 +406,6 @@ type (
 		GeneratorType string `mapstructure:"generator_type"`
 		// BufLocalPlugins enables local buf plugins instead of remote. Optional.
 		BufLocalPlugins bool `mapstructure:"buf_local_plugins"`
-		// EmptyConfigAvailable allows empty OnlineConf configuration. Optional.
-		EmptyConfigAvailable bool `mapstructure:"empty_config_available"`
 		// Instantiation mode: "static" (default) or "dynamic". Only for buf_client.
 		Instantiation string `mapstructure:"instantiation"`
 	}

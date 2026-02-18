@@ -11,14 +11,13 @@ This document describes the deprecation policy for go-project-starter configurat
 
 ## Current Deprecations
 
-| Feature | Deprecated In | Removal Version | Migration |
-|---------|---------------|-----------------|-----------|
-| `empty_config_available` | 0.11.0 | 0.13.0 | Use `optional: true` in application transport config |
+No active deprecations.
 
 ## Removed Deprecations
 
 | Feature | Deprecated In | Removed In | Migration |
 |---------|---------------|------------|-----------|
+| `empty_config_available` | 0.11.0 | 0.13.0 | Use `optional: true` in application transport config |
 | Transport string array format | 0.10.0 | 0.12.0 | Use object format: `- name: transport_name` |
 
 ## Migration
