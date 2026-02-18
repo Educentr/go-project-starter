@@ -20,6 +20,10 @@ const (
 	mocksPath               = "tests/mocks"
 	packagingPath           = "packaging"
 
+	// CI provider path prefixes for filtering
+	ciGitHubPrefix   = ".github"
+	ciGitLabFileName = ".gitlab-ci.yml"
+
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
 	embedTransportPrefix = "embedded/templates/transport"
 	embedWorkerPrefix    = "embedded/templates/worker"
@@ -90,6 +94,43 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 	if err != nil {
 		err = errors.Wrap(err, "error while get main templates")
 		return
+	}
+
+	// Filter CI templates based on selected providers
+	// Empty CI = generate both (backward compatibility)
+	if len(params.CI) > 0 {
+		ciSet := make(map[string]bool, len(params.CI))
+		for _, ci := range params.CI {
+			ciSet[ci] = true
+		}
+
+		filteredDirs := make([]ds.Files, 0, len(dirs))
+
+		for _, d := range dirs {
+			if !ciSet["github"] && strings.HasPrefix(d.DestName, ciGitHubPrefix) {
+				continue
+			}
+
+			filteredDirs = append(filteredDirs, d)
+		}
+
+		dirs = filteredDirs
+
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			if !ciSet["github"] && strings.HasPrefix(f.DestName, ciGitHubPrefix) {
+				continue
+			}
+
+			if !ciSet["gitlab"] && f.DestName == ciGitLabFileName {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
 	}
 
 	// Filter out dev-stand specific templates if DevStand is false

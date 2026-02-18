@@ -397,20 +397,22 @@ dev-drop:
 #   DOCS_BUCKET   - Target S3 bucket name (required)
 #   DOCS_REGION   - Bucket region (optional, default: us-east-1)
 #   DOCS_ENDPOINT - S3 endpoint URL (optional, for S3-compatible storage)
-#   DOCS_PREFIX   - Path prefix in bucket (optional, default: docs/$(SERVICE_NAME))
+#   DOCS_PREFIX   - Path prefix in bucket (optional, default: $(SERVICE_NAME))
 DOCS_REGION ?= us-east-1
-DOCS_PREFIX ?= docs/$(SERVICE_NAME)
+DOCS_PREFIX ?= $(SERVICE_NAME)
 {{- end }}
+
+MKDOCS_IMAGE = squidfunk/mkdocs-material
+MKDOCS_RUN = docker run --rm -v $(PWD):/docs -w /docs $(MKDOCS_IMAGE)
 
 .PHONY: docs-build
 docs-build:
 	@echo "Building documentation..."
-	@pip install mkdocs-material 2>/dev/null || pip install --user mkdocs-material
-	@mkdocs build
+	@$(MKDOCS_RUN) build
 
 .PHONY: docs-serve
 docs-serve:
-	@mkdocs serve
+	@docker run --rm -p 8000:8000 -v $(PWD):/docs $(MKDOCS_IMAGE) serve --dev-addr=0.0.0.0:8000
 
 .PHONY: docs-deploy
 {{- if .Documentation.IsS3 }}
@@ -425,8 +427,7 @@ docs-deploy: docs-build
 {{- else if .Documentation.IsGitHubPages }}
 docs-deploy:
 	@echo "Deploying documentation to GitHub Pages..."
-	@pip install mkdocs-material 2>/dev/null || pip install --user mkdocs-material
-	@mkdocs gh-deploy --force
+	@$(MKDOCS_RUN) gh-deploy --force
 {{- end }}
 {{ end }}
 .PHONY: build

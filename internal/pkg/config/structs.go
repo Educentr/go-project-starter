@@ -102,7 +102,9 @@ type (
 		// UseActiveRecord enables PostgreSQL ActiveRecord code generation.
 		UseActiveRecord bool `mapstructure:"use_active_record"`
 		// DevStand enables docker-compose-dev.yaml generation with OnlineConf.
-		DevStand  bool `mapstructure:"dev_stand"`
+		DevStand bool `mapstructure:"dev_stand"`
+		// CI specifies which CI providers to generate: "github", "gitlab". Empty = both.
+		CI        []string `mapstructure:"ci"`
 		LoggerObj ds.Logger
 		TargetDir string
 		ConfigDir string
@@ -666,6 +668,17 @@ func (m Main) IsValid() (bool, string) {
 
 	if !validRegistryTypes[m.RegistryType] {
 		return false, "RegistryType value can be 'github', 'digitalocean', 'aws', or 'selfhosted', invalid RegistryType value " + m.RegistryType
+	}
+
+	validCIProviders := map[string]bool{
+		"github": true,
+		"gitlab": true,
+	}
+
+	for _, ci := range m.CI {
+		if !validCIProviders[ci] {
+			return false, "CI provider must be 'github' or 'gitlab', got: " + ci
+		}
 	}
 
 	return true, ""
