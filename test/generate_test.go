@@ -152,6 +152,220 @@ func TestGenerateRESTLogrus(t *testing.T) {
 	}
 }
 
+// TestGenerateDocsS3 tests that documentation with S3 deployment generates correctly.
+func TestGenerateDocsS3(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "docs-s3")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate docs-s3 project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("Docs S3 project created in %s: %s", tmpDir, out)
+
+	// Verify docs files exist
+	expectedFiles := []string{
+		"mkdocs.yml",
+		"docs/index.md",
+		"Makefile",
+		".gitignore",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(tmpDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Expected file not found: %s", f)
+		}
+	}
+
+	// Helper to read file and check multiple strings
+	assertFileContains := func(t *testing.T, relPath string, expected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, exp := range expected {
+			if !strings.Contains(s, exp) {
+				t.Errorf("%s should contain %q", relPath, exp)
+			}
+		}
+	}
+
+	assertFileNotContains := func(t *testing.T, relPath string, unexpected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, unexp := range unexpected {
+			if strings.Contains(s, unexp) {
+				t.Errorf("%s should NOT contain %q", relPath, unexp)
+			}
+		}
+	}
+
+	// mkdocs.yml
+	assertFileContains(t, "mkdocs.yml", []string{
+		"site_name: docs-test",
+		"name: material",
+	})
+
+	// docs/index.md
+	assertFileContains(t, "docs/index.md", []string{
+		"docs-test",
+	})
+
+	// Makefile — S3 targets
+	assertFileContains(t, "Makefile", []string{
+		"docs-build",
+		"docs-serve",
+		"docs-deploy",
+		"DOCS_BUCKET",
+		"aws s3 sync",
+	})
+
+	assertFileNotContains(t, "Makefile", []string{
+		"gh-deploy",
+	})
+
+	// .gitignore
+	assertFileContains(t, ".gitignore", []string{
+		"site/",
+	})
+
+	// CI/CD — GitHub Actions
+	assertFileContains(t, ".github/workflows/ci_cd.yml", []string{
+		"deploy-docs",
+		"DOCS_AWS_ACCESS_KEY_ID",
+	})
+
+	// CI/CD — GitLab CI
+	assertFileContains(t, ".gitlab-ci.yml", []string{
+		"deploy-docs",
+		"DOCS_BUCKET",
+	})
+}
+
+// TestGenerateDocsGitHubPages tests that documentation with GitHub Pages deployment generates correctly.
+func TestGenerateDocsGitHubPages(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "docs-ghpages")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate docs-ghpages project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("Docs GitHub Pages project created in %s: %s", tmpDir, out)
+
+	// Helper to read file and check multiple strings
+	assertFileContains := func(t *testing.T, relPath string, expected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, exp := range expected {
+			if !strings.Contains(s, exp) {
+				t.Errorf("%s should contain %q", relPath, exp)
+			}
+		}
+	}
+
+	assertFileNotContains := func(t *testing.T, relPath string, unexpected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, unexp := range unexpected {
+			if strings.Contains(s, unexp) {
+				t.Errorf("%s should NOT contain %q", relPath, unexp)
+			}
+		}
+	}
+
+	// Verify docs files exist
+	expectedFiles := []string{
+		"mkdocs.yml",
+		"docs/index.md",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(tmpDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Expected file not found: %s", f)
+		}
+	}
+
+	// mkdocs.yml
+	assertFileContains(t, "mkdocs.yml", []string{
+		"site_name: ghpages-test",
+	})
+
+	// Makefile — GitHub Pages targets
+	assertFileContains(t, "Makefile", []string{
+		"docs-deploy",
+		"gh-deploy --force",
+	})
+
+	assertFileNotContains(t, "Makefile", []string{
+		"DOCS_BUCKET",
+	})
+
+	// .gitignore
+	assertFileContains(t, ".gitignore", []string{
+		"site/",
+	})
+
+	// CI/CD — GitHub Actions
+	assertFileContains(t, ".github/workflows/ci_cd.yml", []string{
+		"deploy-docs",
+		"gh-deploy",
+		"permissions",
+	})
+
+	// CI/CD — GitLab CI
+	assertFileContains(t, ".gitlab-ci.yml", []string{
+		"deploy-docs",
+		"gh-deploy",
+	})
+}
+
 // TestGenerateRESTTimeouts verifies that split timeout configuration
 // is correctly generated in REST server, middleware, and SQL files.
 func TestGenerateRESTTimeouts(t *testing.T) {

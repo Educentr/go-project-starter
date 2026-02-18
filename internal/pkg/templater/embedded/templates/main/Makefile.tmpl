@@ -390,6 +390,45 @@ dev-restart:
 dev-drop:
 	docker compose -f docker-compose-dev.yaml down -v
 {{ end }}
+{{ if .Documentation.IsEnabled }}
+# Documentation
+{{- if .Documentation.IsS3 }}
+# Required environment variables for docs-deploy:
+#   DOCS_BUCKET   - Target S3 bucket name (required)
+#   DOCS_REGION   - Bucket region (optional, default: us-east-1)
+#   DOCS_ENDPOINT - S3 endpoint URL (optional, for S3-compatible storage)
+#   DOCS_PREFIX   - Path prefix in bucket (optional, default: docs/$(SERVICE_NAME))
+DOCS_REGION ?= us-east-1
+DOCS_PREFIX ?= docs/$(SERVICE_NAME)
+{{- end }}
+
+.PHONY: docs-build
+docs-build:
+	@echo "Building documentation..."
+	@pip install mkdocs-material 2>/dev/null || pip install --user mkdocs-material
+	@mkdocs build
+
+.PHONY: docs-serve
+docs-serve:
+	@mkdocs serve
+
+.PHONY: docs-deploy
+{{- if .Documentation.IsS3 }}
+docs-deploy: docs-build
+	@echo "Deploying documentation to S3..."
+	@if [ -n "$(DOCS_ENDPOINT)" ]; then \
+		aws s3 sync ./site/ s3://$(DOCS_BUCKET)/$(DOCS_PREFIX)/ --delete --endpoint-url $(DOCS_ENDPOINT) --region $(DOCS_REGION); \
+	else \
+		aws s3 sync ./site/ s3://$(DOCS_BUCKET)/$(DOCS_PREFIX)/ --delete --region $(DOCS_REGION); \
+	fi
+	@echo "Documentation deployed"
+{{- else if .Documentation.IsGitHubPages }}
+docs-deploy:
+	@echo "Deploying documentation to GitHub Pages..."
+	@pip install mkdocs-material 2>/dev/null || pip install --user mkdocs-material
+	@mkdocs gh-deploy --force
+{{- end }}
+{{ end }}
 .PHONY: build
 build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
 

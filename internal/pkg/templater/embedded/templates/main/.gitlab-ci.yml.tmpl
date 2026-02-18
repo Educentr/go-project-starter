@@ -184,6 +184,33 @@ upload-packages:
 {{ end }}
 {{ end }}
 
+{{ if .Documentation.IsEnabled }}
+deploy-docs:
+  stage: deploy
+  image: python:3-slim
+  before_script:
+    - pip install mkdocs-material
+  script:
+{{- if .Documentation.IsS3 }}
+    - mkdocs build
+    - |
+      pip install awscli
+      ENDPOINT_FLAG=""
+      if [ -n "${DOCS_ENDPOINT}" ]; then
+        ENDPOINT_FLAG="--endpoint-url ${DOCS_ENDPOINT}"
+      fi
+      aws s3 sync ./site/ s3://${DOCS_BUCKET}/${DOCS_PREFIX:-docs/{{ .ProjectName }}}/ \
+        --delete $ENDPOINT_FLAG --region ${DOCS_REGION:-us-east-1}
+{{- else if .Documentation.IsGitHubPages }}
+    - |
+      git config user.name "gitlab-ci[bot]"
+      git config user.email "gitlab-ci[bot]@users.noreply.github.com"
+      mkdocs gh-deploy --force
+{{- end }}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+{{ end }}
+
 {{ if .Artifacts.HasDocker }}
 # Deploy job template (Docker-based deployments)
 .deploy-template: &deploy-template

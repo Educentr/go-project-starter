@@ -578,6 +578,61 @@ jobs:
 {{ end }}
 {{ end }}
 
+{{ if .Documentation.IsEnabled }}
+  deploy-docs:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-env
+    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
+{{- if .Documentation.IsGitHubPages }}
+    permissions:
+      contents: write
+{{- end }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+{{- if .Documentation.IsGitHubPages }}
+        with:
+          fetch-depth: 0
+{{- end }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install MkDocs
+        run: pip install mkdocs-material
+{{- if .Documentation.IsS3 }}
+
+      - name: Build docs
+        run: mkdocs build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{"{{"}} secrets.DOCS_AWS_ACCESS_KEY_ID {{"}}"}}
+          aws-secret-access-key: ${{"{{"}} secrets.DOCS_AWS_SECRET_ACCESS_KEY {{"}}"}}
+          aws-region: ${{"{{"}} vars.DOCS_REGION || 'us-east-1' {{"}}"}}
+
+      - name: Deploy to S3
+        run: |
+          ENDPOINT_FLAG=""
+          if [ -n "${{"{{"}} vars.DOCS_ENDPOINT {{"}}"}}" ]; then
+            ENDPOINT_FLAG="--endpoint-url ${{"{{"}} vars.DOCS_ENDPOINT {{"}}"}}"
+          fi
+          aws s3 sync ./site/ s3://${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || 'docs/{{ .ProjectName }}' {{"}}"}}/ \
+            --delete $ENDPOINT_FLAG
+{{- else if .Documentation.IsGitHubPages }}
+
+      - name: Deploy to GitHub Pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdocs gh-deploy --force
+{{- end }}
+{{ end }}
+
 {{ if .Artifacts.HasDocker }}
   deploy:
     runs-on: ubuntu-latest

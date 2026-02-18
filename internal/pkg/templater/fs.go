@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,6 +19,12 @@ const (
 	testsPath               = "tests"
 	mocksPath               = "tests/mocks"
 	packagingPath           = "packaging"
+
+	// Embedded template path prefixes (always use forward slashes for embed.FS)
+	embedTransportPrefix = "embedded/templates/transport"
+	embedWorkerPrefix    = "embedded/templates/worker"
+	embedConfigSuffix    = "config"
+	embedFilesSuffix     = "files"
 )
 
 //go:embed all:embedded
@@ -31,21 +36,32 @@ var disclaimerTop string
 //go:embed embedded/finish_disclaimer.txt
 var disclaimerBottom string
 
+// embedJoin joins path elements using forward slashes.
+// embed.FS always uses "/" as separator, even on Windows.
+// Using filepath.Join would produce backslash paths on Windows, breaking embed.FS lookups.
+func embedJoin(elem ...string) string {
+	return strings.Join(elem, "/")
+}
+
 func GetTemplates(templateFS embed.FS, prefix string, params any) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs = []ds.Files{}
 	files = []ds.Files{}
 
-	trimCnt := len(strings.Split(prefix, string(os.PathSeparator)))
+	// embed.FS always uses forward slashes, even on Windows
+	trimCnt := len(strings.Split(prefix, "/"))
 
 	err = fs.WalkDir(templateFS, prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
+		// embed.FS paths always use forward slashes, even on Windows
+		parts := strings.Split(path, "/")[trimCnt:]
+
 		if d.IsDir() {
 			dirs = append(dirs, ds.Files{
 				SourceName: path,
-				DestName:   filepath.Join(strings.Split(path, string(os.PathSeparator))[trimCnt:]...),
+				DestName:   filepath.Join(parts...),
 				ParamsTmpl: params,
 			})
 
@@ -54,7 +70,7 @@ func GetTemplates(templateFS embed.FS, prefix string, params any) (dirs []ds.Fil
 
 		files = append(files, ds.Files{
 			SourceName: path,
-			DestName:   strings.TrimSuffix(filepath.Join(strings.Split(path, string(os.PathSeparator))[trimCnt:]...), ".tmpl"),
+			DestName:   strings.TrimSuffix(filepath.Join(parts...), ".tmpl"),
 			ParamsTmpl: params,
 			Code:       &bytes.Buffer{},
 		})
@@ -109,8 +125,23 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 	return
 }
 
+// GetDocsTemplates returns documentation templates (mkdocs.yml, docs/index.md).
+// Returns nil if documentation is not enabled.
+func GetDocsTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	if !params.Documentation.IsEnabled() {
+		return nil, nil, nil
+	}
+
+	dirs, files, err = GetTemplates(templates, "embedded/templates/docs", params)
+	if err != nil {
+		err = errors.Wrap(err, "error while get docs templates")
+	}
+
+	return
+}
+
 func GetLoggerTemplates(path string, dst string, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
-	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/logger", path), params)
+	dirs, files, err = GetTemplates(templates, embedJoin("embedded/templates/logger", path), params)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// Logger templates moved to runtime, return empty
@@ -134,7 +165,7 @@ func GetLoggerTemplates(path string, dst string, params GeneratorParams) (dirs [
 }
 
 func GetWorkerTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
-	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/worker/files"), params)
+	dirs, files, err = GetTemplates(templates, embedJoin(embedWorkerPrefix, embedFilesSuffix), params)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
@@ -151,7 +182,7 @@ func GetWorkerTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Fil
 }
 
 func GetWorkerGeneratorTemplates(generatorType string, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
-	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/worker", generatorType, "config"), params)
+	dirs, files, err = GetTemplates(templates, embedJoin(embedWorkerPrefix, generatorType, embedConfigSuffix), params)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
@@ -168,7 +199,7 @@ func GetWorkerGeneratorTemplates(generatorType string, params GeneratorParams) (
 }
 
 func GetTransportTemplates(transportType ds.TransportType, params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
-	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/transport", string(transportType), "files"), params)
+	dirs, files, err = GetTemplates(templates, embedJoin(embedTransportPrefix, string(transportType), embedFilesSuffix), params)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
@@ -185,7 +216,7 @@ func GetTransportTemplates(transportType ds.TransportType, params GeneratorParam
 }
 
 func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorType string, params GeneratorHandlerParams) (dirs []ds.Files, files []ds.Files, err error) {
-	dirs, files, err = GetTemplates(templates, filepath.Join("embedded/templates/transport", string(transportType), generatorType, "config"), params)
+	dirs, files, err = GetTemplates(templates, embedJoin(embedTransportPrefix, string(transportType), generatorType, embedConfigSuffix), params)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
@@ -237,7 +268,7 @@ var (
 // )
 
 func GetWorkerRunnerTemplates(template string, params GeneratorRunnerParams) (dirs, files []ds.Files, err error) {
-	cacheKey := filepath.Join("embedded/templates/worker", template, "files")
+	cacheKey := embedJoin(embedWorkerPrefix, template, embedFilesSuffix)
 
 	// ToDo если включить кеширование то кешируются и параметры, а не только файлы
 	// templateFileNameCache.Lock()
@@ -269,7 +300,7 @@ func GetWorkerRunnerTemplates(template string, params GeneratorRunnerParams) (di
 }
 
 func GetTransportHandlerTemplates(transport ds.TransportType, template string, params GeneratorHandlerParams) (dirs, files []ds.Files, err error) {
-	cacheKey := filepath.Join("embedded/templates/transport", string(transport), template, "files")
+	cacheKey := embedJoin(embedTransportPrefix, string(transport), template, embedFilesSuffix)
 
 	// ToDo если включить кеширование то кешируются и параметры, а не только файлы
 	// templateFileNameCache.Lock()
@@ -377,7 +408,7 @@ func GetCLIHandlerTemplates(cli *ds.CLIApp, params GeneratorParams) (dirs []ds.F
 		generatorType = "template"
 	}
 
-	templatePath := filepath.Join("embedded/templates/transport/cli", generatorType, "files")
+	templatePath := embedJoin(embedTransportPrefix, "cli", generatorType, embedFilesSuffix)
 
 	dirs, files, err = GetTemplates(templates, templatePath, cliParams)
 	if err != nil {
@@ -567,7 +598,7 @@ func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds
 		Kafka:           kafka,
 	}
 
-	templatePath := filepath.Join("embedded/templates/driver/kafka", kafka.Type, "files")
+	templatePath := embedJoin("embedded/templates/driver/kafka", kafka.Type, embedFilesSuffix)
 
 	dirs, files, err := GetTemplates(templates, templatePath, kafkaParams)
 	if err != nil {

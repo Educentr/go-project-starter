@@ -52,6 +52,15 @@ type ArtifactsConfig struct {
 	Packaging PackagingConfig
 }
 
+// DocsDeployType represents documentation deployment type
+type DocsDeployType string
+
+// DocsConfig holds documentation configuration
+type DocsConfig struct {
+	Type     DocsDeployType
+	SiteName string
+}
+
 // Artifact type constants
 const (
 	ArtifactDocker ArtifactType = "docker"
@@ -65,6 +74,12 @@ const (
 	PackageUploadMinio PackageUploadType = "minio"
 	PackageUploadAWS   PackageUploadType = "aws"
 	PackageUploadRsync PackageUploadType = "rsync"
+)
+
+// Documentation deploy type constants
+const (
+	DocsDeployS3          DocsDeployType = "s3"
+	DocsDeployGitHubPages DocsDeployType = "github_pages"
 )
 
 // IsEnabled returns true if upload is configured
@@ -144,6 +159,21 @@ func (a ArtifactsConfig) IsRsync() bool {
 // IsS3Compatible returns true if upload type is S3-compatible (MinIO or AWS)
 func (a ArtifactsConfig) IsS3Compatible() bool {
 	return a.IsMinio() || a.IsAWS()
+}
+
+// IsEnabled returns true if documentation is configured
+func (d DocsConfig) IsEnabled() bool {
+	return d.Type != ""
+}
+
+// IsS3 returns true if deploy type is S3
+func (d DocsConfig) IsS3() bool {
+	return d.Type == DocsDeployS3
+}
+
+// IsGitHubPages returns true if deploy type is GitHub Pages
+func (d DocsConfig) IsGitHubPages() bool {
+	return d.Type == DocsDeployGitHubPages
 }
 
 //type WorkerType string

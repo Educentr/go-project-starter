@@ -52,9 +52,10 @@ type GeneratorParams struct {
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
-	Applications ds.Apps
-	Grafana      grafana.Config
-	Artifacts    ds.ArtifactsConfig
+	Applications  ds.Apps
+	Grafana       grafana.Config
+	Artifacts     ds.ArtifactsConfig
+	Documentation ds.DocsConfig
 }
 
 // type GeneratorParamDriver struct {

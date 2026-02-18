@@ -56,6 +56,7 @@ type Generator struct {
 	Applications        ds.Apps
 	Grafana             grafana.Config
 	Artifacts           ds.ArtifactsConfig
+	Documentation       ds.DocsConfig
 }
 
 type ExecCmd struct {
@@ -408,6 +409,18 @@ func (g *Generator) processConfig(config config.Config) error {
 		g.Artifacts.Packaging.ConfigDir = "/etc/" + g.ProjectName
 	}
 
+	// Process documentation configuration
+	if config.Documentation.Type != "" {
+		g.Documentation = ds.DocsConfig{
+			Type:     ds.DocsDeployType(config.Documentation.Type),
+			SiteName: config.Documentation.SiteName,
+		}
+
+		if g.Documentation.SiteName == "" {
+			g.Documentation.SiteName = g.ProjectName
+		}
+	}
+
 	for _, app := range config.Applications {
 		// Вычисляем use_active_record для приложения
 		// Default из main, override может быть только false
@@ -693,6 +706,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Kafka:               g.Kafka,
 		Grafana:             g.Grafana,
 		Artifacts:           g.Artifacts,
+		Documentation:       g.Documentation,
 	}
 }
 
@@ -1011,6 +1025,14 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get main templates: %w", err)
 	}
+
+	dirsDocs, filesDocs, err := templater.GetDocsTemplates(g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get docs templates: %w", err)
+	}
+
+	dirs = append(dirs, dirsDocs...)
+	files = append(files, filesDocs...)
 
 	types := g.Transports.GetUniqueTypes()
 

@@ -161,6 +161,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		config.GrafanaDatasourceMap[ds.Name] = ds
 	}
 
+	// Validate documentation configuration
+	if ok, msg := config.Documentation.IsValid(); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config documentation section: "+msg)
+	}
+
 	for i := range config.Applications {
 		// Normalize transport list (supports both old string[] and new object[] format)
 		if err := config.Applications[i].NormalizeTransports(); err != nil {

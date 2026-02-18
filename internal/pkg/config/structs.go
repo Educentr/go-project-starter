@@ -16,6 +16,16 @@ type ArtifactType string
 // PackageUploadType represents package upload storage type
 type PackageUploadType string
 
+// DocumentationType represents documentation deployment type
+type DocumentationType string
+
+// DocumentationConfig contains documentation generation settings.
+// Connection details for S3 are passed via CI/CD variables.
+type DocumentationConfig struct {
+	Type     DocumentationType `mapstructure:"type"`      // s3, github_pages
+	SiteName string            `mapstructure:"site_name"` // optional, default: Main.Name
+}
+
 // PackageUploadConfig contains package upload configuration.
 // Connection details (endpoint, bucket, credentials) are passed via CI/CD variables.
 type PackageUploadConfig struct {
@@ -55,6 +65,12 @@ const (
 	PackageUploadMinio PackageUploadType = "minio"
 	PackageUploadAWS   PackageUploadType = "aws"
 	PackageUploadRsync PackageUploadType = "rsync"
+)
+
+// Documentation type constants
+const (
+	DocumentationS3          DocumentationType = "s3"
+	DocumentationGitHubPages DocumentationType = "github_pages"
 )
 
 type (
@@ -581,8 +597,9 @@ type (
 		Applications   []Application   `mapstructure:"applications"`
 		Docker         Docker          `mapstructure:"docker"`
 		Grafana        Grafana         `mapstructure:"grafana"`
-		Artifacts      []ArtifactType  `mapstructure:"artifacts"`
-		Packaging      PackagingConfig `mapstructure:"packaging"`
+		Artifacts      []ArtifactType      `mapstructure:"artifacts"`
+		Packaging      PackagingConfig     `mapstructure:"packaging"`
+		Documentation  DocumentationConfig `mapstructure:"documentation"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc
@@ -1225,6 +1242,24 @@ func (u PackageUploadConfig) IsValid() (bool, string) {
 // IsEnabled returns true if upload is configured
 func (u PackageUploadConfig) IsEnabled() bool {
 	return u.Type != ""
+}
+
+// IsValid validates DocumentationConfig
+func (d DocumentationConfig) IsValid() (bool, string) {
+	if d.Type == "" {
+		return true, "" // Empty type means documentation is disabled
+	}
+
+	validTypes := map[DocumentationType]bool{
+		DocumentationS3:          true,
+		DocumentationGitHubPages: true,
+	}
+
+	if !validTypes[d.Type] {
+		return false, "documentation.type must be 's3' or 'github_pages'"
+	}
+
+	return true, ""
 }
 
 // IsValid validates PackagingConfig

@@ -1,0 +1,27 @@
+main:
+  name: ghpages-test
+  logger: zerolog
+  registry_type: github
+
+git:
+  repo: git@github.com:test/ghpages-test.git
+  module_path: github.com/test/ghpages-test
+
+tools:
+  golang_version: "1.24"
+  golangci_version: 1.64.8
+
+documentation:
+  type: github_pages
+
+rest:
+  - name: sys
+    port: 9090
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: server
+    transport:
+      - name: sys
