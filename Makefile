@@ -8,7 +8,13 @@ LOCAL_BIN:=$(CURDIR)/bin
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 # Minimal Golang version
 MIN_GO_VERSION = 1.20.0
-BIN_NAME = scale
+BIN_NAME = go-project-starter
+
+# Version info from git
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LD_FLAGS = -X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.buildDate=$(BUILD_DATE)'
 
 # Integration test image parameters
 INTEGRATION_GO_VERSION := 1.24.4
@@ -103,7 +109,7 @@ local-install:
 .PHONY: buildfortest
 buildfortest:
 	@mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/go-project-starter ./cmd/go-project-starter
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$(LD_FLAGS)" -o bin/go-project-starter ./cmd/go-project-starter
 
 # Build test image (with marker file check for rebuild)
 .PHONY: build-test-image

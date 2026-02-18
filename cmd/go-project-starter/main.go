@@ -22,6 +22,7 @@ const (
 	cmdSetup          = "setup"
 	cmdInit           = "init"
 	cmdMigrate        = "migrate"
+	cmdVersion        = "version"
 	defaultConfigDir  = ".project-config"
 	defaultConfigFile = "project.yaml"
 	flagConfig        = "config"
@@ -38,7 +39,11 @@ const (
 	layoutFailedToMigrate         = "failed to migrate config: %v"
 )
 
-var AppInfo string = "go-sterter-v0.01"
+var (
+	version   = "dev"
+	commit    = "none"
+	buildDate = "unknown"
+)
 
 func main() {
 	if len(os.Args) > 1 {
@@ -53,6 +58,10 @@ func main() {
 			return
 		case cmdMigrate:
 			runMigrate()
+
+			return
+		case cmdVersion:
+			fmt.Printf("go-project-starter %s\ncommit: %s\nbuilt: %s\n", version, commit, buildDate)
 
 			return
 		}
@@ -245,7 +254,8 @@ func runGenerator() {
 		cfg.SetTargetDir(targetDir)
 	}
 
-	if gen, err = generator.New(AppInfo, cfg, genMeta, dryRun); err != nil {
+	appInfo := fmt.Sprintf("go-project-starter-%s", version)
+	if gen, err = generator.New(appInfo, cfg, genMeta, dryRun); err != nil {
 		log.Fatalf(layoutFailedToCreateGenerator, err)
 	}
 
