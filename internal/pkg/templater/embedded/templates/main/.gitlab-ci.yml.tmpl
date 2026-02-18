@@ -187,9 +187,7 @@ upload-packages:
 {{ if .Documentation.IsEnabled }}
 deploy-docs:
   stage: deploy
-  image: python:3-slim
-  before_script:
-    - pip install mkdocs-material
+  image: squidfunk/mkdocs-material
   script:
 {{- if .Documentation.IsS3 }}
     - mkdocs build
@@ -199,7 +197,7 @@ deploy-docs:
       if [ -n "${DOCS_ENDPOINT}" ]; then
         ENDPOINT_FLAG="--endpoint-url ${DOCS_ENDPOINT}"
       fi
-      aws s3 sync ./site/ s3://${DOCS_BUCKET}/${DOCS_PREFIX:-docs/{{ .ProjectName }}}/ \
+      aws s3 sync ./site/ s3://${DOCS_BUCKET}/${DOCS_PREFIX:-{{ .ProjectName }}}/ \
         --delete $ENDPOINT_FLAG --region ${DOCS_REGION:-us-east-1}
 {{- else if .Documentation.IsGitHubPages }}
     - |
