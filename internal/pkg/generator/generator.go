@@ -550,7 +550,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 			cliApp := &ds.CLIApp{
 				Name:              cli.Name,
-				Import:            fmt.Sprintf(`"%s/internal/app/transport/cli/%s"`, g.ProjectPath, cli.Name),
+				Import:            fmt.Sprintf(`cli%s "%s/internal/app/transport/cli/%s"`, strings.Title(cli.Name), g.ProjectPath, cli.Name),
 				Init:              fmt.Sprintf(`cli%s.NewHandler(srv)`, strings.Title(cli.Name)),
 				GeneratorType:     cli.GeneratorType,
 				GeneratorTemplate: cli.GeneratorTemplate,

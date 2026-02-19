@@ -523,7 +523,7 @@ func TestGenerateCLIOnly(t *testing.T) {
 	// Verify Handler struct embeds UnimplementedCLI
 	assertFileContains(t, handlerFile, []string{
 		"UnimplementedCLI",
-		"srv      *service.Service",
+		"srv      ds.IService",
 	})
 
 	// Verify registerCommands with flag parsing
@@ -548,5 +548,21 @@ func TestGenerateCLIOnly(t *testing.T) {
 	assertFileContains(t, handlerFile, []string{
 		"if cmd.Subcommands != nil",
 		"requires a subcommand",
+	})
+
+	// Regression: issue #11 — handler must import ds from runtime, not from project path
+	assertFileContains(t, handlerFile, []string{
+		`"github.com/Educentr/go-project-starter-runtime/pkg/ds"`,
+	})
+	// Ensure it does NOT use the project-local ds path
+	handlerContent, _ := os.ReadFile(filepath.Join(tmpDir, handlerFile))
+	if strings.Contains(string(handlerContent), "/internal/pkg/ds") {
+		t.Errorf("handler should import ds from runtime, not from project's internal/pkg/ds")
+	}
+
+	// Regression: issue #10 — main must have import alias for CLI handler package
+	mainFile := "cmd/admin-cli/psg_main_gen.go"
+	assertFileContains(t, mainFile, []string{
+		`cliAdmin "github.com/test/clitest/internal/app/transport/cli/admin"`,
 	})
 }

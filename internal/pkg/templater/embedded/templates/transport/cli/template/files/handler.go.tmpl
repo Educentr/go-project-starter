@@ -11,7 +11,7 @@ import (
 {{ if .CLI.Commands }}{{ $hasDuration := false }}{{ range .CLI.Commands }}{{ if .IsLeaf }}{{ range .Flags }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ else }}{{ range .Subcommands }}{{ range .Flags }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}{{ if $hasDuration }}
 	"time"
 {{ end }}{{ end }}
-	"{{ .ProjectPath }}/internal/pkg/service"
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 )
 {{ if .CLI.Commands }}
 {{ range $cmd := .CLI.Commands }}{{ if $cmd.IsLeaf }}{{ if $cmd.HasFlags }}
@@ -60,12 +60,12 @@ type Subcommand struct {
 // Example: ./app user create --email admin@example.com
 type Handler struct {
 {{ if .CLI.Commands }}	UnimplementedCLI
-{{ end }}	srv      *service.Service
+{{ end }}	srv      ds.IService
 	commands map[string]*Command
 }
 
 // NewHandler creates a new CLI handler
-func NewHandler(srv *service.Service) *Handler {
+func NewHandler(srv ds.IService) *Handler {
 	h := &Handler{
 		srv:      srv,
 		commands: make(map[string]*Command),
@@ -266,6 +266,6 @@ func (h *Handler) showCommandHelp(cmdName string) error {
 }
 
 // GetService returns the service instance for use in command handlers
-func (h *Handler) GetService() *service.Service {
+func (h *Handler) GetService() ds.IService {
 	return h.srv
 }

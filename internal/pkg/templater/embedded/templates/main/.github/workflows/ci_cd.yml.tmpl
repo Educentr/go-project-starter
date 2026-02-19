@@ -624,8 +624,8 @@ jobs:
 
       - name: Deploy to MinIO
         run: |
-          mc alias set docs ${{"{{"}} vars.DOCS_MINIO_ENDPOINT {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_ACCESS_KEY {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_SECRET_KEY {{"}}"}}
-          mc mirror --remove --overwrite{{ range .Documentation.Headers }} --header "{{ . | ToGitHubSecret }}"{{ end }} ./site/ docs/${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}/
+          mc alias set docs ${{"{{"}} vars.DOCS_MINIO_ENDPOINT {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_ACCESS_KEY {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_SECRET_KEY {{"}}"}}{{ range .Documentation.Headers }} -H "{{ . | ToGitHubSecret }}"{{ end }}
+          mc mirror --remove --overwrite{{ range .Documentation.Headers }} -H "{{ . | ToGitHubSecret }}"{{ end }} ./site/ docs/${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}/
 {{- else if .Documentation.IsGitHubPages }}
 
       - name: Deploy to GitHub Pages
