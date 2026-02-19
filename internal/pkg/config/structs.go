@@ -795,6 +795,9 @@ func (w Worker) IsValid(_ string) (bool, string) {
 		if len(w.GeneratorParams) != 0 {
 			return false, "Generator params not supported"
 		}
+		if w.GeneratorTemplate == "queue" && len(w.Path) == 0 {
+			return false, "Queue worker requires path to contract file"
+		}
 	default:
 		return false, "Invalid generator type"
 	}

@@ -1,0 +1,128 @@
+package task_processor
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"math"
+)
+{{ range .Worker.QueueConfig.Queues }}
+// Serialize{{ .GoName }}Task serializes a {{ .GoName }}Task to bytes.
+func Serialize{{ .GoName }}Task(task *{{ .GoName }}Task) ([]byte, error) {
+	var buf bytes.Buffer
+{{ range .Fields }}{{ serializeField . }}{{ end }}
+	return buf.Bytes(), nil
+}
+
+// Deserialize{{ .GoName }}Task deserializes bytes to a {{ .GoName }}Task.
+func Deserialize{{ .GoName }}Task(data []byte) (*{{ .GoName }}Task, error) {
+	r := bytes.NewReader(data)
+	task := &{{ .GoName }}Task{}
+{{ range .Fields }}{{ deserializeField . }}{{ end }}
+	return task, nil
+}
+{{ end }}
+// Helper functions for serialization
+
+func writeString(buf *bytes.Buffer, s string) {
+	b := []byte(s)
+	_ = binary.Write(buf, binary.LittleEndian, uint32(len(b)))
+	buf.Write(b)
+}
+
+func readString(r *bytes.Reader) (string, error) {
+	var length uint32
+	if err := binary.Read(r, binary.LittleEndian, &length); err != nil {
+		return "", fmt.Errorf("read string length: %w", err)
+	}
+
+	if length > math.MaxInt32 {
+		return "", fmt.Errorf("string length too large: %d", length)
+	}
+
+	b := make([]byte, length)
+	if _, err := r.Read(b); err != nil {
+		return "", fmt.Errorf("read string data: %w", err)
+	}
+
+	return string(b), nil
+}
+
+func writeBytes(buf *bytes.Buffer, b []byte) {
+	_ = binary.Write(buf, binary.LittleEndian, uint32(len(b)))
+	buf.Write(b)
+}
+
+func readBytes(r *bytes.Reader) ([]byte, error) {
+	var length uint32
+	if err := binary.Read(r, binary.LittleEndian, &length); err != nil {
+		return nil, fmt.Errorf("read bytes length: %w", err)
+	}
+
+	if length > math.MaxInt32 {
+		return nil, fmt.Errorf("bytes length too large: %d", length)
+	}
+
+	b := make([]byte, length)
+	if _, err := r.Read(b); err != nil {
+		return nil, fmt.Errorf("read bytes data: %w", err)
+	}
+
+	return b, nil
+}
+
+func writeIntSlice(buf *bytes.Buffer, s []int) {
+	_ = binary.Write(buf, binary.LittleEndian, uint32(len(s)))
+	for _, v := range s {
+		_ = binary.Write(buf, binary.LittleEndian, int64(v))
+	}
+}
+
+func readIntSlice(r *bytes.Reader) ([]int, error) {
+	var length uint32
+	if err := binary.Read(r, binary.LittleEndian, &length); err != nil {
+		return nil, fmt.Errorf("read int slice length: %w", err)
+	}
+
+	if length > math.MaxInt32 {
+		return nil, fmt.Errorf("int slice length too large: %d", length)
+	}
+
+	s := make([]int, length)
+	for i := range s {
+		var v int64
+		if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
+			return nil, fmt.Errorf("read int slice element: %w", err)
+		}
+		s[i] = int(v)
+	}
+
+	return s, nil
+}
+
+func writeInt64Slice(buf *bytes.Buffer, s []int64) {
+	_ = binary.Write(buf, binary.LittleEndian, uint32(len(s)))
+	for _, v := range s {
+		_ = binary.Write(buf, binary.LittleEndian, v)
+	}
+}
+
+func readInt64Slice(r *bytes.Reader) ([]int64, error) {
+	var length uint32
+	if err := binary.Read(r, binary.LittleEndian, &length); err != nil {
+		return nil, fmt.Errorf("read int64 slice length: %w", err)
+	}
+
+	if length > math.MaxInt32 {
+		return nil, fmt.Errorf("int64 slice length too large: %d", length)
+	}
+
+	s := make([]int64, length)
+	for i := range s {
+		if err := binary.Read(r, binary.LittleEndian, &s[i]); err != nil {
+			return nil, fmt.Errorf("read int64 slice element: %w", err)
+		}
+	}
+
+	return s, nil
+}

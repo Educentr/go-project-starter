@@ -1,0 +1,13 @@
+package task_processor
+
+import (
+	"context"
+
+	"github.com/Educentr/go-project-starter-runtime/pkg/queue"
+)
+{{ range .Worker.QueueConfig.Queues }}
+// {{ .GoName }}Handler processes tasks from the {{ .Name }} queue (id: {{ .ID }}).
+type {{ .GoName }}Handler interface {
+	Handle{{ .GoName }}(ctx context.Context, storage queue.Storage, tasks []*{{ .GoName }}Task) (queue.HandlerStats, error)
+}
+{{ end }}

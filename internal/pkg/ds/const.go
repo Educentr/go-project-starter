@@ -574,12 +574,43 @@ func (t Transport) HasAuthParams() bool {
 	return t.AuthParams.Type != ""
 }
 
+// QueueField represents a single field in a queue definition
+type QueueField struct {
+	Name   string // Original field name (snake_case)
+	GoName string // PascalCase field name
+	Type   string // Go type (int, int64, string, bool, []byte, []int, []int64)
+}
+
+// QueueDef represents a single queue definition
+type QueueDef struct {
+	ID     int
+	Name   string // Original queue name (snake_case)
+	GoName string // PascalCase queue name
+	Fields []QueueField
+}
+
+// QueueConfig holds the parsed queue contract
+type QueueConfig struct {
+	Queues []QueueDef
+}
+
+// QueueIDs returns the list of queue IDs
+func (q *QueueConfig) QueueIDs() []int {
+	ids := make([]int, len(q.Queues))
+	for i, queue := range q.Queues {
+		ids[i] = queue.ID
+	}
+
+	return ids
+}
+
 type Worker struct {
 	Import            []string // Imports for main.go (worker initialization)
 	Name              string
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
+	QueueConfig       *QueueConfig // Non-nil for queue workers
 }
 
 type Apps []App

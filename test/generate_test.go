@@ -408,9 +408,10 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 
 	// pkg/app/rest/psg_server_gen.go — split timeouts, atomic field, subscription
 	assertFileContains(t, "pkg/app/rest/psg_server_gen.go", []string{
-		`"timeout_read"`,
-		`"timeout_write"`,
-		"writeTimeout atomic.Int64",
+		`"server/timeout/read"`,
+		`"server/timeout/write"`,
+		"writeTimeout", // atomic.Int64 field for dynamic timeout
+		"atomic.Int64",
 		"RegisterSubscription",
 		"GetWriteTimeout",
 		"updateTimeouts",
@@ -424,11 +425,10 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 		"handlerTimeout = writeTimeout",
 	})
 
-	// pkg/app/rest/psg_rest_gen.go — split default constants, exported accessor
+	// pkg/app/rest/psg_rest_gen.go — split default constants
 	assertFileContains(t, "pkg/app/rest/psg_rest_gen.go", []string{
 		"defaultHTTPReadTimeout",
 		"defaultHTTPWriteTimeout",
-		"DefaultHandlerTimeout",
 	})
 
 	// pkg/app/rest/mw/psg_metrics_gen.go — timeout logging
@@ -437,10 +437,11 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 		"r.Context().Deadline()",
 	})
 
-	// etc/onlineconf/dev/init-config.sql — SQL init for split timeouts
+	// etc/onlineconf/dev/init-config.sql — SQL init for split timeouts (hierarchical: server/timeout/{read,write})
 	assertFileContains(t, "etc/onlineconf/dev/init-config.sql", []string{
-		"timeout_read",
-		"timeout_write",
+		"server_timeout_id",
+		"'read', @rest_",
+		"'write', @rest_",
 	})
 }
 
@@ -564,5 +565,122 @@ func TestGenerateCLIOnly(t *testing.T) {
 	mainFile := "cmd/admin-cli/psg_main_gen.go"
 	assertFileContains(t, mainFile, []string{
 		`cliAdmin "github.com/test/clitest/internal/app/transport/cli/admin"`,
+	})
+}
+
+// TestGenerateQueueWorker tests that queue worker generates correctly from contract.
+func TestGenerateQueueWorker(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-queue")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate queue worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("Queue worker project created in %s: %s", tmpDir, out)
+
+	// Verify key files exist
+	expectedFiles := []string{
+		"Makefile",
+		"go.mod",
+		"internal/app/worker/task_processor/psg_worker_gen.go",
+		"internal/app/worker/task_processor/task_processor/psg_types_gen.go",
+		"internal/app/worker/task_processor/task_processor/psg_serializer_gen.go",
+		"internal/app/worker/task_processor/task_processor/psg_handler_gen.go",
+		"internal/app/worker/task_processor/task_processor/psg_dispatcher_gen.go",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(tmpDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Expected file not found: %s", f)
+		}
+	}
+
+	// Helper to read file and check multiple strings
+	assertFileContains := func(t *testing.T, relPath string, expected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, exp := range expected {
+			if !strings.Contains(s, exp) {
+				t.Errorf("%s should contain %q", relPath, exp)
+			}
+		}
+	}
+
+	tpDir := "internal/app/worker/task_processor/task_processor/"
+
+	// Verify types
+	assertFileContains(t, tpDir+"psg_types_gen.go", []string{
+		"type EmailsTask struct",
+		"TaskID        int64",
+		"Attempts      int",
+		"PrevStartTime time.Time",
+		"To string",
+		"Subject string",
+		"Body []byte",
+		"UserId int64",
+		"type NotificationsTask struct",
+		"Message string",
+		"TargetIds []int64",
+		"IsUrgent bool",
+	})
+
+	// Verify handler interfaces
+	assertFileContains(t, tpDir+"psg_handler_gen.go", []string{
+		"type EmailsHandler interface",
+		"HandleEmails(ctx context.Context, storage queue.Storage, tasks []*EmailsTask)",
+		"type NotificationsHandler interface",
+		"HandleNotifications(ctx context.Context, storage queue.Storage, tasks []*NotificationsTask)",
+	})
+
+	// Verify dispatcher
+	assertFileContains(t, tpDir+"psg_dispatcher_gen.go", []string{
+		"type QueueHandlers struct",
+		"Emails EmailsHandler",
+		"Notifications NotificationsHandler",
+		"func NewDispatcher(h QueueHandlers) queue.HandlerFunc",
+		"case 1:",
+		"case 2:",
+		"h.Emails.HandleEmails",
+		"h.Notifications.HandleNotifications",
+	})
+
+	// Verify serializer
+	assertFileContains(t, tpDir+"psg_serializer_gen.go", []string{
+		"func SerializeEmailsTask(task *EmailsTask) ([]byte, error)",
+		"func DeserializeEmailsTask(data []byte) (*EmailsTask, error)",
+		"func SerializeNotificationsTask(task *NotificationsTask) ([]byte, error)",
+		"func DeserializeNotificationsTask(data []byte) (*NotificationsTask, error)",
+	})
+
+	// Verify worker
+	assertFileContains(t, "internal/app/worker/task_processor/psg_worker_gen.go", []string{
+		"type Worker struct",
+		"daemon.EmptyWorker",
+		"queueWorker *queue.QueueWorker",
+		`WorkerName      = "task_processor"`,
+		"queue.NewMemoryStorage",
+		"queue.NewQueueWorker",
+		"tp.NewDispatcher",
+		"[]int{1, 2}",
+		"queue.WithMetrics",
 	})
 }

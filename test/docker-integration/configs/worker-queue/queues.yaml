@@ -1,0 +1,22 @@
+queues:
+  - id: 1
+    name: emails
+    fields:
+      - name: to
+        type: string
+      - name: subject
+        type: string
+      - name: body
+        type: "[]byte"
+      - name: user_id
+        type: int64
+
+  - id: 2
+    name: notifications
+    fields:
+      - name: message
+        type: string
+      - name: target_ids
+        type: "[]int64"
+      - name: is_urgent
+        type: bool

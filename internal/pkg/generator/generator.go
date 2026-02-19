@@ -207,6 +207,18 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GeneratorParams:   w.GeneratorParams,
 		}
 
+		// Parse queue contract for queue workers
+		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
+			specPath := filepath.Join(config.BasePath, w.Path[0])
+
+			spec, err := cfg.ParseQueueSpec(specPath)
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse queue spec for worker '%s'", w.Name)
+			}
+
+			worker.QueueConfig = convertQueueSpec(spec)
+		}
+
 		if err := g.Workers.Add(w.Name, worker); err != nil {
 			return err
 		}
@@ -1357,6 +1369,31 @@ func toPascalCase(s string) string {
 	}
 
 	return result.String()
+}
+
+// convertQueueSpec converts parsed queue spec to ds.QueueConfig
+func convertQueueSpec(spec *cfg.QueueSpec) *ds.QueueConfig {
+	queues := make([]ds.QueueDef, 0, len(spec.Queues))
+
+	for _, q := range spec.Queues {
+		fields := make([]ds.QueueField, 0, len(q.Fields))
+		for _, f := range q.Fields {
+			fields = append(fields, ds.QueueField{
+				Name:   f.Name,
+				GoName: toPascalCase(f.Name),
+				Type:   f.Type,
+			})
+		}
+
+		queues = append(queues, ds.QueueDef{
+			ID:     q.ID,
+			Name:   q.Name,
+			GoName: toPascalCase(q.Name),
+			Fields: fields,
+		})
+	}
+
+	return &ds.QueueConfig{Queues: queues}
 }
 
 // filenameToTypeName converts a schema filename to a Go type name

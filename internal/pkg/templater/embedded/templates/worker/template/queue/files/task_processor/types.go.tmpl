@@ -1,0 +1,14 @@
+package task_processor
+
+import (
+	"time"
+)
+{{ range .Worker.QueueConfig.Queues }}
+// {{ .GoName }}Task represents a task from the {{ .Name }} queue (id: {{ .ID }}).
+type {{ .GoName }}Task struct {
+	TaskID        int64     // Task ID in storage
+	Attempts      int       // How many times the task was returned to queue (0 = first attempt)
+	PrevStartTime time.Time // Previous activation time (zero value on first attempt)
+{{ range .Fields }}	{{ .GoName }} {{ .Type }}
+{{ end }}}
+{{ end }}

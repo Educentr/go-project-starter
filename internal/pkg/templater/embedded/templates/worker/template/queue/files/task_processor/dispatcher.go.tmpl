@@ -1,0 +1,49 @@
+package task_processor
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/Educentr/go-project-starter-runtime/pkg/queue"
+)
+
+// QueueHandlers contains handlers for all queues.
+type QueueHandlers struct {
+{{ range .Worker.QueueConfig.Queues }}	{{ .GoName }} {{ .GoName }}Handler
+{{ end }}}
+
+// NewDispatcher creates a dispatch function that routes tasks to typed handlers.
+func NewDispatcher(h QueueHandlers) queue.HandlerFunc {
+	return func(ctx context.Context, s queue.Storage, queueNum int, tasks []queue.Task) (queue.HandlerStats, error) {
+		switch queueNum {
+{{ range .Worker.QueueConfig.Queues }}		case {{ .ID }}:
+			typed, err := deserialize{{ .GoName }}Batch(tasks)
+			if err != nil {
+				return queue.HandlerStats{}, err
+			}
+
+			return h.{{ .GoName }}.Handle{{ .GoName }}(ctx, s, typed)
+{{ end }}		default:
+			return queue.HandlerStats{}, fmt.Errorf("unknown queue: %d", queueNum)
+		}
+	}
+}
+{{ range .Worker.QueueConfig.Queues }}
+func deserialize{{ .GoName }}Batch(tasks []queue.Task) ([]*{{ .GoName }}Task, error) {
+	result := make([]*{{ .GoName }}Task, 0, len(tasks))
+
+	for _, t := range tasks {
+		typed, err := Deserialize{{ .GoName }}Task(t.Data)
+		if err != nil {
+			return nil, fmt.Errorf("deserialize {{ .Name }} task %d: %w", t.ID, err)
+		}
+
+		typed.TaskID = t.ID
+		typed.Attempts = t.Attempts
+		typed.PrevStartTime = t.PrevStartTime
+		result = append(result, typed)
+	}
+
+	return result, nil
+}
+{{ end }}

@@ -1,0 +1,82 @@
+package {{ .Worker.Name }}
+
+import (
+	"context"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/errgroup"
+	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/pkg/app/daemon"
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/queue"
+	"{{ .ProjectPath }}/internal/app/constant"
+	tp "{{ .ProjectPath }}/internal/app/worker/{{ .Worker.Name }}/task_processor"
+)
+
+// Worker implements the queue processing worker.
+type Worker struct {
+	daemon.EmptyWorker
+	Srv         ds.IService
+	queueWorker *queue.QueueWorker
+}
+
+const (
+	nameFieldLogger = "Name"
+	WorkerName      = "{{ .Worker.Name }}"
+)
+
+// Create returns a new Worker instance.
+func Create() *Worker {
+	return &Worker{}
+}
+
+// Name returns the worker name.
+func (w *Worker) Name() string {
+	return WorkerName
+}
+
+// Init initializes the worker with storage and queue configuration.
+func (w *Worker) Init(ctx context.Context, serviceName, _ string, metrics *prometheus.Registry, srv ds.IService) error {
+	w.Srv = srv
+
+	storage := queue.NewMemoryStorage(
+		queue.WithVisibilityTimeout(60 * time.Second),
+	)
+
+	handlers := tp.QueueHandlers{
+		// If you need you can add your code after this message
+	}
+
+	w.queueWorker = queue.NewQueueWorker(
+		storage,
+		[]int{ {{- range $i, $q := .Worker.QueueConfig.Queues }}{{ if $i }}, {{ end }}{{ $q.ID }}{{ end -}} },
+		tp.NewDispatcher(handlers),
+		queue.WithMaxProcessors(1),
+		queue.WithBatchSize(10),
+		queue.WithMetrics(metrics, constant.ServiceName),
+	)
+
+	{{ .Logger.InfoMsg "ctx" "Queue worker initialized" "str::$nameFieldLogger::WorkerName" }}
+
+	return nil
+}
+
+// Run starts the queue worker.
+func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
+	{{ .Logger.InfoMsg "ctx" "Starting queue worker" "str::$nameFieldLogger::WorkerName" }}
+	w.queueWorker.Run(ctx, errGr)
+}
+
+// Shutdown performs a hard shutdown of the queue worker.
+func (w *Worker) Shutdown(ctx context.Context) error {
+	{{ .Logger.InfoMsg "ctx" "Shutting down queue worker" "str::$nameFieldLogger::WorkerName" }}
+	return w.queueWorker.Shutdown(ctx)
+}
+
+// GracefulStop performs a graceful stop of the queue worker.
+func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
+	{{ .Logger.InfoMsg "ctx" "Graceful stopping queue worker" "str::$nameFieldLogger::WorkerName" }}
+	return w.queueWorker.GracefulStop(ctx)
+}

@@ -478,6 +478,47 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			return "*" + varName
 		},
 		"printf": fmt.Sprintf,
+		// Queue serialization template helpers
+		"serializeField": func(field ds.QueueField) string {
+			switch field.Type {
+			case "int":
+				return "\t_ = binary.Write(&buf, binary.LittleEndian, int64(task." + field.GoName + "))\n"
+			case "int64":
+				return "\t_ = binary.Write(&buf, binary.LittleEndian, task." + field.GoName + ")\n"
+			case "string":
+				return "\twriteString(&buf, task." + field.GoName + ")\n"
+			case "bool":
+				return "\t_ = binary.Write(&buf, binary.LittleEndian, task." + field.GoName + ")\n"
+			case "[]byte":
+				return "\twriteBytes(&buf, task." + field.GoName + ")\n"
+			case "[]int":
+				return "\twriteIntSlice(&buf, task." + field.GoName + ")\n"
+			case "[]int64":
+				return "\twriteInt64Slice(&buf, task." + field.GoName + ")\n"
+			default:
+				return ""
+			}
+		},
+		"deserializeField": func(field ds.QueueField) string {
+			switch field.Type {
+			case "int":
+				return "\t{\n\t\tvar v int64\n\t\tif err := binary.Read(r, binary.LittleEndian, &v); err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t\t}\n\t\ttask." + field.GoName + " = int(v)\n\t}\n"
+			case "int64":
+				return "\tif err := binary.Read(r, binary.LittleEndian, &task." + field.GoName + "); err != nil {\n\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t}\n"
+			case "string":
+				return "\t{\n\t\tv, err := readString(r)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t\t}\n\t\ttask." + field.GoName + " = v\n\t}\n"
+			case "bool":
+				return "\tif err := binary.Read(r, binary.LittleEndian, &task." + field.GoName + "); err != nil {\n\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t}\n"
+			case "[]byte":
+				return "\t{\n\t\tv, err := readBytes(r)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t\t}\n\t\ttask." + field.GoName + " = v\n\t}\n"
+			case "[]int":
+				return "\t{\n\t\tv, err := readIntSlice(r)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t\t}\n\t\ttask." + field.GoName + " = v\n\t}\n"
+			case "[]int64":
+				return "\t{\n\t\tv, err := readInt64Slice(r)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read " + field.Name + ": %w\", err)\n\t\t}\n\t\ttask." + field.GoName + " = v\n\t}\n"
+			default:
+				return ""
+			}
+		},
 	}
 
 	buf := &bytes.Buffer{}
