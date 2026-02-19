@@ -267,12 +267,13 @@ kafka:
 
 ## Секция `cli`
 
-Конфигурация CLI транспорта.
+Конфигурация CLI транспорта. CLI генерирует обработчики команд из YAML-спецификации — по аналогии с тем, как ogen генерирует REST handlers из OpenAPI.
 
 ```yaml
 cli:
   - name: admin
-    path: [./api/cli/admin.yaml]
+    path:
+      - ./commands.yaml           # Спецификация CLI команд
     generator_type: template
     generator_template: cli
 
@@ -281,6 +282,15 @@ applications:
     cli: admin
     driver: [postgres]
 ```
+
+### Поля
+
+| Поле | Обязательно | Описание |
+|------|-------------|----------|
+| `name` | Да | Имя CLI транспорта |
+| `path` | Нет | Путь к YAML-спецификации команд (`commands.yaml`) |
+| `generator_type` | Да | `template` |
+| `generator_template` | Да | `cli` |
 
 ### Особенности CLI
 
@@ -299,6 +309,127 @@ applications:
 ./myapp user create --email admin@example.com
 ./myapp cache clear --all
 ```
+
+### Спецификация команд (`commands.yaml`)
+
+Если указан `path`, генератор читает YAML-спецификацию и генерирует:
+
+- **Params structs** — типизированные параметры для каждой команды
+- **UnimplementedCLI** — стаб с default-реализацией (по аналогии с ogen/gRPC)
+- **registerCommands()** — регистрация команд с flag parsing и валидацией
+- **Command/Subcommand structs** — диспетчеризация команд и подкоманд
+
+```yaml
+# commands.yaml
+commands:
+  - name: user
+    description: "User management"
+    subcommands:
+      - name: create
+        description: "Create a new user"
+        flags:
+          - name: email
+            type: string
+            required: true
+            description: "User email"
+          - name: name
+            type: string
+            description: "User name"
+      - name: list
+        description: "List all users"
+        flags:
+          - name: limit
+            type: int
+            default: "100"
+            description: "Max results"
+
+  - name: ping
+    description: "Check connectivity"
+
+  - name: migrate
+    description: "Database migrations"
+    flags:
+      - name: dir
+        type: string
+        default: "up"
+        description: "Direction: up or down"
+      - name: steps
+        type: int
+        description: "Number of steps"
+```
+
+**Правила спецификации:**
+
+- Команда может иметь `subcommands` ИЛИ быть leaf-командой (без подкоманд)
+- Флаги могут быть у leaf-команд и у подкоманд
+- Типы флагов: `string`, `int`, `bool`, `float64`, `duration`
+- `required: true` — генерируется валидация после парсинга
+- `default` — значение по умолчанию (строка, парсится в нужный тип)
+
+### Генерируемый код
+
+Из спецификации генерируется файл `psg_handler_gen.go`:
+
+#### Params structs
+
+Для каждой команды/подкоманды с флагами генерируется struct с типизированными параметрами:
+
+```go
+type UserCreateParams struct {
+    Email string
+    Name  string
+}
+
+type MigrateParams struct {
+    Dir   string
+    Steps int
+}
+```
+
+Имя: `{Command}{Subcommand}Params` (PascalCase). Если у команды нет флагов, Params struct не создаётся.
+
+#### UnimplementedCLI
+
+Стаб с default-реализацией — можно сразу компилировать проект без написания логики:
+
+```go
+type UnimplementedCLI struct{}
+
+func (UnimplementedCLI) RunUserCreate(ctx context.Context, params UserCreateParams) error {
+    return fmt.Errorf("command 'user create' is not implemented")
+}
+
+func (UnimplementedCLI) RunPing(ctx context.Context) error {
+    return fmt.Errorf("command 'ping' is not implemented")
+}
+```
+
+Имя метода: `Run{Command}{Subcommand}` (PascalCase).
+
+#### Пользовательский код
+
+Пользователь создаёт файлы в том же пакете и переопределяет методы:
+
+```go
+// user.go
+package admin
+
+func (h *Handler) RunUserCreate(ctx context.Context, params UserCreateParams) error {
+    user, err := h.GetService().CreateUser(ctx, params.Email, params.Name)
+    if err != nil {
+        return fmt.Errorf("failed to create user: %w", err)
+    }
+    fmt.Printf("User created: ID=%d\n", user.ID)
+    return nil
+}
+```
+
+!!! tip "Аналогия с ogen"
+    Паттерн идентичен ogen: spec → `UnimplementedHandler` → пользователь переопределяет нужные методы. Нереализованные команды возвращают ошибку "not implemented".
+
+### Без спецификации
+
+Если `path` не указан, генерируется минимальный handler с закомментированным примером для ручной регистрации команд.
 
 ### Сравнение CLI и Worker
 

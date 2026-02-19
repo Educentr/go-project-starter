@@ -7,24 +7,61 @@ import (
 	"io"
 	"os"
 	"sort"
-
+	"strings"
+{{ if .CLI.Commands }}{{ $hasDuration := false }}{{ range .CLI.Commands }}{{ if .IsLeaf }}{{ range .Flags }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ else }}{{ range .Subcommands }}{{ range .Flags }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}{{ if $hasDuration }}
+	"time"
+{{ end }}{{ end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
 )
+{{ if .CLI.Commands }}
+{{ range $cmd := .CLI.Commands }}{{ if $cmd.IsLeaf }}{{ if $cmd.HasFlags }}
+// {{ $cmd.ParamsName }} holds typed parameters for the '{{ $cmd.Name }}' command.
+type {{ $cmd.ParamsName }} struct {
+{{ range $cmd.Flags }}	{{ .GoName }} {{ .Type }}
+{{ end }}}
+{{ end }}{{ else }}{{ range $sub := $cmd.Subcommands }}{{ if $sub.HasFlags }}
+// {{ $sub.ParamsName }} holds typed parameters for the '{{ $cmd.Name }} {{ $sub.Name }}' command.
+type {{ $sub.ParamsName }} struct {
+{{ range $sub.Flags }}	{{ .GoName }} {{ .Type }}
+{{ end }}}
+{{ end }}{{ end }}{{ end }}{{ end }}
 
-// Handler implements CLI command handling
-// CLI works like a shell: first argument is command, rest are arguments
-// Example: ./app user create --email admin@example.com
-type Handler struct {
-	srv      *service.Service
-	commands map[string]*Command
+// UnimplementedCLI provides default no-op implementations for CLI command handlers.
+// To implement a command, define the corresponding method on Handler in a separate file.
+type UnimplementedCLI struct{}
+{{ range $cmd := .CLI.Commands }}{{ if $cmd.IsLeaf }}
+func (UnimplementedCLI) {{ $cmd.MethodName }}(ctx context.Context{{ if $cmd.HasFlags }}, params {{ $cmd.ParamsName }}{{ end }}) error {
+	return fmt.Errorf("command '{{ $cmd.Name }}' is not implemented")
 }
-
-// Command represents a CLI command
+{{ else }}{{ range $sub := $cmd.Subcommands }}
+func (UnimplementedCLI) {{ $sub.MethodName }}(ctx context.Context{{ if $sub.HasFlags }}, params {{ $sub.ParamsName }}{{ end }}) error {
+	return fmt.Errorf("command '{{ $cmd.Name }} {{ $sub.Name }}' is not implemented")
+}
+{{ end }}{{ end }}{{ end }}
+{{ end }}
+// Command represents a top-level CLI command
 type Command struct {
 	Name        string
 	Description string
 	Usage       string
 	Run         func(ctx context.Context, args []string) error
+{{ if .CLI.Commands }}	Subcommands map[string]*Subcommand
+{{ end }}}
+{{ if .CLI.Commands }}
+// Subcommand represents a subcommand within a CLI command
+type Subcommand struct {
+	Name        string
+	Description string
+	Run         func(ctx context.Context, args []string) error
+}
+{{ end }}
+// Handler implements CLI command handling.
+// CLI works like a shell: first argument is command, rest are arguments.
+// Example: ./app user create --email admin@example.com
+type Handler struct {
+{{ if .CLI.Commands }}	UnimplementedCLI
+{{ end }}	srv      *service.Service
+	commands map[string]*Command
 }
 
 // NewHandler creates a new CLI handler
@@ -38,8 +75,7 @@ func NewHandler(srv *service.Service) *Handler {
 	h.registerBuiltinCommands()
 
 	// Register application commands
-	// CLI commands call the same Service methods as REST/GRPC handlers
-	h.registerAppCommands()
+	h.registerCommands()
 
 	return h
 }
@@ -69,10 +105,65 @@ func (h *Handler) registerBuiltinCommands() {
 		},
 	})
 }
+{{ if .CLI.Commands }}
+// registerCommands registers commands generated from CLI spec
+func (h *Handler) registerCommands() {
+{{ range $cmd := .CLI.Commands }}{{ if $cmd.IsLeaf }}	h.Register(&Command{
+		Name:        "{{ $cmd.Name }}",
+		Description: "{{ $cmd.Description }}",
+{{ if $cmd.HasFlags }}		Usage:       "{{ $cmd.Name }} [flags]",
+{{ else }}		Usage:       "{{ $cmd.Name }}",
+{{ end }}		Run: func(ctx context.Context, args []string) error {
+{{ if $cmd.HasFlags }}			fs := flag.NewFlagSet("{{ $cmd.Name }}", flag.ContinueOnError)
+{{ range $cmd.Flags }}			p{{ .GoName }} := fs.{{ .FlagType }}("{{ .Name }}", {{ flagDefault .Type .Default }}, "{{ .Description }}")
+{{ end }}			if err := fs.Parse(args); err != nil {
+				return err
+			}
+{{ range $cmd.Flags }}{{ if .Required }}
+			if {{ flagZeroCheck .Type (printf "p%s" .GoName) }} {
+				return fmt.Errorf("flag --{{ .Name }} is required")
+			}
+{{ end }}{{ end }}
+			return h.{{ $cmd.MethodName }}(ctx, {{ $cmd.ParamsName }}{
+{{ range $cmd.Flags }}				{{ .GoName }}: {{ flagDeref .Type (printf "p%s" .GoName) }},
+{{ end }}			})
+{{ else }}			return h.{{ $cmd.MethodName }}(ctx)
+{{ end }}		},
+	})
 
-// registerAppCommands registers application-specific commands
-// Add your commands here - they should call h.srv methods
-func (h *Handler) registerAppCommands() {
+{{ else }}	h.Register(&Command{
+		Name:        "{{ $cmd.Name }}",
+		Description: "{{ $cmd.Description }}",
+		Usage:       "{{ $cmd.Name }} <subcommand> [flags]",
+		Subcommands: map[string]*Subcommand{
+{{ range $sub := $cmd.Subcommands }}			"{{ $sub.Name }}": {
+				Name:        "{{ $sub.Name }}",
+				Description: "{{ $sub.Description }}",
+				Run: func(ctx context.Context, args []string) error {
+{{ if $sub.HasFlags }}					fs := flag.NewFlagSet("{{ $cmd.Name }} {{ $sub.Name }}", flag.ContinueOnError)
+{{ range $sub.Flags }}					p{{ .GoName }} := fs.{{ .FlagType }}("{{ .Name }}", {{ flagDefault .Type .Default }}, "{{ .Description }}")
+{{ end }}					if err := fs.Parse(args); err != nil {
+						return err
+					}
+{{ range $sub.Flags }}{{ if .Required }}
+					if {{ flagZeroCheck .Type (printf "p%s" .GoName) }} {
+						return fmt.Errorf("flag --{{ .Name }} is required")
+					}
+{{ end }}{{ end }}
+					return h.{{ $sub.MethodName }}(ctx, {{ $sub.ParamsName }}{
+{{ range $sub.Flags }}						{{ .GoName }}: {{ flagDeref .Type (printf "p%s" .GoName) }},
+{{ end }}					})
+{{ else }}					return h.{{ $sub.MethodName }}(ctx)
+{{ end }}				},
+			},
+{{ end }}		},
+	})
+
+{{ end }}{{ end }}}
+{{ else }}
+// registerCommands registers application-specific commands.
+// Add your commands here — they should call h.srv methods.
+func (h *Handler) registerCommands() {
 	// Example command that calls Service method:
 	//
 	// h.Register(&Command{
@@ -81,14 +172,8 @@ func (h *Handler) registerAppCommands() {
 	//     Usage:       "user <subcommand> [options]",
 	//     Run:         h.runUserCommand,
 	// })
-	//
-	// h.Register(&Command{
-	//     Name:        "migrate",
-	//     Description: "Database migrations",
-	//     Usage:       "migrate [up|down|status]",
-	//     Run:         h.runMigrateCommand,
-	// })
 }
+{{ end }}
 
 // Register adds a command to the handler
 func (h *Handler) Register(cmd *Command) {
@@ -101,13 +186,33 @@ func (h *Handler) Execute(ctx context.Context, command string, args []string) er
 	if !exists {
 		return fmt.Errorf("unknown command: %s\nRun 'help' to see available commands", command)
 	}
-
+{{ if .CLI.Commands }}
+	if cmd.Subcommands != nil {
+		if len(args) == 0 {
+			var subs []string
+			for name := range cmd.Subcommands {
+				subs = append(subs, name)
+			}
+			sort.Strings(subs)
+			return fmt.Errorf("command '%s' requires a subcommand: %s", command, strings.Join(subs, ", "))
+		}
+		sub, exists := cmd.Subcommands[args[0]]
+		if !exists {
+			var subs []string
+			for name := range cmd.Subcommands {
+				subs = append(subs, name)
+			}
+			sort.Strings(subs)
+			return fmt.Errorf("unknown subcommand '%s %s'\nAvailable: %s", command, args[0], strings.Join(subs, ", "))
+		}
+		return sub.Run(ctx, args[1:])
+	}
+{{ end }}
 	return cmd.Run(ctx, args)
 }
 
 // PrintHelp prints help information for all commands
 func (h *Handler) PrintHelp(w io.Writer) {
-	// Sort commands alphabetically
 	names := make([]string, 0, len(h.commands))
 	for name := range h.commands {
 		names = append(names, name)
@@ -118,7 +223,17 @@ func (h *Handler) PrintHelp(w io.Writer) {
 	for _, name := range names {
 		cmd := h.commands[name]
 		fmt.Fprintf(w, "  %-15s %s\n", name, cmd.Description)
-	}
+{{ if .CLI.Commands }}		if cmd.Subcommands != nil {
+			subNames := make([]string, 0, len(cmd.Subcommands))
+			for sn := range cmd.Subcommands {
+				subNames = append(subNames, sn)
+			}
+			sort.Strings(subNames)
+			for _, sn := range subNames {
+				fmt.Fprintf(w, "    %-13s %s\n", sn, cmd.Subcommands[sn].Description)
+			}
+		}
+{{ end }}	}
 	fmt.Fprintln(w, "\nRun '<command> --help' for more information about a command.")
 }
 
@@ -131,7 +246,22 @@ func (h *Handler) showCommandHelp(cmdName string) error {
 
 	fmt.Printf("Command: %s\n", cmd.Name)
 	fmt.Printf("Description: %s\n", cmd.Description)
-	fmt.Printf("Usage: %s\n", cmd.Usage)
+	if cmd.Usage != "" {
+		fmt.Printf("Usage: %s\n", cmd.Usage)
+	}
+{{ if .CLI.Commands }}
+	if cmd.Subcommands != nil {
+		fmt.Println("\nSubcommands:")
+		subNames := make([]string, 0, len(cmd.Subcommands))
+		for sn := range cmd.Subcommands {
+			subNames = append(subNames, sn)
+		}
+		sort.Strings(subNames)
+		for _, sn := range subNames {
+			fmt.Printf("  %-15s %s\n", sn, cmd.Subcommands[sn].Description)
+		}
+	}
+{{ end }}
 	return nil
 }
 
@@ -139,58 +269,3 @@ func (h *Handler) showCommandHelp(cmdName string) error {
 func (h *Handler) GetService() *service.Service {
 	return h.srv
 }
-
-// ParseFlags is a helper to parse command flags
-// Usage: fs, err := h.ParseFlags("mycommand", args)
-func (h *Handler) ParseFlags(cmdName string, args []string) (*flag.FlagSet, error) {
-	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return nil, err
-	}
-	return fs, nil
-}
-
-// Example command implementation:
-//
-// func (h *Handler) runUserCommand(ctx context.Context, args []string) error {
-//     if len(args) == 0 {
-//         return fmt.Errorf("usage: user <create|list|delete> [options]")
-//     }
-//
-//     subcommand := args[0]
-//     subargs := args[1:]
-//
-//     switch subcommand {
-//     case "create":
-//         return h.userCreate(ctx, subargs)
-//     case "list":
-//         return h.userList(ctx, subargs)
-//     case "delete":
-//         return h.userDelete(ctx, subargs)
-//     default:
-//         return fmt.Errorf("unknown subcommand: %s", subcommand)
-//     }
-// }
-//
-// func (h *Handler) userCreate(ctx context.Context, args []string) error {
-//     fs := flag.NewFlagSet("user create", flag.ExitOnError)
-//     email := fs.String("email", "", "User email (required)")
-//     name := fs.String("name", "", "User name")
-//
-//     if err := fs.Parse(args); err != nil {
-//         return err
-//     }
-//
-//     if *email == "" {
-//         return fmt.Errorf("--email is required")
-//     }
-//
-//     // Call Service method - same method that REST handler would call
-//     user, err := h.srv.CreateUser(ctx, *email, *name)
-//     if err != nil {
-//         return fmt.Errorf("failed to create user: %w", err)
-//     }
-//
-//     fmt.Printf("User created: ID=%d, Email=%s\n", user.ID, user.Email)
-//     return nil
-// }

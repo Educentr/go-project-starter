@@ -443,3 +443,110 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 		"timeout_write",
 	})
 }
+
+// TestGenerateCLIOnly tests that CLI-only project with spec generates correctly.
+func TestGenerateCLIOnly(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "cli-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate CLI project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("CLI project created in %s: %s", tmpDir, out)
+
+	// Verify key files exist
+	expectedFiles := []string{
+		"Makefile",
+		"go.mod",
+		"cmd/admin-cli/psg_main_gen.go",
+		"internal/app/transport/cli/admin/psg_handler_gen.go",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(tmpDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Expected file not found: %s", f)
+		}
+	}
+
+	// Helper to read file and check multiple strings
+	assertFileContains := func(t *testing.T, relPath string, expected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, exp := range expected {
+			if !strings.Contains(s, exp) {
+				t.Errorf("%s should contain %q", relPath, exp)
+			}
+		}
+	}
+
+	handlerFile := "internal/app/transport/cli/admin/psg_handler_gen.go"
+
+	// Verify Params structs
+	assertFileContains(t, handlerFile, []string{
+		"type UserCreateParams struct",
+		"Email string",
+		"type UserListParams struct",
+		"Limit int",
+		"type MigrateParams struct",
+		"Dir string",
+		"Steps int",
+	})
+
+	// Verify UnimplementedCLI
+	assertFileContains(t, handlerFile, []string{
+		"type UnimplementedCLI struct{}",
+		"func (UnimplementedCLI) RunUserCreate(ctx context.Context, params UserCreateParams) error",
+		"func (UnimplementedCLI) RunUserList(ctx context.Context, params UserListParams) error",
+		"func (UnimplementedCLI) RunPing(ctx context.Context) error",
+		"func (UnimplementedCLI) RunMigrate(ctx context.Context, params MigrateParams) error",
+	})
+
+	// Verify Handler struct embeds UnimplementedCLI
+	assertFileContains(t, handlerFile, []string{
+		"UnimplementedCLI",
+		"srv      *service.Service",
+	})
+
+	// Verify registerCommands with flag parsing
+	assertFileContains(t, handlerFile, []string{
+		"func (h *Handler) registerCommands()",
+		`fs.String("email", "", "User email")`,
+		`flag --email is required`,
+		`fs.Int("limit", 100, "Max results")`,
+		`fs.String("dir", "up", "Direction: up or down")`,
+		"h.RunUserCreate(ctx, UserCreateParams{",
+		"h.RunPing(ctx)",
+	})
+
+	// Verify Command/Subcommand structs
+	assertFileContains(t, handlerFile, []string{
+		"type Command struct",
+		"Subcommands map[string]*Subcommand",
+		"type Subcommand struct",
+	})
+
+	// Verify Execute handles subcommands
+	assertFileContains(t, handlerFile, []string{
+		"if cmd.Subcommands != nil",
+		"requires a subcommand",
+	})
+}

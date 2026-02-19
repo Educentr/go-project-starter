@@ -6,6 +6,7 @@
 
 - [REST API](rest-api.md) — простой REST API сервис
 - [gRPC сервис](grpc-service.md) — gRPC с REST gateway
+- [CLI приложение](cli-app.md) — CLI с генерацией команд из YAML
 - [Telegram бот](telegram-bot.md) — Telegram бот
 - [Multi-app](multi-app.md) — несколько приложений из одной кодовой базы
 
@@ -15,6 +16,7 @@
 |----------|--------|
 | Простой REST API | [REST API](rest-api.md) |
 | gRPC с REST gateway | [gRPC сервис](grpc-service.md) |
+| CLI утилита / admin tool | [CLI приложение](cli-app.md) |
 | Telegram бот | [Telegram бот](telegram-bot.md) |
 | E-commerce с воркерами | [Multi-app](multi-app.md) |
 | Микросервис с Kafka | [Multi-app](multi-app.md) |

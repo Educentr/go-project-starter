@@ -89,6 +89,7 @@ nav:
     - examples/index.md
     - REST API: examples/rest-api.md
     - gRPC сервис: examples/grpc-service.md
+    - CLI приложение: examples/cli-app.md
     - Telegram бот: examples/telegram-bot.md
     - Multi-app: examples/multi-app.md
   - Тестирование:

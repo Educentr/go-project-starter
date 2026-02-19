@@ -1,0 +1,30 @@
+commands:
+  - name: user
+    description: "User management"
+    subcommands:
+      - name: create
+        description: "Create a new user"
+        flags:
+          - name: email
+            type: string
+            required: true
+            description: "User email"
+          - name: name
+            type: string
+            description: "User name"
+      - name: list
+        description: "List all users"
+        flags:
+          - name: limit
+            type: int
+            default: "100"
+            description: "Max results"
+  - name: ping
+    description: "Check connectivity"
+  - name: migrate
+    description: "Database migrations"
+    flags:
+      - name: dir
+        type: string
+        default: "up"
+        description: "Direction: up or down"

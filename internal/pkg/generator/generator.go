@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Educentr/go-project-starter/internal/pkg/config"
+	cfg "github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
@@ -68,7 +68,7 @@ type ExecCmd struct {
 
 var errUnknownTransport = errors.New("unknown transport")
 
-func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
+func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
@@ -88,7 +88,7 @@ func New(AppInfo string, config config.Config, genMeta meta.Meta, dryrun bool) (
 	return &g, nil
 }
 
-func (g *Generator) processConfig(config config.Config) error {
+func (g *Generator) processConfig(config cfg.Config) error {
 	g.Logger = config.Main.LoggerObj
 	g.ProjectName = config.Main.Name
 	g.RegistryType = config.Main.RegistryType
@@ -548,7 +548,7 @@ func (g *Generator) processConfig(config config.Config) error {
 				return fmt.Errorf("unknown cli: %s", app.CLI)
 			}
 
-			application.CLI = &ds.CLIApp{
+			cliApp := &ds.CLIApp{
 				Name:              cli.Name,
 				Import:            fmt.Sprintf(`"%s/internal/app/transport/cli/%s"`, g.ProjectPath, cli.Name),
 				Init:              fmt.Sprintf(`cli%s.NewHandler(srv)`, strings.Title(cli.Name)),
@@ -556,6 +556,20 @@ func (g *Generator) processConfig(config config.Config) error {
 				GeneratorTemplate: cli.GeneratorTemplate,
 				GeneratorParams:   cli.GeneratorParams,
 			}
+
+			// Parse CLI spec if path is provided
+			if len(cli.Path) > 0 && cli.Path[0] != "" {
+				specPath := filepath.Join(config.BasePath, cli.Path[0])
+
+				spec, err := cfg.ParseCLISpec(specPath)
+				if err != nil {
+					return errors.Wrapf(err, "failed to parse CLI spec for '%s'", cli.Name)
+				}
+
+				cliApp.Commands = convertCLISpec(spec)
+			}
+
+			application.CLI = cliApp
 		}
 
 		// Add Kafka producers/consumers to this application
@@ -1232,6 +1246,117 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	}
 
 	return dirs, files, nil
+}
+
+// convertCLISpec converts parsed CLI spec commands to ds.CLICommand slice
+func convertCLISpec(spec *cfg.CLISpec) []ds.CLICommand {
+	commands := make([]ds.CLICommand, 0, len(spec.Commands))
+
+	for _, cmd := range spec.Commands {
+		goName := toPascalCase(cmd.Name)
+
+		cliCmd := ds.CLICommand{
+			Name:        cmd.Name,
+			GoName:      goName,
+			Description: cmd.Description,
+			IsLeaf:      len(cmd.Subcommands) == 0,
+		}
+
+		if len(cmd.Subcommands) > 0 {
+			// Command with subcommands
+			cliCmd.Subcommands = make([]ds.CLISubcommand, 0, len(cmd.Subcommands))
+
+			for _, sub := range cmd.Subcommands {
+				subGoName := toPascalCase(sub.Name)
+				methodName := "Run" + goName + subGoName
+
+				cliSub := ds.CLISubcommand{
+					Name:        sub.Name,
+					GoName:      subGoName,
+					Description: sub.Description,
+					MethodName:  methodName,
+					Flags:       convertFlags(sub.Flags),
+				}
+
+				if len(sub.Flags) > 0 {
+					cliSub.ParamsName = goName + subGoName + "Params"
+				}
+
+				cliCmd.Subcommands = append(cliCmd.Subcommands, cliSub)
+			}
+		} else {
+			// Leaf command
+			cliCmd.MethodName = "Run" + goName
+			cliCmd.Flags = convertFlags(cmd.Flags)
+
+			if len(cmd.Flags) > 0 {
+				cliCmd.ParamsName = goName + "Params"
+			}
+		}
+
+		commands = append(commands, cliCmd)
+	}
+
+	return commands
+}
+
+func convertFlags(flags []cfg.CLISpecFlag) []ds.CLIFlag {
+	result := make([]ds.CLIFlag, 0, len(flags))
+
+	for _, f := range flags {
+		flagType := f.Type
+		if flagType == "" {
+			flagType = "string"
+		}
+
+		goType, flagMethodSuffix := flagTypeToGo(flagType)
+
+		result = append(result, ds.CLIFlag{
+			Name:        f.Name,
+			GoName:      toPascalCase(f.Name),
+			Type:        goType,
+			FlagType:    flagMethodSuffix,
+			Required:    f.Required,
+			Default:     f.Default,
+			Description: f.Description,
+		})
+	}
+
+	return result
+}
+
+// flagTypeToGo returns the Go type and flag.FlagSet method suffix for a flag type
+func flagTypeToGo(flagType string) (goType string, methodSuffix string) {
+	switch flagType {
+	case "int":
+		return "int", "Int"
+	case "bool":
+		return "bool", "Bool"
+	case "float64":
+		return "float64", "Float64"
+	case "duration":
+		return "time.Duration", "Duration"
+	default: // string
+		return "string", "String"
+	}
+}
+
+// toPascalCase converts a snake_case or kebab-case string to PascalCase
+func toPascalCase(s string) string {
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == '_' || r == '-'
+	})
+
+	var result strings.Builder
+
+	for _, part := range parts {
+		if len(part) > 0 {
+			result.WriteString(strings.ToUpper(part[:1]))
+			result.WriteString(part[1:])
+		}
+	}
+
+	return result.String()
 }
 
 // filenameToTypeName converts a schema filename to a Go type name

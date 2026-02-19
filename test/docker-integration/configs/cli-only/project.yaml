@@ -1,0 +1,23 @@
+main:
+  name: clitest
+  logger: zerolog
+  registry_type: github
+
+git:
+  repo: git@github.com:test/clitest.git
+  module_path: github.com/test/clitest
+
+tools:
+  golang_version: "1.24"
+  golangci_version: 1.64.8
+
+cli:
+  - name: admin
+    path:
+      - ./commands.yaml
+    generator_type: template
+    generator_template: cli
+
+applications:
+  - name: admin-cli
+    cli: admin

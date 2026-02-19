@@ -431,6 +431,53 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			re := regexp.MustCompile(`\$\{([^}]+)\}`)
 			return re.ReplaceAllString(s, `${{ secrets.$1 }}`)
 		},
+		// CLI template helpers for flag handling
+		"flagDefault": func(goType, defaultVal string) string {
+			if defaultVal != "" {
+				switch goType {
+				case "string":
+					return `"` + defaultVal + `"`
+				case "bool":
+					return defaultVal
+				default:
+					return defaultVal
+				}
+			}
+			switch goType {
+			case "string":
+				return `""`
+			case "int":
+				return "0"
+			case "bool":
+				return "false"
+			case "float64":
+				return "0"
+			case "time.Duration":
+				return "0"
+			default:
+				return `""`
+			}
+		},
+		"flagZeroCheck": func(goType, varName string) string {
+			switch goType {
+			case "string":
+				return "*" + varName + ` == ""`
+			case "int":
+				return "*" + varName + " == 0"
+			case "float64":
+				return "*" + varName + " == 0"
+			case "bool":
+				return "!*" + varName
+			case "time.Duration":
+				return "*" + varName + " == 0"
+			default:
+				return "*" + varName + ` == ""`
+			}
+		},
+		"flagDeref": func(goType, varName string) string {
+			return "*" + varName
+		},
+		"printf": fmt.Sprintf,
 	}
 
 	buf := &bytes.Buffer{}

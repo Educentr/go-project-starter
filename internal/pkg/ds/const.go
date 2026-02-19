@@ -338,6 +338,65 @@ type App struct {
 	Artifacts             []ArtifactType   // Per-application artifacts
 }
 
+// CLIFlag represents a flag for a CLI command (computed Go names included)
+type CLIFlag struct {
+	Name        string // Original flag name (e.g., "email")
+	GoName      string // PascalCase field name (e.g., "Email")
+	Type        string // Go type: string, int, bool, float64, time.Duration
+	FlagType    string // Flag method suffix: String, Int, Bool, Float64, Duration
+	Required    bool
+	Default     string
+	Description string
+}
+
+// CLISubcommand represents a subcommand with computed Go names
+type CLISubcommand struct {
+	Name        string    // Original name (e.g., "create")
+	GoName      string    // PascalCase (e.g., "Create")
+	Description string
+	Flags       []CLIFlag
+	ParamsName  string // e.g., "UserCreateParams" (empty if no flags)
+	MethodName  string // e.g., "RunUserCreate"
+}
+
+// CLICommand represents a top-level CLI command with computed Go names
+type CLICommand struct {
+	Name        string          // Original name (e.g., "user")
+	GoName      string          // PascalCase (e.g., "User")
+	Description string
+	Subcommands []CLISubcommand // Non-empty if command has subcommands
+	Flags       []CLIFlag       // Non-empty if leaf command with flags
+	ParamsName  string          // e.g., "MigrateParams" (empty if no flags or has subcommands)
+	MethodName  string          // e.g., "RunMigrate" (empty if has subcommands)
+	IsLeaf      bool            // true if command has no subcommands
+}
+
+// HasFlags returns true if the command has flags (leaf command only)
+func (c CLICommand) HasFlags() bool {
+	return len(c.Flags) > 0
+}
+
+// HasSubcommands returns true if the command has subcommands
+func (c CLICommand) HasSubcommands() bool {
+	return len(c.Subcommands) > 0
+}
+
+// HasFlags returns true if the subcommand has flags
+func (s CLISubcommand) HasFlags() bool {
+	return len(s.Flags) > 0
+}
+
+// HasRequiredFlags returns true if the subcommand has any required flags
+func (s CLISubcommand) HasRequiredFlags() bool {
+	for _, f := range s.Flags {
+		if f.Required {
+			return true
+		}
+	}
+
+	return false
+}
+
 // CLIApp represents a CLI transport configuration
 type CLIApp struct {
 	Name              string
@@ -346,6 +405,7 @@ type CLIApp struct {
 	GeneratorType     string
 	GeneratorTemplate string
 	GeneratorParams   map[string]string
+	Commands          []CLICommand // Parsed from CLI spec file
 }
 
 // IsCLI returns true if this is a CLI application

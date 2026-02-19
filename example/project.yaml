@@ -83,13 +83,14 @@ rest:
 # CLI transport - interactive command-line interface
 # Works like a shell: first word is command, rest are arguments
 # CLI is exclusive - application with CLI cannot have REST/GRPC transports or workers
+# The path field points to a YAML spec that defines commands, subcommands, and flags.
+# Generated handler follows the ogen pattern: Handler + UnimplementedCLI + typed params.
 # cli:
 #   - name: admin
+#     path:
+#       - ./commands.yaml
 #     generator_type: template
 #     generator_template: cli
-# - name: migrate
-#   generator_type: template
-#   generator_template: cli
 
 # driver:
 #   - name: clickhouse_batcher

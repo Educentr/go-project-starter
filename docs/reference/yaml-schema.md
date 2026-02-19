@@ -178,13 +178,59 @@ CLI транспорты для интерактивных приложений.
 ```yaml
 cli:
   - name: string                # [required] Уникальное имя CLI
-    path:                       # [optional] Пути к спецификациям
+    path:                       # [optional] Путь к спецификации команд (commands.yaml)
       - string
     generator_type: template    # [required] Тип генератора
-    generator_template: string  # [required] Имя шаблона
+    generator_template: cli     # [required] Имя шаблона
     generator_params:           # [optional] Параметры генератора
       key: value
 ```
+
+### Спецификация команд (`commands.yaml`)
+
+Файл, указанный в `path`, описывает CLI команды:
+
+```yaml
+commands:
+  - name: string                # [required] Имя команды
+    description: string         # [required] Описание команды
+
+    # Leaf-команда (без subcommands):
+    flags:                      # [optional] Флаги команды
+      - name: string            # [required] Имя флага (--name)
+        type: string            # [required] Тип: string|int|bool|float64|duration
+        required: bool          # [optional] Обязательный флаг
+        default: string         # [optional] Значение по умолчанию
+        description: string     # [optional] Описание
+
+    # Команда с подкомандами (исключает flags):
+    subcommands:                # [optional] Подкоманды
+      - name: string            # [required] Имя подкоманды
+        description: string     # [required] Описание подкоманды
+        flags:                  # [optional] Флаги подкоманды
+          - name: string
+            type: string
+            required: bool
+            default: string
+            description: string
+```
+
+### Типы флагов
+
+| Тип | Go тип | Пример default |
+|-----|--------|----------------|
+| `string` | `string` | `"hello"` |
+| `int` | `int` | `"100"` |
+| `bool` | `bool` | `"true"` |
+| `float64` | `float64` | `"3.14"` |
+| `duration` | `time.Duration` | `"5s"` |
+
+### Правила валидации
+
+- Команда может иметь `subcommands` **или** `flags`, но не оба
+- Имена команд должны быть уникальны
+- Имена подкоманд уникальны в рамках родительской команды
+- `type` флага должен быть одним из допустимых значений
 
 ---
 
