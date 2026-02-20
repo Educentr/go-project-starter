@@ -1,6 +1,8 @@
 package templater
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -856,4 +858,98 @@ func TestTemplateFuncs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetUserCodeFromFiles(t *testing.T) {
+	disclaimerLine := "// " + disclaimer
+
+	t.Run("obsolete file with disclaimer without user code goes to ObsoleteFiles", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a stale generated file with disclaimer but no user code
+		staleFile := filepath.Join(tmpDir, "psg_old_gen.go")
+		content := "package main\n\n" + disclaimerLine + "\n"
+		if err := os.WriteFile(staleFile, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// No files in template set — so psg_old_gen.go is not expected
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[staleFile]; !ok {
+			t.Errorf("expected %s in ObsoleteFiles, got ObsoleteFiles=%v, OtherFiles=%v",
+				staleFile, filesDiff.ObsoleteFiles, filesDiff.OtherFiles)
+		}
+	})
+
+	t.Run("obsolete file with disclaimer and user code returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a stale generated file with disclaimer AND user code
+		staleFile := filepath.Join(tmpDir, "psg_old_gen.go")
+		content := "package main\n\n" + disclaimerLine + "\n\nfunc myCustomCode() {}\n"
+		if err := os.WriteFile(staleFile, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := GetUserCodeFromFiles(tmpDir, nil)
+		if err == nil {
+			t.Fatal("expected error for stale file with user code, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "found user code in stale gen file") {
+			t.Errorf("error should mention stale gen file, got: %v", err)
+		}
+	})
+
+	t.Run("obsolete file without disclaimer goes to OtherFiles", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a user file without disclaimer
+		userFile := filepath.Join(tmpDir, "my_helper.go")
+		content := "package main\n\nfunc helper() {}\n"
+		if err := os.WriteFile(userFile, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.OtherFiles[userFile]; !ok {
+			t.Errorf("expected %s in OtherFiles, got OtherFiles=%v", userFile, filesDiff.OtherFiles)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[userFile]; ok {
+			t.Errorf("user file should NOT be in ObsoleteFiles")
+		}
+	})
+
+	t.Run("file in template set is not obsolete", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		destName := filepath.Join(tmpDir, "psg_handler_gen.go")
+		content := "package main\n\n" + disclaimerLine + "\n"
+		if err := os.WriteFile(destName, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// This file IS in the template set
+		files := []ds.Files{
+			{DestName: destName, OldDestName: destName},
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[destName]; ok {
+			t.Errorf("file in template set should NOT be in ObsoleteFiles")
+		}
+	})
 }

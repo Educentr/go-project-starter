@@ -938,6 +938,7 @@ type FilesDiff struct {
 	NewFiles       map[string]struct{}
 	IgnoreFiles    map[string]struct{}
 	OtherFiles     map[string]struct{}
+	ObsoleteFiles  map[string]struct{} // Generated files no longer in template set (safe to delete)
 	NewDirectory   map[string]struct{}
 	OtherDirectory map[string]struct{}
 	UserContent    map[string][]byte

@@ -879,6 +879,10 @@ func (g *Generator) Generate() error {
 			fmt.Printf("Store user content in file: %s (len: %d)\n", file, len(content))
 		}
 
+		for file := range filesDiff.ObsoleteFiles {
+			fmt.Printf("Remove obsolete file: %s\n", file)
+		}
+
 		return nil
 	}
 
@@ -918,6 +922,15 @@ func (g *Generator) Generate() error {
 		defer dstFile.Close()
 
 		file.Code.WriteTo(dstFile)
+	}
+
+	// Remove obsolete generated files (stale psg_*_gen.go without user code)
+	for obsoleteFile := range filesDiff.ObsoleteFiles {
+		log.Printf("removing obsolete generated file: %s", obsoleteFile)
+
+		if err := os.Remove(obsoleteFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("error removing obsolete file %s: %w", obsoleteFile, err)
+		}
 	}
 
 	if err = g.CopySpecs(); err != nil {
