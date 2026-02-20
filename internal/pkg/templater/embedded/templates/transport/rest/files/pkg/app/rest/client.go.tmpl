@@ -5,37 +5,33 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	rtrest "github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 )
 
-type RoundTripper struct {
-	Proxied func(req *http.Request) (*http.Response, error)
-}
+// Middleware is a type alias for backward compatibility.
+// The canonical definition is in the runtime package.
+type Middleware = rtrest.Middleware
 
-func (rt RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return rt.Proxied(req)
-}
+// RoundTripper is a type alias for backward compatibility.
+type RoundTripper = rtrest.RoundTripper
 
-func RoundTripperFunc(f func(req *http.Request) (*http.Response, error)) RoundTripper {
-	return RoundTripper{
-		Proxied: f,
-	}
-}
+// DefaultClient is a type alias for backward compatibility.
+type DefaultClient = rtrest.DefaultClient
 
-type Middleware func(http.RoundTripper) http.RoundTripper
-
+// Chain delegates to the runtime implementation.
 func Chain(rt http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		rt = middlewares[i](rt)
-	}
-	return rt
+	return rtrest.Chain(rt, middlewares...)
 }
 
-type DefaultClient struct{}
+// RoundTripperFunc delegates to the runtime implementation.
+func RoundTripperFunc(f func(req *http.Request) (*http.Response, error)) RoundTripper {
+	return rtrest.RoundTripperFunc(f)
+}
 
-func (c *DefaultClient) GetClientMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName string, errHdl RestErrorHandler) []Middleware {
-	return []Middleware{
-		// Add your middlewares here
-		// Example: logging, metrics, etc.
-	}
+// GetClientMiddlewares is a package-level convenience that delegates to DefaultClient.
+func GetClientMiddlewares(ctx context.Context, appName string, metrics *prometheus.Registry, srv ds.IService, serviceName string, errHdl rtrest.RestErrorHandler) []Middleware {
+	c := &DefaultClient{}
+	return c.GetClientMiddlewares(ctx, appName, metrics, srv, serviceName, errHdl)
 }

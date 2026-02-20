@@ -339,7 +339,4 @@ func TestConstants(t *testing.T) {
 		t.Error("CurrentVersion is empty")
 	}
 
-	if RemovalVersionCreateContext == "" {
-		t.Error("RemovalVersionCreateContext is empty")
-	}
 }

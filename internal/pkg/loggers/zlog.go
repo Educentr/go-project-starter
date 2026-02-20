@@ -147,6 +147,11 @@ func (zl *ZlogLogger) SetLoggerUpdater() string {
 	return "reqctx.SetLoggerUpdater(runtimelogger.NewZerologUpdater())"
 }
 
+// SetEventLogger generates code to set the global event logger for runtime
+func (zl *ZlogLogger) SetEventLogger() string {
+	return "runtimelogger.SetEventLogger(runtimelogger.NewZerologEventLogger())"
+}
+
 // SubContext generates code to create a new context with a derived logger.
 // Unlike UpdateContext which mutates the logger in-place, this creates a new
 // sub-logger with additional fields and reassigns the context variable.

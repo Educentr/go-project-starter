@@ -50,7 +50,8 @@ import (
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/app/logger"
 	{{- if .Application.GetRestTransport }}
-	"{{ .ProjectPath }}/pkg/app/rest"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
+	"{{ .ProjectPath }}/pkg/app/restconfig"
 	{{- end }}
 )
 
@@ -107,6 +108,9 @@ func main() {
 
 	// Set logger updater for reqctx
 	{{ .Logger.SetLoggerUpdater }}
+
+	// Set event logger for runtime rest/mw
+	{{ .Logger.SetEventLogger }}
 
 	err = onlineconf.StartWatcher(mainCtx)
     if err != nil {

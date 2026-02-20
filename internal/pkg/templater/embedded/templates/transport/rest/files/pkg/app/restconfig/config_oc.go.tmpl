@@ -1,0 +1,258 @@
+package restconfig
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/rs/cors"
+	{{ .Logger.Import }}
+
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest/mw"
+{{ if ne (.Logger.FilesToGenerate) "logrus" }}	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
+{{ end }}	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
+)
+
+// OnlineConfConfigProvider implements rest.ServerConfigProvider,
+// rest.HandlerTimeoutProvider, and rest.SecurityConfigProvider
+// using OnlineConf for dynamic configuration.
+type OnlineConfConfigProvider struct {
+	ServiceName string
+}
+
+func NewOnlineConfConfigProvider(serviceName string) *OnlineConfConfigProvider {
+	return &OnlineConfConfigProvider{ServiceName: serviceName}
+}
+
+// --- ServerConfigProvider ---
+
+// GetServerConfig reads server configuration from OnlineConf.
+func (p *OnlineConfConfigProvider) GetServerConfig(ctx context.Context, serverName, appName string) (rest.ServerConfig, error) {
+	ip, err := getTransportValue(ctx, p.ServiceName, serverName, appName, "ip", rest.DefaultListenIP)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" "str::Default::rest.DefaultListenIP" }}
+	}
+
+	port, err := getTransportValue[string](ctx, p.ServiceName, serverName, appName, "port")
+	if err != nil {
+		return rest.ServerConfig{}, err
+	}
+
+	timeoutRead, err := getTransportValue(ctx, p.ServiceName, serverName, appName, "server/timeout/read", rest.DefaultHTTPReadTimeout)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting server/timeout/read" "str::Default::rest.DefaultHTTPReadTimeout.String()" }}
+	}
+
+	timeoutWrite, err := getTransportValue(ctx, p.ServiceName, serverName, appName, "server/timeout/write", rest.DefaultHTTPWriteTimeout)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting server/timeout/write" "str::Default::rest.DefaultHTTPWriteTimeout.String()" }}
+	}
+
+	headerTimeout, err := getTransportValue(ctx, p.ServiceName, serverName, appName, "server/timeout/read_header", timeoutRead)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting server/timeout/read_header. Set to server/timeout/read" }}
+	}
+
+	return rest.ServerConfig{
+		IP:                ip,
+		Port:              port,
+		ReadTimeout:       timeoutRead,
+		WriteTimeout:      timeoutWrite,
+		ReadHeaderTimeout: headerTimeout,
+	}, nil
+}
+
+// SubscribeTimeoutChanges registers OnlineConf subscription for timeout changes.
+// TODO: simplify to subtree subscription when go-onlineconf#2 is implemented
+func (p *OnlineConfConfigProvider) SubscribeTimeoutChanges(ctx context.Context, serverName, appName string, callback func()) error {
+	timeoutPaths := []string{
+		onlineconf.MakePath(p.ServiceName, "transport/rest", serverName, appName, "server/timeout/read"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", serverName, "server/timeout/read"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", serverName, appName, "server/timeout/write"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", serverName, "server/timeout/write"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", serverName, appName, "server/timeout/read_header"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", serverName, "server/timeout/read_header"),
+	}
+
+	return onlineconf.RegisterSubscription(ctx, onlineconf.DefaultModule, timeoutPaths, func() error {
+		callback()
+		return nil
+	})
+}
+
+// --- HandlerTimeoutProvider ---
+
+// ResolveHandlerTimeout resolves handler timeout using 4-level OnlineConf fallback:
+// 1. Per-path app-specific: /{svc}/transport/rest/{transport}/{app}/handler/{urlPath}/timeout
+// 2. Per-path transport-level: /{svc}/transport/rest/{transport}/handler/{urlPath}/timeout
+// 3. Default app-specific: /{svc}/transport/rest/{transport}/{app}/handler/default/timeout
+// 4. Default transport-level: /{svc}/transport/rest/{transport}/handler/default/timeout
+// If none configured, returns 0 (no timeout).
+func (p *OnlineConfConfigProvider) ResolveHandlerTimeout(ctx context.Context, transportName, appName, pathKey string) time.Duration {
+	// 4-level fallback: per-path (app → transport) → default (app → transport)
+	paths := []string{
+		onlineconf.MakePath(p.ServiceName, "transport/rest", transportName, appName, "handler", pathKey, "timeout"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", transportName, "handler", pathKey, "timeout"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", transportName, appName, "handler", "default", "timeout"),
+		onlineconf.MakePath(p.ServiceName, "transport/rest", transportName, "handler", "default", "timeout"),
+	}
+
+	for _, path := range paths {
+		t, ex, err := onlineconf.GetDurationIfExists(ctx, path)
+		if err != nil {
+			{{ .Logger.ErrorMsg "ctx" "err" "error resolving handler timeout" "str::path::path" }}
+			continue
+		}
+		if ex {
+			return t
+		}
+	}
+
+	return 0
+}
+
+// --- SecurityConfigProvider ---
+
+// IsHTTPAuthEnabled reads httpAuth toggle from OnlineConf.
+func (p *OnlineConfConfigProvider) IsHTTPAuthEnabled(ctx context.Context) (bool, error) {
+	return onlineconf.GetBool(ctx, onlineconf.MakePath(p.ServiceName, "security/httpAuth/enabled"), true)
+}
+
+// IsCSRFEnabled reads CSRF toggle from OnlineConf.
+func (p *OnlineConfConfigProvider) IsCSRFEnabled(ctx context.Context) (bool, error) {
+	return onlineconf.GetBool(ctx, onlineconf.MakePath(p.ServiceName, "security/csrf/enabled"), false)
+}
+
+// GetCORSOptions reads CORS configuration from OnlineConf.
+// OC path: /{project}/security/cors/{allow_all,origins,methods,headers}
+// If allow_all is true, returns permissive CORS (for dev environments).
+// If allow_all is false (default), reads origins, methods, headers.
+// If no origins configured, rs/cors defaults apply (restrictive, for production).
+func (p *OnlineConfConfigProvider) GetCORSOptions(ctx context.Context) cors.Options {
+	corsPath := onlineconf.MakePath(p.ServiceName, "security", "cors")
+
+	allowAll, err := onlineconf.GetBool(ctx, onlineconf.MakePath(corsPath, "allow_all"), false)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting CORS allow_all from onlineconf" }}
+	}
+
+	if allowAll {
+		return cors.Options{
+			AllowedOrigins:   []string{"*"},
+			AllowedMethods:   []string{http.MethodHead, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
+			AllowedHeaders:   []string{"*"},
+			AllowCredentials: false,
+		}
+	}
+
+	origins, err := onlineconf.GetStrings(ctx, onlineconf.MakePath(corsPath, "origins"), nil)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting CORS origins from onlineconf" }}
+	}
+
+	methods, err := onlineconf.GetStrings(ctx, onlineconf.MakePath(corsPath, "methods"), nil)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting CORS methods from onlineconf" }}
+	}
+
+	headers, err := onlineconf.GetStrings(ctx, onlineconf.MakePath(corsPath, "headers"), nil)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting CORS headers from onlineconf" }}
+	}
+
+	return cors.Options{
+		AllowedOrigins: origins,
+		AllowedMethods: methods,
+		AllowedHeaders: headers,
+	}
+}
+
+// --- Middleware helpers ---
+
+// TransportConfigPath returns the OnlineConf path for transport handler configuration.
+func (p *OnlineConfConfigProvider) TransportConfigPath(transportName, appName string) string {
+	return onlineconf.MakePath(p.ServiceName, "transport/rest", transportName, appName, "handler")
+}
+
+// NewHitInfoContextCreator creates a HitInfoContextCreator for the given transport params.
+func (p *OnlineConfConfigProvider) NewHitInfoContextCreator(transportName, appName string) mw.HitInfoContextCreator {
+	return &onlineConfHitInfoContextCreator{
+		serviceName:   p.ServiceName,
+		transportName: transportName,
+		appName:       appName,
+	}
+}
+
+type onlineConfHitInfoContextCreator struct {
+	serviceName   string
+	transportName string
+	appName       string
+}
+
+func (c *onlineConfHitInfoContextCreator) CreateHitInfoContext(requestCtx, appCtx context.Context, urlPath string) (context.Context, context.CancelFunc, error) {
+	// Timeout inherited from parent request context — no additional timeout needed
+	mwCtx, cancel, err := reqctx.CreateContextWithTimeout(requestCtx, appCtx, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ocPrefix := onlineconf.MakePath(c.serviceName, "transport/rest", c.transportName, c.appName, "mw/metrics")
+	{{ .Logger.ReWrap "requestCtx" "mwCtx" "ocPrefix" "urlPath" }}
+
+	return mwCtx, cancel, nil
+}
+
+// --- Internal helpers ---
+
+// getTransportValue reads a config value from OnlineConf with 2-level fallback:
+// 1. /{svc}/transport/rest/{server}/{app}/{key}
+// 2. /{svc}/transport/rest/{server}/{key}
+//
+// Returns (value, nil) if found, (default, nil) if not found but default provided,
+// (default, error) if parse error and default provided (caller should log),
+// (zero, error) if not found or error without default.
+//
+// TODO: replace with onlineconf.GetConfigValue when go-onlineconf#3 is implemented
+func getTransportValue[T string | time.Duration](ctx context.Context, serviceName, serverName, appName, key string, defaultVal ...T) (T, error) {
+	var zero T
+
+	for _, path := range []string{
+		onlineconf.MakePath(serviceName, "transport/rest", serverName, appName, key),
+		onlineconf.MakePath(serviceName, "transport/rest", serverName, key),
+	} {
+		switch any(zero).(type) {
+		case string:
+			v, ex, err := onlineconf.GetStringIfExists(ctx, path)
+			if err != nil {
+				if len(defaultVal) > 0 {
+					return defaultVal[0], err
+				}
+				return zero, err
+			}
+			if ex {
+				return any(v).(T), nil
+			}
+		case time.Duration:
+			v, ex, err := onlineconf.GetDurationIfExists(ctx, path)
+			if err != nil {
+				if len(defaultVal) > 0 {
+					return defaultVal[0], err
+				}
+				return zero, err
+			}
+			if ex {
+				return any(v).(T), nil
+			}
+		}
+	}
+
+	if len(defaultVal) > 0 {
+		return defaultVal[0], nil
+	}
+
+	return zero, fmt.Errorf("required config %q not found in %s/%s",
+		key, serverName, appName)
+}

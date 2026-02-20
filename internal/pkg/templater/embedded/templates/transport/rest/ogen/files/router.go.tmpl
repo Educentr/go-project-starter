@@ -13,8 +13,9 @@ import (
 	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/app/transport/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}/handler"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
-	"{{ .ProjectPath }}/pkg/app/rest"
-	"{{ .ProjectPath }}/pkg/app/rest/mw"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest/mw"
+	"{{ .ProjectPath }}/pkg/app/restconfig"
 	oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
 )
 
@@ -33,6 +34,13 @@ func (a *API) GetErrorHandler() rest.RestErrorHandler {
 }
 
 func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.IService, _ *prometheus.Registry) error {
+	// Configure middleware providers
+	ocProvider := restconfig.NewOnlineConfConfigProvider(constant.ServiceName)
+	a.HandlerTimeoutProvider = ocProvider
+	a.SecurityConfigProvider = ocProvider
+	a.HitInfoContextCreatorFunc = ocProvider.NewHitInfoContextCreator
+	a.TransportConfigPath = ocProvider.TransportConfigPath
+
 	oasHandler := &handler.Handler{}
 
 	err := oasHandler.InitHandler(ctx, srv)
@@ -70,19 +78,7 @@ func (a *API) InitRouters(ctx context.Context, httpSrv *http.Server, srv ds.ISer
 	e := jx.GetEncoder()
 	errTimeout.Encode(e)
 
-	// ToDo для прода Default для dev окружения AllowAll а еще лучше брать из конфига
-	// 		AllowedOrigins: []string{"*"},
-	//	AllowedMethods: []string{
-	//		http.MethodHead,
-	//		http.MethodGet,
-	//		http.MethodPost,
-	//		http.MethodPut,
-	//		http.MethodPatch,
-	//		http.MethodDelete,
-	//	},
-	//	AllowedHeaders:   []string{"*"},
-	//	AllowCredentials: false,
-	httpSrv.Handler = cors.AllowAll().Handler(oasServer)
+	httpSrv.Handler = cors.New(ocProvider.GetCORSOptions(ctx)).Handler(oasServer)
 
 	return nil
 }

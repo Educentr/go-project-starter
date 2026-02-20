@@ -124,6 +124,11 @@ func (ll *LogrusLogger) SetLoggerUpdater() string {
 	return "reqctx.SetLoggerUpdater(rlog.NewLogrusUpdater())"
 }
 
+// SetEventLogger generates code to set the global event logger for runtime
+func (ll *LogrusLogger) SetEventLogger() string {
+	return "rlog.SetEventLogger(rlog.NewLogrusEventLogger())"
+}
+
 func (ll *LogrusLogger) SetupTestLogger(ctxVar string) string {
 	return fmt.Sprintf(`testLogger := logrus.New()
 	testLogger.SetOutput(os.Stdout)

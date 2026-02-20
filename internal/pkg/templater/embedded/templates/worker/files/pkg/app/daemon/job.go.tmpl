@@ -21,3 +21,17 @@ func (w *EmptyWorker) Initialization(ctx context.Context) error {
 func (w *EmptyWorker) GetTasks(ctx context.Context, lastJobState any) ([]ITask, any, error) {
 	return nil, nil, nil
 }
+
+// OnGracefulStop is called during graceful shutdown.
+// Override on Worker below the disclaimer marker to implement drain logic.
+func (w *EmptyWorker) OnGracefulStop(_ context.Context) (<-chan struct{}, error) {
+	stopped := make(chan struct{})
+	close(stopped)
+	return stopped, nil
+}
+
+// OnShutdown is called for hard shutdown (after timeout or GracefulStop error).
+// Override on Worker below the disclaimer marker for custom cleanup.
+func (w *EmptyWorker) OnShutdown(_ context.Context) error {
+	return nil
+}

@@ -88,7 +88,17 @@ func GetConfigPath(key ...string) string{
 
 func (w *Worker) JobStarter(ctx context.Context, task daemon.ITask) (err error) {
 	ocPrefix := GetConfigPath()
-	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
+
+	defaultTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "default", "timeout"), 0)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting default job timeout" "str::$nameFieldLogger::WorkerName" }}
+	}
+	jobTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "job", "timeout"), defaultTimeout)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting job timeout" "str::$nameFieldLogger::WorkerName" }}
+	}
+
+	ctxJob, cancel, err := reqctx.CreateContextWithTimeout(ctx, ctx, jobTimeout)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "str::$nameFieldLogger::WorkerName" }}
 		return err
@@ -199,15 +209,12 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 	})
 }
 
-// ShutdownHTTP shutting down worker
-func (w *Worker) Shutdown(_ context.Context) error {
-	return nil
+// Shutdown — hard stop. Override OnShutdown below the marker to customize.
+func (w *Worker) Shutdown(ctx context.Context) error {
+	return w.OnShutdown(ctx)
 }
 
-// GracefulStop do graceful stop worker
-func (w *Worker) GracefulStop(_ context.Context) (<-chan struct{}, error) {
-	stopped := make(chan struct{})
-	close(stopped)
-
-	return stopped, nil
+// GracefulStop — graceful stop. Override OnGracefulStop below the marker to customize.
+func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
+	return w.OnGracefulStop(ctx)
 }

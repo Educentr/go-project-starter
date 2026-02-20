@@ -39,11 +39,7 @@ const (
 )
 
 // Deprecation removal version constants - each deprecation has its own removal version
-const (
-	// RemovalVersionCreateContext is when reqctx.CreateContext (deprecated in favor of
-	// CreateContextWithTimeout) will be removed from go-project-starter-runtime
-	RemovalVersionCreateContext = "0.15.0"
-)
+// (currently none pending)
 
 // Error message constants
 const (

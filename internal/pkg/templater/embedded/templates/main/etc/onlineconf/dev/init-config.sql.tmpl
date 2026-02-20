@@ -409,6 +409,18 @@ VALUES ('enabled', @csrf_id, '0', 'text/plain', 'Enable CSRF protection');
 INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
 VALUES (LAST_INSERT_ID(), 1, '0', 'text/plain', 'go-project-starter', 'Auto-generated');
 
+-- CORS configuration (allow_all=1 for dev environment)
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('cors', @security_id, NULL, 'application/x-null', 'CORS configuration');
+SET @cors_id = LAST_INSERT_ID();
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (@cors_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('allow_all', @cors_id, '1', 'text/plain', 'Allow all origins (dev only)');
+INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
+VALUES (LAST_INSERT_ID(), 1, '1', 'text/plain', 'go-project-starter', 'Auto-generated');
+
 -- ============================================
 -- Settings Configuration
 -- ============================================

@@ -108,7 +108,17 @@ func (w *Worker) getUpdateType(update tgbotapi.Update) string {
 
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
 	ocPrefix := GetConfigPath()
-	ctxJob, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
+
+	defaultTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "default", "timeout"), 0)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting default job timeout" "str::$nameFieldLogger::WorkerName" }}
+	}
+	jobTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "job", "timeout"), defaultTimeout)
+	if err != nil {
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting job timeout" "str::$nameFieldLogger::WorkerName" }}
+	}
+
+	ctxJob, cancel, err := reqctx.CreateContextWithTimeout(ctx, ctx, jobTimeout)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Failed to create job context" "str::$nameFieldLogger::WorkerName" }}
 		return err
@@ -282,7 +292,17 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 					for _, hm := range hiddenMessages {
 						ocPrefix := GetConfigPath()
-						hmCtx, cancel, err := reqctx.CreateContext(ctx, ctx, ocPrefix, "job")
+
+						defaultTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "default", "timeout"), 0)
+						if err != nil {
+							{{ .Logger.ErrorMsg "ctx" "err" "error getting default job timeout" "str::$nameFieldLogger::WorkerName" }}
+						}
+						hmTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "job", "timeout"), defaultTimeout)
+						if err != nil {
+							{{ .Logger.ErrorMsg "ctx" "err" "error getting job timeout" "str::$nameFieldLogger::WorkerName" }}
+						}
+
+						hmCtx, cancel, err := reqctx.CreateContextWithTimeout(ctx, ctx, hmTimeout)
 						if err != nil {
 							{{ .Logger.ErrorMsg "ctx" "err" "Failed to create context for hidden message" "str::$nameFieldLogger::WorkerName" }}
 							continue

@@ -892,6 +892,8 @@ type Logger interface {
 	ReWrap(sourceCtx, destCtx, ocPrefix, ocPath string) string
 	// SetLoggerUpdater generates code to set the global logger updater for reqctx
 	SetLoggerUpdater() string
+	// SetEventLogger generates code to set the global event logger for runtime
+	SetEventLogger() string
 	// SetupTestLogger generates code to create a test logger and attach it to context
 	// ctxVar - context variable name to attach logger to
 	SetupTestLogger(ctxVar string) string

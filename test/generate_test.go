@@ -70,6 +70,96 @@ func TestGenerateFromExample(t *testing.T) {
 			t.Errorf("Expected file not found: %s", f)
 		}
 	}
+
+	// Verify REST client uses type aliases to runtime (regression: Middleware type mismatch)
+	clientFile := filepath.Join(tmpDir, "pkg", "app", "rest", "psg_client_gen.go")
+	clientContent, err := os.ReadFile(clientFile)
+	if err != nil {
+		t.Fatalf("Error reading client file: %v", err)
+	}
+
+	clientStr := string(clientContent)
+
+	// Must import runtime rest package with alias
+	if !strings.Contains(clientStr, `rtrest "github.com/Educentr/go-project-starter-runtime/pkg/app/rest"`) {
+		t.Error("Client file should import runtime rest package with rtrest alias")
+	}
+
+	// Must use type aliases (=), not type definitions
+	if !strings.Contains(clientStr, "type Middleware = rtrest.Middleware") {
+		t.Error("Client file should define Middleware as type alias to runtime")
+	}
+
+	if !strings.Contains(clientStr, "type DefaultClient = rtrest.DefaultClient") {
+		t.Error("Client file should define DefaultClient as type alias to runtime")
+	}
+
+	// Must NOT define local Middleware type (the old pattern)
+	if strings.Contains(clientStr, "type Middleware func(http.RoundTripper) http.RoundTripper") {
+		t.Error("Client file should NOT define local Middleware type — must use alias to runtime")
+	}
+
+	// Verify CORS configuration is read from OnlineConf (not hardcoded AllowAll)
+	ocConfigContent, err := os.ReadFile(filepath.Join(tmpDir, "pkg", "app", "restconfig", "psg_config_oc_gen.go"))
+	if err != nil {
+		t.Fatalf("Error reading restconfig file: %v", err)
+	}
+
+	ocConfigStr := string(ocConfigContent)
+
+	if !strings.Contains(ocConfigStr, "GetCORSOptions") {
+		t.Error("restconfig file should contain GetCORSOptions method")
+	}
+
+	if !strings.Contains(ocConfigStr, `"github.com/rs/cors"`) {
+		t.Error("restconfig file should import github.com/rs/cors")
+	}
+
+	// Verify router uses config-driven CORS (not hardcoded AllowAll)
+	routerContent, err := os.ReadFile(filepath.Join(tmpDir, "internal", "app", "transport", "rest", "example", "v1", "psg_router_gen.go"))
+	if err != nil {
+		t.Fatalf("Error reading router file: %v", err)
+	}
+
+	routerStr := string(routerContent)
+
+	if !strings.Contains(routerStr, "GetCORSOptions") {
+		t.Error("Router file should use GetCORSOptions for CORS configuration")
+	}
+
+	if strings.Contains(routerStr, "cors.AllowAll()") {
+		t.Error("Router file should NOT use hardcoded cors.AllowAll()")
+	}
+}
+
+// TestOgenClientTemplateUsesProjectLocalImport verifies that the ogen_client template
+// imports rest from the project-local path (pkg/app/rest), not from the runtime directly.
+// This is critical because the project's pkg/app/rest provides type aliases that are
+// compatible with both old (local types) and new (runtime aliases) projects.
+func TestOgenClientTemplateUsesProjectLocalImport(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	templatePath := filepath.Join(curDir, "..", "internal", "pkg", "templater", "embedded",
+		"templates", "transport", "rest", "ogen_client", "files", "client.go.tmpl")
+
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("Error reading ogen_client template: %v", err)
+	}
+
+	tmplStr := string(content)
+
+	// Must import from project path (template variable), NOT from runtime
+	if !strings.Contains(tmplStr, `"{{ .ProjectPath }}/pkg/app/rest"`) {
+		t.Error("ogen_client template must import rest from project path, not runtime")
+	}
+
+	if strings.Contains(tmplStr, `"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"`) {
+		t.Error("ogen_client template must NOT import rest directly from runtime — use project-local aliases")
+	}
 }
 
 // TestGenerateRESTLogrus tests that REST project with logrus logger generates correctly.
@@ -442,6 +532,12 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 		"server_timeout_id",
 		"'read', @rest_",
 		"'write', @rest_",
+	})
+
+	// etc/onlineconf/dev/init-config.sql — CORS config in security section
+	assertFileContains(t, "etc/onlineconf/dev/init-config.sql", []string{
+		"'cors', @security_id",
+		"'allow_all', @cors_id",
 	})
 }
 

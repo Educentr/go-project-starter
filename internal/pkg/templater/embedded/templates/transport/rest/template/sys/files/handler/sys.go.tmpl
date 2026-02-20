@@ -7,7 +7,7 @@ import (
 
 	{{ .Logger.Import }}
 
-	"{{ .ProjectPath }}/pkg/app/rest"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
 )
 
 func (h *Handler) VersionHandler(w http.ResponseWriter, r *http.Request) {

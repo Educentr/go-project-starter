@@ -182,7 +182,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			}
 		} else {
 			transport.Import = []string{fmt.Sprintf(`%s_%s "%s/internal/app/transport/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version)} // ToDo точно ли нужен срез?
-			transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{})`, rest.Name, rest.Version, rest.Name, rest.Version)
+			transport.Init = fmt.Sprintf(`rest.NewServer("%s_%s", &%s_%s.API{}, restconfig.NewOnlineConfConfigProvider(constant.ServiceName))`, rest.Name, rest.Version, rest.Name, rest.Version)
 			transport.Name = rest.Name
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)
