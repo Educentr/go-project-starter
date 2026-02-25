@@ -26,6 +26,8 @@ func isFileIgnored(fName string) bool {
 	case ".keep":
 		fallthrough
 	case "LICENSE.txt":
+		fallthrough
+	case "LLMS.md":
 		return true
 	}
 

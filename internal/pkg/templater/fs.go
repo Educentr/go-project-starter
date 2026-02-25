@@ -163,6 +163,21 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 		files = filteredFiles
 	}
 
+	// Filter out LLMS.md if generate_llms_md is false
+	if !params.GenerateLlmsMd {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			if f.DestName == "LLMS.md" {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
+	}
+
 	return
 }
 

@@ -33,6 +33,7 @@ type Generator struct {
 	ProjectPath         string
 	UseActiveRecord     bool
 	DevStand            bool
+	GenerateLlmsMd      bool
 	CI                  []string
 	Repo                string
 	PrivateRepos        string
@@ -98,6 +99,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.ProjectPath = config.Git.ModulePath
 	g.UseActiveRecord = config.Main.UseActiveRecord
 	g.DevStand = config.Main.DevStand
+	g.GenerateLlmsMd = config.Main.GenerateLlmsMd
 	g.CI = config.Main.CI
 	g.Repo = config.Git.Repo
 	g.PrivateRepos = config.Git.PrivateRepos
@@ -706,6 +708,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		ProjectPath:         g.ProjectPath,
 		UseActiveRecord:     g.UseActiveRecord,
 		DevStand:            g.DevStand,
+		GenerateLlmsMd:      g.GenerateLlmsMd,
 		CI:                  g.CI,
 		Repo:                g.Repo,
 		PrivateRepos:        g.PrivateRepos,

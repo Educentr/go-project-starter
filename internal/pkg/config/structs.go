@@ -105,6 +105,8 @@ type (
 		UseActiveRecord bool `mapstructure:"use_active_record"`
 		// DevStand enables docker-compose-dev.yaml generation with OnlineConf.
 		DevStand bool `mapstructure:"dev_stand"`
+		// GenerateLlmsMd enables LLMS.md generation for AI coding agents.
+		GenerateLlmsMd bool `mapstructure:"generate_llms_md"`
 		// CI specifies which CI providers to generate: "github", "gitlab". Empty = both.
 		CI        []string `mapstructure:"ci"`
 		LoggerObj ds.Logger

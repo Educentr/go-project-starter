@@ -33,6 +33,7 @@ type GeneratorParams struct {
 	RegistryType        string
 	UseActiveRecord     bool
 	DevStand            bool
+	GenerateLlmsMd      bool
 	CI                  []string
 	Repo                string
 	PrivateRepos        string
@@ -213,6 +214,7 @@ var (
 		"go.sum":               {},
 		"LICENSE.txt":          {},
 		"README.md":            {},
+		"LLMS.md":              {},
 		"etc/onlineconf/.keep": {},
 		"public/.keep":         {}, // ToDo ignore all keep files
 	}
