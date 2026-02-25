@@ -136,7 +136,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	}
 
 	// Copy each config directory separately
-	configDirs := []string{"rest-only", "grpc-only", "worker-telegram", "combined", "grafana"}
+	configDirs := []string{"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana"}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
 		dstPath := fmt.Sprintf("/workspace/test-configs/%s", dir)
