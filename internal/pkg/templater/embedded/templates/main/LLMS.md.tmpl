@@ -95,6 +95,379 @@ make regenerate               # Full project regeneration via go-project-starter
 - Files in `ignoreIfExistsFiles` (`.gitignore`, `go.mod`, `README.md`, `LLMS.md`, `LICENSE.txt`): never overwritten
 - Files without disclaimer markers and no template: auto-deleted if obsolete
 - User files (no markers): never touched
+
+## Generator Configuration Reference
+
+The file `.project-config/project.yaml` is the **source of truth** for the project structure. All structural changes (adding transports, workers, drivers, Kafka, applications) are made here, then applied with `make regenerate`.
+
+### Full annotated example
+
+```yaml
+# ── Required sections ──────────────────────────────────────────────
+
+main:
+  name: myproject              # REQUIRED. Project/service name
+  logger: zerolog              # REQUIRED. "zerolog" | "logrus"
+  registry_type: github        # REQUIRED. "github" | "digitalocean" | "aws" | "selfhosted"
+  author: "My Org"             # Optional. Default: "Unknown author"
+  use_active_record: true      # Optional. Enables PostgreSQL ActiveRecord ORM
+  dev_stand: true              # Optional. Generates docker-compose-dev with OnlineConf
+  generate_llms_md: true       # Optional. Generates LLMS.md for AI agents
+  ci:                          # Optional. "github" | "gitlab". Empty = both
+    - github
+
+git:
+  repo: git@github.com:org/myproject.git    # REQUIRED. Git repository URL
+  module_path: github.com/org/myproject     # REQUIRED. Go module path
+  private_repos: "github.com/myorg/*"       # Optional. GOPRIVATE setting
+
+# ── Transports ─────────────────────────────────────────────────────
+
+rest:
+  - name: api                  # REQUIRED. Unique transport name
+    path:                      # REQUIRED for ogen/ogen_client
+      - ./api.swagger.yml
+    generator_type: ogen       # REQUIRED. "ogen" | "template" | "ogen_client"
+    port: 8080                 # REQUIRED (except template sys)
+    version: v1                # Optional. Default: "v1"
+    api_prefix: /              # Optional. URL prefix
+    public_service: true       # Optional. No auth required
+    health_check_path: /live   # Optional. Health check endpoint
+    generator_params:          # Optional. ogen only: auth_handler "on"|"off"
+      auth_handler: "on"
+  - name: sys                  # Metrics/health server (convention)
+    port: 8085
+    generator_type: template
+    generator_template: sys    # REQUIRED when generator_type=template
+
+grpc:
+  - name: ItemService          # REQUIRED. Unique name
+    short: item                # Optional. Short name for package
+    path: ./item.proto         # REQUIRED. Path to .proto file
+    port: 8090                 # REQUIRED
+    generator_type: buf_client # REQUIRED. Currently only "buf_client"
+
+# ── Workers ────────────────────────────────────────────────────────
+
+worker:
+  - name: myworker             # REQUIRED. Unique name
+    generator_type: template   # REQUIRED. Must be "template"
+    generator_template: daemon # REQUIRED. "telegram" | "daemon" | "queue"
+    # For queue workers only:
+    # path:
+    #   - ./queues.yaml        # Queue contract spec (required for queue template)
+
+# ── CLI (exclusive — no transport/worker in same app) ──────────────
+
+cli:
+  - name: admin                # REQUIRED. Unique name
+    path:
+      - ./commands.yaml        # Optional. CLI commands spec
+    generator_type: template   # REQUIRED. Must be "template"
+    generator_template: cli    # REQUIRED
+
+# ── Kafka ──────────────────────────────────────────────────────────
+
+kafka:
+  - name: events_producer      # REQUIRED. Unique name
+    type: producer             # REQUIRED. "producer" | "consumer"
+    driver: segmentio          # Optional. "segmentio" (default) | "custom"
+    client: main_kafka         # REQUIRED. Client name for OnlineConf paths
+    events:                    # REQUIRED. At least one event
+      - name: user_events      # Event name = default topic name
+        schema: models.user    # Optional. Format: "jsonschema_name.schema_id"
+  - name: events_consumer
+    type: consumer
+    driver: segmentio
+    client: main_kafka
+    group: my_consumer_group   # REQUIRED for consumers only
+    events:
+      - name: user_events
+
+# ── Drivers (external service integrations) ────────────────────────
+
+driver:
+  - name: s3                                   # REQUIRED. Unique name
+    import: github.com/myorg/drivers/s3        # REQUIRED. Go import path
+    package: s3                                # REQUIRED. Go package name
+    obj_name: Client                           # REQUIRED. Go struct name
+    service_injection: "s3.BaseStorage"        # Optional. Code injected into Service
+
+# ── Applications (deployment units / containers) ───────────────────
+
+applications:
+  - name: api                  # REQUIRED. Application name
+    transport:                 # REQUIRED for non-CLI apps. At least one transport
+      - name: api              # Must reference a defined rest/grpc transport
+      - name: sys
+      - name: ItemService
+        config:
+          optional: true       # Optional. Transport is not required to start
+    worker:                    # Optional. List of worker names
+      - myworker               # Must reference a defined worker
+    kafka:                     # Optional. String or object format
+      - events_producer        # Simple: required by default
+      - name: events_consumer  # Object: can set optional
+        optional: true
+    driver:                    # Optional
+      - name: s3               # Must reference a defined driver
+        params:                # Optional. Constructor parameters
+          - WithBucket("data")
+        optional: true         # Optional. Driver is not required to start
+    goat_tests: true           # Optional. Enable GOAT integration tests
+    use_active_record: false   # Optional. Can only be false (to disable AR for this app)
+  # CLI application — exclusive: no transport or worker allowed
+  # - name: admin-cli
+  #   cli: admin               # References a defined CLI
+
+# ── Optional sections (omitted = sensible defaults) ────────────────
+
+tools:
+  golang_version: "1.24"       # Go version
+  ogen_version: v0.78.0        # ogen code generator version
+  protobuf_version: 1.7.0      # protobuf tools version
+  golangci_version: 1.55.2     # golangci-lint version
+
+post_generate:                 # Steps to run after generation
+  - git_install                # Initialize git repo
+  - executable_scripts         # chmod +x scripts
+  - clean_imports              # Run goimports
+  - call_generate              # Run code generators
+  - go_mod_tidy                # Run go mod tidy
+```
+
+### Key validation rules
+
+- **Every entity must be used**: every REST, gRPC, worker, driver, CLI, and Kafka definition must be referenced in at least one application. Orphaned entities cause errors.
+- **Non-CLI apps need transport**: every application (except CLI apps) must have at least one transport.
+- **CLI apps are exclusive**: an application with `cli` cannot have `transport` or `worker`.
+- **ogen/ogen_client need `path`**: list of OpenAPI spec files that must exist on disk.
+- **template needs `generator_template`**: e.g., `sys`, `telegram`, `daemon`, `queue`, `cli`.
+- **Kafka consumers need `group`**: consumer group ID is required for type `consumer`.
+- **gRPC proto files must exist**: `path` must point to an existing `.proto` file.
+- **Driver requires all four fields**: `name`, `import`, `package`, `obj_name`.
+- **`use_active_record: true` in main** requires argen_version in tools (has default, usually fine).
+- **`dev_stand: true`** requires `git_install` in `post_generate`.
+- **Transport names must be unique** across all REST definitions. Same for gRPC, worker, driver, kafka, CLI.
+
+## Structural Changes Workflow
+
+**Golden rule**: structural changes = edit `.project-config/project.yaml` + `make regenerate`. Never manually create infrastructure files.
+
+### 1. Add REST endpoint to existing transport
+
+No config change needed — edit the OpenAPI spec only.
+
+```bash
+# 1. Edit the spec file
+#    api/rest/{transport_name}/{version}/{spec_file}.yml
+
+# 2. Regenerate ogen code
+make generate-ogen
+
+# 3. Implement the handler
+#    internal/app/transport/rest/{transport_name}/{version}/handler/
+#    Add your handler method below the disclaimer marker
+```
+
+### 2. Add new REST transport
+
+```yaml
+# .project-config/project.yaml — add to rest:
+rest:
+  # ... existing transports ...
+  - name: admin_api
+    path:
+      - ./admin.swagger.yml    # Create this OpenAPI spec
+    generator_type: ogen
+    port: 8082
+    version: v1
+
+# Reference in applications:
+applications:
+  - name: api
+    transport:
+      # ... existing ...
+      - name: admin_api
+```
+
+```bash
+make regenerate
+# Implement handlers in internal/app/transport/rest/admin_api/v1/handler/
+```
+
+### 3. Add gRPC transport
+
+```yaml
+# .project-config/project.yaml — add to grpc:
+grpc:
+  - name: UserService
+    short: user
+    path: ./user.proto           # Create this .proto file
+    port: 8090
+    generator_type: buf_client
+
+# Reference in applications:
+applications:
+  - name: api
+    transport:
+      # ... existing ...
+      - name: UserService
+```
+
+```bash
+make regenerate
+make generate                    # Generates protobuf code
+```
+
+### 4. Add background worker
+
+```yaml
+# .project-config/project.yaml — add to worker:
+worker:
+  - name: cleanup
+    generator_type: template
+    generator_template: daemon   # "telegram" | "daemon" | "queue"
+
+# Reference in applications:
+applications:
+  - name: api
+    worker:
+      - cleanup
+```
+
+```bash
+make regenerate
+# Implement job logic in internal/app/worker/daemon/cleanup/job.go
+# IMPORTANT: add enabled flag check in GetTasks() — workers must be disabled by default
+```
+
+### 5. Add Kafka producer
+
+```yaml
+# .project-config/project.yaml — add to kafka:
+kafka:
+  - name: order_producer
+    type: producer
+    driver: segmentio
+    client: main_kafka
+    events:
+      - name: order_created
+
+# Reference in applications:
+applications:
+  - name: api
+    kafka:
+      - order_producer
+```
+
+```bash
+make regenerate
+# Producer is injected into Service — use srv.OrderProducer.PublishOrderCreated(ctx, msg)
+```
+
+### 6. Add Kafka consumer
+
+```yaml
+# .project-config/project.yaml — add to kafka:
+kafka:
+  - name: order_consumer
+    type: consumer
+    driver: segmentio
+    client: main_kafka
+    group: order_processing      # REQUIRED for consumers
+    events:
+      - name: order_created
+
+# Reference in applications:
+applications:
+  - name: api
+    kafka:
+      - order_consumer
+```
+
+```bash
+make regenerate
+# Implement consumer handler in the generated consumer file
+```
+
+### 7. Add custom driver
+
+```yaml
+# .project-config/project.yaml — add to driver:
+driver:
+  - name: redis_cache
+    import: github.com/myorg/myproject/pkg/drivers/redis
+    package: redis
+    obj_name: Cache
+
+# Reference in applications:
+applications:
+  - name: api
+    driver:
+      - name: redis_cache
+```
+
+```bash
+make regenerate
+# Implement the driver in pkg/drivers/redis/
+# Must implement Runnable interface: Init, Run, Shutdown, GracefulShutdown
+# Driver is injected into Service — accessible as srv.RedisCache
+```
+
+### 8. Add new application
+
+```yaml
+# .project-config/project.yaml — add to applications:
+applications:
+  # ... existing apps ...
+  - name: worker-app
+    transport:
+      - name: sys              # At least one transport required
+    worker:
+      - cleanup
+```
+
+```bash
+make regenerate
+# New binary entry point created at cmd/worker-app/
+```
+
+### 9. Enable ActiveRecord
+
+```yaml
+# .project-config/project.yaml
+main:
+  use_active_record: true        # Add or set to true
+```
+
+```bash
+make regenerate
+# Create repository declarations in internal/pkg/model/repository/decl/
+# Run make generate-argen after any changes to decl/ files
+# Generated code goes to cmpl/ — never edit cmpl/
+```
+
+### 10. Enable GOAT integration tests
+
+```yaml
+# .project-config/project.yaml — in the application:
+applications:
+  - name: api
+    goat_tests: true             # Add this
+    transport:
+      - name: api
+      - name: sys
+```
+
+```bash
+make regenerate
+
+# Implement TestEnvInitializer in tests/goat/init.go
+# Write test suites inheriting BaseTestSuite
+# Test via HTTP only — NEVER call service functions directly from tests
+# Run: make goat-tests
+```
 {{- if .UseActiveRecord }}
 
 ## ActiveRecord (Database)
