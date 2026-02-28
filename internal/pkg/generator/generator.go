@@ -1125,7 +1125,24 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 		dirs = append(dirs, dirsTrT...)
 		files = append(files, filesTrT...)
 
+		generatedShared := make(map[string]bool)
+
 		for _, work := range w {
+			if !generatedShared[work.GeneratorTemplate] {
+				dirsS, filesS, err := templater.GetWorkerRunnerSharedTemplates(
+					filepath.Join(work.GeneratorType, work.GeneratorTemplate),
+					g.GetTmplParams(),
+				)
+				if err != nil {
+					return nil, nil, errors.Wrapf(err, "failed to get worker runner shared templates: `%s`, `%s`", work.GeneratorType, work.GeneratorTemplate)
+				}
+
+				dirs = append(dirs, dirsS...)
+				files = append(files, filesS...)
+
+				generatedShared[work.GeneratorTemplate] = true
+			}
+
 			dirsH, filesH, err := templater.GetWorkerRunnerTemplates(
 				filepath.Join(work.GeneratorType, work.GeneratorTemplate),
 				g.GetTmplRunnerParams(work),
