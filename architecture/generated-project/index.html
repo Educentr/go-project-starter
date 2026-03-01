@@ -1,0 +1,3436 @@
+
+<!doctype html>
+<html lang="ru" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Документация генератора Go микросервисов">
+      
+      
+      
+        <link rel="canonical" href="https://educentr.github.io/go-project-starter/architecture/generated-project/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../../cli/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>Сгенерированный проект - Go Project Starter</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          Перейти к содержанию
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Верхний колонтитул">
+    <a href="../.." title="Go Project Starter" class="md-header__button md-logo" aria-label="Go Project Starter" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Go Project Starter
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Сгенерированный проект
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Тёмная тема"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Тёмная тема" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Светлая тема"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Светлая тема" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Поиск" placeholder="Поиск" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Поиск">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Поделиться" aria-label="Поделиться" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Очистить" aria-label="Очистить" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Инициализация поиска
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Educentr/go-project-starter" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Educentr/go-project-starter
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Навигация" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Go Project Starter" class="md-nav__button md-logo" aria-label="Go Project Starter" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Go Project Starter
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Educentr/go-project-starter" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Educentr/go-project-starter
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Главная
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Начало работы
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Начало работы
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Установка
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Быстрый старт
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Архитектура
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Сгенерированный проект
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Сгенерированный проект
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Общая архитектура
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Трёхслойный дизайн
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Трёхслойный дизайн">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Почему это важно?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spec-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec-First подход
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Описание слоёв
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Описание слоёв">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pkg-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Слой pkg/ (Runtime)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalpkg-generated-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Слой internal/pkg/ (Generated Core)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalapp-project-specific" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Слой internal/app/ (Project-Specific)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service — ядро бизнес-логики
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Типы транспортов
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Концепция Application
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Концепция Application">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Характеристики
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#application_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл Application
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сохранение пользовательского кода
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Драйверы интеграций
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Драйверы интеграций">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Принцип работы
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runnable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Интерфейс Runnable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Типы драйверов
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#middleware-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Middleware Stack
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Middleware Stack">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#middleware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Описание middleware
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#request-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток запроса (Request Flow)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Структура сгенерированного проекта
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Генерируемые endpoints
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Генерируемые endpoints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system-healthmonitoring-sys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Health/Monitoring (шаблон sys)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../cli/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Команды
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Параметры
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../configuration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Конфигурация
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Конфигурация
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/main/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Основные секции
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/transports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Транспорты
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/workers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/applications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Applications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/infrastructure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Инфраструктура
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../workflow/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Рабочий процесс
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Рабочий процесс
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflow/regeneration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Регенерация
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflow/makefile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflow/onlineconf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OnlineConf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../ai-agents/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coding agents
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coding agents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ai-agents/llms-md/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Генерация
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Примеры
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Примеры
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/grpc-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gRPC сервис
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/cli-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI приложение
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/telegram-bot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Telegram бот
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/multi-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../testing/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Тестирование
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Тестирование
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/goat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GOAT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../development/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Разработка генератора
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Разработка генератора
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура генератора
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Справочник
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Справочник
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/yaml-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YAML Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/makefile-targets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/naming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Именование
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Общая архитектура
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Трёхслойный дизайн
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Трёхслойный дизайн">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Почему это важно?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spec-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec-First подход
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Описание слоёв
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Описание слоёв">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pkg-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Слой pkg/ (Runtime)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalpkg-generated-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Слой internal/pkg/ (Generated Core)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalapp-project-specific" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Слой internal/app/ (Project-Specific)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service — ядро бизнес-логики
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Типы транспортов
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Концепция Application
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Концепция Application">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Характеристики
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#application_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл Application
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сохранение пользовательского кода
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Драйверы интеграций
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Драйверы интеграций">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Принцип работы
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runnable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Интерфейс Runnable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Типы драйверов
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#middleware-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Middleware Stack
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Middleware Stack">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#middleware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Описание middleware
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#request-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток запроса (Request Flow)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Структура сгенерированного проекта
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Генерируемые endpoints
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Генерируемые endpoints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system-healthmonitoring-sys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Health/Monitoring (шаблон sys)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="_1">Архитектура сгенерированного проекта<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
+<p>Описание структуры и паттернов сгенерированных Go-проектов.</p>
+<h2 id="_2">Общая архитектура<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<p>Сгенерированный проект следует принципам слоистой архитектуры с чётким разделением ответственности. Зависимости направлены <strong>только сверху вниз</strong> — транспортный слой обращается к сервису, сервис — к данным.</p>
+<pre class="mermaid"><code>flowchart TB
+    NET_IN((Network)) -.-&gt; TRANSPORT
+
+    subgraph TRANSPORT["Transport Layer"]
+        direction LR
+        API["&lt;b&gt;API&lt;/b&gt;&lt;br/&gt;Authorise · Helpers&lt;br/&gt;Handlers"]
+        CLI["&lt;b&gt;CLI&lt;/b&gt;&lt;br/&gt;Authorise&lt;br/&gt;Handlers"]
+        WORKERS["&lt;b&gt;Workers&lt;/b&gt;&lt;br/&gt;Jobs"]
+        BOTS["&lt;b&gt;Bots&lt;/b&gt;&lt;br/&gt;Authorise · Helpers&lt;br/&gt;Handlers"]
+    end
+
+    TRANSPORT --&gt; SERVICE["&lt;b&gt;Service&lt;/b&gt;"]
+
+    SERVICE --&gt; DATA
+
+    subgraph DATA["Data Layer"]
+        direction LR
+        CLIENTS[Clients]
+        MODELS[Models]
+        DRIVERS[Drivers]
+    end
+
+    MODELS --&gt; DB_CONN[DB connectors] -.-&gt; DB[(DB)]
+    CLIENTS &amp; DRIVERS -.-&gt; NET_OUT((Network))
+
+    style TRANSPORT fill:#e3f2fd
+    style DATA fill:#fff3e0
+    style SERVICE fill:#e8f5e9,stroke:#4caf50</code></pre>
+<div class="admonition note">
+<p class="admonition-title">Config (OnlineConf)</p>
+<p>Конфигурация доступна на <strong>всех слоях</strong> — Transport, Service, Data.
+Реализована как синглтон через OnlineConf.</p>
+</div>
+<p><strong>Ключевые слои:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Слой</th>
+<th>Компоненты</th>
+<th>Назначение</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Transport</strong></td>
+<td>API, CLI, Workers, Bots</td>
+<td>Точки входа с Authorise, Helpers, Handlers/Jobs</td>
+</tr>
+<tr>
+<td><strong>Service</strong></td>
+<td>Бизнес-логика</td>
+<td>Центральный компонент, единственное место для бизнес-логики</td>
+</tr>
+<tr>
+<td><strong>Data</strong></td>
+<td>Clients, Models, Drivers</td>
+<td>Доступ к данным и внешним сервисам</td>
+</tr>
+<tr>
+<td><strong>DB connectors</strong></td>
+<td>Коннекторы к БД</td>
+<td>Подключение к базам данных</td>
+</tr>
+<tr>
+<td><strong>Config</strong></td>
+<td>OnlineConf</td>
+<td>Конфигурация, доступна на всех слоях</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Внешние связи:</strong></p>
+<ul>
+<li><strong>Network</strong> (вверху) → входящие запросы к API и Bots</li>
+<li><strong>Network</strong> (внизу) ← исходящие запросы от Clients и Drivers</li>
+<li><strong>DB</strong> ← запросы к базе данных через DB connectors</li>
+</ul>
+<h2 id="_3">Трёхслойный дизайн<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<p>Архитектура основана на трёх слоях с различными правилами зависимостей:</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph LAYER1["&lt;b&gt;Слой 1: internal/app/&lt;/b&gt;&lt;br/&gt;Проект-специфичный код"]
+        L1_DESC["✓ Зависит от конфига&lt;br/&gt;✓ Использует конкретный логгер&lt;br/&gt;✓ Знает о транспортах"]
+    end
+
+    subgraph LAYER2["&lt;b&gt;Слой 2: internal/pkg/&lt;/b&gt;&lt;br/&gt;Переиспользуемый код"]
+        L2_DESC["✗ НЕ зависит от конфига&lt;br/&gt;✗ НЕ привязан к логгеру&lt;br/&gt;✓ Возвращает ошибки вверх"]
+    end
+
+    subgraph LAYER3["&lt;b&gt;Слой 3: pkg/&lt;/b&gt;&lt;br/&gt;Runtime библиотеки"]
+        L3_DESC["✗ НЕ зависит от конфига&lt;br/&gt;✗ Максимально переиспользуем&lt;br/&gt;✓ Может быть вынесен в отдельный модуль"]
+    end
+
+    LAYER1 --&gt;|импортирует| LAYER2
+    LAYER2 --&gt;|импортирует| LAYER3
+
+    style LAYER1 fill:#fff3e0,stroke:#ff9800
+    style LAYER2 fill:#e8f5e9,stroke:#4caf50
+    style LAYER3 fill:#f3e5f5,stroke:#9c27b0</code></pre>
+<h3 id="_4">Почему это важно?<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Проблема</th>
+<th>Решение в архитектуре</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Сложность тестирования</td>
+<td>Нижние слои не зависят от конфига — легко мокать</td>
+</tr>
+<tr>
+<td>Привязка к логгеру</td>
+<td><code>internal/pkg</code> возвращает ошибки, логгер — на верхнем уровне</td>
+</tr>
+<tr>
+<td>Переиспользование</td>
+<td><code>pkg/</code> можно вынести в отдельный go module</td>
+</tr>
+<tr>
+<td>Циклические зависимости</td>
+<td>Зависимости только сверху вниз</td>
+</tr>
+</tbody>
+</table>
+<h2 id="spec-first">Spec-First подход<a class="headerlink" href="#spec-first" title="Permanent link">&para;</a></h2>
+<p>Одна из ключевых особенностей сгенерированного приложения — подход <strong>spec-first</strong> (или contract-first):</p>
+<pre class="mermaid"><code>flowchart LR
+    SPEC[OpenAPI/Proto&lt;br/&gt;Спецификация] --&gt; GEN{Генератор}
+    GEN --&gt; SERVER[Server Code&lt;br/&gt;Handlers]
+    GEN --&gt; CLIENT[Client Code&lt;br/&gt;HTTP/gRPC клиенты]
+
+    style SPEC fill:#e3f2fd
+    style SERVER fill:#e8f5e9
+    style CLIENT fill:#fff3e0</code></pre>
+<p><strong>Принцип:</strong> Спецификация создаётся <strong>до</strong> написания любого кода. По этой спецификации генерируется:</p>
+<ul>
+<li><strong>Серверный код</strong> — handlers для вашего сервиса</li>
+<li><strong>Клиентский код</strong> — типизированные клиенты для вызова других сервисов</li>
+</ul>
+<p><strong>Преимущества:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Аспект</th>
+<th>Выгода</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Контракт</strong></td>
+<td>API описан до реализации — frontend и backend могут работать параллельно</td>
+</tr>
+<tr>
+<td><strong>Типизация</strong></td>
+<td>Сгенерированные клиенты полностью типизированы</td>
+</tr>
+<tr>
+<td><strong>Консистентность</strong></td>
+<td>Клиент и сервер всегда соответствуют одной спецификации</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_5">Описание слоёв<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<h3 id="pkg-runtime">Слой <code>pkg/</code> (Runtime)<a class="headerlink" href="#pkg-runtime" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    subgraph PKG["pkg/"]
+        APP["app/&lt;br/&gt;Lifecycle"]
+        DRIVERS["drivers/&lt;br/&gt;DB, Redis, S3..."]
+        REST["rest/&lt;br/&gt;HTTP клиенты"]
+        MIDDLEWARE["middleware/&lt;br/&gt;HTTP middleware"]
+    end
+
+    style PKG fill:#f3e5f5,stroke:#9c27b0</code></pre>
+<p><strong>Назначение:</strong> Runtime-библиотеки, максимально переиспользуемые между проектами.</p>
+<p><strong>Требования:</strong></p>
+<ul>
+<li>✗ Нет зависимостей от конфига проекта</li>
+<li>✗ Нет зависимостей от конкретных реализаций логгера</li>
+<li>✓ Может быть вынесен в отдельный go module</li>
+</ul>
+<p><strong>Содержимое:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Директория</th>
+<th>Назначение</th>
+<th>Примеры</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pkg/app/</code></td>
+<td>Жизненный цикл приложения</td>
+<td><code>Runnable</code> интерфейс, graceful shutdown</td>
+</tr>
+<tr>
+<td><code>pkg/drivers/</code></td>
+<td>Драйверы внешних сервисов</td>
+<td>PostgreSQL, Redis, S3, Telegram</td>
+</tr>
+<tr>
+<td><code>pkg/rest/</code></td>
+<td>Сгенерированные REST клиенты</td>
+<td>Ogen-клиенты для внешних API</td>
+</tr>
+<tr>
+<td><code>pkg/middleware/</code></td>
+<td>HTTP middleware</td>
+<td>Metrics, tracing, auth</td>
+</tr>
+</tbody>
+</table>
+<h3 id="internalpkg-generated-core">Слой <code>internal/pkg/</code> (Generated Core)<a class="headerlink" href="#internalpkg-generated-core" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    subgraph IPKG["internal/pkg/"]
+        MODEL["model/&lt;br/&gt;Модели данных"]
+        SERVICE["service/&lt;br/&gt;Интерфейсы"]
+        REPO["repository/&lt;br/&gt;Доступ к данным"]
+        CONSTANT["constant/&lt;br/&gt;Константы"]
+    end
+
+    style IPKG fill:#e8f5e9,stroke:#4caf50</code></pre>
+<p><strong>Назначение:</strong> Генерируемый код, переиспользуемый между приложениями одного сервиса.</p>
+<p><strong>Требования:</strong></p>
+<ul>
+<li>✗ Не зависит от проект-специфичных настроек</li>
+<li>✗ Не привязан к конкретному логгеру</li>
+<li>✓ Функции возвращают ошибки вверх, логирование — на верхнем уровне</li>
+</ul>
+<p><strong>Содержимое:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Директория</th>
+<th>Назначение</th>
+<th>Пример кода</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>model/</code></td>
+<td>Модели данных</td>
+<td><code>type User struct {...}</code></td>
+</tr>
+<tr>
+<td><code>service/</code></td>
+<td>Интерфейсы сервисов</td>
+<td><code>type UserService interface {...}</code></td>
+</tr>
+<tr>
+<td><code>repository/</code></td>
+<td>Репозитории</td>
+<td><code>func (r *Repo) GetUser(ctx, id)</code></td>
+</tr>
+<tr>
+<td><code>constant/</code></td>
+<td>Константы</td>
+<td><code>const ServiceName = "my-api"</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="internalapp-project-specific">Слой <code>internal/app/</code> (Project-Specific)<a class="headerlink" href="#internalapp-project-specific" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    subgraph IAPP["internal/app/{app_name}/"]
+        TRANSPORT["transport/&lt;br/&gt;REST, gRPC, CLI"]
+        WORKER["worker/&lt;br/&gt;Telegram, Daemon"]
+        SVC["service/&lt;br/&gt;Бизнес-логика"]
+    end
+
+    style IAPP fill:#fff3e0,stroke:#ff9800</code></pre>
+<p><strong>Назначение:</strong> Код, специфичный для конкретного приложения.</p>
+<p><strong>Характеристики:</strong></p>
+<ul>
+<li>✓ Может зависеть от конфига</li>
+<li>✓ Может использовать конкретные реализации (логгер, драйверы)</li>
+<li>✓ Содержит бизнес-логику обработчиков</li>
+</ul>
+<p><strong>Содержимое:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Директория</th>
+<th>Назначение</th>
+<th>Пример</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transport/rest/</code></td>
+<td>REST обработчики</td>
+<td><code>handler.go</code> с методами API</td>
+</tr>
+<tr>
+<td><code>transport/grpc/</code></td>
+<td>gRPC реализации</td>
+<td>Реализация proto-сервисов</td>
+</tr>
+<tr>
+<td><code>worker/</code></td>
+<td>Фоновые воркеры</td>
+<td>Telegram bot, Kafka consumer</td>
+</tr>
+<tr>
+<td><code>service/</code></td>
+<td>Бизнес-логика</td>
+<td>Специфичная для приложения логика</td>
+</tr>
+</tbody>
+</table>
+<h2 id="service-">Service — ядро бизнес-логики<a class="headerlink" href="#service-" title="Permanent link">&para;</a></h2>
+<p><strong>Service</strong> — это центральный компонент, который содержит всю бизнес-логику приложения. Независимо от количества транспортов, воркеров или ботов — все они обращаются к одному и тому же сервису.</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph TRANSPORTS["Транспортный слой"]
+        REST[REST API]
+        GRPC[gRPC]
+        CLI[CLI]
+        BOT[Telegram Bot]
+        WORKER[Worker]
+    end
+
+    subgraph CORE["Ядро"]
+        SERVICE[Service&lt;br/&gt;Бизнес-логика]
+    end
+
+    subgraph DATA["Доступ к данным"]
+        MODEL[Model/ORM]
+        CLIENT[REST/gRPC клиенты]
+        DRIVER[Drivers]
+    end
+
+    REST --&gt; SERVICE
+    GRPC --&gt; SERVICE
+    CLI --&gt; SERVICE
+    BOT --&gt; SERVICE
+    WORKER --&gt; SERVICE
+
+    SERVICE --&gt; MODEL
+    SERVICE --&gt; CLIENT
+    SERVICE --&gt; DRIVER
+
+    style CORE fill:#e8f5e9,stroke:#4caf50</code></pre>
+<p><strong>Ключевые принципы:</strong></p>
+<ol>
+<li><strong>Единственное место для бизнес-логики</strong> — вся переиспользуемая логика лежит в сервисе</li>
+<li><strong>Изолированность</strong> — сервис не знает о транспортах, он просто выполняет бизнес-операции</li>
+<li><strong>Подготовка к масштабированию</strong> — при распиливании монорепо на микросервисы, именно сервис будет рефакториться</li>
+</ol>
+<p><strong>Что доступно сервису:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Компонент</th>
+<th>Назначение</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Model</strong></td>
+<td>ORM для работы с базами данных (по умолчанию go-active-record)</td>
+</tr>
+<tr>
+<td><strong>Client</strong></td>
+<td>Сгенерированные клиенты к другим сервисам (REST, gRPC)</td>
+</tr>
+<tr>
+<td><strong>Driver</strong></td>
+<td>Кастомные коннекторы к внешним системам</td>
+</tr>
+<tr>
+<td><strong>Config</strong></td>
+<td>Конфигурация через OnlineConf (синглтон)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Важно:</strong> Уделяйте особое внимание структуре пакетов внутри сервиса. Каждый компонент должен быть изолирован, чтобы в будущем его было проще выделить в отдельный микросервис.</p>
+<h2 id="_6">Типы транспортов<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<p>Транспортный слой делится на 4 типа по способу получения событий:</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph INCOMING["Входящие запросы"]
+        REST[REST API&lt;br/&gt;Принимает HTTP запросы]
+        GRPC[gRPC&lt;br/&gt;Принимает RPC вызовы]
+    end
+
+    subgraph POLLING["Опрос/подписка"]
+        BOT[Bots&lt;br/&gt;Подключается к серверам,&lt;br/&gt;читает события]
+        WORKER[Workers&lt;br/&gt;Берёт задачи из очереди,&lt;br/&gt;выполняет в цикле]
+    end
+
+    subgraph UTILITY["Утилиты"]
+        CLI[CLI&lt;br/&gt;Консольные команды&lt;br/&gt;для администрирования]
+    end
+
+    style INCOMING fill:#e3f2fd
+    style POLLING fill:#fff3e0
+    style UTILITY fill:#e8f5e9</code></pre>
+<table>
+<thead>
+<tr>
+<th>Тип</th>
+<th>Описание</th>
+<th>Примеры</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>API (REST/gRPC)</strong></td>
+<td>Принимают внешние запросы, обрабатывают, отвечают</td>
+<td>HTTP эндпоинты, gRPC сервисы</td>
+</tr>
+<tr>
+<td><strong>Workers</strong></td>
+<td>Демоны с бесконечным циклом, выполняют джобы пачками</td>
+<td>Обработка очередей, cron-задачи</td>
+</tr>
+<tr>
+<td><strong>Bots</strong></td>
+<td>Подключаются к внешним серверам, ждут события</td>
+<td>Telegram, Slack боты</td>
+</tr>
+<tr>
+<td><strong>CLI</strong></td>
+<td>Консольные утилиты для разовых операций</td>
+<td>Миграции, админские команды</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Workers vs Bots:</strong></p>
+<ul>
+<li><strong>Workers</strong> — сами берут задачи (pull-модель)</li>
+<li><strong>Bots</strong> — получают события от внешних систем (push-модель)</li>
+</ul>
+<h2 id="application">Концепция Application<a class="headerlink" href="#application" title="Permanent link">&para;</a></h2>
+<p><strong>Application</strong> — атомарная единица горизонтального масштабирования (контейнер).</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph SERVICE["Один сервис (codebase)"]
+        subgraph APP1["Application: gateway"]
+            REST1[REST API v1]
+            GRPC1[gRPC Users]
+        end
+
+        subgraph APP2["Application: workers"]
+            TG[Telegram Bot]
+            KAFKA[Kafka Consumer]
+        end
+
+        subgraph APP3["Application: admin"]
+            REST2[REST Admin API]
+        end
+    end
+
+    subgraph DEPLOY["Kubernetes/Docker"]
+        POD1[Pod: gateway&lt;br/&gt;replicas: 3]
+        POD2[Pod: workers&lt;br/&gt;replicas: 1]
+        POD3[Pod: admin&lt;br/&gt;replicas: 1]
+    end
+
+    APP1 -.-&gt; POD1
+    APP2 -.-&gt; POD2
+    APP3 -.-&gt; POD3
+
+    style SERVICE fill:#e3f2fd
+    style DEPLOY fill:#e8f5e9</code></pre>
+<h3 id="_7">Характеристики<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Свойство</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Атомарность</strong></td>
+<td>Один бинарь = один контейнер = один pod</td>
+</tr>
+<tr>
+<td><strong>Компоненты</strong></td>
+<td>HTTP серверы, gRPC серверы, воркеры инициализируются параллельно</td>
+</tr>
+<tr>
+<td><strong>Масштабирование</strong></td>
+<td>Каждое application масштабируется независимо</td>
+</tr>
+<tr>
+<td><strong>Конфигурация</strong></td>
+<td>Каждое application может иметь свои настройки</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">applications</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="c1"># API Gateway с REST и gRPC (высоконагруженный)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gateway</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">transport</span><span class="p">:</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rest_api</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grpc_users</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="c1"># Выделенный worker instance (один экземпляр)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">workers</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">worker</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">telegram_bot</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">kafka</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">order_consumer</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="c1"># Всё-в-одном для небольших деплоев</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">monolith</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">transport</span><span class="p">:</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rest_api</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grpc_users</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="nt">worker</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">telegram_bot</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<h3 id="application_1">Жизненный цикл Application<a class="headerlink" href="#application_1" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; Init: Запуск
+
+    state Init {
+        [*] --&gt; LoadConfig: 1. Загрузка конфига
+        LoadConfig --&gt; CreateLogger: 2. Создание логгера
+        CreateLogger --&gt; InitDrivers: 3. Init драйверов
+        InitDrivers --&gt; [*]
+    }
+
+    Init --&gt; Run: Успешная инициализация
+
+    state Run {
+        [*] --&gt; RunDrivers: 1. Run драйверов
+        RunDrivers --&gt; StartHTTP: 2. Запуск HTTP серверов
+        StartHTTP --&gt; StartGRPC: 3. Запуск gRPC серверов
+        StartGRPC --&gt; StartWorkers: 4. Запуск воркеров
+        StartWorkers --&gt; Serving: Все компоненты запущены
+        Serving --&gt; [*]: SIGTERM/SIGINT
+    }
+
+    Run --&gt; Shutdown: Сигнал завершения
+
+    state Shutdown {
+        [*] --&gt; GracefulWorkers: 1. Graceful shutdown воркеров
+        GracefulWorkers --&gt; StopHTTP: 2. Остановка HTTP (drain)
+        StopHTTP --&gt; StopGRPC: 3. Остановка gRPC
+        StopGRPC --&gt; ShutdownDrivers: 4. Shutdown драйверов
+        ShutdownDrivers --&gt; [*]
+    }
+
+    Shutdown --&gt; [*]: Завершение</code></pre>
+<h2 id="_8">Сохранение пользовательского кода<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<p><strong>Главная особенность:</strong> Перегенерируйте весь проект без потери ваших изменений.</p>
+<p>Каждый сгенерированный файл содержит disclaimer-маркер:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1">// ==========================================</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1">// GENERATED CODE - DO NOT EDIT ABOVE THIS LINE</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1">// Changes manually made below will not be overwritten by generator.</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1">// ==========================================</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">Handler</span><span class="p">)</span><span class="w"> </span><span class="nx">CreateUser</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="o">*</span><span class="nx">CreateUserRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">User</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="c1">// Ваша бизнес-логика здесь</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="c1">// Этот код переживёт регенерацию!</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nx">user</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">User</span><span class="p">{</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="nx">Email</span><span class="p">:</span><span class="w"> </span><span class="nx">req</span><span class="p">.</span><span class="nx">Email</span><span class="p">,</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">        </span><span class="nx">Name</span><span class="p">:</span><span class="w">  </span><span class="nx">req</span><span class="p">.</span><span class="nx">Name</span><span class="p">,</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="c1">// Кастомная валидация</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">h</span><span class="p">.</span><span class="nx">validateBusinessRules</span><span class="p">(</span><span class="nx">user</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">h</span><span class="p">.</span><span class="nx">repo</span><span class="p">.</span><span class="nx">Create</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">user</span><span class="p">)</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Правила:</strong></p>
+<ol>
+<li>Код выше маркера регенерируется при каждом запуске</li>
+<li>Код ниже маркера сохраняется навсегда</li>
+<li>Если нужно изменить сгенерированный код — переместите его ниже маркера</li>
+</ol>
+<h2 id="_9">Драйверы интеграций<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<p><strong>Драйвер</strong> — адаптер между бизнес-логикой и внешним API.</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph APP["Application"]
+        SERVICE[Service&lt;br/&gt;бизнес-логика]
+    end
+
+    subgraph INTERFACE["Interface"]
+        IFACE["SendMessage(ctx, msg)&lt;br/&gt;GetFile(ctx, id)"]
+    end
+
+    subgraph DRIVERS["Drivers"]
+        TG[Telegram Driver]
+        SLACK[Slack Driver]
+        MOCK[Mock Driver]
+    end
+
+    subgraph EXTERNAL["External APIs"]
+        TG_API[Telegram API]
+        SLACK_API[Slack API]
+    end
+
+    SERVICE --&gt; IFACE
+    IFACE -.-&gt; TG
+    IFACE -.-&gt; SLACK
+    IFACE -.-&gt; MOCK
+    TG --&gt; TG_API
+    SLACK --&gt; SLACK_API
+
+    style APP fill:#fff3e0
+    style INTERFACE fill:#e8f5e9
+    style DRIVERS fill:#e3f2fd
+    style EXTERNAL fill:#fce4ec</code></pre>
+<h3 id="_10">Принцип работы<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Компонент</th>
+<th>Ответственность</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Service</strong></td>
+<td>Вызывает абстрактный интерфейс ("отправь сообщение")</td>
+</tr>
+<tr>
+<td><strong>Interface</strong></td>
+<td>Определяет контракт (что можно делать)</td>
+</tr>
+<tr>
+<td><strong>Driver</strong></td>
+<td>Транслирует вызов в конкретный API</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Преимущества:</strong></p>
+<ul>
+<li>Замена провайдера без изменения бизнес-логики</li>
+<li>Лёгкое тестирование через mock-драйверы</li>
+<li>Поддержка нескольких провайдеров одновременно</li>
+</ul>
+<h3 id="runnable">Интерфейс Runnable<a class="headerlink" href="#runnable" title="Permanent link">&para;</a></h3>
+<p>Все драйверы реализуют унифицированный интерфейс жизненного цикла:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">Runnable</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nx">Init</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w">           </span><span class="c1">// Инициализация подключений</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nx">Run</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w">            </span><span class="c1">// Запуск фоновых процессов</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nx">Shutdown</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w">       </span><span class="c1">// Немедленная остановка</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nx">GracefulShutdown</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="c1">// Graceful остановка</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="_11">Типы драйверов<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart TB
+    subgraph ACTIVE["Активные драйверы"]
+        TG["Telegram&lt;br/&gt;webhook listener"]
+        WS["WebSocket&lt;br/&gt;connection pool"]
+    end
+
+    subgraph PASSIVE["Пассивные драйверы"]
+        S3["S3&lt;br/&gt;on-demand calls"]
+        DB["PostgreSQL&lt;br/&gt;connection pool"]
+    end
+
+    ACTIVE --&gt;|Run блокирует| GOROUTINE[Фоновая горутина]
+    PASSIVE --&gt;|Run = no-op| NOOP[Немедленный возврат]
+
+    style ACTIVE fill:#fff3e0
+    style PASSIVE fill:#e8f5e9</code></pre>
+<table>
+<thead>
+<tr>
+<th>Тип</th>
+<th>Примеры</th>
+<th>Метод Run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Активные</strong></td>
+<td>Telegram, WebSocket</td>
+<td>Блокирует, слушает события</td>
+</tr>
+<tr>
+<td><strong>Пассивные</strong></td>
+<td>S3, PostgreSQL</td>
+<td>No-op, вызовы по требованию</td>
+</tr>
+</tbody>
+</table>
+<h2 id="middleware-stack">Middleware Stack<a class="headerlink" href="#middleware-stack" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TB
+    REQ[HTTP Request] --&gt; MW1
+
+    subgraph MIDDLEWARE["Middleware Chain"]
+        MW1["1. Context Creation&lt;br/&gt;таймаут, cancel"]
+        MW2["2. Panic Recovery&lt;br/&gt;перехват паник"]
+        MW3["3. Request Timing&lt;br/&gt;время начала"]
+        MW4["4. Tracing&lt;br/&gt;x-req-id header"]
+        MW5["5. Metrics&lt;br/&gt;Prometheus counters"]
+        MW6["6. X-Server Header&lt;br/&gt;идентификатор сервера"]
+        MW7["7. HTTP Auth&lt;br/&gt;(опционально)"]
+        MW8["8. CSRF Protection&lt;br/&gt;(опционально)"]
+
+        MW1 --&gt; MW2 --&gt; MW3 --&gt; MW4 --&gt; MW5 --&gt; MW6 --&gt; MW7 --&gt; MW8
+    end
+
+    MW8 --&gt; HANDLER[Handler&lt;br/&gt;бизнес-логика]
+    HANDLER --&gt; RESP[HTTP Response]
+
+    style MIDDLEWARE fill:#e3f2fd</code></pre>
+<h3 id="middleware">Описание middleware<a class="headerlink" href="#middleware" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Middleware</th>
+<th>Назначение</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Context Creation</strong></td>
+<td>Создание request context с таймаутом и cancel функцией</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Panic Recovery</strong></td>
+<td>Перехват паник, логирование stack trace, возврат 500</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Request Timing</strong></td>
+<td>Добавление времени начала запроса в context</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Tracing</strong></td>
+<td>Добавление/проброс trace ID (<code>x-req-id</code> header)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Metrics</strong></td>
+<td>Сбор Prometheus метрик (latency, status codes, in-flight)</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>X-Server Header</strong></td>
+<td>Добавление заголовка с идентификатором сервера</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>HTTP Auth</strong></td>
+<td>Actor-based аутентификация (опционально)</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>CSRF Protection</strong></td>
+<td>Валидация CSRF токена (опционально)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="request-flow">Поток запроса (Request Flow)<a class="headerlink" href="#request-flow" title="Permanent link">&para;</a></h2>
+<p>Полный путь HTTP-запроса через систему:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Client
+    participant Traefik as Traefik&lt;br/&gt;(reverse proxy)
+    participant HTTP as HTTP Server
+    participant MW as Middleware Chain
+    participant Handler as Handler
+    participant Service as Service
+    participant Repo as Repository
+    participant DB as Database
+
+    Client-&gt;&gt;Traefik: POST /api/v1/users
+    Traefik-&gt;&gt;HTTP: Forward request
+
+    HTTP-&gt;&gt;MW: Process request
+    Note over MW: 1. Context + timeout&lt;br/&gt;2. Panic recovery&lt;br/&gt;3. Tracing (x-req-id)&lt;br/&gt;4. Metrics start
+
+    MW-&gt;&gt;Handler: Call handler
+    Handler-&gt;&gt;Service: CreateUser(ctx, req)
+    Service-&gt;&gt;Repo: repo.Create(ctx, user)
+    Repo-&gt;&gt;DB: INSERT INTO users...
+    DB--&gt;&gt;Repo: OK
+    Repo--&gt;&gt;Service: user, nil
+    Service--&gt;&gt;Handler: user, nil
+    Handler--&gt;&gt;MW: response
+
+    Note over MW: 5. Metrics end&lt;br/&gt;6. Log request
+
+    MW--&gt;&gt;HTTP: response
+    HTTP--&gt;&gt;Traefik: HTTP 201 Created
+    Traefik--&gt;&gt;Client: response</code></pre>
+<h2 id="_12">Структура сгенерированного проекта<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>myservice/                         # ~50 файлов, ~8000 строк кода
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>├── cmd/
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>│   └── server/                    # Точка входа приложения
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>│       └── main.go
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>│
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>├── internal/
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>│   ├── app/                       # Проект-специфичный код
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>│   │   └── {app_name}/
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>│   │       ├── transport/
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>│   │       │   ├── rest/
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>│   │       │   │   └── {api_name}/
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>│   │       │   │       ├── handler.go     # ← ВАШ КОД ЗДЕСЬ
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>│   │       │   │       └── middleware.go
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>│   │       │   └── grpc/
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>│   │       │       └── {service_name}/
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>│   │       │           └── handler.go
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>│   │       ├── worker/
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>│   │       │   ├── telegram/
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>│   │       │   │   └── handler.go
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>│   │       │   └── daemon/
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>│   │       │       └── handler.go
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>│   │       └── service/
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>│   │           └── service.go            # ← ВАШ КОД ЗДЕСЬ
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>│   │
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>│   └── pkg/                       # Переиспользуемый код
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>│       ├── model/                 # Модели данных
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a>│       ├── repository/            # Доступ к данным
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a>│       ├── service/               # Интерфейсы сервисов
+<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>│       └── constant/              # Константы (ServiceName)
+<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a>│
+<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a>├── pkg/                           # Runtime библиотеки
+<a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a>│   ├── app/                       # Lifecycle
+<a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a>│   ├── drivers/                   # DB, Redis, S3...
+<a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a>│   ├── rest/                      # HTTP клиенты
+<a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a>│   └── middleware/                # HTTP middleware
+<a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a>│
+<a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a>├── api/                           # API спецификации
+<a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a>│   ├── openapi.yaml               # OpenAPI 3.0
+<a id="__codelineno-3-39" name="__codelineno-3-39" href="#__codelineno-3-39"></a>│   └── proto/                     # Protobuf файлы
+<a id="__codelineno-3-40" name="__codelineno-3-40" href="#__codelineno-3-40"></a>│
+<a id="__codelineno-3-41" name="__codelineno-3-41" href="#__codelineno-3-41"></a>├── docker-compose.yaml            # Локальное окружение
+<a id="__codelineno-3-42" name="__codelineno-3-42" href="#__codelineno-3-42"></a>├── docker-compose-dev.yaml        # Dev окружение с OnlineConf
+<a id="__codelineno-3-43" name="__codelineno-3-43" href="#__codelineno-3-43"></a>├── Dockerfile                     # Multi-stage build (~50MB)
+<a id="__codelineno-3-44" name="__codelineno-3-44" href="#__codelineno-3-44"></a>├── Makefile                       # 40+ targets
+<a id="__codelineno-3-45" name="__codelineno-3-45" href="#__codelineno-3-45"></a>│
+<a id="__codelineno-3-46" name="__codelineno-3-46" href="#__codelineno-3-46"></a>└── .github/
+<a id="__codelineno-3-47" name="__codelineno-3-47" href="#__codelineno-3-47"></a>    └── workflows/                 # CI/CD
+<a id="__codelineno-3-48" name="__codelineno-3-48" href="#__codelineno-3-48"></a>        ├── ci.yaml                # Test, lint, build
+<a id="__codelineno-3-49" name="__codelineno-3-49" href="#__codelineno-3-49"></a>        └── release.yaml           # Docker push
+</code></pre></div>
+<h2 id="endpoints">Генерируемые endpoints<a class="headerlink" href="#endpoints" title="Permanent link">&para;</a></h2>
+<h3 id="system-healthmonitoring-sys">System Health/Monitoring (шаблон <code>sys</code>)<a class="headerlink" href="#system-healthmonitoring-sys" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Метод</th>
+<th>Путь</th>
+<th>Назначение</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/version</code></td>
+<td>Информация о версии</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/ready</code></td>
+<td>Readiness probe</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/live</code></td>
+<td>Liveness probe</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/metrics</code></td>
+<td>Prometheus метрики</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/debug/pprof/*</code></td>
+<td>Go pprof профилирование</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  К началу
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Educentr/go-project-starter" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.share", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0431\u0443\u0444\u0435\u0440", "clipboard.copy": "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0432 \u0431\u0443\u0444\u0435\u0440", "search.result.more.one": "\u0415\u0449\u0451 1 \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.more.other": "\u0415\u0449\u0451 # \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.none": "\u0421\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", "search.result.one": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e 1 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435", "search.result.other": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439: #", "search.result.placeholder": "\u041d\u0430\u0447\u043d\u0438\u0442\u0435 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430", "search.result.term.missing": "\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442", "select.version": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0435\u0440\u0441\u0438\u044e"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+      
+    
+  </body>
+</html>
