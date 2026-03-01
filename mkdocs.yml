@@ -85,6 +85,9 @@ nav:
     - Регенерация: workflow/regeneration.md
     - Makefile: workflow/makefile.md
     - OnlineConf: workflow/onlineconf.md
+  - Coding agents:
+    - ai-agents/index.md
+    - Генерация: ai-agents/llms-md.md
   - Примеры:
     - examples/index.md
     - REST API: examples/rest-api.md
