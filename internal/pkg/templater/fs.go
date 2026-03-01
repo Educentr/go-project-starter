@@ -29,6 +29,7 @@ const (
 	embedWorkerPrefix    = "embedded/templates/worker"
 	embedConfigSuffix    = "config"
 	embedFilesSuffix     = "files"
+	embedSharedSuffix    = "shared"
 )
 
 //go:embed all:embedded
@@ -360,6 +361,23 @@ func GetWorkerRunnerTemplates(template string, params GeneratorRunnerParams) (di
 
 	return dirs, files, nil
 
+}
+
+func GetWorkerRunnerSharedTemplates(template string, params GeneratorParams) (dirs, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, embedJoin(embedWorkerPrefix, template, embedSharedSuffix), params)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+
+			return
+		}
+
+		err = errors.Wrapf(err, "error while get worker runner shared templates `%s`", template)
+
+		return
+	}
+
+	return
 }
 
 func GetTransportHandlerTemplates(transport ds.TransportType, template string, params GeneratorHandlerParams) (dirs, files []ds.Files, err error) {
