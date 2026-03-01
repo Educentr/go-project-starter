@@ -34,6 +34,7 @@ type GeneratorParams struct {
 	UseActiveRecord     bool
 	DevStand            bool
 	GenerateLlmsMd      bool
+	LlmsFileName        string // "CLAUDE.md" or "LLMS.md" — determined at generation time
 	CI                  []string
 	Repo                string
 	PrivateRepos        string
@@ -215,6 +216,7 @@ var (
 		"LICENSE.txt":          {},
 		"README.md":            {},
 		"LLMS.md":              {},
+		"CLAUDE.md":            {},
 		"etc/onlineconf/.keep": {},
 		"public/.keep":         {}, // ToDo ignore all keep files
 	}

@@ -46,6 +46,11 @@ func TestIsFileIgnored(t *testing.T) {
 			want:     true,
 		},
 		{
+			name:     "CLAUDE.md is ignored",
+			filename: "CLAUDE.md",
+			want:     true,
+		},
+		{
 			name:     "go file is not ignored",
 			filename: "main.go",
 			want:     false,
@@ -635,6 +640,11 @@ func TestIsFileIgnore(t *testing.T) {
 		{
 			name: "LLMS.md is ignored",
 			path: "LLMS.md",
+			want: true,
+		},
+		{
+			name: "CLAUDE.md is ignored",
+			path: "CLAUDE.md",
 			want: true,
 		},
 		{

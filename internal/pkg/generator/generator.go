@@ -34,6 +34,7 @@ type Generator struct {
 	UseActiveRecord     bool
 	DevStand            bool
 	GenerateLlmsMd      bool
+	LlmsFileName        string
 	CI                  []string
 	Repo                string
 	PrivateRepos        string
@@ -709,6 +710,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		UseActiveRecord:     g.UseActiveRecord,
 		DevStand:            g.DevStand,
 		GenerateLlmsMd:      g.GenerateLlmsMd,
+		LlmsFileName:        g.LlmsFileName,
 		CI:                  g.CI,
 		Repo:                g.Repo,
 		PrivateRepos:        g.PrivateRepos,
@@ -1057,6 +1059,32 @@ func (g *Generator) Generate() error {
 }
 
 func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, error) {
+	// Determine output filename for AI agent documentation
+	if g.GenerateLlmsMd {
+		llmsPath := filepath.Join(targetPath, "LLMS.md")
+		claudePath := filepath.Join(targetPath, "CLAUDE.md")
+
+		_, llmsErr := os.Stat(llmsPath)
+		_, claudeErr := os.Stat(claudePath)
+
+		switch {
+		case !os.IsNotExist(llmsErr):
+			// LLMS.md already exists → keep LLMS.md
+			g.LlmsFileName = "LLMS.md"
+		case os.IsNotExist(claudeErr):
+			// Neither file exists → prefer CLAUDE.md
+			g.LlmsFileName = "CLAUDE.md"
+		default:
+			// Only CLAUDE.md exists. Distinguish "ours" from "user's" via meta.yaml
+			metaPath := filepath.Join(targetPath, ".project-config", "meta.yaml")
+			if _, err := os.Stat(metaPath); err == nil {
+				g.LlmsFileName = "CLAUDE.md" // regeneration: we generated it
+			} else {
+				g.LlmsFileName = "LLMS.md" // first generation: user's file
+			}
+		}
+	}
+
 	dirs, files, err := templater.GetMainTemplates(g.GetTmplParams())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get main templates: %w", err)

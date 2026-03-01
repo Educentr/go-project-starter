@@ -1,4 +1,4 @@
-# LLMS.md
+# {{ .LlmsFileName }}
 
 This file provides guidance to AI coding agents (Claude Code, Codex, Cursor, etc.) when working with this codebase.
 
@@ -92,7 +92,7 @@ make regenerate               # Full project regeneration via go-project-starter
 ### Regeneration safety
 
 - Files with disclaimer markers: code above marker is regenerated, code below is preserved
-- Files in `ignoreIfExistsFiles` (`.gitignore`, `go.mod`, `README.md`, `LLMS.md`, `LICENSE.txt`): never overwritten
+- Files in `ignoreIfExistsFiles` (`.gitignore`, `go.mod`, `README.md`, `{{ .LlmsFileName }}`, `LICENSE.txt`): never overwritten
 - Files without disclaimer markers and no template: auto-deleted if obsolete
 - User files (no markers): never touched
 
@@ -112,7 +112,7 @@ main:
   author: "My Org"             # Optional. Default: "Unknown author"
   use_active_record: true      # Optional. Enables PostgreSQL ActiveRecord ORM
   dev_stand: true              # Optional. Generates docker-compose-dev with OnlineConf
-  generate_llms_md: true       # Optional. Generates LLMS.md for AI agents
+  generate_llms_md: true       # Optional. Generates {{ .LlmsFileName }} for AI agents
   ci:                          # Optional. "github" | "gitlab". Empty = both
     - github
 
