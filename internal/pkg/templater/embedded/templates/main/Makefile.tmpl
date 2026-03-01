@@ -224,7 +224,7 @@ docker-{{ $a.Name }}-push:
 {{ end }}
 # Run service {{ $a.Name }}
 .PHONY: run-{{ $a.Name }}
-run-{{ $a.Name }}: onlineconf-update
+run-{{ $a.Name }}:{{ if not $a.UseEnvs }} onlineconf-update{{ end }}
 	./scripts/goversioncheck.sh $(MIN_GO_VERSION) && OTEL_SERVICE_NAME="$(SERVICE_NAME)-devel" go run -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}/psg_main_gen.go
 
 # Build service {{ $a.Name }}
