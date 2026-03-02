@@ -8,6 +8,7 @@ import (
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/go-faster/jx"
+	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/ogenerrors"
 	"github.com/pkg/errors"
 	{{ .Logger.Import }}
@@ -76,9 +77,16 @@ func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseW
 				Code:  http.StatusUnauthorized,
 				Error: "not authorized",
 		}
+	case errors.Is(errHdl, ht.ErrNotImplemented):
+		{{ .Logger.WarnMsg "ctx" "Method not implemented" "err::errHdl"}}
+
+		errResp = oas.ErrorDefault{
+			Code:  http.StatusMethodNotAllowed,
+			Error: "method not implemented",
+		}
 	default:
 		{{ .Logger.ErrorMsg "ctx" "errHdl" "Unexpected error from handler"}}
-	
+
 		errResp = oas.ErrorDefault{
 			Code:  http.StatusInternalServerError,
 			Error: fmt.Sprintf("error type: %T, message: %s", errHdl, userErr),
