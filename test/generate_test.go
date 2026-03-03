@@ -184,22 +184,35 @@ func TestGenerateRESTLogrus(t *testing.T) {
 
 	t.Logf("Logrus project created in %s: %s", tmpDir, out)
 
-	// Verify key files exist
+	// Verify key files exist (REST server/mw now come from runtime, only client and restconfig are generated)
 	expectedFiles := []string{
 		"Makefile",
 		"go.mod",
 		"cmd/api/psg_main_gen.go",
 		"pkg/app/logger/psg_logrus_gen.go",
-		"pkg/app/rest/psg_server_gen.go",
-		"pkg/app/rest/psg_closer_gen.go",
-		"pkg/app/rest/mw/psg_mw_gen.go",
-		"pkg/app/rest/mw/psg_metrics_gen.go",
+		"pkg/app/rest/psg_client_gen.go",
+		"pkg/app/restconfig/psg_config_oc_gen.go",
 	}
 
 	for _, f := range expectedFiles {
 		path := filepath.Join(tmpDir, f)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("Expected file not found: %s", f)
+		}
+	}
+
+	// Verify REST server/mw files are NOT generated (moved to runtime)
+	removedFiles := []string{
+		"pkg/app/rest/psg_server_gen.go",
+		"pkg/app/rest/psg_closer_gen.go",
+		"pkg/app/rest/mw/psg_mw_gen.go",
+		"pkg/app/rest/mw/psg_metrics_gen.go",
+	}
+
+	for _, f := range removedFiles {
+		path := filepath.Join(tmpDir, f)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("File should NOT exist (moved to runtime): %s", f)
 		}
 	}
 
@@ -219,20 +232,16 @@ func TestGenerateRESTLogrus(t *testing.T) {
 		t.Error("Logger file should import sirupsen/logrus")
 	}
 
-	// Verify rlog import in generated server
-	serverFile := filepath.Join(tmpDir, "pkg", "app", "rest", "psg_server_gen.go")
+	// Verify rlog import in generated restconfig (logrus uses rlog alias)
+	restconfigFile := filepath.Join(tmpDir, "pkg", "app", "restconfig", "psg_config_oc_gen.go")
 
-	serverContent, err := os.ReadFile(serverFile)
+	restconfigContent, err := os.ReadFile(restconfigFile)
 	if err != nil {
-		t.Fatalf("Error reading server file: %v", err)
+		t.Fatalf("Error reading restconfig file: %v", err)
 	}
 
-	if !strings.Contains(string(serverContent), `rlog "github.com/Educentr/go-project-starter-runtime/pkg/logger"`) {
-		t.Error("Server file should import runtime logger as rlog")
-	}
-
-	if !strings.Contains(string(serverContent), "rlog.LogrusFromContext") {
-		t.Error("Server file should use rlog.LogrusFromContext")
+	if !strings.Contains(string(restconfigContent), `rlog "github.com/Educentr/go-project-starter-runtime/pkg/logger"`) {
+		t.Error("Restconfig file should import runtime logger as rlog for logrus")
 	}
 
 	// Verify zerolog is NOT used
@@ -496,35 +505,14 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 		}
 	}
 
-	// pkg/app/rest/psg_server_gen.go — split timeouts, atomic field, subscription
-	assertFileContains(t, "pkg/app/rest/psg_server_gen.go", []string{
+	// pkg/app/restconfig/psg_config_oc_gen.go — timeout config via OnlineConf (server/mw moved to runtime)
+	assertFileContains(t, "pkg/app/restconfig/psg_config_oc_gen.go", []string{
 		`"server/timeout/read"`,
 		`"server/timeout/write"`,
-		"writeTimeout", // atomic.Int64 field for dynamic timeout
-		"atomic.Int64",
-		"RegisterSubscription",
-		"GetWriteTimeout",
-		"updateTimeouts",
-	})
-
-	// pkg/app/rest/mw/psg_mw_gen.go — CreateContextWithTimeout, fallback, clamping
-	assertFileContains(t, "pkg/app/rest/mw/psg_mw_gen.go", []string{
+		"SubscribeTimeoutChanges",
+		"ResolveHandlerTimeout",
 		"CreateContextWithTimeout",
-		"resolveHandlerTimeout",
-		"getWriteTimeout()",
-		"handlerTimeout = writeTimeout",
-	})
-
-	// pkg/app/rest/psg_rest_gen.go — split default constants
-	assertFileContains(t, "pkg/app/rest/psg_rest_gen.go", []string{
-		"defaultHTTPReadTimeout",
-		"defaultHTTPWriteTimeout",
-	})
-
-	// pkg/app/rest/mw/psg_metrics_gen.go — timeout logging
-	assertFileContains(t, "pkg/app/rest/mw/psg_metrics_gen.go", []string{
-		"Request handler timeout exceeded",
-		"r.Context().Deadline()",
+		"GetServerConfig",
 	})
 
 	// etc/onlineconf/dev/init-config.sql — SQL init for split timeouts (hierarchical: server/timeout/{read,write})
