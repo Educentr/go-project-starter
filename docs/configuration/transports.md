@@ -107,6 +107,64 @@ applications:
 1. `application.transport[].config.instantiation` (наивысший)
 2. `rest[].instantiation` (default для всех приложений)
 
+### Требования к OpenAPI-схеме (ogen)
+
+При использовании `generator_type: ogen` в OpenAPI-спецификации **обязательно** должна быть определена схема `ErrorDefault` с точным набором полей. Генератор использует эту схему для обработки ошибок в сгенерированных файлах (`error_response.go`, `handler.go`, `router.go`).
+
+**Обязательная схема:**
+
+```yaml
+components:
+  schemas:
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
+```
+
+Ogen автоматически генерирует из этой схемы два Go-типа:
+
+| Тип | Описание |
+|-----|----------|
+| `ErrorDefault` | Struct с полями `Code` (int32) и `Error` (string), плюс метод `Encode(e)` для сериализации через `jx` |
+| `ErrorDefaultStatusCode` | Wrapper-struct с полями `StatusCode` (int) и `Response` (ErrorDefault), используется как возвращаемое значение `NewError()` |
+
+**Как использовать в спецификации:**
+
+Все endpoints должны ссылаться на `ErrorDefault` в `default`-ответе:
+
+```yaml
+paths:
+  /item:
+    get:
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+```
+
+!!! warning "Имя схемы фиксировано"
+    Сейчас имя `ErrorDefault` захардкожено в шаблонах генератора. Если в OpenAPI-спецификации схема ошибки называется иначе (например, `Error`, `ApiError`), сгенерированный код не скомпилируется. См. [#12](https://github.com/Educentr/go-project-starter/issues/12) о поддержке кастомных имён.
+
+!!! tip "Workaround через after-marker код"
+    Пока issue не закрыт, можно переопределить поведение ниже disclaimer-маркера. Обязательно добавьте ссылку на issue и TODO для удаления. Подробнее — в [Регенерация: after-marker код как workaround](../workflow/regeneration.md#after-marker-код-как-workaround).
+
 ### Поддержка нескольких версий API
 
 ```yaml

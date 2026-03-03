@@ -44,6 +44,45 @@ mkdir -p ./my-project
 go-project-starter --config=config.yaml --target=./my-project
 ```
 
+## Ogen: ошибки компиляции
+
+### "undefined: oas.ErrorDefault" или "undefined: oas.ErrorDefaultStatusCode"
+
+**Причина:** В OpenAPI-спецификации отсутствует схема `ErrorDefault` или она имеет другое имя/структуру. Генератор ожидает, что ogen создаст типы `ErrorDefault` и `ErrorDefaultStatusCode` с конкретными полями.
+
+**Решение:** Добавьте в `components.schemas` вашей OpenAPI-спецификации:
+
+```yaml
+components:
+  schemas:
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
+```
+
+И используйте `$ref: '#/components/schemas/ErrorDefault'` в `default` ответах endpoints.
+
+**Что генерирует ogen из этой схемы:**
+
+- `ErrorDefault` — struct `{ Code int32; Error string }` с методом `Encode(e *jx.Encoder)`
+- `ErrorDefaultStatusCode` — struct `{ StatusCode int; Response ErrorDefault }`
+
+Оба типа используются в сгенерированных файлах `error_response.go`, `handler/handler.go` и `router.go`.
+
+### "errResp.Encode undefined" или "errResp.Code undefined"
+
+**Причина:** Схема `ErrorDefault` определена, но с другими полями. Генератор ожидает поля `code` (int32) и `error` (string).
+
+**Решение:** Проверьте, что структура схемы точно соответствует примеру выше. Поля `code` и `error` — обязательны и должны быть именно такого типа.
+
 ## Сборка проекта
 
 ### "cannot find package"
