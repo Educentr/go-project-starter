@@ -186,7 +186,7 @@ type (
 	//	  golang_version: "1.24"
 	//	  ogen_version: "v0.78.0"
 	//	  argen_version: "v1.0.0"
-	//	  golangci_version: "1.55.2"
+	//	  golangci_version: "2.1.6"
 	//	  protobuf_version: "1.7.0"
 	//	  go_jsonschema_version: "v0.16.0"
 	//
@@ -200,7 +200,7 @@ type (
 		OgenVersion string `mapstructure:"ogen_version"`
 		// ArgenVersion is the argen (ActiveRecord) version. Default: v1.0.0
 		ArgenVersion string `mapstructure:"argen_version"`
-		// GolangciVersion is the golangci-lint version. Default: 1.55.2
+		// GolangciVersion is the golangci-lint version. Default: 2.1.6
 		GolangciVersion string `mapstructure:"golangci_version"`
 		// RuntimeVersion is the go-project-starter-runtime version. Auto-set.
 		RuntimeVersion string `mapstructure:"runtime_version"`
@@ -641,9 +641,9 @@ type (
 )
 
 const (
-	defaultGolangVersion       = "1.26"
+	defaultGolangVersion       = "1.24"
 	defaultProtobufVersion     = "1.7.0"
-	defaultGolangciVersion     = "1.55.2"
+	defaultGolangciVersion     = "2.1.6"
 	defaultOgenVersion         = "v1.20.1"
 	defaultArgenVersion        = "v3.1.22"
 	defaultGoJSONSchemaVersion = "v0.16.0"

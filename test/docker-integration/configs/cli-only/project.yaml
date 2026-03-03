@@ -8,8 +8,8 @@ git:
   module_path: github.com/test/clitest
 
 tools:
-  golang_version: "1.26"
-  golangci_version: 1.64.8
+  golang_version: "1.24"
+  golangci_version: 2.1.6
 
 cli:
   - name: admin

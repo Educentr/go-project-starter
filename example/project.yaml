@@ -45,7 +45,7 @@ tools:
   protobuf_version: 1.7.0
   golang_version: 1.21
   ogen_version: v0.78.0
-  golangci_version: 1.55.2
+  golangci_version: 2.1.6
   go_jsonschema_version: v0.16.0
 
 # JSON Schema - generates Go structs with validation from JSON Schema files

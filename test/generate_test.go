@@ -162,6 +162,54 @@ func TestOgenClientTemplateUsesProjectLocalImport(t *testing.T) {
 	}
 }
 
+// TestGolangciLintV2Consistency verifies that the generated Makefile uses
+// golangci-lint v2 import path with a v2 version tag (fixes #16).
+func TestGolangciLintV2Consistency(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for golangci-lint test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefileContent, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	// GOLANGCI_TAG must be a v2 version
+	if strings.Contains(makefile, "GOLANGCI_TAG:=1.") {
+		t.Error("GOLANGCI_TAG should use v2 version, not v1")
+	}
+
+	if !strings.Contains(makefile, "GOLANGCI_TAG:=2.") {
+		t.Error("GOLANGCI_TAG should start with 2.x")
+	}
+
+	// install-lint must use v2 import path
+	if !strings.Contains(makefile, "golangci-lint/v2/cmd/golangci-lint") {
+		t.Error("install-lint should use v2 import path")
+	}
+
+	// Version tag and import path must be consistent (both v2)
+	if strings.Contains(makefile, "golangci-lint/v2/") && strings.Contains(makefile, "GOLANGCI_TAG:=1.") {
+		t.Error("v2 import path with v1 tag — install-lint will fail (issue #16)")
+	}
+}
+
 // TestGenerateRESTLogrus tests that REST project with logrus logger generates correctly.
 func TestGenerateRESTLogrus(t *testing.T) {
 	curDir, err := os.Getwd()
