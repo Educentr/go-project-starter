@@ -463,10 +463,10 @@ applications:
 ```bash
 make regenerate
 
-# Implement TestEnvInitializer in tests/goat/init.go
+# Implement TestEnvInitializer in tests/{app_name}/init.go
 # Write test suites inheriting BaseTestSuite
 # Test via HTTP only — NEVER call service functions directly from tests
-# Run: make goat-tests
+# Run: make goat-tests-{app_name} or make goat-tests (runs all)
 ```
 {{- if .UseActiveRecord }}
 
@@ -710,5 +710,5 @@ This service contains the following applications:
 │   └── project.yaml             # Main config (source of truth)
 ├── configs/                     # Linter and tool configs
 ├── Makefile                     # Build automation (40+ targets)
-└── tests/                       # Integration tests
+└── tests/                       # Integration tests (per-application: tests/{app_name}/)
 ```

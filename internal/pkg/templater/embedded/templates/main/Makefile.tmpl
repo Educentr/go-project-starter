@@ -54,7 +54,7 @@ GOPROXY ?=https://proxy.golang.org,direct
 GOPRIVATE ?=github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}
 PACKAGE = $(shell go list -m)
 PKG_LIST_FOR_TEST = $(shell go list ./...)
-PKG_LIST_FOR_UNIT_TEST = $(shell go list ./... | grep -v '/tests$$')
+PKG_LIST_FOR_UNIT_TEST = $(shell go list ./... | grep -v '/tests')
 
 COMMIT_BRANCH = $(shell git branch --no-color --show-current)
 
@@ -589,7 +589,9 @@ mock:
 .PHONY: generate-mocks
 generate-mocks:
 	@echo "Generating test mocks..."
-	@go generate ./tests/mocks/...
+{{- range $_, $a := .Applications }}{{ if $a.GoatTests }}
+	@go generate ./tests/{{ $a.Name }}/mocks/...
+{{- end }}{{ end }}
 
 
 .PHONY: get-runtime
@@ -673,7 +675,7 @@ goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.N
 	@mkdir -p $(COVERAGE_DIR)
 	export GOAT_DISABLE_STDOUT=true \
 	&& export GOCOVERDIR=$(COVERAGE_DIR) \
-	&& go test ./tests
+	&& go test -count=1 ./tests/{{ $a.Name }}
 	@echo "Converting coverage data..."
 	@go tool covdata textfmt -i=$(COVERAGE_DIR) -o=integration-coverage-raw.out 2>/dev/null || true
 	@if [ -f integration-coverage-raw.out ]; then \
@@ -693,7 +695,7 @@ goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.N
 goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
 	@rm -rf $(COVERAGE_DIR)
 	@mkdir -p $(COVERAGE_DIR)
-	GOCOVERDIR=$(COVERAGE_DIR) go test -v ./tests/...
+	GOCOVERDIR=$(COVERAGE_DIR) go test -count=1 -v ./tests/{{ $a.Name }}/...
 	@go tool covdata textfmt -i=$(COVERAGE_DIR) -o=integration-coverage-raw.out 2>/dev/null || true
 	@if [ -f integration-coverage-raw.out ]; then \
 		head -1 integration-coverage-raw.out > integration-coverage.out; \
@@ -703,16 +705,18 @@ goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }} generate-test-env
 		go tool cover -func=integration-coverage.out | tail -1; \
 	fi
 
-.PHONY: goat-coverage-percent
-goat-coverage-percent:
+.PHONY: goat-coverage-percent-{{ $a.Name }}
+goat-coverage-percent-{{ $a.Name }}:
 	@test -f integration-coverage.out || (echo "Run 'make goat-tests-{{ $a.Name }}' first" && exit 1)
 	@echo "=== Coverage Summary (filtered) ==="
 	@go tool cover -func=integration-coverage.out | tail -1
 
-# Alias for backward compatibility
-.PHONY: goat-tests
-goat-tests: goat-tests-{{ $a.Name }}
 {{ end }}{{ end }}
+
+# Run all GOAT integration tests sequentially
+.PHONY: goat-tests
+goat-tests: {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}goat-tests-{{ $a.Name }} {{ end }}{{ end }}
+
 {{ end }}
 
 #ToDo integration tests GITEF

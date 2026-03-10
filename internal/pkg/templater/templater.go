@@ -189,6 +189,15 @@ func GenerateFilenameByTmpl(file *ds.Files, targetPath string, lastVer int) erro
 		if strings.Contains(destFileName, "pkg/ds") {
 			oldFileName = strings.ReplaceAll(destFileName, "pkg/ds", "pkg/app/ds")
 		}
+	case lastVer < 4:
+		// Migration v3→v4: tests/{app_name}/{file} -> old location was tests/{file}
+		if strings.HasPrefix(destFileName, "tests/") {
+			parts := strings.SplitN(destFileName, "/", 3)
+			if len(parts) == 3 {
+				// New: tests/apibalancer/psg_config_gen.go → Old: tests/psg_config_gen.go
+				oldFileName = filepath.Join("tests", parts[2])
+			}
+		}
 	}
 
 	file.DestName = filepath.Join(targetPath, destFileName)

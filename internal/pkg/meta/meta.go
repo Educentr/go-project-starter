@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const curVer = 3
+const curVer = 4
 
 type Meta struct {
 	Path    string `yaml:"-"`

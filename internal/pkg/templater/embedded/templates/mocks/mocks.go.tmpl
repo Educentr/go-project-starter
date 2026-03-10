@@ -1,4 +1,4 @@
-package tests
+package {{ .Application.Name | ReplaceDash }}
 
 import (
 	"net/http"
@@ -6,7 +6,7 @@ import (
 	{{ $tr.Name }}api "{{ $.ProjectPath }}/pkg/rest/{{ $tr.Name }}/{{ $tr.ApiVersion }}"
 {{- end }}
 {{ range $_, $tr := .Application.GetOgenClients }}
-	{{ $tr.Name }}mock "{{ $.ProjectPath }}/tests/mocks/{{ $tr.Name }}"
+	{{ $tr.Name }}mock "{{ $.ProjectPath }}/tests/{{ $.Application.Name }}/mocks/{{ $tr.Name }}"
 {{- end }}
 
 	"github.com/Educentr/goat/testutil"

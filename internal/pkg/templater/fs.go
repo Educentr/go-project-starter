@@ -654,13 +654,15 @@ func GetTestTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Fi
 		return
 	}
 
-	// Set destination path for test files: tests/ (directly, without app name subdirectory)
+	// Set destination path for test files: tests/{app_name}/
+	appTestsPath := filepath.Join(testsPath, params.Application.Name)
+
 	for i := range dirs {
-		dirs[i].DestName = filepath.Join(testsPath, dirs[i].DestName)
+		dirs[i].DestName = filepath.Join(appTestsPath, dirs[i].DestName)
 	}
 
 	for i := range files {
-		files[i].DestName = filepath.Join(testsPath, files[i].DestName)
+		files[i].DestName = filepath.Join(appTestsPath, files[i].DestName)
 	}
 
 	return
@@ -706,22 +708,27 @@ func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds
 
 // GetMockTemplates returns mock templates for an application with ogen_clients.
 // It generates:
-// - tests/mocks/mocks.go - MockServers struct and MocksSetup
-// - tests/mocks/{transport_name}/doc.go - for each ogen_client transport
+// - tests/{app_name}/mocks.go - MockServers struct and MocksSetup
+// - tests/{app_name}/mocks/{transport_name}/doc.go - for each ogen_client transport
 func GetMockTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error) {
 	// Skip if no ogen clients
 	if !params.Application.HasOgenClients() {
 		return nil, nil, nil
 	}
 
+	// Per-application paths: tests/{app_name}/ and tests/{app_name}/mocks/
+	// Use literal app name because mock entries use GeneratorHandlerParams (no Application field)
+	appTestsPath := filepath.Join(testsPath, params.Application.Name)
+	appMocksPath := filepath.Join(appTestsPath, "mocks")
+
 	dirs := []ds.Files{}
 	files := []ds.Files{}
 
-	// Generate mocks.go from mocks.go.tmpl (in tests/ directory, same package as base_suite)
+	// Generate mocks.go from mocks.go.tmpl (in tests/{app_name}/ directory, same package as base_suite)
 	mocksTemplate := "embedded/templates/mocks/mocks.go.tmpl"
 	files = append(files, ds.Files{
 		SourceName: mocksTemplate,
-		DestName:   filepath.Join(testsPath, "mocks.go"),
+		DestName:   filepath.Join(appTestsPath, "mocks.go"),
 		ParamsTmpl: params,
 	})
 
@@ -736,7 +743,7 @@ func GetMockTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error)
 		}
 
 		// Add directory for this transport's mocks
-		transportMocksPath := filepath.Join(mocksPath, transport.Name)
+		transportMocksPath := filepath.Join(appMocksPath, transport.Name)
 		dirs = append(dirs, ds.Files{
 			SourceName: docTemplate,
 			DestName:   transportMocksPath,
