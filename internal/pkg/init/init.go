@@ -99,7 +99,7 @@ const (
 	defaultGolangVersion   = "1.24"
 	defaultGolangciVersion = "1.64.8"
 	defaultProtobufVersion = "1.7.0"
-	defaultOgenVersion     = "v1.18.0"
+	defaultOgenVersion     = "v1.20.1"
 	defaultSysPort         = 8085
 	defaultAPIPort         = 8080
 	defaultRegistryType    = "github"

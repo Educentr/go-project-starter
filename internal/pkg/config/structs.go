@@ -175,7 +175,7 @@ type (
 		ProtobufVersion string `mapstructure:"protobuf_version"`
 		// GolangVersion is the Go version. Default: 1.24
 		GolangVersion string `mapstructure:"golang_version"`
-		// OgenVersion is the ogen version. Default: v0.78.0
+		// OgenVersion is the ogen version. Default: v1.20.1
 		OgenVersion string `mapstructure:"ogen_version"`
 		// ArgenVersion is the argen (ActiveRecord) version. Default: v1.0.0
 		ArgenVersion string `mapstructure:"argen_version"`
@@ -623,7 +623,7 @@ const (
 	defaultGolangVersion       = "1.24"
 	defaultProtobufVersion     = "1.7.0"
 	defaultGolangciVersion     = "1.55.2"
-	defaultOgenVersion         = "v0.78.0"
+	defaultOgenVersion         = "v1.20.1"
 	defaultArgenVersion        = "v3.1.22"
 	defaultGoJSONSchemaVersion = "v0.16.0"
 
