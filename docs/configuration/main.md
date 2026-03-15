@@ -27,6 +27,7 @@ main:
 | `use_active_record` | Нет | Включает генерацию кода для PostgreSQL |
 | `dev_stand` | Нет | Генерировать docker-compose-dev.yaml с OnlineConf |
 | `skip_service_init` | Нет | Пропустить генерацию Service layer |
+| `ci` | Нет | Список CI провайдеров для генерации (см. [CI/CD провайдеры](#cicd-провайдеры)) |
 
 ### Выбор логгера
 
@@ -82,6 +83,43 @@ main:
 ```
 
 Настройте переменную `REGISTRY_LOGIN_SERVER` в GitHub для указания URL реестра.
+
+### CI/CD провайдеры
+
+Поле `ci` управляет генерацией файлов CI/CD пайплайнов.
+
+| Значение | Результат |
+|----------|-----------|
+| не указано | Генерируются оба: `.github/workflows/ci_cd.yml` и `.gitlab-ci.yml` |
+| `[github]` | Только GitHub Actions |
+| `[gitlab]` | Только GitLab CI |
+| `[github, gitlab]` | Оба (явно) |
+| `[]` | Не генерировать CI файлы |
+
+```yaml
+# Оба провайдера (по умолчанию, если ci не указан)
+main:
+  name: myproject
+
+# Только GitHub Actions
+main:
+  name: myproject
+  ci: [github]
+
+# Только GitLab CI
+main:
+  name: myproject
+  ci: [gitlab]
+
+# Без CI/CD файлов
+main:
+  name: myproject
+  ci: []
+```
+
+!!! note "Обратная совместимость"
+    Если поле `ci` не указано, генерируются оба файла — поведение не изменилось.
+    Пустой массив `ci: []` явно отключает генерацию всех CI файлов.
 
 ## Секция `git`
 

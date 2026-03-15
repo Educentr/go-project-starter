@@ -43,6 +43,7 @@ main:
   use_active_record: bool   # [optional] Включить PostgreSQL ActiveRecord
   dev_stand: bool           # [optional] Генерировать docker-compose-dev.yaml с OnlineConf
   skip_service_init: bool   # [optional] Пропустить генерацию Service layer
+  ci: [github, gitlab]      # [optional] CI провайдеры: github, gitlab, [] — без CI (default: оба)
 ```
 
 ---
