@@ -8,7 +8,7 @@ git:
   module_path: github.com/test/docs-test
 
 tools:
-  golang_version: "1.24"
+  golang_version: "1.26"
   golangci_version: 1.64.8
 
 documentation:

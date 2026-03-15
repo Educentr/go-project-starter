@@ -622,7 +622,7 @@ type (
 )
 
 const (
-	defaultGolangVersion       = "1.24"
+	defaultGolangVersion       = "1.26"
 	defaultProtobufVersion     = "1.7.0"
 	defaultGolangciVersion     = "1.55.2"
 	defaultOgenVersion         = "v1.20.1"

@@ -67,7 +67,7 @@ git:
 
 ```yaml
 tools:
-  golang_version: "1.24"           # [optional] Версия Go (default: 1.24)
+  golang_version: "1.26"           # [optional] Версия Go (default: 1.26)
   ogen_version: "v0.78.0"          # [optional] Версия ogen (default: v0.78.0)
   argen_version: "v1.0.0"          # [optional] Версия argen/ActiveRecord (default: v1.0.0)
   golangci_version: "1.55.2"       # [optional] Версия golangci-lint (default: 1.55.2)

@@ -35,7 +35,7 @@ func (h *Handler) CreateUser(ctx context.Context, req *CreateUserRequest) (*User
 
 ## Требования
 
-- **Go 1.24+**
+- **Go 1.26+**
 - **Docker** (для локальной разработки)
 - **Git** (опционально, для автоматической инициализации репозитория)
 

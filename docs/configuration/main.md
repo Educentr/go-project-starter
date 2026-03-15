@@ -168,7 +168,7 @@ GOPRIVATE=github.com/myorg/internal-pkg,gitlab.com/company/*
 ```yaml
 tools:
   protobuf_version: "1.7.0"
-  golang_version: "1.24"
+  golang_version: "1.26"
   ogen_version: "v0.78.0"
   golangci_version: "1.55.2"
   argen_version: "v1.0.0"
@@ -183,7 +183,7 @@ tools:
 | Поле | Описание | По умолчанию |
 |------|----------|--------------|
 | `protobuf_version` | Версия protoc-gen-go | 1.7.0 |
-| `golang_version` | Версия Go для сгенерированного проекта | 1.24 |
+| `golang_version` | Версия Go для сгенерированного проекта | 1.26 |
 | `ogen_version` | Версия ogen | v0.78.0 |
 | `golangci_version` | Версия golangci-lint | 1.55.2 |
 | `argen_version` | Версия argen (ActiveRecord) | v1.0.0 |

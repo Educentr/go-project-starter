@@ -1,6 +1,6 @@
 module github.com/Educentr/go-project-starter
 
-go 1.24.4
+go 1.26.1
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7

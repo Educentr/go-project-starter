@@ -96,7 +96,7 @@ type Options struct {
 }
 
 const (
-	defaultGolangVersion   = "1.24"
+	defaultGolangVersion   = "1.26"
 	defaultGolangciVersion = "1.64.8"
 	defaultProtobufVersion = "1.7.0"
 	defaultOgenVersion     = "v1.20.1"
