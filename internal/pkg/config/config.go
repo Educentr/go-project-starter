@@ -43,6 +43,8 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, err // останавливаем программу и отдаем структуру «config типа Config» и саму ошибку
 	}
 
+	config.Main.CISet = viper.IsSet("main.ci")
+
 	if ok, msg := config.Main.IsValid(); !ok { // проверяем валидность конфигурации
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config main section: "+msg)
 	}

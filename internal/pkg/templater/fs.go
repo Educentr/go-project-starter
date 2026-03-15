@@ -99,7 +99,7 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 
 	// Filter CI templates based on selected providers
 	// Empty CI = generate both (backward compatibility)
-	if len(params.CI) > 0 {
+	if params.CISet {
 		ciSet := make(map[string]bool, len(params.CI))
 		for _, ci := range params.CI {
 			ciSet[ci] = true

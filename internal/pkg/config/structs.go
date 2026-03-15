@@ -107,8 +107,10 @@ type (
 		DevStand bool `mapstructure:"dev_stand"`
 		// GenerateLlmsMd enables LLMS.md generation for AI coding agents.
 		GenerateLlmsMd bool `mapstructure:"generate_llms_md"`
-		// CI specifies which CI providers to generate: "github", "gitlab". Empty = both.
-		CI        []string `mapstructure:"ci"`
+		// CI specifies which CI providers to generate: "github", "gitlab".
+		// Not set = both (backward compatibility). Empty array = none.
+		CI    []string `mapstructure:"ci"`
+		CISet bool     // true if CI field was explicitly set in config (set by GetConfig, not from YAML)
 		LoggerObj ds.Logger
 		TargetDir string
 		ConfigDir string

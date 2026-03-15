@@ -36,6 +36,7 @@ type GeneratorParams struct {
 	GenerateLlmsMd      bool
 	LlmsFileName        string // "CLAUDE.md" or "LLMS.md" — determined at generation time
 	CI                  []string
+	CISet               bool
 	Repo                string
 	PrivateRepos        string
 	DockerImagePrefix   string

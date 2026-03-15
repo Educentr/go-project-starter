@@ -36,6 +36,7 @@ type Generator struct {
 	GenerateLlmsMd      bool
 	LlmsFileName        string
 	CI                  []string
+	CISet               bool
 	Repo                string
 	PrivateRepos        string
 	GoLangVersion       string
@@ -102,6 +103,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.DevStand = config.Main.DevStand
 	g.GenerateLlmsMd = config.Main.GenerateLlmsMd
 	g.CI = config.Main.CI
+	g.CISet = config.Main.CISet
 	g.Repo = config.Git.Repo
 	g.PrivateRepos = config.Git.PrivateRepos
 	g.GoLangVersion = config.Tools.GolangVersion
@@ -712,6 +714,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		GenerateLlmsMd:      g.GenerateLlmsMd,
 		LlmsFileName:        g.LlmsFileName,
 		CI:                  g.CI,
+		CISet:               g.CISet,
 		Repo:                g.Repo,
 		PrivateRepos:        g.PrivateRepos,
 		DockerImagePrefix:   g.DockerImagePrefix,
