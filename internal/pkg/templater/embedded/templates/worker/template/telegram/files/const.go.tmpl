@@ -1,2 +1,22 @@
 package telegrambot
 
+import (
+	"context"
+
+	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
+)
+
+const (
+	CmdStart telegram.CommandName = "start"
+)
+
+func init() {
+	cmdMaps[CmdStart] = telegram.Cmd{
+		Name:    CmdStart,
+		Private: true,
+		Handler: func(ctx context.Context, h any, params string) (telegram.Response, error) {
+			return h.(*handler.Handler).Start(ctx, params)
+		},
+	}
+}

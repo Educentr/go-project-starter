@@ -1,0 +1,17 @@
+package handler
+
+import (
+	"context"
+
+	"{{ .ProjectPath }}/pkg/drivers/telegram"
+)
+
+func (h *Handler) Start(ctx context.Context, params string) (telegram.Response, error) {
+	return telegram.Response{
+		Messages: []telegram.Message{
+			{
+				Text: "Welcome! Bot is ready.",
+			},
+		},
+	}, nil
+}

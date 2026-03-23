@@ -168,6 +168,12 @@ go install ./cmd/go-project-starter && \
   go-project-starter --configDir=./test/docker-integration/configs/rest-only --target=~/Develop/tmp/test-app
 ```
 
+**Важно:** Тестовые конфиги (`test/docker-integration/configs/`) имеют `post_generate: []`, поэтому после генерации нужно вручную запустить `go mod tidy` перед проверкой сборки:
+
+```bash
+cd ~/Develop/tmp/test-app && go mod tidy && go build ./...
+```
+
 ### Testing dev_stand Feature
 
 Функция `dev_stand: true` генерирует локальное окружение с OnlineConf.
