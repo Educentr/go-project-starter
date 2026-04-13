@@ -1,0 +1,49 @@
+main:
+  name: rest-envs-goat
+  logger: zerolog
+  registry_type: github
+  dev_stand: true
+
+post_generate:
+  - git_install
+  - call_generate
+  - go_mod_tidy
+
+git:
+  repo: git@github.com:test/rest-envs-goat.git
+  module_path: github.com/test/rest-envs-goat
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.26"
+  ogen_version: v1.18.0
+  golangci_version: 1.64.8
+  goat_version: v0.5.0
+  goat_services_version: v0.2.2
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    use_envs: true
+    goat_tests_config:
+      enabled: true
+      binary_path: /tmp/api
+    transport:
+      - name: api
+      - name: sys

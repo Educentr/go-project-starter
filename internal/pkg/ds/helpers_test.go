@@ -511,12 +511,78 @@ func TestApps_HasGoatTests(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "goat tests with use_envs still returns true",
+			apps: Apps{
+				{Name: "app1", GoatTests: true, UseEnvs: true},
+			},
+			want: true,
+		},
+		{
+			name: "mixed goat tests with use_envs",
+			apps: Apps{
+				{Name: "app1", GoatTests: true, UseEnvs: true},
+				{Name: "app2", GoatTests: false, UseEnvs: false},
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.apps.HasGoatTests(); got != tt.want {
 				t.Errorf("Apps.HasGoatTests() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApps_HasGoatTestsWithOnlineconf(t *testing.T) {
+	tests := []struct {
+		name string
+		apps Apps
+		want bool
+	}{
+		{
+			name: "no apps",
+			apps: Apps{},
+			want: false,
+		},
+		{
+			name: "goat tests without use_envs",
+			apps: Apps{
+				{Name: "app1", GoatTests: true, UseEnvs: false},
+			},
+			want: true,
+		},
+		{
+			name: "goat tests with use_envs only",
+			apps: Apps{
+				{Name: "app1", GoatTests: true, UseEnvs: true},
+			},
+			want: false,
+		},
+		{
+			name: "mixed: one app use_envs, one not",
+			apps: Apps{
+				{Name: "app1", GoatTests: true, UseEnvs: true},
+				{Name: "app2", GoatTests: true, UseEnvs: false},
+			},
+			want: true,
+		},
+		{
+			name: "goat tests disabled",
+			apps: Apps{
+				{Name: "app1", GoatTests: false, UseEnvs: false},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.apps.HasGoatTestsWithOnlineconf(); got != tt.want {
+				t.Errorf("Apps.HasGoatTestsWithOnlineconf() = %v, want %v", got, tt.want)
 			}
 		})
 	}

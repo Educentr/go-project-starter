@@ -234,7 +234,7 @@ build-{{ $a.Name }}:
 
 .PHONY: build_for_test-{{ $a.Name }}
 build_for_test-{{ $a.Name }}: download
-	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "all=-N -l" -o /tmp/{{ $a.Name }} ${PACKAGE}/cmd/{{ $a.Name }}
+	CGO_ENABLED=1 go build -cover -race -tags '${TAGS}' -gcflags "-N -l" -o /tmp/{{ $a.Name }} ${PACKAGE}/cmd/{{ $a.Name }}
 {{ end }}
 
 .PHONY: artifact-list
@@ -653,12 +653,15 @@ download:
 
 {{ if .Applications.HasGoatTests }}
 # GOAT integration tests
+{{ if .Applications.HasGoatTestsWithOnlineconf }}
 .PHONY: onlineconf-update-tests
 onlineconf-update-tests:
 	@echo "Update onlineconf tests..."
 	@onlineconf-updater -config tests/etc/onlineconf-updater.conf -once
 
+{{ end }}
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
+{{ if not $a.UseEnvs }}
 .PHONY: generate-test-env-{{ $a.Name }}
 generate-test-env-{{ $a.Name }}:
 	@if [ ! -f tests/etc/onlineconf/onlineconf.env ]; then \
@@ -669,8 +672,9 @@ generate-test-env-{{ $a.Name }}:
 	@echo "Generating tests/etc/onlineconf/onlineconf.env..."
 	@go run github.com/Educentr/goat/cmd/testutil@$(GOATVERSION) generate-env
 
+{{ end }}
 .PHONY: goat-tests-{{ $a.Name }}
-goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
+goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }}{{ if not $a.UseEnvs }} generate-test-env-{{ $a.Name }}{{ end }}
 	@rm -rf $(COVERAGE_DIR)
 	@mkdir -p $(COVERAGE_DIR)
 	export GOAT_DISABLE_STDOUT=true \
@@ -692,7 +696,7 @@ goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.N
 	fi
 
 .PHONY: goat-tests-{{ $a.Name }}-verbose
-goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }} generate-test-env-{{ $a.Name }}
+goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }}{{ if not $a.UseEnvs }} generate-test-env-{{ $a.Name }}{{ end }}
 	@rm -rf $(COVERAGE_DIR)
 	@mkdir -p $(COVERAGE_DIR)
 	GOCOVERDIR=$(COVERAGE_DIR) go test -count=1 -v ./tests/{{ $a.Name }}/...

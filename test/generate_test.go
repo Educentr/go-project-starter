@@ -830,3 +830,84 @@ func TestObsoleteFileCleanup(t *testing.T) {
 		t.Errorf("Obsolete file should have been removed: %s", fakeFile)
 	}
 }
+
+// TestGenerateRESTEnvsGoat verifies that when use_envs=true is combined with
+// goat_tests=true, the generated Makefile does NOT invoke onlineconf-update-tests
+// or generate-test-env-<app> — env-based projects don't rely on OnlineConf to
+// bootstrap test env vars, so the whole onlineconf plumbing must be skipped.
+func TestGenerateRESTEnvsGoat(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-envs-goat")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate rest-envs-goat project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefileBytes, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+	mk := string(makefileBytes)
+
+	// Negative assertions: no onlineconf bootstrap for use_envs+goat_tests.
+	// Note: the generic install-onlineconf-updater target and its listing in
+	// install-tools are unconditionally generated, so we only forbid the GOAT-
+	// block call-site, not the target itself.
+	forbidden := []string{
+		"onlineconf-update-tests",
+		"generate-test-env-api",
+		"$(MAKE) install-onlineconf-updater || true",
+		"onlineconf-updater -config tests/etc/onlineconf-updater.conf",
+		"goat/cmd/testutil",
+	}
+	for _, s := range forbidden {
+		if strings.Contains(mk, s) {
+			t.Errorf("Makefile must NOT contain %q for use_envs+goat_tests app", s)
+		}
+	}
+
+	// Positive assertions: goat-tests-api still exists but depends only on
+	// build_for_test-api. Walk lines to find the target definitions.
+	var foundGoatTests, foundGoatTestsVerbose bool
+	for _, line := range strings.Split(mk, "\n") {
+		if strings.HasPrefix(line, "goat-tests-api:") {
+			foundGoatTests = true
+			if strings.Contains(line, "generate-test-env-api") {
+				t.Errorf("goat-tests-api must not depend on generate-test-env-api: %q", line)
+			}
+			if !strings.Contains(line, "build_for_test-api") {
+				t.Errorf("goat-tests-api should still depend on build_for_test-api: %q", line)
+			}
+		}
+		if strings.HasPrefix(line, "goat-tests-api-verbose:") {
+			foundGoatTestsVerbose = true
+			if strings.Contains(line, "generate-test-env-api") {
+				t.Errorf("goat-tests-api-verbose must not depend on generate-test-env-api: %q", line)
+			}
+		}
+	}
+	if !foundGoatTests {
+		t.Error("Expected goat-tests-api target in generated Makefile")
+	}
+	if !foundGoatTestsVerbose {
+		t.Error("Expected goat-tests-api-verbose target in generated Makefile")
+	}
+
+	// Regression guard: run-api should also skip onlineconf-update for use_envs.
+	for _, line := range strings.Split(mk, "\n") {
+		if strings.HasPrefix(line, "run-api:") && strings.Contains(line, "onlineconf-update") {
+			t.Errorf("run-api must not depend on onlineconf-update when use_envs=true: %q", line)
+		}
+	}
+}

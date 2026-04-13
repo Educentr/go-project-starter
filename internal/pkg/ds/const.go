@@ -670,6 +670,19 @@ func (a Apps) HasGoatTests() bool {
 	return false
 }
 
+// HasGoatTestsWithOnlineconf returns true if any application has GOAT tests
+// AND does NOT use env-based config. Used to decide whether onlineconf-based
+// helper targets (onlineconf-update-tests, generate-test-env-*) should be generated.
+func (a Apps) HasGoatTestsWithOnlineconf() bool {
+	for _, app := range a {
+		if app.GoatTests && !app.UseEnvs {
+			return true
+		}
+	}
+
+	return false
+}
+
 // HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
 func (a App) HasOgenClients() bool {
 	for _, transport := range a.Transports {

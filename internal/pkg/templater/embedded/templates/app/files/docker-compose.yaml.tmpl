@@ -14,7 +14,7 @@ services:
       - "--entrypoints.traefik.address=:8080"
 {{- range $i, $t := $restTransport }} {{ $needRealIP = true}}{{ if ne $t.GeneratorType "ogen_client" }}
       - "--entrypoints.{{ $applicationName }}ep{{ $i }}.address=:{{ $t.Port }}"
-      - "--entryPoints.{{ $applicationName }}ep{{ $i }}.forwardedHeaders.trustedIPs=${INTERNAL_SUBNET}"
+      - "--entrypoints.{{ $applicationName }}ep{{ $i }}.forwardedHeaders.trustedIPs=${INTERNAL_SUBNET}"
 {{- end }}{{- end }}
 {{ if $needRealIP}}
       - "--experimental.plugins.traefik-get-real-ip.modulename=github.com/romracer/traefik-get-real-ip"
