@@ -769,6 +769,55 @@ func TestGenerateQueueWorker(t *testing.T) {
 	})
 }
 
+// TestGenerateDaemonWorker tests that daemon worker generates correctly and exposes
+// loop timers (NewCycleTimeout, ErrorTimeout) as env-var-overridable variables.
+func TestGenerateDaemonWorker(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-daemon")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate daemon worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("Daemon worker project created in %s: %s", tmpDir, out)
+
+	assertFileContains := func(t *testing.T, relPath string, expected []string) {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, exp := range expected {
+			if !strings.Contains(s, exp) {
+				t.Errorf("%s should contain %q", relPath, exp)
+			}
+		}
+	}
+
+	assertFileContains(t, "internal/app/worker/daemon/psg_daemon_gen.go", []string{
+		`WorkerName      = "daemon"`,
+		"func durationFromEnv(key string, def time.Duration) time.Duration",
+		`durationFromEnv("WORKER_DAEMON_ERROR_TIMEOUT"`,
+		`durationFromEnv("WORKER_DAEMON_NEW_CYCLE_TIMEOUT"`,
+		"ErrorTimeout    = durationFromEnv(",
+		"NewCycleTimeout = durationFromEnv(",
+	})
+}
+
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
 // are automatically removed during regeneration.
 func TestObsoleteFileCleanup(t *testing.T) {

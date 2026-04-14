@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"os"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -28,10 +29,24 @@ type Worker struct {
 
 const (
 	DefaultBatchSize     = 100
-	ErrorTimeout         = time.Second * 10
 	NextIterationTimeout = time.Millisecond * 1
-	NewCycleTimeout      = time.Second * 10
 )
+
+// Loop timers, overridable via env vars for tests and tuning.
+// Defaults match historical hard-coded values.
+var (
+	ErrorTimeout    = durationFromEnv("WORKER_{{ .Worker.Name | ToUpper }}_ERROR_TIMEOUT", time.Second*10)
+	NewCycleTimeout = durationFromEnv("WORKER_{{ .Worker.Name | ToUpper }}_NEW_CYCLE_TIMEOUT", time.Second*10)
+)
+
+func durationFromEnv(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return def
+}
 
 const (
 	nameFieldLogger = "Name"

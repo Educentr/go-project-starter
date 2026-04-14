@@ -147,6 +147,26 @@ applications:
 | `{service}/worker/daemon/{name}/interval` | Интервал выполнения |
 | `{service}/worker/daemon/{name}/enabled` | Включен/выключен |
 
+## Конфигурация таймеров daemon worker через переменные окружения
+
+Два таймера внутреннего цикла daemon worker'а можно переопределить через env vars
+(полезно для goat-тестов и проектов с `use_envs: true`). Если переменная не задана
+или не парсится, используется дефолт.
+
+| Env var | Дефолт | Описание |
+|---------|--------|----------|
+| `WORKER_{NAME}_NEW_CYCLE_TIMEOUT` | `10s` | Пауза между итерациями цикла, когда `GetTasks` вернул `nil` |
+| `WORKER_{NAME}_ERROR_TIMEOUT` | `10s` | Пауза после ошибки в `GetTasks` |
+
+`{NAME}` — имя воркера в верхнем регистре. Значение должно парситься через
+`time.ParseDuration` (например, `500ms`, `1m30s`).
+
+Пример: для воркера с именем `supervisor` ускорить goat-тесты можно так:
+
+```go
+envVars["WORKER_SUPERVISOR_NEW_CYCLE_TIMEOUT"] = "200ms"
+```
+
 ## Пример полной конфигурации
 
 ```yaml
