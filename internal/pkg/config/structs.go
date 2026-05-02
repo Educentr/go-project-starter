@@ -6,9 +6,28 @@ import (
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
 )
+
+// validateSpecPath checks that p is a syntactically valid spec source. For
+// local sources it also verifies that the referenced file exists on disk
+// (resolved relative to baseConfigDir). Remote sources (git+ssh, git+https,
+// http(s)) skip the existence check — they are fetched at generation time.
+func validateSpecPath(baseConfigDir, p string) (bool, string) {
+	src, err := specsource.ParseSpecSource(p)
+	if err != nil {
+		return false, "Invalid path: " + p + " (" + err.Error() + ")"
+	}
+	if local, ok := src.(specsource.LocalSource); ok {
+		absPath := filepath.Join(baseConfigDir, local.RawPath)
+		if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
+			return false, "Invalid path: " + p
+		}
+	}
+	return true, ""
+}
 
 // ArtifactType represents a build artifact type
 type ArtifactType string
@@ -711,10 +730,8 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 	}
 
 	for _, p := range r.Path {
-		absPath := filepath.Join(baseConfigDir, p)
-
-		if tools.FileExists(absPath) != tools.ErrExist {
-			return false, "Invalid path: " + p
+		if ok, msg := validateSpecPath(baseConfigDir, p); !ok {
+			return false, msg
 		}
 	}
 
@@ -818,10 +835,8 @@ func (g Grpc) IsValid(baseConfigDir string) (bool, string) {
 		return false, "Empty path"
 	}
 
-	absPath := filepath.Join(baseConfigDir, g.Path)
-
-	if tools.FileExists(absPath) != tools.ErrExist {
-		return false, "Invalid path: " + g.Path
+	if ok, msg := validateSpecPath(baseConfigDir, g.Path); !ok {
+		return false, msg
 	}
 
 	switch g.GeneratorType {
@@ -873,8 +888,8 @@ func (w Ws) IsValid(baseConfigDir string) (bool, string) {
 		return false, "Empty path"
 	}
 
-	if tools.FileExists(filepath.Join(baseConfigDir, w.Path)) != tools.ErrExist {
-		return false, "Invalid path: " + w.Path
+	if ok, msg := validateSpecPath(baseConfigDir, w.Path); !ok {
+		return false, msg
 	}
 
 	return true, ""
@@ -1044,9 +1059,8 @@ func (j JSONSchema) IsValid(baseConfigDir string) (bool, string) {
 				return false, "Schema item missing path"
 			}
 			// Type is optional - will be auto-calculated from filename if empty
-			absPath := filepath.Join(baseConfigDir, s.Path)
-			if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
-				return false, "Invalid path: " + s.Path
+			if ok, msg := validateSpecPath(baseConfigDir, s.Path); !ok {
+				return false, msg
 			}
 		}
 	} else {
@@ -1055,10 +1069,8 @@ func (j JSONSchema) IsValid(baseConfigDir string) (bool, string) {
 		}
 
 		for _, p := range j.Path {
-			absPath := filepath.Join(baseConfigDir, p)
-
-			if !errors.Is(tools.FileExists(absPath), tools.ErrExist) {
-				return false, "Invalid path: " + p
+			if ok, msg := validateSpecPath(baseConfigDir, p); !ok {
+				return false, msg
 			}
 		}
 	}

@@ -9,6 +9,7 @@
 - [Workers](workers.md) — Telegram, Daemon
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
+- [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 
 ## Базовая структура
 
@@ -109,3 +110,4 @@ applications:
 - [Workers](workers.md) — Telegram, Daemon
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
+- [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
