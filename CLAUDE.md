@@ -149,6 +149,28 @@ See [docs/NAMING.md](docs/NAMING.md) for detailed documentation.
 - No duplicate transport/worker/driver names
 - ActiveRecord requires ArgenVersion
 
+## Regeneration Behavior
+
+### Disclaimer Marker (env-файлы и другие файлы с ручными правками)
+
+Все файлы, помеченные disclaimer-комментарием, содержат маркер:
+
+```
+If you need you can add your code after this message
+```
+
+При регенерации **всё, что выше маркера, перезаписывается** содержимым шаблона. Сохраняется только то, что **ниже** маркера.
+
+Для env-файлов (`.env-{appName}.example`, генерируется из `internal/pkg/templater/embedded/templates/app/files/.env.example.tmpl`) маркер инжектится автоматически с префиксом `#` (см. `internal/pkg/templater/disclaimer.go:81-142`). Точная строка маркера в env-файле:
+
+```
+# If you need you can add your code after this message
+```
+
+**Правило:** любые ручные блоки в `.env-*.example` (bearer-токены вида `OC_*__transport__rest__*__auth__token`, документация по custom OnlineConf-путям, project-specific переменные) **должны располагаться ниже** этого маркера. Иначе они будут стёрты при следующем `make regenerate`.
+
+Если ручной блок уже потерян — посмотрите git history и перенесите его ниже маркера.
+
 ## Test Files
 
 - `test/generate_test.go` - Integration tests

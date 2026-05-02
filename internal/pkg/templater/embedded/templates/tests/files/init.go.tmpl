@@ -38,7 +38,7 @@ Create init.go with your implementation:
 
     func (t *testEnvInitializerImpl) InitTestEnv() (testutil.TestAppConfig, *gtt.Env) {
         // 1. Create app config
-        config := New{{ .ProjectName | Capitalize }}Config()
+        config := New{{ .ProjectName | CapitalizeFirst }}Config()
 
         // 2. Register services
         services.MustRegisterServiceFuncTyped("postgres", psql.Run)

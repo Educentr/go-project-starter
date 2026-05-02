@@ -5,9 +5,9 @@ import (
 {{ if .Application.UseActiveRecord }}
 	"context"
 	"database/sql"
-{{ end }}
 	"fmt"
 	"time"
+{{ end }}
 
 	gtt "github.com/Educentr/goat"
 )
@@ -30,24 +30,24 @@ var transportPorts = map[string]string{
 {{ end }}{{ end }}
 }
 
-// {{ .ProjectName | Capitalize }}Config provides basic service configuration.
+// {{ .ProjectName | CapitalizeFirst }}Config provides basic service configuration.
 // User must create their own config struct that embeds this one and implements:
 // - NewExecutor() - create executor with proper environment
 // - ApplyMigrations() - apply database migrations
 // - CleanupTables() - cleanup tables between tests
-type {{ .ProjectName | Capitalize }}Config struct{}
+type {{ .ProjectName | CapitalizeFirst }}Config struct{}
 
-// New{{ .ProjectName | Capitalize }}Config creates a new configuration for {{ .ProjectName }}
-func New{{ .ProjectName | Capitalize }}Config() *{{ .ProjectName | Capitalize }}Config {
-	return &{{ .ProjectName | Capitalize }}Config{}
+// New{{ .ProjectName | CapitalizeFirst }}Config creates a new configuration for {{ .ProjectName }}
+func New{{ .ProjectName | CapitalizeFirst }}Config() *{{ .ProjectName | CapitalizeFirst }}Config {
+	return &{{ .ProjectName | CapitalizeFirst }}Config{}
 }
 
 // --- ServiceConfig ---
 
-func (c *{{ .ProjectName | Capitalize }}Config) ServiceName() string { return testServiceName }
-func (c *{{ .ProjectName | Capitalize }}Config) BinaryPath() string  { return testBinaryPath }
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) ServiceName() string { return testServiceName }
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) BinaryPath() string  { return testBinaryPath }
 
-func (c *{{ .ProjectName | Capitalize }}Config) TransportPort(name string) string {
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) TransportPort(name string) string {
 	if port, ok := transportPorts[name]; ok {
 		return port
 	}
@@ -57,13 +57,13 @@ func (c *{{ .ProjectName | Capitalize }}Config) TransportPort(name string) strin
 // --- ExecutorBuilder ---
 // User MUST override this method in their own config struct
 
-func (c *{{ .ProjectName | Capitalize }}Config) NewExecutor(env *gtt.Env, mockAddress string) *gtt.Executor {
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) NewExecutor(env *gtt.Env, mockAddress string) *gtt.Executor {
 	panic(`NewExecutor not implemented.
 
-Create your own config struct in init.go that embeds {{ .ProjectName | Capitalize }}Config:
+Create your own config struct in init.go that embeds {{ .ProjectName | CapitalizeFirst }}Config:
 
     type myTestConfig struct {
-        *{{ .ProjectName | Capitalize }}Config
+        *{{ .ProjectName | CapitalizeFirst }}Config
     }
 
     func (c *myTestConfig) NewExecutor(env *gtt.Env, mockAddress string) *gtt.Executor {
@@ -88,7 +88,7 @@ Create your own config struct in init.go that embeds {{ .ProjectName | Capitaliz
 // --- MigrationRunner ---
 // User MUST override this method
 
-func (c *{{ .ProjectName | Capitalize }}Config) ApplyMigrations(ctx context.Context, db *sql.DB) error {
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	panic(`ApplyMigrations not implemented.
 
 Override this method in your config struct in init.go:
@@ -118,7 +118,7 @@ Override this method in your config struct in init.go:
 // --- TableCleaner ---
 // User MUST override this method
 
-func (c *{{ .ProjectName | Capitalize }}Config) CleanupTables(ctx context.Context, db *sql.DB) error {
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) CleanupTables(ctx context.Context, db *sql.DB) error {
 	panic(`CleanupTables not implemented.
 
 Override this method in your config struct in init.go:
@@ -142,7 +142,7 @@ Override this method in your config struct in init.go:
 
 // --- ActiveRecordConfig ---
 
-func (c *{{ .ProjectName | Capitalize }}Config) ConfigMap(dbHost, dbPort, dbUser, dbPass, dbName string) map[string]interface{} {
+func (c *{{ .ProjectName | CapitalizeFirst }}Config) ConfigMap(dbHost, dbPort, dbUser, dbPass, dbName string) map[string]interface{} {
 	return map[string]interface{}{
 		"/{{ .ProjectName }}/db/main":           fmt.Sprintf("%s:%s", dbHost, dbPort),
 		"/{{ .ProjectName }}/db/main/User":      dbUser,

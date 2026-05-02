@@ -24,6 +24,39 @@ applications:
     transport: [api, sys]
 ```
 
+## Выбор пути конфигурации: `use_envs` vs OnlineConf bootstrap
+
+GOAT-тесты поддерживают два пути загрузки конфигурации сервиса в тестовом окружении.
+
+### Recommended: `use_envs: true` (без OnlineConf bootstrap)
+
+```yaml
+applications:
+  - name: api
+    use_envs: true
+    goat_tests_config:
+      enabled: true
+      binary_path: /tmp/api
+    transport: [api, sys]
+```
+
+При `use_envs: true` в составе `goat_tests`:
+
+- Цель `generate-test-env-{app}` **исключается** из зависимостей `goat-tests-{app}`
+- Тестовый бинарник читает конфигурацию из переменных окружения (`OC_*`), которые передаются через `gtt.NewExecutorBuilder().WithEnv(...)`
+- MySQL и `onlineconf-updater` для тестов не требуются
+
+Reference-конфиг: [`test/docker-integration/configs/rest-envs-goat/project.yaml`](../../test/docker-integration/configs/rest-envs-goat/project.yaml).
+
+### Alternative: `use_envs: false` (с OnlineConf bootstrap)
+
+При `use_envs: false` цель `goat-tests-{app}` зависит от `generate-test-env-{app}`, которая:
+
+1. Запускает `make onlineconf-update-tests` — ожидает файл `tests/etc/onlineconf-updater.conf` и работающий MySQL
+2. Запускает `go run github.com/Educentr/goat/cmd/testutil generate-env` — генерирует `tests/etc/onlineconf/onlineconf.env`
+
+**Важно:** генератор **не создаёт** ни `tests/etc/onlineconf-updater.conf`, ни SQL-bootstrap для тестового MySQL. Эта инфраструктура должна быть подготовлена вручную (или CI-скриптом). Для большинства проектов проще использовать `use_envs: true`.
+
 ## Генерируемые файлы
 
 После запуска генератора в директории `tests/` появятся:
@@ -47,7 +80,43 @@ applications:
 
 ### 1. Создайте `init.go`
 
-Это **обязательный** файл, реализующий интерфейс `TestEnvInitializer`:
+Это **обязательный** файл, реализующий интерфейс `TestEnvInitializer`. Сгенерированный `psg_init_gen.go` подаёт `defaultTestEnvInitializer{}`, которая упадёт с panic-сообщением: пример в этом сообщении хардкодит `psql`/`xray` как иллюстрацию — для проектов **без БД и внешних сервисов** используйте минимальный шаблон ниже.
+
+#### Минимальный init.go (без БД и внешних сервисов)
+
+Подходит для сервисов, в которых goat-тесты только проверяют HTTP/gRPC контракт через бинарник, без зависимостей от postgres/xray/redis:
+
+```go
+package tests
+
+import (
+    gtt "github.com/Educentr/goat"
+    "github.com/Educentr/goat/services"
+    "github.com/Educentr/goat/testutil"
+)
+
+type testEnvInitializerImpl struct{}
+
+func (t *testEnvInitializerImpl) InitTestEnv() (testutil.TestAppConfig, *gtt.Env) {
+    // Используйте сгенерированную NewYourProjectConfig() — имя зависит от main.name
+    // (для name: "my-service" → NewMyServiceConfig)
+    cfg := NewYourProjectConfig()
+
+    // Пустой ServicesMap — никаких внешних сервисов в тестовом окружении
+    manager := services.NewManager(services.NewServicesMap(), services.DefaultManagerConfig())
+    env := gtt.NewEnv(gtt.EnvConfig{}, manager)
+
+    return cfg, env
+}
+
+func init() {
+    testEnvInit = &testEnvInitializerImpl{}
+}
+```
+
+При таком init.go также нужно реализовать `NewExecutor()` — простейший вариант для `use_envs: true` проектов: загрузить переменные из `.env-{app}.example` через `testutil.LoadEnvFile()` и передать в `WithEnv()`.
+
+#### Полный пример (с postgres и миграциями)
 
 ```go
 package tests
@@ -243,6 +312,8 @@ make goat-tests           # Сборка и запуск
 make goat-tests-verbose   # С подробным выводом
 make build_for_test-api   # Только сборка бинарника
 ```
+
+> **Важно:** при `goat_tests: true` хотя бы у одного приложения цель `make test` начинает зависеть от `make goat-tests`. Если в текущем окружении не настроена инфраструктура для goat-тестов (например, нет Docker), используйте `make unit-tests` для запуска только unit-тестов без интеграции.
 
 ### Напрямую
 
