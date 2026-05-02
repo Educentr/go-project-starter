@@ -217,23 +217,19 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GeneratorParams:   w.GeneratorParams,
 		}
 
-		// Parse queue contract for queue workers. Remote queue specs are not
-		// yet supported here because the contract is parsed during config
-		// load (before the spec resolve pre-pass). Reject explicitly so the
-		// user sees a clear message instead of a confusing "file not found".
+		// Parse queue contract for queue workers. Spec is materialized inline
+		// (local paths join with BasePath, remote URIs resolve into a
+		// scratch staging dir that is wiped right after the parse).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			src, err := specsource.ParseSpecSource(w.Path[0])
+			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0])
 			if err != nil {
-				return errors.Wrapf(err, "queue worker %q: invalid path", w.Name)
+				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
 			}
-			if src.Kind() != specsource.KindLocal {
-				return fmt.Errorf("queue worker %q: remote queue specs are not supported yet (path=%s)", w.Name, w.Path[0])
-			}
-			specPath := filepath.Join(config.BasePath, w.Path[0])
 
-			spec, err := cfg.ParseQueueSpec(specPath)
-			if err != nil {
-				return errors.Wrapf(err, "failed to parse queue spec for worker '%s'", w.Name)
+			spec, parseErr := cfg.ParseQueueSpec(specPath)
+			cleanup()
+			if parseErr != nil {
+				return errors.Wrapf(parseErr, "failed to parse queue spec for worker '%s'", w.Name)
 			}
 
 			worker.QueueConfig = convertQueueSpec(spec)
@@ -587,13 +583,20 @@ func (g *Generator) processConfig(config cfg.Config) error {
 				GeneratorParams:   cli.GeneratorParams,
 			}
 
-			// Parse CLI spec if path is provided
+			// Parse CLI spec if path is provided. Same inline-resolve pattern
+			// as queue workers: local paths join with BasePath, remote URIs
+			// (git+ssh://, git+https://, https://) materialize into a
+			// scratch staging dir that is wiped right after the parse.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath := filepath.Join(config.BasePath, cli.Path[0])
-
-				spec, err := cfg.ParseCLISpec(specPath)
+				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0])
 				if err != nil {
-					return errors.Wrapf(err, "failed to parse CLI spec for '%s'", cli.Name)
+					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
+				}
+
+				spec, parseErr := cfg.ParseCLISpec(specPath)
+				cleanup()
+				if parseErr != nil {
+					return errors.Wrapf(parseErr, "failed to parse CLI spec for '%s'", cli.Name)
 				}
 
 				cliApp.Commands = convertCLISpec(spec)
@@ -773,6 +776,49 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 		Worker:          worker,
 		WorkerParams:    worker.GeneratorParams,
 	}
+}
+
+// resolveInlineSpec materializes a spec source into a local file for
+// one-shot parsing during config load (CLI commands.yaml, queue worker
+// contracts). Unlike resolveAllSources — which runs as a pre-pass and keeps
+// staged files alive for CopySpecs/CopySchemas — inline specs are read and
+// parsed immediately, so the caller invokes the returned cleanup right
+// after the parse and the staging dir is gone before Generate() runs.
+//
+// LocalSource short-circuits: returns filepath.Join(basePath, raw) without
+// touching the filesystem, so existing local-only flows incur zero cost.
+func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath string, cleanup func(), err error) {
+	src, perr := specsource.ParseSpecSource(raw)
+	if perr != nil {
+		return "", func() {}, perr
+	}
+	if local, ok := src.(specsource.LocalSource); ok {
+		return filepath.Join(basePath, local.RawPath), func() {}, nil
+	}
+
+	stagingDir, mkErr := os.MkdirTemp("", "gps-inline-spec-")
+	if mkErr != nil {
+		return "", func() {}, fmt.Errorf("create inline-spec staging dir: %w", mkErr)
+	}
+	cleanupStaging := func() { _ = os.RemoveAll(stagingDir) }
+
+	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{})
+	if rerr != nil {
+		cleanupStaging()
+		return "", func() {}, rerr
+	}
+
+	res, resErr := resolver.Resolve(ctx, src)
+	if resErr != nil {
+		_ = resolver.Close()
+		cleanupStaging()
+		return "", func() {}, resErr
+	}
+
+	return res.LocalPath, func() {
+		_ = resolver.Close()
+		cleanupStaging()
+	}, nil
 }
 
 // resolveAllSources fetches every remote spec source referenced by the

@@ -263,11 +263,35 @@ func TestRemoteSpec_RejectsGitSubpathDirectory(t *testing.T) {
 	}
 }
 
-// TestRemoteSpec_RejectsRemoteQueueWorker verifies that queue-worker spec
-// paths only accept local files — remote queue specs are documented as a v1
-// limitation and should fail with a clear, actionable message.
-func TestRemoteSpec_RejectsRemoteQueueWorker(t *testing.T) {
-	const cfgTmpl = `main:
+// queueContract is a minimal valid queues.yaml — enough for ParseQueueSpec
+// to succeed. The exact schema doesn't matter for this test; we only verify
+// that the resolver materializes the file before ParseQueueSpec runs.
+const queueContract = `queues:
+  - id: 1
+    name: emails
+    fields:
+      - name: to
+        type: string
+      - name: subject
+        type: string
+      - name: body
+        type: "[]byte"
+      - name: user_id
+        type: int64
+`
+
+// TestRemoteSpec_QueueWorker_HTTP verifies that queue-worker spec paths
+// accept remote URIs. The resolver materializes the contract into a scratch
+// directory, ParseQueueSpec reads it, and the staging is removed
+// immediately after the parse. Spec was historically a v1 limitation
+// (remote queue specs not supported); this test guards the fix.
+func TestRemoteSpec_QueueWorker_HTTP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, queueContract)
+	}))
+	defer srv.Close()
+
+	cfgTmpl := `main:
   name: queueremote
   logger: zerolog
   registry_type: github
@@ -308,17 +332,94 @@ applications:
 
 	configDir := t.TempDir()
 	targetDir := t.TempDir()
-	body := fmt.Sprintf(cfgTmpl, "https://example.com/queues.yaml")
+	body := fmt.Sprintf(cfgTmpl, srv.URL+"/queues.yaml")
 	if err := os.WriteFile(filepath.Join(configDir, "project.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
 	out, err := runGenerator(t, configDir, targetDir)
-	if err == nil {
-		t.Fatalf("generator should have failed on remote queue spec; output:\n%s", out)
+	if err != nil {
+		t.Fatalf("generator failed with remote queue spec: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "queue") || !strings.Contains(out, "remote") {
-		t.Errorf("error should mention 'remote queue specs not supported'; got:\n%s", out)
+
+	// The dispatcher generated for the worker should reference the typed
+	// EmailsTask coming from the remote contract.
+	dispatcherPath := filepath.Join(targetDir, "internal", "app", "worker",
+		"task_processor", "task_processor", "psg_types_gen.go")
+	got, err := os.ReadFile(dispatcherPath)
+	if err != nil {
+		t.Fatalf("read generated worker types: %v", err)
+	}
+	if !strings.Contains(string(got), "type EmailsTask struct") {
+		t.Errorf("generated types should contain EmailsTask from remote contract; got:\n%s", got)
+	}
+}
+
+// cliCommands is a minimal valid commands.yaml for the CLI spec parser.
+const cliCommands = `commands:
+  - name: ping
+    description: ping the service
+`
+
+// TestRemoteSpec_CLI_HTTP verifies that CLI spec paths accept remote URIs.
+// Same inline-resolve flow as queue workers: the contract is materialized
+// once, parsed, and the staging is wiped immediately.
+func TestRemoteSpec_CLI_HTTP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, cliCommands)
+	}))
+	defer srv.Close()
+
+	cfgTmpl := `main:
+  name: cliremote
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/cliremote.git
+  module_path: github.com/test/cliremote
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.26"
+  ogen_version: v1.18.0
+  golangci_version: 1.64.8
+
+cli:
+  - name: admin
+    path:
+      - %q
+    generator_type: template
+    generator_template: cli
+
+applications:
+  - name: admin-cli
+    cli: admin
+`
+
+	configDir := t.TempDir()
+	targetDir := t.TempDir()
+	body := fmt.Sprintf(cfgTmpl, srv.URL+"/commands.yaml")
+	if err := os.WriteFile(filepath.Join(configDir, "project.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	out, err := runGenerator(t, configDir, targetDir)
+	if err != nil {
+		t.Fatalf("generator failed with remote CLI spec: %v\n%s", err, out)
+	}
+
+	// The CLI handler generated from the remote contract must contain the
+	// RunPing method derived from the `ping` command.
+	handlerPath := filepath.Join(targetDir, "internal", "app", "transport", "cli", "admin", "psg_handler_gen.go")
+	got, err := os.ReadFile(handlerPath)
+	if err != nil {
+		t.Fatalf("read generated CLI handler: %v", err)
+	}
+	if !strings.Contains(string(got), "RunPing") {
+		t.Errorf("generated handler should contain RunPing from remote spec; got first 500 bytes:\n%.500s", got)
 	}
 }
 

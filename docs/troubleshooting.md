@@ -95,11 +95,6 @@ ssh -T git@github.com         # проверить доступ
 
 **Решение:** Укажите конкретный файл, например `#openapi/users.yaml`.
 
-### `remote queue specs are not supported yet`
-
-**Причина:** В worker с `generator_template: queue` указан `git+...` или `https://...`. Queue-спеки парсятся на этапе загрузки конфига, до резолва.
-
-**Решение:** Используйте локальный путь для queue spec.
 
 ## Ogen: ошибки компиляции
 

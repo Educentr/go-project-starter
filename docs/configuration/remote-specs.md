@@ -111,11 +111,22 @@ rest:
 | `HTTP request returned non-2xx status: 404 ...` | Неверный URL или ref | Проверить URL в браузере / `curl -I` |
 | `directory subpaths are not supported yet` | `#openapi/` (с `/` в конце) | Указать конкретный файл, не директорию |
 
+## Поддерживаемые источники
+
+Удалённые URI работают для всех `path:` в YAML:
+
+- `rest.path` — OpenAPI-спеки (REST/ogen/ogen_client)
+- `grpc.path` — `.proto` файлы
+- `jsonschema.path` / `jsonschema.schemas[].path` — JSON-схемы
+- `worker.path` для `generator_template: queue` — queue-контракты
+- `cli.path` для `generator_template: cli` — CLI-команды
+
+Для REST/gRPC/JSON Schema файлы копируются в `api/` (live на протяжении сборки). Для queue/CLI файл материализуется во временную staging-директорию, парсится в Go-структуру и сразу удаляется — в `api/` не копируется (рантайму он не нужен).
+
 ## Известные ограничения v1
 
 - **Subpath = файл, не директория.** Поддержка proto-деревьев с импортами — отдельной задачей.
 - **Lockfile с pinned commit-SHA** (как `go.sum`) — не реализовано. См. [issue в GitHub](https://github.com/Educentr/go-project-starter/issues) с тегом `specsource`.
-- **Queue-спеки воркеров** (`worker.path` для `generator_template: queue`) — пока только локальные. Будет ошибка `remote queue specs are not supported yet`.
 - **Токен в `ps`** для `git+https`: при clone токен виден в командной строке процесса. На разделяемых машинах используйте `git+ssh://` или короткоживущие токены.
 - **Параллельные клоны не выполняются.** Если у вас 10 удалённых спек — clone идёт последовательно. Для одного `(repo, ref)` клон один.
 
