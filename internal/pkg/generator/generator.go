@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
@@ -61,6 +63,9 @@ type Generator struct {
 	Grafana             grafana.Config
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
+	// BasePath is the directory containing the source project.yaml. Used to
+	// resolve LocalSource paths during the spec resolve pre-pass.
+	BasePath string
 }
 
 type ExecCmd struct {
@@ -130,6 +135,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 	g.TargetDir = "./"
 	g.ConfigPath = config.ConfigFilePath
+	g.BasePath = config.BasePath
 
 	if config.Deploy.LogCollector.Type != "" {
 		g.Deploy.LogCollector.Type = config.Deploy.LogCollector.Type
@@ -142,11 +148,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	}
 
 	for _, rest := range config.RestList {
-		paths := make([]string, 0, len(rest.Path))
-
-		for _, path := range rest.Path {
-			paths = append(paths, filepath.Join(config.BasePath, path))
-		}
+		// Spec paths are kept as raw URIs (or relative local paths) until the
+		// resolve pre-pass in Generate(). LocalSource is joined with BasePath
+		// at resolve time, preserving the pre-feature behavior exactly.
+		paths := append([]string(nil), rest.Path...)
 
 		if rest.Name == "" {
 			return errors.New("rest name is empty")
@@ -212,13 +217,19 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GeneratorParams:   w.GeneratorParams,
 		}
 
-		// Parse queue contract for queue workers
+		// Parse queue contract for queue workers. Spec is materialized inline
+		// (local paths join with BasePath, remote URIs resolve into a
+		// scratch staging dir that is wiped right after the parse).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			specPath := filepath.Join(config.BasePath, w.Path[0])
-
-			spec, err := cfg.ParseQueueSpec(specPath)
+			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0])
 			if err != nil {
-				return errors.Wrapf(err, "failed to parse queue spec for worker '%s'", w.Name)
+				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
+			}
+
+			spec, parseErr := cfg.ParseQueueSpec(specPath)
+			cleanup()
+			if parseErr != nil {
+				return errors.Wrapf(parseErr, "failed to parse queue spec for worker '%s'", w.Name)
 			}
 
 			worker.QueueConfig = convertQueueSpec(spec)
@@ -248,7 +259,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			return errors.New("grpc name is empty")
 		}
 
-		paths := []string{filepath.Join(config.BasePath, grpc.Path)}
+		paths := []string{grpc.Path}
 
 		transport := ds.Transport{
 			Name:            grpc.Name,
@@ -300,7 +311,8 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			Package: js.Package,
 		}
 
-		// Support both legacy path[] and new schemas[] format
+		// Support both legacy path[] and new schemas[] format. Paths are kept
+		// as raw URIs (or relative local paths) until the resolve pre-pass.
 		if len(js.Schemas) > 0 {
 			schema.Schemas = make([]ds.JSONSchemaItem, 0, len(js.Schemas))
 			for _, s := range js.Schemas {
@@ -311,16 +323,13 @@ func (g *Generator) processConfig(config cfg.Config) error {
 				}
 				schema.Schemas = append(schema.Schemas, ds.JSONSchemaItem{
 					ID:   s.ID,
-					Path: filepath.Join(config.BasePath, s.Path),
+					Path: s.Path,
 					Type: schemaType,
 				})
 			}
 		} else {
 			// Legacy format: plain path list
-			schema.Path = make([]string, 0, len(js.Path))
-			for _, path := range js.Path {
-				schema.Path = append(schema.Path, filepath.Join(config.BasePath, path))
-			}
+			schema.Path = append([]string(nil), js.Path...)
 		}
 
 		g.JSONSchemas[js.Name] = schema
@@ -574,13 +583,20 @@ func (g *Generator) processConfig(config cfg.Config) error {
 				GeneratorParams:   cli.GeneratorParams,
 			}
 
-			// Parse CLI spec if path is provided
+			// Parse CLI spec if path is provided. Same inline-resolve pattern
+			// as queue workers: local paths join with BasePath, remote URIs
+			// (git+ssh://, git+https://, https://) materialize into a
+			// scratch staging dir that is wiped right after the parse.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath := filepath.Join(config.BasePath, cli.Path[0])
-
-				spec, err := cfg.ParseCLISpec(specPath)
+				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0])
 				if err != nil {
-					return errors.Wrapf(err, "failed to parse CLI spec for '%s'", cli.Name)
+					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
+				}
+
+				spec, parseErr := cfg.ParseCLISpec(specPath)
+				cleanup()
+				if parseErr != nil {
+					return errors.Wrapf(parseErr, "failed to parse CLI spec for '%s'", cli.Name)
 				}
 
 				cliApp.Commands = convertCLISpec(spec)
@@ -762,6 +778,170 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 	}
 }
 
+// resolveInlineSpec materializes a spec source into a local file for
+// one-shot parsing during config load (CLI commands.yaml, queue worker
+// contracts). Unlike resolveAllSources — which runs as a pre-pass and keeps
+// staged files alive for CopySpecs/CopySchemas — inline specs are read and
+// parsed immediately, so the caller invokes the returned cleanup right
+// after the parse and the staging dir is gone before Generate() runs.
+//
+// LocalSource short-circuits: returns filepath.Join(basePath, raw) without
+// touching the filesystem, so existing local-only flows incur zero cost.
+func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath string, cleanup func(), err error) {
+	src, perr := specsource.ParseSpecSource(raw)
+	if perr != nil {
+		return "", func() {}, perr
+	}
+	if local, ok := src.(specsource.LocalSource); ok {
+		return filepath.Join(basePath, local.RawPath), func() {}, nil
+	}
+
+	stagingDir, mkErr := os.MkdirTemp("", "gps-inline-spec-")
+	if mkErr != nil {
+		return "", func() {}, fmt.Errorf("create inline-spec staging dir: %w", mkErr)
+	}
+	cleanupStaging := func() { _ = os.RemoveAll(stagingDir) }
+
+	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{})
+	if rerr != nil {
+		cleanupStaging()
+		return "", func() {}, rerr
+	}
+
+	res, resErr := resolver.Resolve(ctx, src)
+	if resErr != nil {
+		_ = resolver.Close()
+		cleanupStaging()
+		return "", func() {}, resErr
+	}
+
+	return res.LocalPath, func() {
+		_ = resolver.Close()
+		cleanupStaging()
+	}, nil
+}
+
+// resolveAllSources fetches every remote spec source referenced by the
+// generator (REST/gRPC SpecPath, JSONSchema Path/Schemas) and rewrites the
+// in-memory paths to point at materialized files under a per-run staging
+// directory. LocalSource entries are joined with BasePath as before.
+//
+// The returned cleanup function MUST be called via defer once Generate is
+// done with the staging files (typically right after CopySpecs/CopySchemas).
+func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
+	stagingDir, err := os.MkdirTemp("", "gps-specs-")
+	if err != nil {
+		return nil, fmt.Errorf("create spec staging dir: %w", err)
+	}
+
+	// Skip the `git` probe if no source actually needs git — keeps the
+	// dependency surface minimal for projects that only use local specs.
+	skipGit := !g.hasGitSource()
+
+	resolver, err := specsource.NewResolver(g.BasePath, stagingDir, specsource.ResolverOptions{
+		SkipGitCheck: skipGit,
+	})
+	if err != nil {
+		_ = os.RemoveAll(stagingDir)
+		return nil, err
+	}
+
+	cleanup = func() error {
+		_ = resolver.Close()
+		return os.RemoveAll(stagingDir)
+	}
+
+	ctx := context.Background()
+
+	for name, t := range g.Transports {
+		if len(t.SpecPath) == 0 {
+			continue
+		}
+		targets := make([]string, len(t.SpecPath))
+		for i, raw := range t.SpecPath {
+			res, tf, rerr := resolveOne(ctx, resolver, raw)
+			if rerr != nil {
+				return cleanup, errors.Wrapf(rerr, "transport %q path[%d]=%s", name, i, raw)
+			}
+			t.SpecPath[i] = res
+			targets[i] = tf
+		}
+		t.SpecTargetFiles = targets
+		g.Transports[name] = t
+	}
+
+	for name, j := range g.JSONSchemas {
+		if len(j.Schemas) > 0 {
+			targets := make([]string, len(j.Schemas))
+			for i := range j.Schemas {
+				raw := j.Schemas[i].Path
+				res, tf, rerr := resolveOne(ctx, resolver, raw)
+				if rerr != nil {
+					return cleanup, errors.Wrapf(rerr, "jsonschema %q schemas[%d]=%s", name, i, raw)
+				}
+				j.Schemas[i].Path = res
+				targets[i] = tf
+			}
+			j.SchemaTargetFiles = targets
+		} else if len(j.Path) > 0 {
+			targets := make([]string, len(j.Path))
+			for i, raw := range j.Path {
+				res, tf, rerr := resolveOne(ctx, resolver, raw)
+				if rerr != nil {
+					return cleanup, errors.Wrapf(rerr, "jsonschema %q path[%d]=%s", name, i, raw)
+				}
+				j.Path[i] = res
+				targets[i] = tf
+			}
+			j.SchemaTargetFiles = targets
+		}
+		g.JSONSchemas[name] = j
+	}
+
+	return cleanup, nil
+}
+
+// hasGitSource reports whether any spec path is a git URI. Used to suppress
+// the up-front `git` binary probe when no git source is configured.
+func (g *Generator) hasGitSource() bool {
+	check := func(raw string) bool {
+		s, err := specsource.ParseSpecSource(raw)
+		return err == nil && s.Kind() == specsource.KindGit
+	}
+	for _, t := range g.Transports {
+		for _, p := range t.SpecPath {
+			if check(p) {
+				return true
+			}
+		}
+	}
+	for _, j := range g.JSONSchemas {
+		for _, p := range j.Path {
+			if check(p) {
+				return true
+			}
+		}
+		for _, item := range j.Schemas {
+			if check(item.Path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func resolveOne(ctx context.Context, r *specsource.Resolver, raw string) (string, string, error) {
+	src, err := specsource.ParseSpecSource(raw)
+	if err != nil {
+		return "", "", err
+	}
+	res, err := r.Resolve(ctx, src)
+	if err != nil {
+		return "", "", err
+	}
+	return res.LocalPath, src.TargetFilename(), nil
+}
+
 func (g *Generator) CopySpecs() error {
 	for _, app := range g.Applications {
 		for _, transport := range app.Transports {
@@ -808,12 +988,15 @@ func (g *Generator) CopySchemas() error {
 			paths = schema.Path
 		}
 
-		for _, schemaPath := range paths {
+		for i, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
 				return errors.Wrapf(err, "schema file not found: %s", schemaPath)
 			}
 
-			_, fileName := filepath.Split(schemaPath)
+			fileName := filepath.Base(schemaPath)
+			if i < len(schema.SchemaTargetFiles) && schema.SchemaTargetFiles[i] != "" {
+				fileName = schema.SchemaTargetFiles[i]
+			}
 			dest := filepath.Join(targetDir, fileName)
 
 			log.Printf("copy schema: `%s` to `%s`\n", schemaPath, dest)
@@ -939,6 +1122,18 @@ func (g *Generator) Generate() error {
 		if err := os.Remove(obsoleteFile); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("error removing obsolete file %s: %w", obsoleteFile, err)
 		}
+	}
+
+	cleanup, err := g.resolveAllSources()
+	if cleanup != nil {
+		defer func() {
+			if cerr := cleanup(); cerr != nil {
+				log.Printf("warning: cleanup spec staging dir: %v", cerr)
+			}
+		}()
+	}
+	if err != nil {
+		return errors.Wrap(err, "Error resolve specs")
 	}
 
 	if err = g.CopySpecs(); err != nil {

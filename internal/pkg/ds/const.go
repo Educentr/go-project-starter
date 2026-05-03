@@ -198,6 +198,12 @@ type JSONSchema struct {
 	Package string           // Package name for generated code
 	Path    []string         // Legacy: Paths to JSON schema files (absolute)
 	Schemas []JSONSchemaItem // New: Individual schema files with IDs
+	// SchemaTargetFiles, when non-empty, holds the basename to use under
+	// api/schema/{name}/ for each schema entry. Populated when sources are
+	// resolved from URI form. Empty for legacy local-only flows. Layout:
+	// for legacy Path[] form, indices align with Path; for Schemas[] form,
+	// indices align with Schemas.
+	SchemaTargetFiles []string
 }
 
 // JSONSchemas is a map of JSONSchema by name
@@ -557,6 +563,12 @@ type Transport struct {
 	AuthParams           AuthParams
 	GeneratorParams      map[string]string
 	SpecPath             []string
+	// SpecTargetFiles, when non-empty, holds the basename under which each
+	// SpecPath[i] should be saved into api/. Populated when sources are
+	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
+	// "users.yaml"). Empty for legacy local-only flows; in that case
+	// GetTargetSpecFile falls back to filepath.Base(SpecPath[i]).
+	SpecTargetFiles []string
 	ApiVersion           string // перенесено из Hendler
 	Port                 string // перенесено из Hendler
 	BufLocalPlugins bool // Use local buf instead of docker for proto generation
@@ -938,6 +950,9 @@ func (t Transport) GetTargetSpecDir(targetDir string) string {
 }
 
 func (t Transport) GetTargetSpecFile(num int) string {
+	if num < len(t.SpecTargetFiles) && t.SpecTargetFiles[num] != "" {
+		return t.SpecTargetFiles[num]
+	}
 	_, file := filepath.Split(t.SpecPath[num])
 
 	return file

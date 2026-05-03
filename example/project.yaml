@@ -62,6 +62,19 @@ rest:
   - name: example
     path:
       - ./example.swagger.yml
+      # Remote spec sources are also supported in `path:`. The file is fetched
+      # at `make regenerate` time and copied into api/rest/<name>/<version>/.
+      # Local paths continue to work unchanged. URI grammar:
+      #
+      #   - https://raw.githubusercontent.com/org/specs/main/api.yaml
+      #   - https://api.example.com/spec.yaml?token_env=COMPANY_TOKEN
+      #   - git+ssh://git@github.com/org/api-specs.git@v1.0.0#openapi/example.yaml
+      #   - git+https://github.com/org/api-specs.git@main?token_env=GITHUB_TOKEN#api/users.yaml
+      #
+      # Authentication: token_env names an environment variable holding the
+      # secret. The token is read at resolve time and never written to YAML
+      # or logs. SSH uses ssh-agent / ~/.ssh, no extra config.
+      # See: docs/configuration/remote-specs.md
     api_prefix: /
     version: "v1"
     port: 8081

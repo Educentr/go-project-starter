@@ -44,6 +44,58 @@ mkdir -p ./my-project
 go-project-starter --config=config.yaml --target=./my-project
 ```
 
+## Удалённые спеки
+
+См. также: [Удалённые спеки](configuration/remote-specs.md).
+
+### `'git' executable not found in PATH`
+
+**Причина:** В `path:` указан `git+ssh://` или `git+https://`, но `git` не установлен.
+
+**Решение:** Установите `git` (`brew install git` / `apt-get install git`). Если используете только локальные пути или `https://` — `git` не нужен.
+
+### `token_env variable is empty: GITHUB_TOKEN`
+
+**Причина:** В URI указан `?token_env=GITHUB_TOKEN`, но переменная не экспортирована.
+
+**Решение:**
+
+```bash
+export GITHUB_TOKEN=ghp_xxx
+make regenerate
+```
+
+### `git clone failed: authentication failed` (для `git+ssh://`)
+
+**Причина:** ssh-agent не запущен или ключ не добавлен.
+
+**Решение:**
+
+```bash
+ssh-add -l                    # проверить, какие ключи доступны
+ssh-add ~/.ssh/id_ed25519     # добавить ключ
+ssh -T git@github.com         # проверить доступ
+```
+
+### `git clone failed: repository not found`
+
+**Причина:** Опечатка в URL или нет прав на репозиторий.
+
+**Решение:** Проверьте URL и сделайте `git clone <repo>` локально.
+
+### `subpath not found in repository: <path>`
+
+**Причина:** Файл по `#subpath` отсутствует в склонированном репо.
+
+**Решение:** Сообщение содержит подсказку с похожими именами файлов — поправьте путь в YAML или укажите правильный `<ref>`.
+
+### `directory subpaths are not supported yet`
+
+**Причина:** В git-URI указан subpath, заканчивающийся на `/` (директория). v1 поддерживает только файлы.
+
+**Решение:** Укажите конкретный файл, например `#openapi/users.yaml`.
+
+
 ## Ogen: ошибки компиляции
 
 ### "undefined: oas.ErrorDefault" или "undefined: oas.ErrorDefaultStatusCode"

@@ -149,6 +149,23 @@ See [docs/NAMING.md](docs/NAMING.md) for detailed documentation.
 - No duplicate transport/worker/driver names
 - ActiveRecord requires ArgenVersion
 
+## Remote Specs
+
+`path:` в `project.yaml` (REST/gRPC/JSON Schema/CLI/queue worker) принимает не только локальные файлы, но и URI:
+
+- `./local.yaml` — локально (как раньше)
+- `https://host/file.yaml[?token_env=NAME]` — прямая ссылка, опц. Bearer-токен
+- `git+ssh://git@host/org/repo.git@<ref>#<subpath>` — git, SSH (через ssh-agent)
+- `git+https://host/org/repo.git@<ref>#<subpath>[?token_env=NAME]` — git, HTTPS, опц. токен
+
+Удалённые спеки скачиваются в staging при `make regenerate`, копируются в `api/`, коммитятся в проект — после первого regenerate сборка не требует интернета. Token читается из ENV-переменной (имя в URI), сам токен в YAML не пишется.
+
+Реализация: `internal/pkg/specsource/`. Pre-pass резолва — в `Generator.resolveAllSources()` (`internal/pkg/generator/generator.go`), вызывается из `Generate()` перед `CopySpecs`/`CopySchemas`. Полная документация: [docs/configuration/remote-specs.md](docs/configuration/remote-specs.md).
+
+CLI и queue-worker spec'и (которые парсятся inline во время загрузки конфига) резолвятся через отдельный `resolveInlineSpec` хелпер: для local — joinpath, для remote — материализация во временный staging, парсинг, немедленная очистка (файл рантайму не нужен). REST/gRPC/JSONSchema — через основной `resolveAllSources()` pre-pass, файл остаётся живым для копирования в `api/`.
+
+Известные ограничения v1: subpath = только файл (не директория), токен в `git clone` светится в `ps`.
+
 ## Regeneration Behavior
 
 ### Disclaimer Marker (env-файлы и другие файлы с ручными правками)

@@ -136,7 +136,10 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	}
 
 	// Copy each config directory separately
-	configDirs := []string{"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana"}
+	configDirs := []string{
+		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
+		"rest-remote-http", "rest-remote-git",
+	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
 		dstPath := fmt.Sprintf("/workspace/test-configs/%s", dir)
@@ -228,6 +231,22 @@ func getTestConfigs() map[string]testConfig {
 			requiresTG:  false,
 			serviceName: "resttest",
 			projectName: "resttest",
+		},
+		"rest-remote-http": {
+			name:        "rest-remote-http",
+			configDir:   "rest-remote-http",
+			appName:     "api",
+			requiresTG:  false,
+			serviceName: "restremotehttp",
+			projectName: "restremotehttp",
+		},
+		"rest-remote-git": {
+			name:        "rest-remote-git",
+			configDir:   "rest-remote-git",
+			appName:     "api",
+			requiresTG:  false,
+			serviceName: "restremotegit",
+			projectName: "restremotegit",
 		},
 	}
 }
@@ -515,4 +534,157 @@ func TestIntegrationRESTLogrus(t *testing.T) {
 	}
 
 	runTest(t, "rest-logrus", "rest-logrus")
+}
+
+// assertSpecDownloaded verifies that the named OpenAPI spec was materialised
+// at api/rest/api/v1/<basename> inside the generated project AND that ogen
+// produced server code from it. This is the assertion that distinguishes
+// remote-spec tests from the plain rest-only flow: we want to see that
+// resolveAllSources actually fetched the bytes, not silently skipped.
+func assertSpecDownloaded(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir, basename string) {
+	t.Helper()
+
+	specPath := fmt.Sprintf("%s/api/rest/api/v1/%s", outputDir, basename)
+	code, _, err := container.Exec(ctx, []string{"test", "-s", specPath})
+	require.NoError(t, err, "stat spec file")
+	require.Equal(t, 0, code, "expected non-empty spec at %s", specPath)
+
+	// Spot-check that the spec is a real OpenAPI document, not an HTML error
+	// page or empty staging file.
+	checkCmd := fmt.Sprintf("head -c 200 %s | grep -q '^openapi:'", specPath)
+	code, _, err = container.Exec(ctx, []string{"sh", "-c", checkCmd})
+	require.NoError(t, err)
+	require.Equal(t, 0, code, "spec at %s should start with 'openapi:'", specPath)
+
+	// ogen must have run against the downloaded spec — the generated server
+	// package always contains an oas.Server type declaration.
+	oasPath := fmt.Sprintf("%s/pkg/rest/api/v1/oas_server_gen.go", outputDir)
+	code, _, err = container.Exec(ctx, []string{"sh", "-c", "test -s " + oasPath})
+	require.NoError(t, err)
+	require.Equal(t, 0, code, "ogen should have produced %s from the downloaded spec", oasPath)
+}
+
+// TestIntegrationRESTRemoteSpecHTTP tests that rest.path can be a public
+// https:// URL: the generator fetches the spec, copies it into api/, ogen
+// runs against the local copy, and the resulting service builds and starts
+// in Docker.
+//
+// The spec URL points at example/example.swagger.yml in this same
+// repository on the main branch — keeps the fixture self-contained.
+func TestIntegrationRESTRemoteSpecHTTP(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-remote-http", "rest-remote-http", func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+		t.Helper()
+		assertSpecDownloaded(ctx, t, container, outputDir, "example.swagger.yml")
+	})
+}
+
+// TestIntegrationRESTRemoteSpecGit tests that rest.path can be a
+// git+https:// URI: the generator clones the public repo, extracts the
+// referenced subpath, and the result builds and runs identically to a
+// project with a local spec.
+//
+// Like the HTTP variant, the spec lives in this same repository
+// (Educentr/go-project-starter, public, ref main) — no external dependency.
+func TestIntegrationRESTRemoteSpecGit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-remote-git", "rest-remote-git", func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+		t.Helper()
+		assertSpecDownloaded(ctx, t, container, outputDir, "example.swagger.yml")
+	})
+}
+
+// runTestWithExtraAssertions is runTest with an extra assertion hook fired
+// after generation completes but before make generate. This is where we
+// verify remote-spec-specific invariants without duplicating the full
+// generate / build / docker pipeline.
+func runTestWithExtraAssertions(t *testing.T, testName, configDir string, after func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string)) {
+	t.Helper()
+	ctx := t.Context()
+	container := GetContainer()
+
+	outputDir := fmt.Sprintf("/workspace/output/%s", testName)
+	projectConfigDir := fmt.Sprintf("%s/.project-config", outputDir)
+
+	setupCmd := fmt.Sprintf("mkdir -p %s && cp -r /workspace/test-configs/%s/. %s/",
+		projectConfigDir, configDir, projectConfigDir)
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", setupCmd})
+	require.NoError(t, err, "failed to setup directories")
+	require.Equal(t, 0, code, "setup failed: %s", readOutput(outputReader))
+
+	t.Logf("Running go-project-starter for %s...", testName)
+	genCmd := fmt.Sprintf("go-project-starter --target=%s --configDir=%s", outputDir, projectConfigDir)
+	code, outputReader, err = container.Exec(ctx, []string{"sh", "-c", genCmd})
+	output := readOutput(outputReader)
+
+	if os.Getenv("GOAT_DISABLE_STDOUT") != "true" {
+		t.Logf("Generator output:\n%s", output)
+	}
+
+	require.NoError(t, err, "failed to execute generator")
+	require.Equal(t, 0, code, "generator failed: %s", output)
+
+	// Hook: verify that the remote spec actually landed in api/. This must
+	// run after generate (which performs the resolve+copy pre-pass) but
+	// before make generate (which would fail anyway if the spec is missing,
+	// but with a much less informative error than this targeted check).
+	if after != nil {
+		after(ctx, t, container, outputDir)
+	}
+
+	t.Logf("Running make generate for %s...", testName)
+	generateCmd := fmt.Sprintf("cd %s && make generate", outputDir)
+	code, outputReader, err = container.Exec(ctx, []string{"sh", "-c", generateCmd})
+	output = readOutput(outputReader)
+
+	if os.Getenv("GOAT_DISABLE_STDOUT") != "true" {
+		t.Logf("make generate output:\n%s", output)
+	}
+
+	require.NoError(t, err, "failed to execute make generate")
+	require.Equal(t, 0, code, "make generate failed: %s", output)
+
+	t.Logf("Running go mod tidy for %s...", testName)
+	tidyCmd := fmt.Sprintf("cd %s && go mod tidy", outputDir)
+	code, outputReader, err = container.Exec(ctx, []string{"sh", "-c", tidyCmd})
+	output = readOutput(outputReader)
+
+	if os.Getenv("GOAT_DISABLE_STDOUT") != "true" {
+		t.Logf("go mod tidy output:\n%s", output)
+	}
+
+	require.NoError(t, err, "failed to execute go mod tidy")
+	require.Equal(t, 0, code, "go mod tidy failed: %s", output)
+
+	t.Logf("Running go build for %s...", testName)
+	buildCmd := fmt.Sprintf("cd %s && go build ./...", outputDir)
+	code, outputReader, err = container.Exec(ctx, []string{"sh", "-c", buildCmd})
+	output = readOutput(outputReader)
+
+	if os.Getenv("GOAT_DISABLE_STDOUT") != "true" {
+		t.Logf("go build output:\n%s", output)
+	}
+
+	require.NoError(t, err, "failed to execute go build")
+	require.Equal(t, 0, code, "go build failed: %s", output)
+
+	t.Logf("Stage 1 (Generation and Build) PASSED for %s", testName)
+
+	configs := getTestConfigs()
+
+	cfg, exists := configs[testName]
+	if !exists {
+		t.Logf("No extended test config for %s, skipping Docker stage", testName)
+		return
+	}
+
+	runDockerTest(ctx, t, container, outputDir, cfg)
+	t.Logf("Stage 2 (Docker) PASSED for %s", testName)
+	t.Logf("All stages PASSED for %s", testName)
 }

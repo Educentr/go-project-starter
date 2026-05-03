@@ -1,0 +1,50 @@
+main:
+  name: restremotegit
+  logger: zerolog
+  registry_type: github
+  dev_stand: true
+
+post_generate:
+  - git_install
+  - call_generate
+  - go_mod_tidy
+
+git:
+  repo: git@github.com:test/restremotegit.git
+  module_path: github.com/test/restremotegit
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.26"
+  ogen_version: v1.18.0
+  golangci_version: 1.64.8
+
+# rest.path is a git+https URI that clones this same repository
+# (Educentr/go-project-starter) at branch main and reads the spec file from
+# example/example.swagger.yml. The clone runs inside the golang-builder
+# container, so it requires that container to have `git` available and
+# outbound network access — both true for the standard test image.
+#
+# No token_env: the repo is public.
+rest:
+  - name: api
+    path:
+      - git+https://github.com/Educentr/go-project-starter.git@main#example/example.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys
