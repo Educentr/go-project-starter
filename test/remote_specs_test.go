@@ -28,7 +28,7 @@ git:
 
 tools:
   protobuf_version: 1.7.0
-  golang_version: "1.26"
+  golang_version: "1.24"
   ogen_version: v1.18.0
   golangci_version: 1.64.8
 
@@ -304,7 +304,7 @@ git:
 
 tools:
   protobuf_version: 1.7.0
-  golang_version: "1.26"
+  golang_version: "1.24"
   ogen_version: v1.18.0
   golangci_version: 1.64.8
 
@@ -383,7 +383,7 @@ git:
 
 tools:
   protobuf_version: 1.7.0
-  golang_version: "1.26"
+  golang_version: "1.24"
   ogen_version: v1.18.0
   golangci_version: 1.64.8
 

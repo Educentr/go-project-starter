@@ -17,7 +17,7 @@ BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LD_FLAGS = -X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.buildDate=$(BUILD_DATE)'
 
 # Integration test image parameters
-INTEGRATION_GO_VERSION := 1.26.1
+INTEGRATION_GO_VERSION := 1.24.4
 INTEGRATION_BUF_VERSION := 1.47.2
 INTEGRATION_IMAGE_NAME := go-project-starter-test
 INTEGRATION_PARAMS_FILE := test/docker-integration/.image-params
@@ -64,7 +64,7 @@ endif
 
 .PHONY: test
 test:
-	@go test ./... -coverprofile=.cover
+	@go test $$(go list ./... | grep -v /test/docker-integration) -coverprofile=.cover
 
 .PHONY: build
 build:
@@ -99,7 +99,7 @@ coverage:
 
 .PHONY: race
 race:
-	@go test ./... -race -parallel=10
+	@go test $$(go list ./... | grep -v /test/docker-integration) -race -parallel=10
 
 .PHONY: local-install
 local-install:
