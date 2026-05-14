@@ -62,6 +62,10 @@ ifeq ($(wildcard $(GOLANGCI_BIN)),)
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 endif
 
+.PHONY: check-go-version
+check-go-version:
+	@./scripts/check-go-mod-version.sh
+
 .PHONY: test
 test:
 	@go test $$(go list ./... | grep -v /test/docker-integration) -coverprofile=.cover

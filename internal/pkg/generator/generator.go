@@ -644,7 +644,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		case "clean_imports":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"clean-import"}, Msg: "cleaning imports"})
 		case "executable_scripts":
-			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "chmod", Arg: []string{"a+x", "scripts/goversioncheck.sh"}, Msg: "make scripts executable"})
+			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "chmod", Arg: []string{"a+x", "scripts/goversioncheck.sh", "scripts/check-go-mod-version.sh"}, Msg: "make scripts executable"})
 		case "call_generate_mock":
 			g.PostGenerate = append(g.PostGenerate, ExecCmd{Cmd: "make", Arg: []string{"mock"}, Msg: "generate"})
 		case "go_mod_tidy":
