@@ -491,3 +491,106 @@ func countStagingDirs(t *testing.T) int {
 	}
 	return n
 }
+
+// dualRESTSharedBasenameConfig is a project.yaml with two REST services whose
+// `path:` entries refer to two URLs sharing the same basename. The resolver's
+// `uniqueStagingPath` prefixes the second occurrence with `1-` in the shared
+// staging dir; the test verifies that the *target* dirs (per-service) still
+// receive the canonical (un-prefixed) basename. The two %q slots are the URL
+// for svc_a and svc_b respectively.
+const dualRESTSharedBasenameConfig = `main:
+  name: remotespec-shared-test
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/remotespec-shared-test.git
+  module_path: github.com/test/remotespec-shared-test
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 1.64.8
+
+rest:
+  - name: svc_a
+    path:
+      - %q
+    api_prefix: /
+    version: "v1"
+    port: 8081
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: svc_b
+    path:
+      - %q
+    api_prefix: /
+    version: "v1"
+    port: 8082
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+
+applications:
+  - name: api
+    transport:
+      - name: svc_a
+      - name: svc_b
+`
+
+// TestRemoteSpec_SharedBasename_AcrossTransports_LandsAtCanonicalName covers
+// the regression where two REST services pull two upstream files whose
+// basename collides ("shared.yaml" in this test, or "workspace.swagger.yml"
+// in the orchestrator-v2 / virtualIT-runtime case). The Resolver's
+// per-staging-dir uniqueness guard prefixes the second occurrence with `1-`,
+// which used to leak into the target dir because resolveAllSources only
+// updated g.Transports, not the per-application snapshots in g.Applications.
+// After the fix the target name must be the canonical basename for BOTH
+// transports.
+func TestRemoteSpec_SharedBasename_AcrossTransports_LandsAtCanonicalName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "shared.yaml") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, fakeOpenAPIBody)
+	}))
+	defer srv.Close()
+
+	configDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	body := fmt.Sprintf(
+		dualRESTSharedBasenameConfig,
+		srv.URL+"/a/shared.yaml",
+		srv.URL+"/b/shared.yaml",
+	)
+	if err := os.WriteFile(filepath.Join(configDir, "project.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
+
+	out, err := runGenerator(t, configDir, targetDir)
+	if err != nil {
+		t.Fatalf("generator failed: %v\n%s", err, out)
+	}
+
+	// Both services must end up with the canonical `shared.yaml` name in
+	// their target spec dir — NOT `1-shared.yaml`.
+	for _, svc := range []string{"svc_a", "svc_b"} {
+		canonical := filepath.Join(targetDir, "api", "rest", svc, "v1", "shared.yaml")
+		if _, statErr := os.Stat(canonical); statErr != nil {
+			t.Errorf("expected canonical spec at %s, got: %v\n--- generator output ---\n%s",
+				canonical, statErr, out)
+		}
+		prefixed := filepath.Join(targetDir, "api", "rest", svc, "v1", "1-shared.yaml")
+		if _, statErr := os.Stat(prefixed); statErr == nil {
+			t.Errorf("staging-collision `1-` prefix leaked into target dir: %s exists", prefixed)
+		}
+	}
+}

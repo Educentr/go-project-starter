@@ -1,0 +1,16 @@
+openapi: 3.0.2
+info:
+  version: 1.0.0
+  title: Shared definitions
+paths: {}
+components:
+  schemas:
+    SharedConfig:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        label:
+          type: string

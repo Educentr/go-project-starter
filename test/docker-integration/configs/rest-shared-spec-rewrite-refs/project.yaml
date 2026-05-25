@@ -1,0 +1,65 @@
+main:
+  name: resttestsharedrewrite
+  logger: zerolog
+  registry_type: github
+  dev_stand: true
+
+post_generate:
+  - git_install
+  - call_generate
+  - go_mod_tidy
+
+git:
+  repo: git@github.com:test/resttestsharedrewrite.git
+  module_path: github.com/test/resttestsharedrewrite
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+# Two REST services pulling the same `common/common.swagger.yml`. The
+# resolver's per-staging-dir uniqueness guard prefixes the second occurrence
+# with `1-` in the shared staging tree; without the SpecTargetFiles
+# propagation fix the prefix leaks into the per-service target dir and
+# breaks the refrewrite whitelist (-> ogen fails on the unresolved
+# `../common/...` $ref). With the fix BOTH services land at the canonical
+# basename and refrewrite resolves the cross-dir ref to a local sibling.
+rest:
+  - name: svc_a
+    path:
+      - ./orchestrator/svc_a.swagger.yml
+      - ./common/common.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8081
+    public_service: true
+    generator_type: ogen
+    rewrite_refs: true
+    generator_params:
+      auth_handler: "off"
+  - name: svc_b
+    path:
+      - ./orchestrator/svc_b.swagger.yml
+      - ./common/common.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8082
+    public_service: true
+    generator_type: ogen
+    rewrite_refs: true
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: svc_a
+      - name: svc_b
+      - name: sys

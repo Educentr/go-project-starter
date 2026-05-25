@@ -871,6 +871,21 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		}
 		t.SpecTargetFiles = targets
 		g.Transports[name] = t
+
+		// processConfig already snapshotted t into each app.Transports[name]
+		// by value, so re-publish the updated SpecTargetFiles there too.
+		// SpecPath aliasing works (slice index mutation), but assigning a new
+		// targets slice header here does not propagate to those snapshots —
+		// CopySpecs / GetTargetSpecFile would otherwise fall back to
+		// filepath.Base of the prefixed staging path (e.g. 1-foo.swagger.yml
+		// when two transports resolve the same upstream file).
+		for ai := range g.Applications {
+			if appTr, ok := g.Applications[ai].Transports[name]; ok {
+				appTr.SpecPath = t.SpecPath
+				appTr.SpecTargetFiles = t.SpecTargetFiles
+				g.Applications[ai].Transports[name] = appTr
+			}
+		}
 	}
 
 	for name, j := range g.JSONSchemas {

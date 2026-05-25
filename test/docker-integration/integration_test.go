@@ -139,6 +139,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	configDirs := []string{
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
+		"rest-shared-spec-rewrite-refs",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -255,6 +256,14 @@ func getTestConfigs() map[string]testConfig {
 			requiresTG:  false,
 			serviceName: "resttestrewrite",
 			projectName: "resttestrewrite",
+		},
+		"rest-shared-spec-rewrite-refs": {
+			name:        "rest-shared-spec-rewrite-refs",
+			configDir:   "rest-shared-spec-rewrite-refs",
+			appName:     "api",
+			requiresTG:  false,
+			serviceName: "resttestsharedrewrite",
+			projectName: "resttestsharedrewrite",
 		},
 	}
 }
@@ -598,6 +607,64 @@ func TestIntegrationRESTOnlyRewriteRefs(t *testing.T) {
 			code, _, err = container.Exec(ctx, []string{"sh", "-c", grepParent})
 			require.NoError(t, err)
 			require.NotEqual(t, 0, code, "expected ../common/ $ref to be rewritten out of %s", apiSpec)
+		})
+}
+
+// TestIntegrationRESTSharedSpecRewriteRefs covers the regression where two
+// REST services in the same project pull the same shared spec
+// (common/common.swagger.yml). The resolver's per-staging-dir uniqueness
+// guard prefixes the second occurrence with `1-`; before the
+// SpecTargetFiles propagation fix that prefix leaked into the per-service
+// target dir, refrewrite's whitelist (built from canonical basenames) did
+// not recognise the prefixed sibling, and ogen failed on the unresolved
+// `../common/common.swagger.yml` $ref.
+//
+// After the fix BOTH services must land at the canonical basename in their
+// own target dir AND refrewrite must rewrite the cross-dir ref to a local
+// sibling in both transport-specific copies of svc_a.swagger.yml and
+// svc_b.swagger.yml.
+func TestIntegrationRESTSharedSpecRewriteRefs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-shared-spec-rewrite-refs", "rest-shared-spec-rewrite-refs",
+		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+			t.Helper()
+
+			for _, svc := range []string{"svc_a", "svc_b"} {
+				// Each service must receive the shared file at its canonical
+				// basename — not `1-common.swagger.yml`.
+				canonical := fmt.Sprintf("%s/api/rest/%s/v1/common.swagger.yml", outputDir, svc)
+				code, _, err := container.Exec(ctx, []string{"test", "-s", canonical})
+				require.NoError(t, err, "stat canonical common spec for %s", svc)
+				require.Equal(t, 0, code, "expected canonical common spec at %s (staging prefix leaked into target dir)", canonical)
+
+				prefixed := fmt.Sprintf("%s/api/rest/%s/v1/1-common.swagger.yml", outputDir, svc)
+				code, _, err = container.Exec(ctx, []string{"test", "-e", prefixed})
+				require.NoError(t, err)
+				require.NotEqual(t, 0, code, "staging-collision `1-` prefix leaked into target dir: %s exists", prefixed)
+
+				// refrewrite must have rewritten the cross-dir $ref into a
+				// local sibling form in this service's per-transport copy.
+				svcSpec := fmt.Sprintf("%s/api/rest/%s/v1/%s.swagger.yml", outputDir, svc, svc)
+				grepLocal := fmt.Sprintf("grep -F './common.swagger.yml' %s", svcSpec)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", grepLocal})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected rewritten $ref './common.swagger.yml' in %s", svcSpec)
+
+				grepParent := fmt.Sprintf("grep -F '../common/common.swagger.yml' %s", svcSpec)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", grepParent})
+				require.NoError(t, err)
+				require.NotEqual(t, 0, code, "expected ../common/ $ref to be rewritten out of %s", svcSpec)
+
+				// ogen must have run against the per-service spec — the
+				// generated server package always contains an oas.Server type.
+				oasPath := fmt.Sprintf("%s/pkg/rest/%s/v1/oas_server_gen.go", outputDir, svc)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", "test -s " + oasPath})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "ogen should have produced %s for %s", oasPath, svc)
+			}
 		})
 }
 

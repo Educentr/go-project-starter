@@ -1,0 +1,53 @@
+openapi: 3.0.2
+servers:
+  - url: http://localhost:{port}/{basePath}
+    description: svc_a server
+    variables:
+      port:
+        enum:
+          - '8081'
+        default: '8081'
+      basePath:
+        default: v1
+info:
+  version: 1.0.0
+  title: Service A
+tags:
+  - name: health
+paths:
+  /a/health:
+    get:
+      tags:
+        - health
+      operationId: getHealthA
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponseA'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+components:
+  schemas:
+    ErrorDefault:
+      required: [code, error]
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+    HealthResponseA:
+      type: object
+      properties:
+        status:
+          type: string
+        config:
+          $ref: '../common/common.swagger.yml#/components/schemas/SharedConfig'
