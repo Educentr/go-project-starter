@@ -138,7 +138,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	// Copy each config directory separately
 	configDirs := []string{
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
-		"rest-remote-http", "rest-remote-git",
+		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -247,6 +247,14 @@ func getTestConfigs() map[string]testConfig {
 			requiresTG:  false,
 			serviceName: "restremotegit",
 			projectName: "restremotegit",
+		},
+		"rest-only-rewrite-refs": {
+			name:        "rest-only-rewrite-refs",
+			configDir:   "rest-only-rewrite-refs",
+			appName:     "api",
+			requiresTG:  false,
+			serviceName: "resttestrewrite",
+			projectName: "resttestrewrite",
 		},
 	}
 }
@@ -562,6 +570,35 @@ func assertSpecDownloaded(ctx context.Context, t *testing.T, container *GolangBu
 	code, _, err = container.Exec(ctx, []string{"sh", "-c", "test -s " + oasPath})
 	require.NoError(t, err)
 	require.Equal(t, 0, code, "ogen should have produced %s from the downloaded spec", oasPath)
+}
+
+// TestIntegrationRESTOnlyRewriteRefs verifies that rewrite_refs: true on a
+// REST transport rewrites cross-directory $ref values (../common/foo.yml#/X)
+// into local sibling references (./foo.yml#/X) after the generator copies
+// specs into api/rest/<svc>/<ver>/. ogen would otherwise fail to resolve the
+// ../common/ path because both files end up in the same flat directory.
+func TestIntegrationRESTOnlyRewriteRefs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-only-rewrite-refs", "rest-only-rewrite-refs",
+		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+			t.Helper()
+
+			// After rewrite, api.swagger.yml must reference ./common.swagger.yml.
+			apiSpec := fmt.Sprintf("%s/api/rest/api/v1/api.swagger.yml", outputDir)
+			grepLocal := fmt.Sprintf("grep -F './common.swagger.yml' %s", apiSpec)
+			code, _, err := container.Exec(ctx, []string{"sh", "-c", grepLocal})
+			require.NoError(t, err)
+			require.Equal(t, 0, code, "expected rewritten $ref './common.swagger.yml' in %s", apiSpec)
+
+			// And the original ../common/ path must be gone.
+			grepParent := fmt.Sprintf("grep -F '../common/common.swagger.yml' %s", apiSpec)
+			code, _, err = container.Exec(ctx, []string{"sh", "-c", grepParent})
+			require.NoError(t, err)
+			require.NotEqual(t, 0, code, "expected ../common/ $ref to be rewritten out of %s", apiSpec)
+		})
 }
 
 // TestIntegrationRESTRemoteSpecHTTP tests that rest.path can be a public

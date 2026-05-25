@@ -10,6 +10,7 @@
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
+- [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 
 ## Базовая структура
 
@@ -111,3 +112,4 @@ applications:
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
+- [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy

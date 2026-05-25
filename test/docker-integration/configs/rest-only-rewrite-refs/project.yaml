@@ -1,0 +1,45 @@
+main:
+  name: resttestrewrite
+  logger: zerolog
+  registry_type: github
+  dev_stand: true
+
+post_generate:
+  - git_install
+  - call_generate
+  - go_mod_tidy
+
+git:
+  repo: git@github.com:test/resttestrewrite.git
+  module_path: github.com/test/resttestrewrite
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: api
+    path:
+      - ./orchestrator/api.swagger.yml
+      - ./common/common.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    rewrite_refs: true
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys

@@ -16,6 +16,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/refrewrite"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
@@ -174,6 +175,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 				Type:      rest.AuthParams.Type,
 			},
 			PublicService: rest.PublicService,
+			RewriteRefs:   rest.RewriteRefs,
 		}
 
 		if rest.GeneratorType == "ogen_client" {
@@ -307,8 +309,9 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 
 		schema := ds.JSONSchema{
-			Name:    js.Name,
-			Package: js.Package,
+			Name:        js.Name,
+			Package:     js.Package,
+			RewriteRefs: js.RewriteRefs,
 		}
 
 		// Support both legacy path[] and new schemas[] format. Paths are kept
@@ -1010,6 +1013,101 @@ func (g *Generator) CopySchemas() error {
 	return nil
 }
 
+// rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
+// cross-directory $ref values to local sibling references inside each
+// transport's target spec directory. No-op when no transport opts in.
+func (g *Generator) rewriteRefsForSpecs() error {
+	for _, app := range g.Applications {
+		for _, transport := range app.Transports {
+			if !transport.RewriteRefs || transport.Type != ds.RestTransportType {
+				continue
+			}
+
+			dir := transport.GetTargetSpecDir(g.TargetDir)
+			expected := expectedSpecFilenames(transport)
+
+			report, err := refrewrite.RewriteLocalRefs(dir, expected, refrewrite.Options{})
+			if err != nil {
+				return errors.Wrapf(err, "rewrite refs in %s", dir)
+			}
+
+			logRefrewriteReport(dir, report)
+		}
+	}
+
+	return nil
+}
+
+// rewriteRefsForSchemas does the same for JSON Schemas with RewriteRefs=true.
+func (g *Generator) rewriteRefsForSchemas() error {
+	for _, schema := range g.JSONSchemas {
+		if !schema.RewriteRefs {
+			continue
+		}
+
+		dir := schema.GetTargetSpecDir(g.TargetDir)
+		expected := expectedSchemaFilenames(schema)
+
+		report, err := refrewrite.RewriteLocalRefs(dir, expected, refrewrite.Options{})
+		if err != nil {
+			return errors.Wrapf(err, "rewrite refs in %s", dir)
+		}
+
+		logRefrewriteReport(dir, report)
+	}
+
+	return nil
+}
+
+// expectedSpecFilenames returns the list of basenames the generator placed in
+// the transport's target spec directory. Used as a whitelist by refrewrite so
+// that unrelated files dropped into the directory by hand are not treated as
+// rewrite targets.
+func expectedSpecFilenames(t ds.Transport) []string {
+	names := make([]string, 0, len(t.SpecPath))
+	for i := range t.SpecPath {
+		names = append(names, t.GetTargetSpecFile(i))
+	}
+	return names
+}
+
+// expectedSchemaFilenames mirrors expectedSpecFilenames for JSON Schemas,
+// supporting both the legacy Path[] form and the newer Schemas[] form.
+func expectedSchemaFilenames(s ds.JSONSchema) []string {
+	var raw []string
+	if len(s.Schemas) > 0 {
+		raw = make([]string, 0, len(s.Schemas))
+		for _, item := range s.Schemas {
+			raw = append(raw, item.Path)
+		}
+	} else {
+		raw = append(raw, s.Path...)
+	}
+
+	names := make([]string, 0, len(raw))
+	for i, p := range raw {
+		if i < len(s.SchemaTargetFiles) && s.SchemaTargetFiles[i] != "" {
+			names = append(names, s.SchemaTargetFiles[i])
+			continue
+		}
+		names = append(names, filepath.Base(p))
+	}
+	return names
+}
+
+func logRefrewriteReport(target string, report refrewrite.Report) {
+	if report.FilesScanned == 0 && len(report.Warnings) == 0 {
+		return
+	}
+
+	log.Printf("refrewrite: %s files=%d modified=%d refs=%d warnings=%d",
+		target, report.FilesScanned, report.FilesModified, report.RefsRewritten, len(report.Warnings))
+
+	for _, w := range report.Warnings {
+		log.Printf("refrewrite warn: %s", w)
+	}
+}
+
 // ToDo Generate generates the content of a file and writes it to the specified destination path.
 // It also applies custom code patches and saves a snapshot of the generated content.
 // Добавить проверку, что хватает менста на диске
@@ -1140,8 +1238,16 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error copy spec")
 	}
 
+	if err = g.rewriteRefsForSpecs(); err != nil {
+		return errors.Wrap(err, "Error rewrite spec refs")
+	}
+
 	if err = g.CopySchemas(); err != nil {
 		return errors.Wrap(err, "Error copy schemas")
+	}
+
+	if err = g.rewriteRefsForSchemas(); err != nil {
+		return errors.Wrap(err, "Error rewrite schema refs")
 	}
 
 	// Create .project-config directory in target for meta.yaml and config

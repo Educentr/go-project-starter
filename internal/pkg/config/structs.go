@@ -270,6 +270,12 @@ type (
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
 		Instantiation string `mapstructure:"instantiation"`
+		// RewriteRefs enables local $ref rewriting after CopySpecs.
+		// When true, cross-directory $ref values like
+		// '../common/foo.yaml#/X' are rewritten to './foo.yaml#/X' if
+		// 'foo.yaml' is among the copied sibling specs. Default: false.
+		// See docs/configuration/rewrite-refs.md.
+		RewriteRefs bool `mapstructure:"rewrite_refs"`
 	}
 
 	// Worker contains background worker configuration.
@@ -352,6 +358,8 @@ type (
 		Schemas []JSONSchemaItem `mapstructure:"schemas"`
 		// Package overrides the Go package name. Optional, defaults to Name.
 		Package string `mapstructure:"package"`
+		// RewriteRefs enables local $ref rewriting after CopySchemas. See Rest.RewriteRefs.
+		RewriteRefs bool `mapstructure:"rewrite_refs"`
 	}
 
 	// KafkaEvent represents a Kafka event with typed messages.

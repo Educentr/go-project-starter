@@ -80,6 +80,7 @@ nav:
     - Workers: configuration/workers.md
     - Applications: configuration/applications.md
     - Инфраструктура: configuration/infrastructure.md
+    - Rewrite refs: configuration/rewrite-refs.md
   - Рабочий процесс:
     - workflow/index.md
     - Регенерация: workflow/regeneration.md

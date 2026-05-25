@@ -166,6 +166,14 @@ CLI и queue-worker spec'и (которые парсятся inline во вре�
 
 Известные ограничения v1: subpath = только файл (не директория), токен в `git clone` светится в `ps`.
 
+## Rewrite Refs
+
+Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `project.yaml`. После `CopySpecs`/`CopySchemas` стартер сканирует target-директорию (`api/rest/<svc>/<ver>/` или `api/schema/<name>/`) и переписывает кросс-директорные `$ref` (`../common/foo.yaml#/X`) в локальные (`./foo.yaml#/X`) — при условии, что sibling-файл с этим basename уже скопирован рядом и входит в whitelist `SpecTargetFiles`/`SchemaTargetFiles`.
+
+Поддерживает YAML (через `yaml.Node` — комментарии сохраняются) и JSON (через line-regex). По умолчанию выключено, существующие проекты не затрагиваются.
+
+Реализация: `internal/pkg/refrewrite/`. Подключение в `Generator.Generate()` сразу после `CopySpecs`/`CopySchemas` (`internal/pkg/generator/generator.go`). Полная документация: [docs/configuration/rewrite-refs.md](docs/configuration/rewrite-refs.md).
+
 ## Regeneration Behavior
 
 ### Disclaimer Marker (env-файлы и другие файлы с ручными правками)

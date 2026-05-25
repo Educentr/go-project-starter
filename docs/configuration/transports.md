@@ -48,6 +48,7 @@ rest:
 | `public_service` | Нет | Публичный сервис (без аутентификации) |
 | `auth_params` | Нет | Параметры аутентификации (для ogen_client) |
 | `instantiation` | Нет | `static` или `dynamic` (только для ogen_client) |
+| `rewrite_refs` | Нет | Переписывать кросс-директорные `$ref` в локальные после `CopySpecs`. См. [Rewrite refs](rewrite-refs.md). |
 
 ### Типы генераторов
 

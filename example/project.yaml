@@ -79,6 +79,11 @@ rest:
     version: "v1"
     port: 8081
     generator_type: ogen
+    # rewrite_refs: переписать кросс-директорные $ref (../common/foo.yaml#/X)
+    # в локальные (./foo.yaml#/X) после копирования спек в api/rest/<svc>/v1/.
+    # Нужно, когда контракты лежат в подпапках source-репо и ссылаются друг на
+    # друга по относительному пути. См. docs/configuration/rewrite-refs.md.
+    # rewrite_refs: true
     genarator_params:
       auth_handler: "on"
   - name: sys

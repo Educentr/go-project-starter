@@ -204,6 +204,9 @@ type JSONSchema struct {
 	// for legacy Path[] form, indices align with Path; for Schemas[] form,
 	// indices align with Schemas.
 	SchemaTargetFiles []string
+	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
+	// target schema directory after CopySchemas.
+	RewriteRefs bool
 }
 
 // JSONSchemas is a map of JSONSchema by name
@@ -574,6 +577,9 @@ type Transport struct {
 	BufLocalPlugins bool // Use local buf instead of docker for proto generation
 	Instantiation        string // "static" (default) or "dynamic" - only for ogen_client
 	Optional             bool   // true = optional dependency for this app
+	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
+	// target spec directory after CopySpecs.
+	RewriteRefs bool
 }
 
 // IsDynamic returns true if client should be created at runtime (not at startup)
