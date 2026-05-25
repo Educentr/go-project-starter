@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,13 @@ type testConfig struct {
 	requiresTG  bool   // whether this test requires telegram mock
 	serviceName string // service name for onlineconf env vars (without hyphens)
 	projectName string // project name from main.name in config (for docker image)
+
+	// restPorts overrides the default REST transport port env vars passed to
+	// the running container as OC_<service>__transport__rest__<key>__port=<value>.
+	// When nil, the default {"api_v1": 8080, "sys_v1": 8085} layout is used.
+	// Tests with non-default transport names (e.g. multiple ogen services) must
+	// set this explicitly — otherwise the binary fails on port lookup.
+	restPorts map[string]int
 }
 
 const (
@@ -264,6 +272,13 @@ func getTestConfigs() map[string]testConfig {
 			requiresTG:  false,
 			serviceName: "resttestsharedrewrite",
 			projectName: "resttestsharedrewrite",
+			// Project defines three REST transports (svc_a, svc_b, sys), so
+			// the default {api_v1, sys_v1} port envs don't apply.
+			restPorts: map[string]int{
+				"svc_a_v1": 8081,
+				"svc_b_v1": 8082,
+				"sys_v1":   8085,
+			},
 		},
 	}
 }
@@ -319,16 +334,30 @@ func runDockerTest(ctx context.Context, t *testing.T, container *GolangBuilderCo
 	containerName := fmt.Sprintf("%s-%s-test-container", cfg.name, cfg.appName)
 	fullImageName := fmt.Sprintf("local/%s-%s:latest", cfg.projectName, cfg.appName)
 
-	// Build env var flags for docker run
-	// Include essential onlineconf values for transport initialization
+	// Build env var flags for docker run.
+	// Include essential onlineconf values for transport initialization.
+	// REST port envs default to the {api_v1: 8080, sys_v1: 8085} layout; tests
+	// with non-default transport names override via cfg.restPorts.
 	envFlags := fmt.Sprintf(
 		"-e ONLINECONFIG_FROM_ENV=true "+
 			"-e OC_%s__devstand=1 "+
-			"-e OC_%s__log__default__log_level=debug "+
-			"-e OC_%s__transport__rest__api_v1__port=8080 "+
-			"-e OC_%s__transport__rest__sys_v1__port=8085",
-		cfg.serviceName, cfg.serviceName, cfg.serviceName, cfg.serviceName,
+			"-e OC_%s__log__default__log_level=debug",
+		cfg.serviceName, cfg.serviceName,
 	)
+
+	restPorts := cfg.restPorts
+	if restPorts == nil {
+		restPorts = map[string]int{"api_v1": 8080, "sys_v1": 8085}
+	}
+	// Stable ordering for reproducible docker run command in test logs.
+	keys := make([]string, 0, len(restPorts))
+	for k := range restPorts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		envFlags += fmt.Sprintf(" -e OC_%s__transport__rest__%s__port=%d", cfg.serviceName, k, restPorts[k])
+	}
 
 	if cfg.requiresTG && telegramMockURL != "" {
 		// The telegram library expects endpoint as format string: http://host:port/bot%s/%s
