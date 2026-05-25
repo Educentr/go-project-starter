@@ -573,10 +573,13 @@ install-buf:
   	chmod +x "$(shell go env GOPATH)/bin/buf"
 
 # Install protoc-gen-go and protoc-gen-go-grpc
+# Pin protoc-gen-go-grpc: v1.6.2 bumped the required Go version to 1.25.0,
+# which breaks generated projects pinned to Go 1.24. v1.6.1 is the last
+# release still compatible.
 .PHONY: install-protoc-gen-go-grpc
 install-protoc-gen-go-grpc:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 {{- end }}
 
 # Install local git hooks

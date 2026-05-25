@@ -29,8 +29,11 @@ RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}
     -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf
 
 # Install protoc-gen-go and protoc-gen-go-grpc
+# Pin protoc-gen-go-grpc: v1.6.2 (released 2026-05-07) bumped the required
+# Go version to 1.25.0, which breaks this image's golang:1.24-bookworm base.
+# v1.6.1 is the last version still compatible with Go 1.24.
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
 # Install goimports
 RUN go install golang.org/x/tools/cmd/goimports@latest
