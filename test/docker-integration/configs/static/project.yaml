@@ -1,0 +1,38 @@
+main:
+  name: statictest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/statictest.git
+  module_path: github.com/test/statictest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: static
+    port: 8086
+    version: "v1"
+    generator_type: template
+    generator_template: static
+    public_service: true
+    generator_params:
+      route: /static/
+      dir: static
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: web
+    transport:
+      - name: static
+      - name: sys

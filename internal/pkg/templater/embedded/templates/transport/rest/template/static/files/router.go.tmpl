@@ -1,0 +1,37 @@
+package {{ .Transport.Name }}
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
+	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest/mw"
+)
+
+// API serves static files from a project directory over HTTP without any
+// authorization. Files are read from the filesystem ({{ if .TransportParams.dir }}{{ .TransportParams.dir }}{{ else }}static{{ end }}/, copied into the
+// image by the Dockerfile) and exposed under the {{ if .TransportParams.route }}{{ .TransportParams.route }}{{ else }}/static/{{ end }} URL prefix.
+type API struct {
+	mw.EmptyMiddlewares
+	rest.EmptyErrorHandler
+}
+
+func (a *API) InitRouters(_ context.Context, httpSrv *http.Server, _ ds.IService, _ *prometheus.Registry) error {
+	// URL prefix under which files are served, e.g. /static/logo.png.
+	route := "{{ if .TransportParams.route }}{{ .TransportParams.route }}{{ else }}/static/{{ end }}"
+
+	// Project-relative directory with the files. Resolves to the path the
+	// Dockerfile copies the folder to (e.g. /static in the container) when the
+	// binary runs from the image, and to ./{{ if .TransportParams.dir }}{{ .TransportParams.dir }}{{ else }}static{{ end }} when run from the project root.
+	dir := "{{ if .TransportParams.dir }}{{ .TransportParams.dir }}{{ else }}static{{ end }}"
+
+	mux := http.NewServeMux()
+	mux.Handle(route, http.StripPrefix(route, http.FileServer(http.Dir(dir))))
+
+	httpSrv.Handler = mux
+
+	return nil
+}

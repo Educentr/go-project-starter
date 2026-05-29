@@ -1137,7 +1137,7 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error collect files")
 	}
 
-	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files)
+	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.staticIgnorePaths()...)
 	if err != nil {
 		return errors.Wrap(err, "Error get user code")
 	}
@@ -1377,6 +1377,29 @@ func (g *Generator) Generate() error {
 	return nil
 }
 
+// staticIgnorePaths returns project-relative directory prefixes (e.g. "static/")
+// served by static template transports. Their existing contents are excluded
+// from the regeneration diff so user-provided static assets are never read,
+// rewritten, or deleted.
+func (g *Generator) staticIgnorePaths() []string {
+	seen := make(map[string]bool)
+
+	paths := []string{}
+
+	for _, app := range g.Applications {
+		for _, dir := range app.StaticDirs() {
+			prefix := dir + "/"
+			if !seen[prefix] {
+				seen[prefix] = true
+
+				paths = append(paths, prefix)
+			}
+		}
+	}
+
+	return paths
+}
+
 func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, error) {
 	// Determine output filename for AI agent documentation
 	if g.GenerateLlmsMd {
@@ -1522,6 +1545,10 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 		files = append(files, filesK...)
 	}
 
+	// Tracks static drop-zone entries (<dir>/, <dir>/.keep) already emitted, so
+	// multiple apps sharing the same static dir don't produce duplicates.
+	staticGenerated := make(map[string]bool)
+
 	for _, app := range g.Applications {
 		dirApp, filesApp, err := templater.GetAppTemplates(g.GetTmplAppParams(app))
 		if err != nil {
@@ -1572,6 +1599,35 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 		dirs = append(dirs, dirsPkg...)
 		files = append(files, filesPkg...)
+
+		// Generate the static-files drop-zone (<dir>/.keep) for apps that have a
+		// static template transport, deduped across apps by destination.
+		if app.HasStaticTransport() {
+			dirsStatic, filesStatic, err := templater.GetStaticDirTemplates(g.GetTmplAppParams(app))
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get static dir templates for %s: %w", app.Name, err)
+			}
+
+			for _, d := range dirsStatic {
+				if staticGenerated[d.DestName] {
+					continue
+				}
+
+				staticGenerated[d.DestName] = true
+
+				dirs = append(dirs, d)
+			}
+
+			for _, f := range filesStatic {
+				if staticGenerated[f.DestName] {
+					continue
+				}
+
+				staticGenerated[f.DestName] = true
+
+				files = append(files, f)
+			}
+		}
 	}
 
 	// Generate Grafana templates if any datasources are configured

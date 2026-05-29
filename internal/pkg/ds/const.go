@@ -437,6 +437,44 @@ func (a App) HasSysTransport() bool {
 	return false
 }
 
+// HasStaticTransport returns true if application has a static-files template transport configured
+func (a App) HasStaticTransport() bool {
+	for _, transport := range a.Transports {
+		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "static" {
+			return true
+		}
+	}
+	return false
+}
+
+// StaticDirs returns the unique project-relative directories served by the
+// application's static transports. Defaults to "static" when generator_params.dir
+// is not set. Used both for the Dockerfile copy step and the drop-zone scaffold.
+func (a App) StaticDirs() []string {
+	seen := make(map[string]bool)
+
+	dirs := []string{}
+
+	for _, transport := range a.Transports {
+		if transport.GeneratorType != "template" || transport.GeneratorTemplate != "static" {
+			continue
+		}
+
+		dir := transport.GeneratorParams["dir"]
+		if dir == "" {
+			dir = "static"
+		}
+
+		if !seen[dir] {
+			seen[dir] = true
+
+			dirs = append(dirs, dir)
+		}
+	}
+
+	return dirs
+}
+
 // HasDocker returns true if this application has docker artifact enabled
 func (a App) HasDocker() bool {
 	for _, t := range a.Artifacts {

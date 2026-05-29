@@ -99,6 +99,15 @@ type GeneratorKafkaParams struct {
 	Kafka ds.KafkaConfig
 }
 
+// GeneratorStaticDirParams holds parameters for generating the static-files
+// drop-zone (the <dir>/.keep placeholder) of a static template transport.
+//
+//nolint:decorder // follows existing pattern - types after consts
+type GeneratorStaticDirParams struct {
+	GeneratorAppParams
+	Dir string
+}
+
 type Template struct {
 	Name string
 	Tmpl string
@@ -246,7 +255,22 @@ func isFileIgnore(path string) bool {
 	return false
 }
 
-func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, error) {
+// hasAnyPrefix reports whether path begins with any of the given prefixes.
+func hasAnyPrefix(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if p != "" && strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetUserCodeFromFiles diffs the generated file set against the target dir,
+// preserving user code below disclaimer markers. extraIgnore holds additional
+// project-relative path prefixes (e.g. "static/") whose existing contents must
+// never be read, diffed, or deleted — used for user-provided static assets.
+func GetUserCodeFromFiles(targetDir string, files []ds.Files, extraIgnore ...string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
 		IgnoreFiles:    make(map[string]struct{}),
@@ -286,7 +310,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files) (ds.FilesDiff, err
 
 		path := filepath.Join(targetDir, relPath)
 
-		if isFileIgnore(relPath) {
+		if isFileIgnore(relPath) || hasAnyPrefix(relPath, extraIgnore) {
 			delete(filesDiff.NewFiles, path)
 			filesDiff.IgnoreFiles[path] = struct{}{}
 

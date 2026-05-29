@@ -724,6 +724,29 @@ func (g Git) IsValid() (bool, string) {
 	return true, ""
 }
 
+// isValidStaticDir reports whether dir is a valid static-files directory name:
+// lowercase, made of [a-z0-9_-], starting with a letter, no path separators.
+// The value is used both as the in-project folder name and (relative) serve path.
+func isValidStaticDir(dir string) bool {
+	if dir == "" {
+		return false
+	}
+
+	for i, c := range dir {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case (c >= '0' && c <= '9') || c == '_' || c == '-':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
 func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 	if len(r.Name) == 0 {
 		return false, "Empty name"
@@ -733,13 +756,17 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 		return true, ""
 	}
 
-	if len(r.Path) == 0 {
-		return false, "Empty path"
-	}
+	// Template transports (e.g. sys, static) are not backed by a spec file, so
+	// the path requirement applies only to ogen/ogen_client.
+	if r.GeneratorType != "template" {
+		if len(r.Path) == 0 {
+			return false, "Empty path"
+		}
 
-	for _, p := range r.Path {
-		if ok, msg := validateSpecPath(baseConfigDir, p); !ok {
-			return false, msg
+		for _, p := range r.Path {
+			if ok, msg := validateSpecPath(baseConfigDir, p); !ok {
+				return false, msg
+			}
 		}
 	}
 
@@ -767,8 +794,22 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			return false, "Empty generator template"
 		}
 
-		if len(r.GeneratorParams) != 0 {
-			return false, "Generator params not supported"
+		// generator_params are only supported for the "static" template
+		// (route/dir). All other templates reject params.
+		for k := range r.GeneratorParams {
+			if r.GeneratorTemplate != "static" || (k != "route" && k != "dir") {
+				return false, "Generator params not supported"
+			}
+		}
+
+		if r.GeneratorTemplate == "static" {
+			if route, ok := r.GeneratorParams["route"]; ok && route != "" && !strings.HasPrefix(route, "/") {
+				return false, "Invalid route: must start with '/'"
+			}
+
+			if dir, ok := r.GeneratorParams["dir"]; ok && dir != "" && !isValidStaticDir(dir) {
+				return false, "Invalid dir: must be a valid lowercase directory name"
+			}
 		}
 
 		if r.Instantiation != "" {

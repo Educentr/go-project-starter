@@ -39,8 +39,8 @@ rest:
 | `name` | Да | Имя транспорта |
 | `path` | Для ogen/ogen_client | Пути к OpenAPI спецификациям. Кроме локальных файлов, поддерживает удалённые источники (`git+ssh://`, `git+https://`, `https://`) — см. [Удалённые спеки](remote-specs.md). |
 | `generator_type` | Да | Тип генератора: `ogen`, `template`, `ogen_client` |
-| `generator_template` | Для template | Имя шаблона (например, `sys`) |
-| `generator_params` | Нет | Доп. параметры генератора (например, `auth_handler`) |
+| `generator_template` | Для template | Имя шаблона (`sys`, `static`) |
+| `generator_params` | Нет | Доп. параметры генератора (`auth_handler` для ogen; `route`/`dir` для template `static`) |
 | `port` | Да (кроме sys) | HTTP порт |
 | `version` | Да | Версия API (v1, v2, и т.д.) |
 | `api_prefix` | Нет | Префикс URL для API |
@@ -55,8 +55,50 @@ rest:
 | Тип | Описание | Применение |
 |-----|----------|------------|
 | `ogen` | Генерация сервера из OpenAPI 3.0 | Основные бизнес API |
-| `template` | Шаблонная генерация | Health checks, метрики, кастомные endpoints |
+| `template` | Шаблонная генерация | Health checks, метрики (`sys`), раздача статики (`static`) |
 | `ogen_client` | Генерация REST клиента | Вызов внешних API |
+
+### Раздача статики (template/static)
+
+`generator_template: static` выставляет HTTP-роут, отдающий файлы из папки проекта
+**без какой-либо авторизации**. Транспорт поднимает отдельный HTTP-сервер на своём порту
+(как `sys`), файлы читаются с файловой системы и копируются в образ Dockerfile-ом.
+
+```yaml
+rest:
+  - name: static
+    port: 8086
+    version: "v1"
+    generator_type: template
+    generator_template: static
+    public_service: true          # выставить без ограничения internal-LAN
+    generator_params:             # необязательно; показаны значения по умолчанию
+      route: /static/            # URL-префикс раздачи
+      dir: static                # папка в проекте = относительный путь раздачи
+
+applications:
+  - name: web
+    transport:
+      - name: static
+```
+
+Положите файлы в папку `dir` (по умолчанию `static/` в корне проекта) — они будут
+доступны по `<route><путь-к-файлу>`, например `GET /static/logo.png` → `static/logo.png`.
+
+**Параметры `generator_params`:**
+
+| Ключ | По умолчанию | Описание |
+|------|--------------|----------|
+| `route` | `/static/` | URL-префикс. Должен начинаться с `/`. |
+| `dir` | `static` | Папка в проекте (lowercase `[a-z0-9_-]`, начинается с буквы). Используется и как имя папки в build-контексте, и как относительный путь раздачи. |
+
+**Особенности:**
+
+- **Без авторизации** — отдельный сервер использует `mw.EmptyMiddlewares`, никакие auth/CORS middleware не применяются.
+- **Копирование в образ** — Dockerfile добавляет `ADD <dir> /<dir>` и `COPY --from=builder /<dir> /<dir>`. Папка-болванка `<dir>/.keep` генерируется автоматически, чтобы папка существовала в build-контексте.
+- **Путь раздачи** — относительный (`http.Dir("<dir>")`): в контейнере резолвится в `/<dir>` (рабочая директория `/`), локально — в `./<dir>` при запуске из корня проекта.
+- **Регенерация** — файлы в `<dir>/` считаются пользовательскими и не трогаются при `make regenerate`.
+- **Свой порт** — транспорт слушает собственный порт. Раздача `/static/` на том же хосте/порту, что и основной API (single-origin), требует path-роутинга в Traefik и пока не входит в фичу.
 
 ### Параметры аутентификации
 
