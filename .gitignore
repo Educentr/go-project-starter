@@ -2,6 +2,10 @@
 .idea
 .vscode
 *.code-workspace
+.cursor/
+
+# CodeGraph index
+.codegraph/
 # OS specific files
 .DS_Store
 .AppleDouble
