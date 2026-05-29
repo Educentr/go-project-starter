@@ -830,3 +830,36 @@ func GetPackagingTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, e
 
 	return dirs, files, nil
 }
+
+// GetStaticDirTemplates returns the static-files drop-zone (<dir>/.keep) for each
+// directory served by the application's static template transports. The .keep is
+// a disclaimer-exempt placeholder ensuring the folder exists in the build context;
+// user assets dropped into <dir>/ are not managed by the generator.
+func GetStaticDirTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, error) {
+	dirs := []ds.Files{}
+	files := []ds.Files{}
+
+	for _, dir := range params.Application.StaticDirs() {
+		staticParams := GeneratorStaticDirParams{
+			GeneratorAppParams: params,
+			Dir:                dir,
+		}
+
+		d, f, err := GetTemplates(templates, "embedded/templates/static-dir", staticParams)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "error while get static dir templates for %s", dir)
+		}
+
+		for i := range d {
+			d[i].DestName = filepath.Join(dir, d[i].DestName)
+			dirs = append(dirs, d[i])
+		}
+
+		for i := range f {
+			f[i].DestName = filepath.Join(dir, f[i].DestName)
+			files = append(files, f[i])
+		}
+	}
+
+	return dirs, files, nil
+}

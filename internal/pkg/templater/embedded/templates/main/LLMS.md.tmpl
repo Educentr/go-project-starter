@@ -139,6 +139,14 @@ rest:
     port: 8085
     generator_type: template
     generator_template: sys    # REQUIRED when generator_type=template
+  - name: static               # Static file server, no auth, own port
+    port: 8086
+    generator_type: template
+    generator_template: static
+    public_service: true
+    generator_params:          # Optional. defaults: route /static/, dir static
+      route: /static/          # URL prefix
+      dir: static              # project folder, served from filesystem (copied to image)
 
 grpc:
   - name: ItemService          # REQUIRED. Unique name
@@ -242,7 +250,8 @@ post_generate:                 # Steps to run after generation
 - **Non-CLI apps need transport**: every application (except CLI apps) must have at least one transport.
 - **CLI apps are exclusive**: an application with `cli` cannot have `transport` or `worker`.
 - **ogen/ogen_client need `path`**: list of OpenAPI spec files that must exist on disk.
-- **template needs `generator_template`**: e.g., `sys`, `telegram`, `daemon`, `queue`, `cli`.
+- **template needs `generator_template`**: e.g., `sys`, `static`, `telegram`, `daemon`, `queue`, `cli`.
+- **static file server (`generator_template: static`)**: serves files from `dir` (default `static/`) at `route` (default `/static/`) with NO auth, on its own port. Drop assets into `static/` — they are copied into the image by the Dockerfile and are NOT managed by the generator.
 - **Kafka consumers need `group`**: consumer group ID is required for type `consumer`.
 - **gRPC proto files must exist**: `path` must point to an existing `.proto` file.
 - **Driver requires all four fields**: `name`, `import`, `package`, `obj_name`.

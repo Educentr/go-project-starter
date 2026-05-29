@@ -25,13 +25,22 @@ RUN --mount=type=ssh --mount=type=secret,id=github_token \
     make build_in_docker-{{ .Application.Name }} && \
     cp ${binary} /service
 
-RUN mkdir -p /public 
+RUN mkdir -p /public
 ADD public /public
 RUN chmod -R 755 /public
+{{- range $dir := .Application.StaticDirs }}
+
+RUN mkdir -p /{{ $dir }}
+ADD {{ $dir }} /{{ $dir }}
+RUN chmod -R 755 /{{ $dir }}
+{{- end }}
 
 FROM alpine
 COPY --from=builder /service /service
 COPY --from=builder /public /public
+{{- range $dir := .Application.StaticDirs }}
+COPY --from=builder /{{ $dir }} /{{ $dir }}
+{{- end }}
 RUN mkdir -p /etc/onlineconf
 CMD ["/service"]
 

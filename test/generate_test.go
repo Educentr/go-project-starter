@@ -299,6 +299,79 @@ func TestGenerateRESTLogrus(t *testing.T) {
 	}
 }
 
+// TestGenerateStaticTransport verifies the static-files template transport:
+// router, drop-zone, main registration and Dockerfile copy are generated.
+func TestGenerateStaticTransport(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "static")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate static project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	t.Logf("Static project created in %s: %s", tmpDir, out)
+
+	expectedFiles := []string{
+		"static/.keep",
+		"internal/app/transport/rest/static/v1/psg_router_gen.go",
+		"cmd/web/psg_main_gen.go",
+		"Dockerfile-web",
+	}
+
+	for _, f := range expectedFiles {
+		if _, err := os.Stat(filepath.Join(tmpDir, f)); os.IsNotExist(err) {
+			t.Errorf("Expected file not found: %s", f)
+		}
+	}
+
+	// Router serves files from the filesystem under the configured prefix, no auth.
+	routerContent, err := os.ReadFile(filepath.Join(tmpDir, "internal", "app", "transport", "rest", "static", "v1", "psg_router_gen.go"))
+	if err != nil {
+		t.Fatalf("Error reading router file: %v", err)
+	}
+
+	router := string(routerContent)
+	for _, want := range []string{"http.FileServer", "http.Dir", "http.StripPrefix", "mw.EmptyMiddlewares", `route := "/static/"`, `dir := "static"`} {
+		if !strings.Contains(router, want) {
+			t.Errorf("router should contain %q", want)
+		}
+	}
+
+	// Main registers the static transport server.
+	mainContent, err := os.ReadFile(filepath.Join(tmpDir, "cmd", "web", "psg_main_gen.go"))
+	if err != nil {
+		t.Fatalf("Error reading main file: %v", err)
+	}
+
+	if !strings.Contains(string(mainContent), "static_v1.API{}") {
+		t.Error("main should register static_v1.API{}")
+	}
+
+	// Dockerfile copies the static folder into the image.
+	dockerContent, err := os.ReadFile(filepath.Join(tmpDir, "Dockerfile-web"))
+	if err != nil {
+		t.Fatalf("Error reading Dockerfile: %v", err)
+	}
+
+	docker := string(dockerContent)
+	for _, want := range []string{"ADD static /static", "COPY --from=builder /static /static"} {
+		if !strings.Contains(docker, want) {
+			t.Errorf("Dockerfile should contain %q", want)
+		}
+	}
+}
+
 // TestGenerateDocsS3 tests that documentation with S3 deployment generates correctly.
 func TestGenerateDocsS3(t *testing.T) {
 	curDir, err := os.Getwd()

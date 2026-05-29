@@ -90,9 +90,11 @@ rest:
     path:                       # [required для ogen/ogen_client] Пути к OpenAPI спецификациям
       - string
     generator_type: string      # [required] Тип генератора: ogen|template|ogen_client
-    generator_template: string  # [required для template] Имя шаблона (например: sys)
+    generator_template: string  # [required для template] Имя шаблона: sys|static
     generator_params:           # [optional] Дополнительные параметры генератора
       auth_handler: string      # [ogen] Кастомный auth handler
+      route: string             # [template static] URL-префикс раздачи (default /static/)
+      dir: string               # [template static] Папка проекта = путь раздачи (default static)
     port: int                   # [required кроме sys] HTTP порт
     version: string             # [required] Версия API (v1, v2, etc)
     api_prefix: string          # [optional] URL префикс для API
@@ -111,7 +113,7 @@ rest:
 | Тип | Описание |
 |-----|----------|
 | `ogen` | OpenAPI 3.0 сервер через ogen |
-| `template` | Шаблонная генерация (sys для metrics/health) |
+| `template` | Шаблонная генерация (`sys` для metrics/health, `static` для раздачи файлов) |
 | `ogen_client` | REST клиент для вызова внешних API |
 
 ### Instantiation modes (ogen_client)

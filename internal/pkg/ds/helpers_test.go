@@ -688,6 +688,89 @@ func TestApp_HasSysTransport(t *testing.T) {
 	}
 }
 
+func TestApp_HasStaticTransport(t *testing.T) {
+	tests := []struct {
+		name string
+		app  App
+		want bool
+	}{
+		{
+			name: "no transports",
+			app:  App{},
+			want: false,
+		},
+		{
+			name: "no static transport",
+			app: App{
+				Transports: Transports{
+					"sys": Transport{Name: "sys", GeneratorType: "template", GeneratorTemplate: "sys"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "has static transport",
+			app: App{
+				Transports: Transports{
+					"static": Transport{Name: "static", GeneratorType: "template", GeneratorTemplate: "static"},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.app.HasStaticTransport(); got != tt.want {
+				t.Errorf("App.HasStaticTransport() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApp_StaticDirs(t *testing.T) {
+	tests := []struct {
+		name string
+		app  App
+		want []string
+	}{
+		{
+			name: "no static transport",
+			app:  App{Transports: Transports{"api": Transport{Name: "api", GeneratorType: "ogen"}}},
+			want: []string{},
+		},
+		{
+			name: "default dir",
+			app: App{Transports: Transports{
+				"static": Transport{Name: "static", GeneratorType: "template", GeneratorTemplate: "static"},
+			}},
+			want: []string{"static"},
+		},
+		{
+			name: "custom dir",
+			app: App{Transports: Transports{
+				"static": Transport{Name: "static", GeneratorType: "template", GeneratorTemplate: "static", GeneratorParams: map[string]string{"dir": "assets"}},
+			}},
+			want: []string{"assets"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.app.StaticDirs()
+			if len(got) != len(tt.want) {
+				t.Fatalf("App.StaticDirs() = %v, want %v", got, tt.want)
+			}
+
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("App.StaticDirs()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 // Note: Kafka-related tests (TestKafkaConfig_*, TestApp_*KafkaProducers) are in kafka_test.go
 
 func TestArtifactsConfig_HasDocker(t *testing.T) {

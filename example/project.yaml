@@ -92,6 +92,19 @@ rest:
     health_check_path: /live
     generator_type: template
     generator_template: sys
+  # Static file server: serves files from the project's `static/` folder over
+  # HTTP without any authorization. Runs as its own server on its own port.
+  # Drop files into `static/` (copied into the image by the Dockerfile) and
+  # fetch them at `<route>/<file>`, e.g. GET /static/logo.png.
+  - name: static
+    port: 8086
+    version: "v1"
+    generator_type: template
+    generator_template: static
+    public_service: true          # expose without internal-LAN restriction
+    generator_params:             # optional; defaults shown
+      route: /static/            # URL prefix
+      dir: static                # project folder = relative serve path
 
 # worker:
 #   - name: worker
@@ -184,6 +197,7 @@ applications:
     transport:
       - name: example
       - name: sys
+      - name: static
       #- name: ExampleService
     kafka:
       - events_producer

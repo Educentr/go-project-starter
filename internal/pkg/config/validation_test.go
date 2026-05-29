@@ -1382,3 +1382,77 @@ func TestConsumer_IsValid(t *testing.T) {
 		})
 	}
 }
+
+func TestRest_IsValid(t *testing.T) {
+	tests := []struct {
+		name    string
+		rest    Rest
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name:   "valid static transport without path or params",
+			rest:   Rest{Name: "static", Port: 8086, GeneratorType: "template", GeneratorTemplate: "static"},
+			wantOK: true,
+		},
+		{
+			name:   "valid static transport with route and dir params",
+			rest:   Rest{Name: "static", Port: 8086, GeneratorType: "template", GeneratorTemplate: "static", GeneratorParams: map[string]string{"route": "/assets/", "dir": "assets"}},
+			wantOK: true,
+		},
+		{
+			name:    "static transport with disallowed param key",
+			rest:    Rest{Name: "static", GeneratorType: "template", GeneratorTemplate: "static", GeneratorParams: map[string]string{"foo": "bar"}},
+			wantOK:  false,
+			wantMsg: "Generator params not supported",
+		},
+		{
+			name:    "static transport with invalid route",
+			rest:    Rest{Name: "static", GeneratorType: "template", GeneratorTemplate: "static", GeneratorParams: map[string]string{"route": "static"}},
+			wantOK:  false,
+			wantMsg: "Invalid route: must start with '/'",
+		},
+		{
+			name:    "static transport with invalid dir",
+			rest:    Rest{Name: "static", GeneratorType: "template", GeneratorTemplate: "static", GeneratorParams: map[string]string{"dir": "1bad"}},
+			wantOK:  false,
+			wantMsg: "Invalid dir: must be a valid lowercase directory name",
+		},
+		{
+			name:    "non-static template with params is rejected",
+			rest:    Rest{Name: "metrics", GeneratorType: "template", GeneratorTemplate: "sys", GeneratorParams: map[string]string{"route": "/x/"}},
+			wantOK:  false,
+			wantMsg: "Generator params not supported",
+		},
+		{
+			name:   "template transport with empty path is ok",
+			rest:   Rest{Name: "metrics", GeneratorType: "template", GeneratorTemplate: "sys"},
+			wantOK: true,
+		},
+		{
+			name:    "ogen transport with empty path is rejected",
+			rest:    Rest{Name: "api", GeneratorType: "ogen"},
+			wantOK:  false,
+			wantMsg: "Empty path",
+		},
+		{
+			name:    "ogen_client transport with empty path is rejected",
+			rest:    Rest{Name: "client", GeneratorType: "ogen_client"},
+			wantOK:  false,
+			wantMsg: "Empty path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.rest.IsValid("")
+			if gotOK != tt.wantOK {
+				t.Errorf("Rest.IsValid() ok = %v, want %v (msg=%q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("Rest.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
