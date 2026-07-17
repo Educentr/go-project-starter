@@ -95,7 +95,7 @@ Workflow `.github/workflows/go-version-check.yml` запускает скрип�
 
 ## Что **нельзя** делать
 
-- `go tool <X>` в шаблонах `*.tmpl` для `<X>` не из minimal-набора (см. список выше). Если очень нужно — добавить preflight check `go tool <X> help >/dev/null 2>&1` с понятным WARN-сообщением, **без** маскировки через `2>/dev/null || true`.
+- `go tool <X>` в шаблонах `*.tmpl` для `<X>` не из minimal-набора (см. список выше). Если очень нужно — добавить preflight check `go tool -n <X> >/dev/null 2>&1` с понятным WARN-сообщением, **без** маскировки через `2>/dev/null || true`. Именно `-n` (печатает путь до тула, exit 0 если есть, exit 2 + `no such tool` если нет): пробовать `go tool <X> help` нельзя — селектор `help` есть не у всех тулов (`go tool covdata help` → exit 2 даже на полном toolchain), такая проба всегда рапортует «тула нет».
 - Bump `go <X>` в `go.mod` без согласованного rationale.
 - Подъём `tools.golang_version` в `project.yaml` тестовых конфигов «для синхронизации с основной версией». Тестовые конфиги — отдельная история, цельтесь в реальный минимум.
 

@@ -189,7 +189,7 @@ test-integration-with-deps: test-int-up-deps test-integration
 .PHONY: test-int-up-deps
 test-int-up-deps:
 	@echo "Up testing dependencies: \n"
-	docker-compose up -d --build --force-recreate wiremock
+	docker compose up -d --build --force-recreate wiremock
 	@echo "Successful up testing dependencies"
 
 # Run unit testing (excludes GOAT integration tests)
@@ -507,7 +507,7 @@ generate-ogen:
 # Generate activerecord files from all openapi specifications
 .PHONY: generate-argen
 generate-argen:
-	argen --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl" --schema_path etc/database
+	GOPRIVATE=$(GOPRIVATE) go run github.com/Educentr/go-activerecord/v3/cmd/argen@$(ARGENVERSION) --path ./internal/pkg/model/repository --declaration "decl" --destination "cmpl" --schema_path etc/database
 
 .PHONY: install-argen
 install-argen:
@@ -690,7 +690,7 @@ goat-tests-{{ $a.Name }}: build_for_test-{{ $a.Name }}{{ if not $a.UseEnvs }} ge
 	export GOAT_DISABLE_STDOUT=true \
 	&& export GOCOVERDIR=$(COVERAGE_DIR) \
 	&& go test -count=1 ./tests/{{ $a.Name }}
-	@if ! go tool covdata help >/dev/null 2>&1; then \
+	@if ! go tool -n covdata >/dev/null 2>&1; then \
 		echo "WARN: 'go tool covdata' unavailable in current Go toolchain — integration coverage report skipped."; \
 		echo "      Cause: locally installed Go is older than the version declared in go.mod,"; \
 		echo "      so GOTOOLCHAIN=auto pulled a minimal toolchain that does not include covdata."; \
@@ -713,7 +713,7 @@ goat-tests-{{ $a.Name }}-verbose: build_for_test-{{ $a.Name }}{{ if not $a.UseEn
 	@rm -rf $(COVERAGE_DIR)
 	@mkdir -p $(COVERAGE_DIR)
 	GOCOVERDIR=$(COVERAGE_DIR) go test -count=1 -v ./tests/{{ $a.Name }}/...
-	@if ! go tool covdata help >/dev/null 2>&1; then \
+	@if ! go tool -n covdata >/dev/null 2>&1; then \
 		echo "WARN: 'go tool covdata' unavailable in current Go toolchain — integration coverage report skipped."; \
 		echo "      Cause: locally installed Go is older than the version declared in go.mod,"; \
 		echo "      so GOTOOLCHAIN=auto pulled a minimal toolchain that does not include covdata."; \
