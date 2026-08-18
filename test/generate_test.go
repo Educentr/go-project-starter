@@ -771,6 +771,30 @@ func TestGenerateCLIOnly(t *testing.T) {
 	assertFileContains(t, mainFile, []string{
 		`cliAdmin "github.com/test/clitest/internal/app/transport/cli/admin"`,
 	})
+
+	// Regression TOOLS-2 / issue #28 — main.go must not print its own
+	// "Available commands:" header; PrintHelp is the sole owner.
+	mainContent, err := os.ReadFile(filepath.Join(tmpDir, mainFile))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", mainFile, err)
+	}
+
+	if strings.Contains(string(mainContent), "Available commands:") {
+		t.Errorf("%s should NOT print \"Available commands:\" — PrintHelp already owns that header", mainFile)
+	}
+
+	// helpSummary must exist and be used to keep the aligned command list
+	// readable when descriptions are multi-line or long.
+	assertFileContains(t, handlerFile, []string{
+		"func helpSummary(desc string) string",
+		"helpSummary(cmd.Description)",
+		"helpSummary(cmd.Subcommands[sn].Description)",
+	})
+
+	// Regeneration must produce a matching unit test file for help formatting.
+	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); os.IsNotExist(err) {
+		t.Error("Expected generated handler test file not found: internal/app/transport/cli/admin/psg_handler_test.go")
+	}
 }
 
 // TestGenerateQueueWorker tests that queue worker generates correctly from contract.
