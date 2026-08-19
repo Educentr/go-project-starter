@@ -548,6 +548,17 @@ func (w Workers) GetUniqueTypes() map[string][]Worker {
 	return uniqueTypes
 }
 
+// HasGeneratorTemplate returns true if any worker uses the given generator template.
+func (w Workers) HasGeneratorTemplate(name string) bool {
+	for _, work := range w {
+		if work.GeneratorTemplate == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (ts Transports) Add(name string, transport Transport) error {
 	if _, ex := ts[name]; ex {
 		return fmt.Errorf("transport %s already exists", name)

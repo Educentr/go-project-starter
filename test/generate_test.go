@@ -963,6 +963,44 @@ func TestGenerateDaemonWorker(t *testing.T) {
 	})
 }
 
+// TestGenerateTelegramWorkerPinsGofrsUUID tests that a project with a telegram worker
+// pins github.com/gofrs/uuid/v5 below v5.5.0 in go.mod, since v5.5.0+ raises the go
+// directive to 1.25 and breaks `go mod tidy`/build on the project's pinned Go 1.24
+// toolchain (TOOLS-4).
+func TestGenerateTelegramWorkerPinsGofrsUUID(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-telegram")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate telegram worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("Error reading go.mod: %v", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, "require github.com/gofrs/uuid/v5 v5.4.0") {
+		t.Errorf("go.mod should pin github.com/gofrs/uuid/v5 to v5.4.0, got:\n%s", s)
+	}
+
+	if strings.Contains(s, "gofrs/uuid/v5 v5.5.0") || strings.Contains(s, "gofrs/uuid/v5 v5.5.1") {
+		t.Errorf("go.mod should not require gofrs/uuid/v5 v5.5.0+ (requires go >= 1.25), got:\n%s", s)
+	}
+}
+
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
 // are automatically removed during regeneration.
 func TestObsoleteFileCleanup(t *testing.T) {
