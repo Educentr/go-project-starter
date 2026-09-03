@@ -771,6 +771,30 @@ func TestGenerateCLIOnly(t *testing.T) {
 	assertFileContains(t, mainFile, []string{
 		`cliAdmin "github.com/test/clitest/internal/app/transport/cli/admin"`,
 	})
+
+	// Regression TOOLS-2 / issue #28 — main.go must not print its own
+	// "Available commands:" header; PrintHelp is the sole owner.
+	mainContent, err := os.ReadFile(filepath.Join(tmpDir, mainFile))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", mainFile, err)
+	}
+
+	if strings.Contains(string(mainContent), "Available commands:") {
+		t.Errorf("%s should NOT print \"Available commands:\" — PrintHelp already owns that header", mainFile)
+	}
+
+	// helpSummary must exist and be used to keep the aligned command list
+	// readable when descriptions are multi-line or long.
+	assertFileContains(t, handlerFile, []string{
+		"func helpSummary(desc string) string",
+		"helpSummary(cmd.Description)",
+		"helpSummary(cmd.Subcommands[sn].Description)",
+	})
+
+	// Regeneration must produce a matching unit test file for help formatting.
+	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); os.IsNotExist(err) {
+		t.Error("Expected generated handler test file not found: internal/app/transport/cli/admin/psg_handler_test.go")
+	}
 }
 
 // TestGenerateQueueWorker tests that queue worker generates correctly from contract.
@@ -937,6 +961,44 @@ func TestGenerateDaemonWorker(t *testing.T) {
 		"ErrorTimeout    = durationFromEnv(",
 		"NewCycleTimeout = durationFromEnv(",
 	})
+}
+
+// TestGenerateTelegramWorkerPinsGofrsUUID tests that a project with a telegram worker
+// pins github.com/gofrs/uuid/v5 below v5.5.0 in go.mod, since v5.5.0+ raises the go
+// directive to 1.25 and breaks `go mod tidy`/build on the project's pinned Go 1.24
+// toolchain (TOOLS-4).
+func TestGenerateTelegramWorkerPinsGofrsUUID(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-telegram")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate telegram worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("Error reading go.mod: %v", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, "require github.com/gofrs/uuid/v5 v5.4.0") {
+		t.Errorf("go.mod should pin github.com/gofrs/uuid/v5 to v5.4.0, got:\n%s", s)
+	}
+
+	if strings.Contains(s, "gofrs/uuid/v5 v5.5.0") || strings.Contains(s, "gofrs/uuid/v5 v5.5.1") {
+		t.Errorf("go.mod should not require gofrs/uuid/v5 v5.5.0+ (requires go >= 1.25), got:\n%s", s)
+	}
 }
 
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
