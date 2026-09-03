@@ -43,6 +43,7 @@ applications:
 | `use_envs` | Нет | Использовать переменные окружения |
 | `deploy` | Нет | Настройки деплоя (volumes) |
 | `depends_on_docker_images` | Нет | Docker образы для pre-pull |
+| `dev_ports` | Нет | Дополнительные порты контейнера в `docker-compose-dev.yaml` (`"host:container"`, можно `"${VAR:-8102}:8102"`); порты REST-транспортов пробрасываются сами |
 | `goat_tests` | Нет | Включить GOAT тесты (bool) |
 | `goat_tests_config` | Нет | Расширенная настройка GOAT тестов |
 | `grafana` | Нет | Настройки Grafana dashboard |

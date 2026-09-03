@@ -310,6 +310,8 @@ applications:
     use_envs: bool              # [optional] Использовать environment variables
     depends_on_docker_images:   # [optional] Docker образы для pre-pull
       - string
+    dev_ports:                  # [optional] Доп. порты контейнера в docker-compose-dev.yaml
+      - string                  #            "host:container", напр. "${DEV_PORT_X:-8102}:8102"
 
     # GOAT тесты:
     goat_tests: bool            # [optional] Включить GOAT тесты (простой флаг)

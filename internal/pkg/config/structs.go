@@ -580,6 +580,11 @@ type (
 		UseActiveRecord *bool `mapstructure:"use_active_record"`
 		// DependsOnDockerImages lists Docker images to pre-pull.
 		DependsOnDockerImages []string `mapstructure:"depends_on_docker_images"`
+		// DevPorts — дополнительные проброшенные порты контейнера приложения в
+		// docker-compose-dev.yaml ("host:container" или "${VAR:-8102}:8102"). Порты
+		// REST-транспортов пробрасываются сами; сюда — то, что приложение слушает
+		// помимо них, например отдельный прокси.
+		DevPorts []string `mapstructure:"dev_ports"`
 		// UseEnvs enables environment variable usage.
 		UseEnvs *bool `mapstructure:"use_envs"`
 		// Grafana contains Grafana dashboard settings.

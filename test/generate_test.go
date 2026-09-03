@@ -941,6 +941,102 @@ func TestGenerateDaemonWorker(t *testing.T) {
 
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
 // are automatically removed during regeneration.
+// TestGenerateTelegramWorkerHooks — шаблон telegram-воркера оставляет проекту точки
+// расширения, которые можно переназначить ниже маркера пользовательской секции:
+// разбор апдейтов (updateHandler + updateHandlerIdle для GracefulStop) и реакция на
+// неизвестную команду (unknownCommandHandler). Без них проект правит Run() руками, и
+// regenerate эти правки стирает. Заодно: лог JobStarter не пишет апдейт целиком —
+// в сообщении бота может лежать токен или пароль.
+func TestGenerateTelegramWorkerHooks(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-telegram")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate telegram worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	read := func(t *testing.T, relPath string) string {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		return string(content)
+	}
+
+	worker := read(t, "internal/app/worker/telegrambot/psg_telegram_gen.go")
+	for _, exp := range []string{
+		"var updateHandler = (*Worker).handleUpdate",
+		"var updateHandlerIdle = func() bool { return true }",
+		"func (w *Worker) handleUpdate(ctx context.Context, update tgbotapi.Update)",
+		"updateHandler(w, ctx, update)",
+		"== 0 && updateHandlerIdle()",
+	} {
+		if !strings.Contains(worker, exp) {
+			t.Errorf("psg_telegram_gen.go should contain %q", exp)
+		}
+	}
+
+	if strings.Contains(worker, `Interface("Update", update)`) {
+		t.Error("JobStarter still logs the whole update: a bot message may carry a token or a password")
+	}
+
+	router := read(t, "internal/app/worker/telegrambot/psg_router_gen.go")
+	if !strings.Contains(router, "var unknownCommandHandler = func(ctx context.Context, w *Worker, rd telegram.RequestData) {}") {
+		t.Error("psg_router_gen.go should declare the unknownCommandHandler hook")
+	}
+
+	if got := strings.Count(router, "unknownCommandHandler(ctx, w, requestData)"); got != 3 {
+		t.Errorf("unknownCommandHandler should be called on every unknown-command branch (callback, text, document): got %d calls", got)
+	}
+
+}
+
+// TestGenerateDevPorts — applications[].dev_ports пробрасываются на сервис приложения в
+// docker-compose-dev.yaml: порты REST-транспортов шаблон знает сам, а то, что приложение
+// слушает помимо них (отдельный прокси), раньше приходилось дописывать руками.
+func TestGenerateDevPorts(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-envs-goat")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate dev-stand project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	compose, err := os.ReadFile(filepath.Join(tmpDir, "docker-compose-dev.yaml"))
+	if err != nil {
+		t.Fatalf("Error reading docker-compose-dev.yaml: %v", err)
+	}
+
+	if !strings.Contains(string(compose), `- "8102:8102"`) {
+		t.Error("docker-compose-dev.yaml should expose applications[].dev_ports on the application service")
+	}
+}
+
 func TestObsoleteFileCleanup(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {

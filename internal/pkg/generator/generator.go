@@ -499,6 +499,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			Kafka:                 make(ds.KafkaConfigs),
 			UseActiveRecord:       useActiveRecord,
 			DependsOnDockerImages: app.DependsOnDockerImages,
+			DevPorts:              app.DevPorts,
 			UseEnvs:               useEnvs,
 			GoatTests:             goatTests,
 			GoatTestsConfig:       goatTestsConfig,

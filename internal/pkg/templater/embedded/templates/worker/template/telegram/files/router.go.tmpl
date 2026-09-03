@@ -16,6 +16,12 @@ import (
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 )
 
+// unknownCommandHandler — точка расширения: команда не найдена в cmdMaps (устаревшая
+// кнопка, опечатка в тексте). По умолчанию ничего не делает; проект переназначает
+// переменную в init() своего файла пакета — например, чтобы сбросить состояние диалога
+// пользователя, иначе старая кнопка оставит его на полушаге.
+var unknownCommandHandler = func(ctx context.Context, w *Worker, rd telegram.RequestData) {} //nolint:gochecknoglobals // точка расширения шаблона
+
 func (w *Worker) GetServiceAndHandler(ctx context.Context, rd telegram.RequestData) (*service.EmptyService, *handler.Handler, error) {
 	srv, err := w.GetEmptySrv()
 	if err != nil {
@@ -191,6 +197,7 @@ func (w *Worker) CallbackQuery(ctx context.Context, callback *tgbotapi.CallbackQ
 	c, ex := cmdMaps[command]
 	if !ex {
 		{{ .Logger.InfoMsg "ctx" "Unknown command" "str::Cmd::string(command)" }}
+		unknownCommandHandler(ctx, w, requestData)
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -291,6 +298,7 @@ func (w *Worker) TextMessage(ctx context.Context, message *tgbotapi.Message) (co
 	c, ex := cmdMaps[command]
 	if !ex {
 		{{ .Logger.InfoMsg "ctx" "Unknown command" "str::Cmd::string(command)" }}
+		unknownCommandHandler(ctx, w, requestData)
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil
@@ -402,6 +410,7 @@ func (w *Worker) DocumentMessage(ctx context.Context, message *tgbotapi.Message)
 	c, ex := cmdMaps[command]
 	if !ex {
 		{{ .Logger.InfoMsg "ctx" "Unknown command" "str::Cmd::string(command)" }}
+		unknownCommandHandler(ctx, w, requestData)
 		w.postProcessRequest(ctx, requestData, telegram.Response{}, errors.New("Unknown command"))
 
 		return ctx, nil

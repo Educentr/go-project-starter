@@ -55,6 +55,38 @@ var (
 	ErrServiceType = errors.New("service type is not TelegramUpdateWorker")
 )
 
+// updateHandler — точка расширения Run: сюда уходит каждый апдейт из канала.
+// По умолчанию — синхронный разбор одного апдейта за другим (handleUpdate). Проект
+// переназначает переменную в init() своего файла пакета — например, чтобы разложить
+// апдейты по очередям и не держать всех пользователей одной зависшей командой.
+var updateHandler = (*Worker).handleUpdate //nolint:gochecknoglobals // точка расширения шаблона
+
+// updateHandlerIdle — вторая половина той же точки: GracefulStop ждёт не только пустого
+// канала апдейтов, но и того, что переназначенный обработчик закончил начатое.
+var updateHandlerIdle = func() bool { return true } //nolint:gochecknoglobals // точка расширения шаблона
+
+// handleUpdate — обработчик по умолчанию: лог, JobStarter и разбор его ошибок.
+func (w *Worker) handleUpdate(ctx context.Context, update tgbotapi.Update) {
+	{{ .Logger.InfoMsg "ctx" "worker get update" "int::updateID::update.UpdateID" "any::update::update" "str::$nameFieldLogger::WorkerName" }}
+
+	err := w.JobStarter(ctx, update)
+	if err != nil {
+		if errors.Is(err, telegram.ErrUnimplementedHandler) {
+			{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "str::$nameFieldLogger::WorkerName" }}
+
+			return
+		}
+
+		if errors.Is(err, telegram.ErrUnsupportedHandler) {
+			{{ .Logger.InfoMsg "ctx" "unsupported. skip" "str::$nameFieldLogger::WorkerName" }}
+
+			return
+		}
+
+		{{ .Logger.ErrorMsg "ctx" "err" "worker error" "str::$nameFieldLogger::WorkerName" }}
+	}
+}
+
 func Create() *Worker {
     return &Worker{}
 }
@@ -185,7 +217,7 @@ func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error)
 	case update.CallbackQuery != nil:
 		ctxJob, err = w.CallbackQuery(ctxJob, update.CallbackQuery)
 	default:
-		{{ .Logger.InfoMsg "ctxJob" "Skipping update" "any::Update::update" }}
+		{{ .Logger.InfoMsg "ctxJob" "Skipping update" "int::updateID::update.UpdateID" "str::type::w.getUpdateType(update)" }}
 		
 		err = telegram.ErrUnsupportedHandler
 	}
@@ -227,24 +259,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 		for {
 			select {
 			case update := <- w.tgSrv.GetUpdateChannel(ctx):
-				{{ .Logger.InfoMsg "ctx" "worker get update" "int::updateID::update.UpdateID" "any::update::update" "str::$nameFieldLogger::WorkerName" }}
-
-				err := w.JobStarter(ctx, update)
-				if err != nil {
-					if errors.Is(err, telegram.ErrUnimplementedHandler) {
-						{{ .Logger.InfoMsg "ctx" "unimplemented. skip" "str::$nameFieldLogger::WorkerName" }}
-
-						continue
-					}
-
-					if errors.Is(err, telegram.ErrUnsupportedHandler) {
-						{{ .Logger.InfoMsg "ctx" "unsupported. skip" "str::$nameFieldLogger::WorkerName" }}
-
-						continue
-					}
-
-					{{ .Logger.ErrorMsg "ctx" "err" "worker error" "str::$nameFieldLogger::WorkerName" }}
-				}
+				updateHandler(w, ctx, update)
 
 			case <-ctx.Done():
 				break JOB
@@ -525,7 +540,7 @@ func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
 		for {
 			select {
 			case <-c.C:
-				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 {
+				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 && updateHandlerIdle() {
 					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "str::$nameFieldLogger::WorkerName" }}
 
 					close(stopped)

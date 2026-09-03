@@ -340,6 +340,7 @@ type App struct {
 	Deploy                DeployParams
 	UseActiveRecord       bool
 	DependsOnDockerImages []string
+	DevPorts              []string // Extra host:container port mappings for the dev compose service
 	UseEnvs               bool
 	Grafana               grafana.Config
 	GoatTests             bool             // Enable GOAT integration tests generation
@@ -360,8 +361,8 @@ type CLIFlag struct {
 
 // CLISubcommand represents a subcommand with computed Go names
 type CLISubcommand struct {
-	Name        string    // Original name (e.g., "create")
-	GoName      string    // PascalCase (e.g., "Create")
+	Name        string // Original name (e.g., "create")
+	GoName      string // PascalCase (e.g., "Create")
 	Description string
 	Flags       []CLIFlag
 	ParamsName  string // e.g., "UserCreateParams" (empty if no flags)
@@ -370,8 +371,8 @@ type CLISubcommand struct {
 
 // CLICommand represents a top-level CLI command with computed Go names
 type CLICommand struct {
-	Name        string          // Original name (e.g., "user")
-	GoName      string          // PascalCase (e.g., "User")
+	Name        string // Original name (e.g., "user")
+	GoName      string // PascalCase (e.g., "User")
 	Description string
 	Subcommands []CLISubcommand // Non-empty if command has subcommands
 	Flags       []CLIFlag       // Non-empty if leaf command with flags
@@ -598,23 +599,23 @@ type Transport struct {
 	Init            string
 	HealthCheckPath string
 	// Handler        Handler
-	Type                 TransportType
-	GeneratorType        string
-	GeneratorTemplate    string
-	AuthParams           AuthParams
-	GeneratorParams      map[string]string
-	SpecPath             []string
+	Type              TransportType
+	GeneratorType     string
+	GeneratorTemplate string
+	AuthParams        AuthParams
+	GeneratorParams   map[string]string
+	SpecPath          []string
 	// SpecTargetFiles, when non-empty, holds the basename under which each
 	// SpecPath[i] should be saved into api/. Populated when sources are
 	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
 	// "users.yaml"). Empty for legacy local-only flows; in that case
 	// GetTargetSpecFile falls back to filepath.Base(SpecPath[i]).
 	SpecTargetFiles []string
-	ApiVersion           string // перенесено из Hendler
-	Port                 string // перенесено из Hendler
-	BufLocalPlugins bool // Use local buf instead of docker for proto generation
-	Instantiation        string // "static" (default) or "dynamic" - only for ogen_client
-	Optional             bool   // true = optional dependency for this app
+	ApiVersion      string // перенесено из Hendler
+	Port            string // перенесено из Hendler
+	BufLocalPlugins bool   // Use local buf instead of docker for proto generation
+	Instantiation   string // "static" (default) or "dynamic" - only for ogen_client
+	Optional        bool   // true = optional dependency for this app
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
 	// target spec directory after CopySpecs.
 	RewriteRefs bool

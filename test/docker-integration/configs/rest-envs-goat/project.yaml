@@ -40,6 +40,8 @@ rest:
 
 applications:
   - name: api
+    dev_ports:
+      - "8102:8102"
     use_envs: true
     goat_tests_config:
       enabled: true

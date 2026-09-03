@@ -111,6 +111,12 @@ services:
       ssh:
         - default
     image: {{ $.ProjectName }}-{{ $app.Name }}:dev
+{{- if $app.DevPorts }}
+    ports:
+{{- range $_, $p := $app.DevPorts }}
+      - "{{ $p }}"
+{{- end }}
+{{- end }}
 {{ if $app.UseEnvs }}
     env_file: envs/.env.{{ $app.Name }}
 {{ end }}
