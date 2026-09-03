@@ -71,6 +71,8 @@ tools:
   ogen_version: "v0.78.0"          # [optional] Версия ogen (default: v0.78.0)
   argen_version: "v1.0.0"          # [optional] Версия argen/ActiveRecord (default: v1.0.0)
   golangci_version: "1.55.2"       # [optional] Версия golangci-lint (default: 1.55.2)
+  lint_exclude_paths:              # [optional] Пути, которые golangci-lint пропускает (регэкспы)
+    - string
   protobuf_version: "1.7.0"        # [optional] Версия protoc-gen-go (default: 1.7.0)
   go_jsonschema_version: "v0.16.0" # [optional] Версия go-jsonschema (default: v0.16.0)
   runtime_version: string          # [auto] Версия go-project-starter-runtime
@@ -310,6 +312,8 @@ applications:
     use_envs: bool              # [optional] Использовать environment variables
     depends_on_docker_images:   # [optional] Docker образы для pre-pull
       - string
+    dev_ports:                  # [optional] Доп. порты контейнера в docker-compose-dev.yaml
+      - string                  #            "host:container", напр. "${DEV_PORT_X:-8102}:8102"
 
     # GOAT тесты:
     goat_tests: bool            # [optional] Включить GOAT тесты (простой флаг)

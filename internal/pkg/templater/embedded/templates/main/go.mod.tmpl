@@ -3,6 +3,10 @@ module {{ .ProjectPath }}
 go {{ .GoLangVersion }}
 
 require (
+	// Pin: github.com/gofrs/uuid/v5@v5.5.0+ requires Go 1.25. v5.4.0 is the last
+	// release still compatible with generated projects pinned to Go 1.24; the
+	// telegram driver imports it, `go mod tidy` drops the line elsewhere.
+	github.com/gofrs/uuid/v5 v5.4.0
 	github.com/go-faster/errors v0.6.1
 	github.com/go-faster/jx v0.40.0
 	github.com/ogen-go/ogen {{ .OgenVersion }}

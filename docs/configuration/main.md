@@ -186,6 +186,7 @@ tools:
 | `golang_version` | Версия Go для сгенерированного проекта | 1.24 |
 | `ogen_version` | Версия ogen | v0.78.0 |
 | `golangci_version` | Версия golangci-lint | 1.55.2 |
+| `lint_exclude_paths` | Пути, которые golangci-lint пропускает (регэкспы, в оба блока `exclusions.paths`); например вендорная копия или сабмодуль | `[]` |
 | `argen_version` | Версия argen (ActiveRecord) | v1.0.0 |
 | `runtime_version` | Версия go-project-starter-runtime | авто |
 | `go_jsonschema_version` | Версия go-jsonschema | v0.16.0 |
