@@ -46,6 +46,7 @@ type Generator struct {
 	OgenVersion         string
 	ArgenVersion        string
 	GolangciVersion     string
+	LintExcludePaths    []string
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
 	GoatVersion         string
@@ -116,6 +117,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.OgenVersion = config.Tools.OgenVersion
 	g.ArgenVersion = config.Tools.ArgenVersion
 	g.GolangciVersion = config.Tools.GolangciVersion
+	g.LintExcludePaths = config.Tools.LintExcludePaths
 	g.GoJSONSchemaVersion = config.Tools.GoJSONSchemaVersion
 	g.GoatVersion = config.Tools.GoatVersion
 	g.GoatServicesVersion = config.Tools.GoatServicesVersion
@@ -743,6 +745,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		OgenVersion:         g.OgenVersion,
 		ArgenVersion:        g.ArgenVersion,
 		GolangciVersion:     g.GolangciVersion,
+		LintExcludePaths:    g.LintExcludePaths,
 		RuntimeVersion:      g.RuntimeVersion,
 		GoJSONSchemaVersion: g.GoJSONSchemaVersion,
 		GoatVersion:         g.GoatVersion,

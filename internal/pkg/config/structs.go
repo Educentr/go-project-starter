@@ -128,8 +128,8 @@ type (
 		GenerateLlmsMd bool `mapstructure:"generate_llms_md"`
 		// CI specifies which CI providers to generate: "github", "gitlab".
 		// Not set = both (backward compatibility). Empty array = none.
-		CI    []string `mapstructure:"ci"`
-		CISet bool     // true if CI field was explicitly set in config (set by GetConfig, not from YAML)
+		CI        []string `mapstructure:"ci"`
+		CISet     bool     // true if CI field was explicitly set in config (set by GetConfig, not from YAML)
 		LoggerObj ds.Logger
 		TargetDir string
 		ConfigDir string
@@ -208,6 +208,10 @@ type (
 		GoJSONSchemaVersion string `mapstructure:"go_jsonschema_version"`
 		// GoatVersion is the GOAT test framework version. Auto-set.
 		GoatVersion string `mapstructure:"goat_version"`
+		// LintExcludePaths — пути, которые golangci-lint пропускает (в обоих блоках
+		// exclusions.paths: linters и formatters). Регэкспы golangci, как и стандартные
+		// third_party$/builtin$/examples$; например вендорная копия или сабмодуль.
+		LintExcludePaths []string `mapstructure:"lint_exclude_paths"`
 		// GoatServicesVersion is the GOAT services version. Auto-set.
 		GoatServicesVersion string `mapstructure:"goat_services_version"`
 	}
@@ -612,26 +616,26 @@ type (
 
 	Config struct {
 		BasePath       string
-		ConfigFilePath string          // Full path to the config file
-		Main           Main            `mapstructure:"main"`
-		Deploy         Deploy          `mapstructure:"deploy"`
-		PostGenerate   []string        `mapstructure:"post_generate"`
-		Git            Git             `mapstructure:"git"`
-		Tools          Tools           `mapstructure:"tools"`
-		RepositoryList RepositoryList  `mapstructure:"repository"`
-		Scheduler      Scheduler       `mapstructure:"scheduler"`
-		RestList       RestList        `mapstructure:"rest"`
-		WorkerList     WorkerList      `mapstructure:"worker"`
-		CLIList        CLIList         `mapstructure:"cli"`
-		JSONSchemaList JSONSchemaList  `mapstructure:"jsonschema"`
-		KafkaList      KafkaList       `mapstructure:"kafka"`
-		GrpcList       GrpcList        `mapstructure:"grpc"`
-		WsList         WsList          `mapstructure:"ws"`
-		ConsumerList   ConsumerList    `mapstructure:"consumer"`
-		DriverList     DriverList      `mapstructure:"driver"`
-		Applications   []Application   `mapstructure:"applications"`
-		Docker         Docker          `mapstructure:"docker"`
-		Grafana        Grafana         `mapstructure:"grafana"`
+		ConfigFilePath string              // Full path to the config file
+		Main           Main                `mapstructure:"main"`
+		Deploy         Deploy              `mapstructure:"deploy"`
+		PostGenerate   []string            `mapstructure:"post_generate"`
+		Git            Git                 `mapstructure:"git"`
+		Tools          Tools               `mapstructure:"tools"`
+		RepositoryList RepositoryList      `mapstructure:"repository"`
+		Scheduler      Scheduler           `mapstructure:"scheduler"`
+		RestList       RestList            `mapstructure:"rest"`
+		WorkerList     WorkerList          `mapstructure:"worker"`
+		CLIList        CLIList             `mapstructure:"cli"`
+		JSONSchemaList JSONSchemaList      `mapstructure:"jsonschema"`
+		KafkaList      KafkaList           `mapstructure:"kafka"`
+		GrpcList       GrpcList            `mapstructure:"grpc"`
+		WsList         WsList              `mapstructure:"ws"`
+		ConsumerList   ConsumerList        `mapstructure:"consumer"`
+		DriverList     DriverList          `mapstructure:"driver"`
+		Applications   []Application       `mapstructure:"applications"`
+		Docker         Docker              `mapstructure:"docker"`
+		Grafana        Grafana             `mapstructure:"grafana"`
 		Artifacts      []ArtifactType      `mapstructure:"artifacts"`
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`

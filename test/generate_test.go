@@ -1037,6 +1037,38 @@ func TestGenerateDevPorts(t *testing.T) {
 	}
 }
 
+// TestGenerateLintExcludePaths — tools.lint_exclude_paths попадают в оба блока
+// exclusions.paths конфига golangci-lint (linters и formatters): вендорная копия или
+// сабмодуль иначе линтуются как свой код, а вписанное руками исключение regenerate стирал.
+func TestGenerateLintExcludePaths(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-envs-goat")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with lint_exclude_paths ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	cfg, err := os.ReadFile(filepath.Join(tmpDir, "configs", "golangci-lint.yml"))
+	if err != nil {
+		t.Fatalf("Error reading configs/golangci-lint.yml: %v", err)
+	}
+
+	if got := strings.Count(string(cfg), "- etc/vendored"); got != 2 {
+		t.Errorf("tools.lint_exclude_paths should appear in both exclusions.paths blocks: got %d occurrences", got)
+	}
+}
+
 func TestObsoleteFileCleanup(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {

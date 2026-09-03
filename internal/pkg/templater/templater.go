@@ -45,6 +45,7 @@ type GeneratorParams struct {
 	OgenVersion         string
 	ArgenVersion        string
 	GolangciVersion     string
+	LintExcludePaths    []string
 	RuntimeVersion      string
 	GoJSONSchemaVersion string
 	GoatVersion         string

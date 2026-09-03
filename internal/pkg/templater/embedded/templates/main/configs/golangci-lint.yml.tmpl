@@ -169,6 +169,9 @@ linters:
       - third_party$
       - builtin$
       - examples$
+{{- range $_, $p := .LintExcludePaths }}
+      - {{ $p }}
+{{- end }}
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
@@ -189,4 +192,7 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+{{- range $_, $p := .LintExcludePaths }}
+      - {{ $p }}
+{{- end }}
       - _test\.go
