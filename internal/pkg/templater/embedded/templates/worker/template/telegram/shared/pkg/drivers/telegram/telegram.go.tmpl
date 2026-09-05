@@ -2,6 +2,8 @@ package telegram
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
@@ -26,6 +28,14 @@ type Telegram struct {
 const (
 	defaultWaitTimeout = 60
 	defaultChannelSize = 100
+
+	// defaultClientTimeout — таймаут HTTP-клиента бота. Заметно больше defaultWaitTimeout,
+	// и это обязательно: длинный опрос держит запрос на стороне Telegram до
+	// defaultWaitTimeout секунд, поэтому при таймауте меньше или около того каждый штатный
+	// пустой ответ обрывался бы как ошибка и опрос выродился бы в цикл повторов.
+	// Без таймаута вовсе зависший запрос висит вечно — отменить его некому, контекст
+	// у него живёт столько же, сколько сам бот.
+	defaultClientTimeout = 90 * time.Second
 )
 
 func Create(options ...Option) ds.Runnable {
@@ -62,12 +72,14 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 			apiEndpoint, _ = onlineconf.GetString(ctx, onlineconf.MakePath(serviceName, configPath, "tg_api_endpoint"), "")
 		}
 
-		var bot *tgbotapi.BotAPI
-		if apiEndpoint != "" {
-			bot, err = tgbotapi.NewBotAPIWithAPIEndpoint(botToken, apiEndpoint)
-		} else {
-			bot, err = tgbotapi.NewBotAPI(botToken)
+		if apiEndpoint == "" {
+			apiEndpoint = tgbotapi.APIEndpoint
 		}
+
+		// Клиент со своим таймаутом создаётся здесь, а не подменяется в поле bot.Client
+		// снаружи: объект бота пересоздаётся на каждой смене токена, и подменённый
+		// однажды клиент после ротации молча вернулся бы к бестаймаутному.
+		bot, err := tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, &http.Client{Timeout: defaultClientTimeout})
 		if err != nil {
 			return err
 		}
