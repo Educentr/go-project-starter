@@ -1042,6 +1042,11 @@ func TestGenerateTelegramClientTimeout(t *testing.T) {
 		"tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, &http.Client{Timeout: defaultClientTimeout})",
 		"apiEndpoint = tgbotapi.APIEndpoint",
 		`"net/http"`,
+		// Логгер библиотеки печатает ошибку запроса как есть, а net/http приводит в ней
+		// полный URL — вместе с токеном бота. Обрыв по таймауту, ради которого клиент и
+		// заведён, кладёт токен в логи на каждом повторе, если логгер не подменён.
+		"tgbotapi.SetLogger(botLogger{out: stdlog.Default()})",
+		"func redactToken(msg string) string {",
 	} {
 		if !strings.Contains(driver, exp) {
 			t.Errorf("telegram driver should contain %q", exp)
@@ -1063,6 +1068,13 @@ func TestGenerateTelegramClientTimeout(t *testing.T) {
 
 	if client <= wait {
 		t.Errorf("client timeout (%ds) must be greater than long-poll wait timeout (%ds)", client, wait)
+	}
+
+	// Подмена логгера обязана стоять один раз и вне замыкания смены токена: SetLogger
+	// пишет в пакетную переменную библиотеки, и повторный вызов из живого опроса —
+	// гонка. Выражения вырезания без состояния как раз для того, чтобы хватило одного.
+	if n := strings.Count(driver, "tgbotapi.SetLogger("); n != 1 {
+		t.Errorf("SetLogger must be called exactly once, got %d", n)
 	}
 }
 

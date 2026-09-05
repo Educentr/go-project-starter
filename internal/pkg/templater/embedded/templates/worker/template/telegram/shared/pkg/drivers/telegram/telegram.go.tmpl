@@ -2,7 +2,10 @@ package telegram
 
 import (
 	"context"
+	"fmt"
+	stdlog "log"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
@@ -36,7 +39,46 @@ const (
 	// Без таймаута вовсе зависший запрос висит вечно — отменить его некому, контекст
 	// у него живёт столько же, сколько сам бот.
 	defaultClientTimeout = 90 * time.Second
+
+	// tokenRedacted — чем заменяется токен в строке лога.
+	tokenRedacted = "<redacted>"
 )
+
+// Токен бота в тексте сообщения. Библиотека печатает ошибку запроса как есть, а
+// net/http приводит в ней полный URL — вместе с токеном, который в этом URL и живёт:
+// `Get "https://api.telegram.org/bot<токен>/getUpdates": context deadline exceeded`.
+// Печатается это на каждом обрыве по таймауту и дальше на каждом повторе раз в три
+// секунды, то есть боевой токен уходил бы в логи контейнера штатным следствием
+// самого таймаута.
+//
+// Два выражения, а не одно: первое режет токен в составе URL при любом его виде,
+// второе — сам токен, если эндпоинт собран без `/bot`. Оба без состояния, поэтому
+// логгер ставится один раз на процесс и смена токена его не касается.
+var (
+	tokenInURL = regexp.MustCompile(`/bot[^/\s"]+`)
+	bareToken  = regexp.MustCompile(`[0-9]{3,}:[A-Za-z0-9_-]{20,}`)
+)
+
+// botLogger — логгер библиотеки Telegram: пишет туда же, куда писал прежний
+// (stderr стандартного log), но без токена в строке.
+type botLogger struct {
+	out *stdlog.Logger
+}
+
+func (l botLogger) Println(v ...any) {
+	l.out.Print(redactToken(fmt.Sprintln(v...)))
+}
+
+func (l botLogger) Printf(format string, v ...any) {
+	l.out.Print(redactToken(fmt.Sprintf(format, v...)))
+}
+
+// redactToken вырезает токен бота из строки лога.
+func redactToken(msg string) string {
+	msg = tokenInURL.ReplaceAllString(msg, "/bot"+tokenRedacted)
+
+	return bareToken.ReplaceAllString(msg, tokenRedacted)
+}
 
 func Create(options ...Option) ds.Runnable {
 	tg := &Telegram{}
@@ -53,6 +95,12 @@ func (tg *Telegram) Name() string {
 }
 
 func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBucket, _ *prometheus.Registry) error {
+	// Логгер библиотеки подменяется один раз на процесс, а не при каждой смене
+	// токена: выражения выше без состояния, а SetLogger пишет в пакетную
+	// переменную — повторный вызов из живого опроса был бы гонкой. Единственная
+	// ошибка, которую он возвращает, — «logger is nil».
+	_ = tgbotapi.SetLogger(botLogger{out: stdlog.Default()})
+
 	bufferSizeConfigPath := onlineconf.MakePath(serviceName, configPath, "buffer_size")
 
 	updateTgToken := func(ctx context.Context) error {
