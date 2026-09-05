@@ -1039,7 +1039,7 @@ func TestGenerateTelegramClientTimeout(t *testing.T) {
 	driver := string(content)
 
 	for _, exp := range []string{
-		"tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, &http.Client{Timeout: defaultClientTimeout})",
+		"tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, redactingClient{inner: &http.Client{Timeout: defaultClientTimeout}})",
 		"apiEndpoint = tgbotapi.APIEndpoint",
 		`"net/http"`,
 		// Логгер библиотеки печатает ошибку запроса как есть, а net/http приводит в ней
@@ -1047,6 +1047,12 @@ func TestGenerateTelegramClientTimeout(t *testing.T) {
 		// заведён, кладёт токен в логи на каждом повторе, если логгер не подменён.
 		"tgbotapi.SetLogger(botLogger{out: stdlog.Default()})",
 		"func redactToken(msg string) string {",
+		// Подмены логгера мало: ошибку Client.Do библиотека отдаёт наружу как есть, и
+		// печатают её уже потребители — наш логгер, main и уведомление админу, которое
+		// шлёт текст ошибки сообщением в Telegram. Вырезание в клиенте закрывает всех
+		// разом.
+		"func (c redactingClient) Do(req *http.Request) (*http.Response, error) {",
+		"func (e *redactedError) Unwrap() error { return e.err }",
 	} {
 		if !strings.Contains(driver, exp) {
 			t.Errorf("telegram driver should contain %q", exp)

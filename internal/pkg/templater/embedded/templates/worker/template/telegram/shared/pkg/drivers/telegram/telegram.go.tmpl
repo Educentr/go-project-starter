@@ -73,6 +73,43 @@ func (l botLogger) Printf(format string, v ...any) {
 	l.out.Print(redactToken(fmt.Sprintf(format, v...)))
 }
 
+// redactingClient — HTTPClient библиотеки, у которого ошибка транспорта приходит уже
+// без токена.
+//
+// Подмены логгера мало: SetLogger перехватывает только то, что библиотека печатает
+// сама, а ошибку `Client.Do` она отдаёт наружу как есть — вместе с URL, в котором
+// живёт токен. Дальше её печатает наш zerolog при обновлении токена и при отказе
+// отправки, main при провале Init, уведомление админам, — а отказ отправки админу
+// ещё и уходит ему текстом сообщения в Telegram.
+//
+// Точка одна намеренно: каждый из этих путей берёт ошибку из этого самого Do,
+// поэтому вырезание здесь закрывает их разом и не требует править ни одно место
+// логирования.
+type redactingClient struct {
+	inner *http.Client
+}
+
+func (c redactingClient) Do(req *http.Request) (*http.Response, error) {
+	resp, err := c.inner.Do(req)
+	if err != nil {
+		return resp, &redactedError{msg: redactToken(err.Error()), err: err}
+	}
+
+	return resp, nil
+}
+
+// redactedError — ошибка транспорта без токена в тексте. Исходную держит внутри и
+// отдаёт по Unwrap: errors.Is и errors.As продолжают работать, а в лог уходит только
+// вычищенный текст — логгеры зовут Error(), цепочку они не разворачивают.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+
+func (e *redactedError) Unwrap() error { return e.err }
+
 // redactToken вырезает токен бота из строки лога.
 func redactToken(msg string) string {
 	msg = tokenInURL.ReplaceAllString(msg, "/bot"+tokenRedacted)
@@ -127,7 +164,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		// Клиент со своим таймаутом создаётся здесь, а не подменяется в поле bot.Client
 		// снаружи: объект бота пересоздаётся на каждой смене токена, и подменённый
 		// однажды клиент после ротации молча вернулся бы к бестаймаутному.
-		bot, err := tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, &http.Client{Timeout: defaultClientTimeout})
+		bot, err := tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, redactingClient{inner: &http.Client{Timeout: defaultClientTimeout}})
 		if err != nil {
 			return err
 		}
