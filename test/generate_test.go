@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1003,6 +1005,81 @@ func TestGenerateTelegramWorkerHooks(t *testing.T) {
 		t.Errorf("unknownCommandHandler should be called on every unknown-command branch (callback, text, document): got %d calls", got)
 	}
 
+}
+
+// TestGenerateTelegramClientTimeout — HTTP-клиент бота обязан иметь таймаут.
+// Библиотека создаёт клиент как &http.Client{} без таймаута вообще, и зависший
+// getUpdates висит столько же, сколько живёт бот: в проде это дало два часа молчания
+// при живом процессе. Оба прежних конструктора (с эндпоинтом из конфига и без)
+// схлопнуты в NewBotAPIWithClient — раздвоение как раз и оставляло дыру на одной ветке.
+func TestGenerateTelegramClientTimeout(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-telegram")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate telegram worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "pkg", "drivers", "telegram", "psg_telegram_gen.go"))
+	if err != nil {
+		t.Fatalf("Error reading telegram driver: %v", err)
+	}
+
+	driver := string(content)
+
+	for _, exp := range []string{
+		"tgbotapi.NewBotAPIWithClient(botToken, apiEndpoint, &http.Client{Timeout: defaultClientTimeout})",
+		"apiEndpoint = tgbotapi.APIEndpoint",
+		`"net/http"`,
+	} {
+		if !strings.Contains(driver, exp) {
+			t.Errorf("telegram driver should contain %q", exp)
+		}
+	}
+
+	// Конструкторы без клиента создают &http.Client{} без таймаута — ни одного вызова
+	// не должно остаться ни на одной ветке.
+	for _, forbidden := range []string{"tgbotapi.NewBotAPI(", "tgbotapi.NewBotAPIWithAPIEndpoint("} {
+		if strings.Contains(driver, forbidden) {
+			t.Errorf("telegram driver must not use %s — that constructor builds a client without a timeout", forbidden)
+		}
+	}
+
+	// Таймаут клиента обязан быть больше таймаута длинного опроса, иначе каждый штатный
+	// пустой ответ обрывался бы как ошибка и опрос стал бы циклом повторов.
+	wait := intFromDriver(t, driver, `defaultWaitTimeout = (\d+)`)
+	client := intFromDriver(t, driver, `defaultClientTimeout = (\d+) \* time\.Second`)
+
+	if client <= wait {
+		t.Errorf("client timeout (%ds) must be greater than long-poll wait timeout (%ds)", client, wait)
+	}
+}
+
+func intFromDriver(t *testing.T, driver, pattern string) int {
+	t.Helper()
+
+	m := regexp.MustCompile(pattern).FindStringSubmatch(driver)
+	if m == nil {
+		t.Fatalf("telegram driver should match %s", pattern)
+	}
+
+	v, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("Error parsing %s: %v", m[1], err)
+	}
+
+	return v
 }
 
 // TestGenerateDevPorts — applications[].dev_ports пробрасываются на сервис приложения в
