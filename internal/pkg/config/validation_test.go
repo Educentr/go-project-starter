@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -863,6 +864,49 @@ func TestGrafanaDatasource_IsValid(t *testing.T) {
 			wantOK:  false,
 			wantMsg: "Empty URL for datasource prometheus",
 		},
+		{
+			name: "explicit uid",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				UID:  "victoriametrics",
+				URL:  "http://victoriametrics:8428",
+			},
+			wantOK: true,
+		},
+		{
+			name: "uid with allowed punctuation",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				UID:  "vm_main-01",
+				URL:  "http://victoriametrics:8428",
+			},
+			wantOK: true,
+		},
+		{
+			name: "uid with a forbidden character",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				UID:  "vm main",
+				URL:  "http://victoriametrics:8428",
+			},
+			wantOK:  false,
+			wantMsg: "Invalid uid for datasource Prometheus: vm main (up to 40 characters of a-zA-Z0-9-_)",
+		},
+		{
+			name: "uid longer than the Grafana limit",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				UID:  strings.Repeat("a", 41),
+				URL:  "http://victoriametrics:8428",
+			},
+			wantOK: false,
+			wantMsg: "Invalid uid for datasource Prometheus: " + strings.Repeat("a", 41) +
+				" (up to 40 characters of a-zA-Z0-9-_)",
+		},
 	}
 
 	for _, tt := range tests {
@@ -952,6 +996,40 @@ func TestGrafana_IsValid(t *testing.T) {
 			},
 			wantOK:  false,
 			wantMsg: "Only one datasource can be default",
+		},
+		{
+			name: "explicit uid next to a generated one",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", UID: "victoriametrics", URL: "http://vm:8428"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100"},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name: "two explicit uids collide",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Metrics", Type: "prometheus", UID: "shared", URL: "http://vm:8428"},
+					{Name: "Logs", Type: "loki", UID: "shared", URL: "http://loki:3100"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid shared (Metrics and Logs)",
+		},
+		{
+			// Unique names are not enough: an explicit uid can land on the uid
+			// another datasource gets generated for it.
+			name: "explicit uid collides with a generated one",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+					{Name: "Metrics", Type: "prometheus", UID: "ds-prometheus", URL: "http://vm:8428"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid ds-prometheus (Prometheus and Metrics)",
 		},
 	}
 

@@ -300,7 +300,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			URL:       cfgDs.URL,
 			IsDefault: cfgDs.IsDefault,
 			Editable:  cfgDs.Editable,
-			UID:       grafana.GenerateDatasourceUID(cfgDs.Name),
+			UID:       grafana.ResolveDatasourceUID(cfgDs.UID, cfgDs.Name),
 		})
 	}
 

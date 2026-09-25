@@ -346,6 +346,7 @@ grafana:
   datasources:
     - name: string              # [required] Уникальное имя
       type: string              # [required] Тип: prometheus|loki
+      uid: string               # [optional] uid datasource; default: "ds-" + lowercase(name)
       access: string            # [optional] Режим: proxy (default)|direct
       url: string               # [required] URL datasource
       isDefault: bool           # [optional] Default datasource
