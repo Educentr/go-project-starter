@@ -13,8 +13,14 @@ func (dosh *DefaultOgenSecurityHandler) NewSecurityHandler(ctx context.Context) 
     return &DefaultOgenSecurityHandler{}, nil
 }
 
+{{ if eq "bearer" ( index .TransportParams "auth_scheme" ) }}
+func (dosh *DefaultOgenSecurityHandler) HandleBearerAuth(ctx context.Context, operationName string, t oas.BearerAuth) (context.Context, error) {
+    return ctx, nil
+}
+{{ else }}
 func (dosh *DefaultOgenSecurityHandler) HandleAuthHeader(ctx context.Context, operationName string, t oas.AuthHeader) (context.Context, error) {
     return ctx, nil
 }
+{{ end }}
 
 {{ end }}

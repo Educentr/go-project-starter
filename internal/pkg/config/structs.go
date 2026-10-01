@@ -789,6 +789,10 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			for k := range r.GeneratorParams {
 				switch k {
 				case "auth_handler":
+				// auth_scheme выбирает форму стаба SecurityHandler под схему
+				// спецификации (пока только "bearer": HandleBearerAuth/oas.BearerAuth);
+				// без параметра — прежний HandleAuthHeader/oas.AuthHeader.
+				case "auth_scheme":
 				default:
 					return false, "Invalid generator params"
 				}
