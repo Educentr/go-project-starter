@@ -2,9 +2,11 @@ package config
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
@@ -137,8 +139,12 @@ type (
 
 	// GrafanaDatasource represents a single Grafana datasource configuration
 	GrafanaDatasource struct {
-		Name      string `mapstructure:"name"`
-		Type      string `mapstructure:"type"`   // prometheus, loki
+		Name string `mapstructure:"name"`
+		Type string `mapstructure:"type"` // prometheus, loki
+		// UID overrides the generated uid ("ds-" + lowercase(name)). Set it when
+		// the generated dashboard is consumed by a Grafana whose datasource is
+		// provisioned elsewhere under a uid of its own.
+		UID       string `mapstructure:"uid"`
 		Access    string `mapstructure:"access"` // proxy, direct
 		URL       string `mapstructure:"url"`
 		IsDefault bool   `mapstructure:"isDefault"`
@@ -1270,6 +1276,11 @@ func (d GrafanaDatasource) IsValid() (bool, string) {
 		return false, "Invalid datasource type: " + d.Type + " (supported: prometheus, loki)"
 	}
 
+	if d.UID != "" && !grafana.IsValidDatasourceUID(d.UID) {
+		return false, "Invalid uid for datasource " + d.Name + ": " + d.UID +
+			" (up to " + strconv.Itoa(grafana.MaxDatasourceUIDLen) + " characters of a-zA-Z0-9-_)"
+	}
+
 	if d.Access != "" && d.Access != "proxy" && d.Access != "direct" {
 		return false, "Invalid access mode: " + d.Access + " (supported: proxy, direct)"
 	}
@@ -1288,6 +1299,7 @@ func (g Grafana) IsValid() (bool, string) {
 	}
 
 	seenNames := make(map[string]struct{})
+	seenUIDs := make(map[string]string)
 	hasDefault := false
 
 	for _, ds := range g.Datasources {
@@ -1299,6 +1311,15 @@ func (g Grafana) IsValid() (bool, string) {
 			return false, "Duplicate datasource name: " + ds.Name
 		}
 		seenNames[ds.Name] = struct{}{}
+
+		// The effective uid is what lands both in provisioning and in the panels,
+		// so an explicit uid of one datasource can collide with the generated uid
+		// of another. Unique names are not enough — check the resolved values.
+		uid := grafana.ResolveDatasourceUID(ds.UID, ds.Name)
+		if owner, exists := seenUIDs[uid]; exists {
+			return false, "Duplicate datasource uid " + uid + " (" + owner + " and " + ds.Name + ")"
+		}
+		seenUIDs[uid] = ds.Name
 
 		if ds.IsDefault {
 			if hasDefault {

@@ -16,7 +16,7 @@ type Datasource struct {
 	URL       string
 	IsDefault bool
 	Editable  bool
-	UID       string // generated: "ds-" + lowercase(name)
+	UID       string // explicit uid from the config, or the generated "ds-" + lowercase(name)
 }
 
 // Config holds resolved Grafana configuration.
@@ -125,7 +125,46 @@ func (g Config) GetDashboardRows(appName string, transports []TransportInfo) []R
 	return rows
 }
 
+// MaxDatasourceUIDLen is the length limit Grafana puts on a datasource uid.
+const MaxDatasourceUIDLen = 40
+
 // GenerateDatasourceUID generates a deterministic UID from datasource name.
 func GenerateDatasourceUID(name string) string {
 	return "ds-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+}
+
+// ResolveDatasourceUID returns the uid to emit for a datasource: the explicit
+// one when the config sets it, the generated one otherwise.
+//
+// Both the provisioning file and the dashboards must go through this, or the
+// panels reference a uid the provisioned datasource does not have.
+func ResolveDatasourceUID(explicitUID, name string) string {
+	if explicitUID != "" {
+		return explicitUID
+	}
+
+	return GenerateDatasourceUID(name)
+}
+
+// IsValidDatasourceUID reports whether uid satisfies Grafana's constraints:
+// non-empty, at most MaxDatasourceUIDLen characters, and built only from
+// letters, digits, "-" and "_".
+func IsValidDatasourceUID(uid string) bool {
+	if uid == "" || len(uid) > MaxDatasourceUIDLen {
+		return false
+	}
+
+	for _, r := range uid {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-',
+			r == '_':
+		default:
+			return false
+		}
+	}
+
+	return true
 }
