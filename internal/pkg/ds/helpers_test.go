@@ -998,3 +998,52 @@ func TestWorkers_GetUniqueTypes(t *testing.T) {
 		t.Errorf("GetUniqueTypes() should have 2 template workers, got %d", len(got["template"]))
 	}
 }
+
+func TestWorkers_HasGeneratorTemplate(t *testing.T) {
+	tests := []struct {
+		name     string
+		workers  Workers
+		template string
+		want     bool
+	}{
+		{
+			name:     "no workers",
+			workers:  Workers{},
+			template: "telegram",
+			want:     false,
+		},
+		{
+			name: "no matching template",
+			workers: Workers{
+				"daemon1": Worker{Name: "daemon1", GeneratorType: "template", GeneratorTemplate: "daemon"},
+			},
+			template: "telegram",
+			want:     false,
+		},
+		{
+			name: "has matching template",
+			workers: Workers{
+				"telegrambot": Worker{Name: "telegrambot", GeneratorType: "template", GeneratorTemplate: "telegram"},
+			},
+			template: "telegram",
+			want:     true,
+		},
+		{
+			name: "mixed templates",
+			workers: Workers{
+				"daemon1":     Worker{Name: "daemon1", GeneratorType: "template", GeneratorTemplate: "daemon"},
+				"telegrambot": Worker{Name: "telegrambot", GeneratorType: "template", GeneratorTemplate: "telegram"},
+			},
+			template: "telegram",
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.workers.HasGeneratorTemplate(tt.template); got != tt.want {
+				t.Errorf("Workers.HasGeneratorTemplate(%q) = %v, want %v", tt.template, got, tt.want)
+			}
+		})
+	}
+}

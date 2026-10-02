@@ -1,0 +1,96 @@
+package {{ .CLI.Name }}
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+)
+
+// TestPrintHelp_SingleHeader is a regression test: main.go used to print its
+// own "Available commands:" header before calling PrintHelp, which owns and
+// prints the same header — doubling it in the no-args usage output.
+func TestPrintHelp_SingleHeader(t *testing.T) {
+	h := NewHandler(nil)
+
+	var buf bytes.Buffer
+	h.PrintHelp(&buf)
+
+	out := buf.String()
+	if n := strings.Count(out, "Available commands:"); n != 1 {
+		t.Errorf("PrintHelp() printed \"Available commands:\" %d times, want 1:\n%s", n, out)
+	}
+}
+
+// TestPrintHelp_LongDescriptionSummarized verifies that multi-line or long
+// command descriptions are reduced to a single line in the aligned command
+// list, instead of breaking the layout. The full description stays available
+// via 'help <command>'.
+func TestPrintHelp_LongDescriptionSummarized(t *testing.T) {
+	h := NewHandler(nil)
+
+	full := "Seed the database with fixtures.\n" +
+		"This second paragraph explains edge cases at length and must not leak into the command list."
+
+	h.Register(&Command{
+		Name:        "seed",
+		Description: full,
+		Usage:       "seed",
+		Run: func(ctx context.Context, args []string) error {
+			return nil
+		},
+	})
+
+	var buf bytes.Buffer
+	h.PrintHelp(&buf)
+
+	out := buf.String()
+	if strings.Contains(out, "must not leak into the command list") {
+		t.Errorf("PrintHelp() command list leaked the full multi-line description:\n%s", out)
+	}
+
+	if !strings.Contains(out, "Seed the database with fixtures.") {
+		t.Errorf("PrintHelp() should list the first line of the description:\n%s", out)
+	}
+
+	if h.commands["seed"].Description != full {
+		t.Errorf("full description should be preserved on the command for 'help <command>', got %q", h.commands["seed"].Description)
+	}
+}
+
+func TestHelpSummary(t *testing.T) {
+	tests := []struct {
+		name string
+		desc string
+		want string
+	}{
+		{
+			name: "short single-line description is unchanged",
+			desc: "Check connectivity",
+			want: "Check connectivity",
+		},
+		{
+			name: "multi-line description cut at first newline",
+			desc: "Create a new user.\nRequires --email.",
+			want: "Create a new user.",
+		},
+		{
+			name: "long single-line description cut at first sentence",
+			desc: "Run migrations. Accepts --dir up|down and --steps N to limit how many are applied.",
+			want: "Run migrations.",
+		},
+		{
+			name: "empty description stays empty",
+			desc: "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := helpSummary(tt.desc); got != tt.want {
+				t.Errorf("helpSummary(%q) = %q, want %q", tt.desc, got, tt.want)
+			}
+		})
+	}
+}
