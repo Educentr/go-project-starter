@@ -168,6 +168,10 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config documentation section: "+msg)
 	}
 
+	if err := validateChecks(config.Checks); err != nil {
+		return config, err
+	}
+
 	for i := range config.Applications {
 		// Normalize transport list (supports both old string[] and new object[] format)
 		if err := config.Applications[i].NormalizeTransports(); err != nil {
@@ -287,6 +291,26 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	return config, nil
 }
 
+// validateChecks verifies declared CI checks. Names become workflow matrix leg
+// names, so they must be present and unique; a check without a command would
+// generate a job step that does nothing.
+func validateChecks(checks CheckList) error {
+	seen := make(map[string]bool, len(checks))
+
+	for _, check := range checks {
+		if ok, msg := check.IsValid(); !ok {
+			return errors.WithMessage(ErrInvalidConfig, "invalid config checks section: "+msg)
+		}
+
+		if seen[check.Name] {
+			return errors.WithMessage(ErrInvalidConfig, "duplicate check name: "+check.Name)
+		}
+
+		seen[check.Name] = true
+	}
+
+	return nil
+}
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
 // are referenced in at least one application

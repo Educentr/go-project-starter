@@ -61,6 +61,7 @@ type GeneratorParams struct {
 	Grafana       grafana.Config
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
+	Checks        ds.ChecksConfig
 }
 
 // type GeneratorParamDriver struct {
@@ -420,6 +421,13 @@ func splitDisclaimer(fileContent string) (string, string, error) {
 
 const bufferSizeStep = 1024
 
+// YAMLQuote renders s as a single-quoted YAML scalar. Used for values that come
+// verbatim from project.yaml (CI check names and commands) and may contain
+// characters a plain scalar cannot carry — ':', '#', leading '*' and so on.
+func YAMLQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
 func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string) (*bytes.Buffer, error) {
 	startDisclaimer, err := makeStartDisclaimer(destPath)
 	if err != nil {
@@ -452,8 +460,9 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			}
 			return strings.Join(parts, "")
 		},
-		"errorf": func(format string, args ...any) error { return fmt.Errorf(format, args...) },
-		"add":    func(a, b int) int { return a + b },
+		"errorf":    func(format string, args ...any) error { return fmt.Errorf(format, args...) },
+		"add":       func(a, b int) int { return a + b },
+		"YAMLQuote": YAMLQuote,
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string
 			s = strings.ReplaceAll(s, `\`, `\\`)

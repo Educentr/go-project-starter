@@ -1304,3 +1304,124 @@ func TestGenerateRESTEnvsGoat(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateCIChecks verifies that declared `checks:` produce a single matrix
+// job in the generated workflow and that build/build-packages are gated on it.
+func TestGenerateCIChecks(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "ci-checks")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with checks ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
+	if err != nil {
+		t.Fatalf("Error reading .github/workflows/ci_cd.yml: %v", err)
+	}
+
+	wf := string(workflow)
+
+	expected := []string{
+		// One matrix job, not a job per check.
+		"\n  checks:\n",
+		"fail-fast: false",
+		"- name: 'lint'\n            run: 'make lint'",
+		"- name: 'unit-tests'\n            run: 'make unit-tests'",
+		"- name: 'guards'\n            run: 'make lint-guards'",
+		"registry_login: true",
+		// `make lint` diffs against origin/main, so history must be complete.
+		"fetch-depth: 0",
+		// Escape hatch mirroring the existing SKIP_GOAT_TESTS one.
+		"vars.SKIP_CHECKS != 'true'",
+		// Gate: one needs entry aggregating every matrix leg.
+		"(needs.checks.result == 'success' || needs.checks.result == 'skipped')",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(wf, exp) {
+			t.Errorf("ci_cd.yml should contain %q", exp)
+		}
+	}
+
+	// Registry login is guarded per matrix leg, not run for every check.
+	if !strings.Contains(wf, "if: ${{ matrix.registry_login }}") {
+		t.Error("ci_cd.yml should guard the registry login step with matrix.registry_login")
+	}
+
+	// Both build and build-packages must list checks in needs.
+	for _, job := range []string{"  build:", "  build-packages:"} {
+		idx := strings.Index(wf, "\n"+job)
+		if idx < 0 {
+			t.Fatalf("ci_cd.yml should contain job %q", job)
+		}
+
+		head := wf[idx:]
+		if end := strings.Index(head, "    steps:"); end > 0 {
+			head = head[:end]
+		}
+
+		if !strings.Contains(head, "      - checks\n") {
+			t.Errorf("job %q should list checks in needs, got:\n%s", job, head)
+		}
+	}
+
+	// GitLab gets the same job, so a `ci: [gitlab]` project is not left without checks.
+	gitlab, err := os.ReadFile(filepath.Join(tmpDir, ".gitlab-ci.yml"))
+	if err != nil {
+		t.Fatalf("Error reading .gitlab-ci.yml: %v", err)
+	}
+
+	for _, exp := range []string{"\nchecks:\n", "CHECK_RUN: ['make lint']", "$SKIP_CHECKS != \"true\"", "- job: checks"} {
+		if !strings.Contains(string(gitlab), exp) {
+			t.Errorf(".gitlab-ci.yml should contain %q", exp)
+		}
+	}
+}
+
+// TestGenerateWithoutCIChecks verifies the backward-compatible path: no
+// `checks:` key means no checks job and an unchanged CI graph.
+func TestGenerateWithoutCIChecks(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project without checks ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	for _, relPath := range []string{filepath.Join(".github", "workflows", "ci_cd.yml"), ".gitlab-ci.yml"} {
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, unexp := range []string{"checks:", "SKIP_CHECKS", "needs.checks"} {
+			if strings.Contains(s, unexp) {
+				t.Errorf("%s should NOT contain %q when no checks are declared", relPath, unexp)
+			}
+		}
+	}
+}

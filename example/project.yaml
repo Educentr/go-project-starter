@@ -48,6 +48,21 @@ tools:
   golangci_version: 2.1.6
   go_jsonschema_version: v0.16.0
 
+# CI checks - one matrix job in the generated workflow; build and build-packages
+# are gated on its aggregated result. Omit the section entirely and no job is
+# generated (the CI graph stays as it was).
+# See docs/configuration/checks.md
+checks:
+  - name: lint
+    run: make lint
+  - name: unit-tests
+    run: make unit-tests
+  # registry_login: true logs in to the container registry for this check only
+  # (default false - a linter needs no registry)
+
+checks_config:
+  fail_fast: false  # false: one push reports every violation, not just the first
+
 # JSON Schema - generates Go structs with validation from JSON Schema files
 # Output: pkg/schema/{name}/ - generated Go code
 # Specs:  api/schema/{name}/ - schema files are copied here

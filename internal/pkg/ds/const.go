@@ -52,6 +52,39 @@ type ArtifactsConfig struct {
 	Packaging PackagingConfig
 }
 
+// Check is a single CI check: a named command the generated workflow runs
+// before build. The generator does not interpret Run — name and command are
+// enough to put a project's own guards back under the generated CI graph.
+type Check struct {
+	Name          string
+	Run           string
+	RegistryLogin bool // true = log in to the container registry before running
+}
+
+// ChecksConfig holds the declared CI checks and the settings shared by them.
+type ChecksConfig struct {
+	Checks   []Check
+	FailFast bool // true = cancel the remaining checks after the first failure
+}
+
+// Enabled reports whether at least one check is declared. When false the checks
+// job is not generated and the CI graph stays exactly as it was.
+func (c ChecksConfig) Enabled() bool {
+	return len(c.Checks) > 0
+}
+
+// HasRegistryLogin reports whether any check needs container registry access.
+// When false the registry login steps are omitted from the checks job entirely.
+func (c ChecksConfig) HasRegistryLogin() bool {
+	for _, check := range c.Checks {
+		if check.RegistryLogin {
+			return true
+		}
+	}
+
+	return false
+}
+
 // DocsDeployType represents documentation deployment type
 type DocsDeployType string
 

@@ -65,6 +65,7 @@ type Generator struct {
 	Grafana             grafana.Config
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
+	Checks              ds.ChecksConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -445,6 +446,18 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 	}
 
+	// Process CI checks. No checks declared — no checks job, CI graph unchanged.
+	g.Checks.FailFast = config.ChecksConfig.FailFast
+	g.Checks.Checks = make([]ds.Check, 0, len(config.Checks))
+
+	for _, check := range config.Checks {
+		g.Checks.Checks = append(g.Checks.Checks, ds.Check{
+			Name:          check.Name,
+			Run:           check.Run,
+			RegistryLogin: check.RegistryLogin,
+		})
+	}
+
 	for _, app := range config.Applications {
 		// Вычисляем use_active_record для приложения
 		// Default из main, override может быть только false
@@ -758,6 +771,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Grafana:             g.Grafana,
 		Artifacts:           g.Artifacts,
 		Documentation:       g.Documentation,
+		Checks:              g.Checks,
 	}
 }
 
