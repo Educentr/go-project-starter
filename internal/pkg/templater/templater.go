@@ -240,6 +240,12 @@ var (
 		"etc/onlineconf/.keep": {},
 		"public/.keep":         {}, // ToDo ignore all keep files
 	}
+
+	// ErrNonRegularTarget is returned when a path the generator is about to write
+	// is occupied by a non-regular entry (symlink, socket, device, fifo). Writing
+	// there would follow the entry instead of replacing it — possibly to a target
+	// outside the project tree — so generation stops instead.
+	ErrNonRegularTarget = errors.New("non-regular entry, generator won't overwrite")
 )
 
 func isFileIgnore(path string) bool {
@@ -271,6 +277,11 @@ func hasAnyPrefix(path string, prefixes []string) bool {
 // preserving user code below disclaimer markers. extraIgnore holds additional
 // project-relative path prefixes (e.g. "static/") whose existing contents must
 // never be read, diffed, or deleted — used for user-provided static assets.
+//
+// Non-regular entries found in the target dir (symlinks, sockets, devices,
+// fifos) are never generator artefacts: they are recorded in OtherFiles and
+// their contents are not read. If one of them occupies a path from the
+// generated file set, the diff fails with ErrNonRegularTarget.
 func GetUserCodeFromFiles(targetDir string, files []ds.Files, extraIgnore ...string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
@@ -283,8 +294,14 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, extraIgnore ...str
 		RenameFiles:    make(map[string]string),
 	}
 
+	// genFiles mirrors the initial NewFiles set and is never mutated: NewFiles
+	// loses entries as the walk matches them, but the collision check below has
+	// to know every path the generator is going to write.
+	genFiles := make(map[string]struct{}, len(files))
+
 	for _, file := range files {
 		filesDiff.NewFiles[file.DestName] = struct{}{}
+		genFiles[file.DestName] = struct{}{}
 		dir := file.DestName
 
 		for {
@@ -334,6 +351,20 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, extraIgnore ...str
 			return nil
 		}
 
+		// Symlinks and other non-regular entries are reported by fs.WalkDir with
+		// IsDir() == false, so without this branch they would reach os.ReadFile
+		// below: a symlink to a directory fails there ("is a directory") and kills
+		// the whole walk with an error that points nowhere near the cause.
+		if !d.Type().IsRegular() {
+			if _, ex := genFiles[newFile]; ex {
+				return errors.Wrap(ErrNonRegularTarget, path)
+			}
+
+			filesDiff.OtherFiles[path] = struct{}{}
+
+			return nil
+		}
+
 		if _, ex := filesDiff.NewFiles[newFile]; ex {
 			delete(filesDiff.NewFiles, newFile)
 
@@ -346,7 +377,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, extraIgnore ...str
 
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error read generated file "+path)
 			}
 
 			_, userData, err := splitDisclaimer(string(fileContent))
@@ -369,7 +400,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, extraIgnore ...str
 
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error read existing file "+path)
 			}
 
 			_, userData, err := splitDisclaimer(string(fileContent))
