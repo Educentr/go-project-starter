@@ -211,6 +211,23 @@ func (h *Handler) Execute(ctx context.Context, command string, args []string) er
 	return cmd.Run(ctx, args)
 }
 
+// helpSummary returns a single-line summary of a command description, for use
+// in the aligned command list where a full multi-line or long description
+// would break the layout. Multi-line descriptions are cut at the first
+// newline; long single-line descriptions are cut at the first sentence.
+// The full description remains available via 'help <command>'.
+func helpSummary(desc string) string {
+	if idx := strings.IndexByte(desc, '\n'); idx >= 0 {
+		desc = desc[:idx]
+	}
+
+	if idx := strings.Index(desc, ". "); idx >= 0 {
+		desc = desc[:idx+1]
+	}
+
+	return strings.TrimSpace(desc)
+}
+
 // PrintHelp prints help information for all commands
 func (h *Handler) PrintHelp(w io.Writer) {
 	names := make([]string, 0, len(h.commands))
@@ -222,7 +239,7 @@ func (h *Handler) PrintHelp(w io.Writer) {
 	fmt.Fprintln(w, "Available commands:")
 	for _, name := range names {
 		cmd := h.commands[name]
-		fmt.Fprintf(w, "  %-15s %s\n", name, cmd.Description)
+		fmt.Fprintf(w, "  %-15s %s\n", name, helpSummary(cmd.Description))
 {{ if .CLI.Commands }}		if cmd.Subcommands != nil {
 			subNames := make([]string, 0, len(cmd.Subcommands))
 			for sn := range cmd.Subcommands {
@@ -230,7 +247,7 @@ func (h *Handler) PrintHelp(w io.Writer) {
 			}
 			sort.Strings(subNames)
 			for _, sn := range subNames {
-				fmt.Fprintf(w, "    %-13s %s\n", sn, cmd.Subcommands[sn].Description)
+				fmt.Fprintf(w, "    %-13s %s\n", sn, helpSummary(cmd.Subcommands[sn].Description))
 			}
 		}
 {{ end }}	}
@@ -258,7 +275,7 @@ func (h *Handler) showCommandHelp(cmdName string) error {
 		}
 		sort.Strings(subNames)
 		for _, sn := range subNames {
-			fmt.Printf("  %-15s %s\n", sn, cmd.Subcommands[sn].Description)
+			fmt.Printf("  %-15s %s\n", sn, helpSummary(cmd.Subcommands[sn].Description))
 		}
 	}
 {{ end }}
