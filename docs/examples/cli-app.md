@@ -17,7 +17,7 @@ git:
   module_path: github.com/myorg/myctl
 
 tools:
-  golang_version: "1.24"
+  golang_version: "1.25"
 
 cli:
   - name: admin

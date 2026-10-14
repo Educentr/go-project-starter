@@ -965,6 +965,75 @@ func TestGenerateDaemonWorker(t *testing.T) {
 	})
 }
 
+// TestGenerateTelegramWorkerGoVersion tests that a project with a telegram worker is
+// generated on Go >= 1.25 and carries no workaround pin of github.com/gofrs/uuid/v5.
+//
+// The telegram driver templates import gofrs/uuid/v5 directly. Its v5.5.0+ releases
+// declare `go 1.25`, which used to break `go mod tidy` in projects generated on Go 1.24
+// (TOOLS-4). The fix is the Go version bump, not freezing the dependency on v5.4.0, so
+// go.mod must resolve uuid itself instead of carrying a hardcoded require line.
+func TestGenerateTelegramWorkerGoVersion(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-telegram")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate telegram worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("Error reading go.mod: %v", err)
+	}
+
+	s := string(content)
+
+	major, minor, err := goDirective(s)
+	if err != nil {
+		t.Fatalf("Error parsing go directive: %v\n%s", err, s)
+	}
+
+	// gofrs/uuid/v5 v5.5.0+ requires go >= 1.25.
+	if major != 1 || minor < 25 {
+		t.Errorf("go.mod should declare go >= 1.25, got %d.%d", major, minor)
+	}
+
+	if strings.Contains(s, "github.com/gofrs/uuid/v5 v") {
+		t.Errorf("go.mod should not pin github.com/gofrs/uuid/v5 — the Go version bump "+
+			"removed the need for it, got:\n%s", s)
+	}
+}
+
+// goDirective extracts the major and minor version from the `go` directive of a go.mod.
+func goDirective(goMod string) (int, int, error) {
+	m := regexp.MustCompile(`(?m)^go\s+(\d+)\.(\d+)`).FindStringSubmatch(goMod)
+	if m == nil {
+		return 0, 0, fmt.Errorf("no go directive found")
+	}
+
+	major, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse major %q: %w", m[1], err)
+	}
+
+	minor, err := strconv.Atoi(m[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse minor %q: %w", m[2], err)
+	}
+
+	return major, minor, nil
+}
+
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
 // are automatically removed during regeneration.
 // TestGenerateTelegramWorkerHooks — шаблон telegram-воркера оставляет проекту точки
