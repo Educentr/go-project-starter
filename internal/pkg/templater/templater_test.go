@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 )
 
 func TestIsFileIgnored(t *testing.T) {
@@ -894,7 +895,7 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 		}
 
 		// No files in template set — so psg_old_gen.go is not expected
-		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil)
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -915,7 +916,7 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err := GetUserCodeFromFiles(tmpDir, nil)
+		_, err := GetUserCodeFromFiles(tmpDir, nil, nil)
 		if err == nil {
 			t.Fatal("expected error for stale file with user code, got nil")
 		}
@@ -935,7 +936,7 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil)
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -963,13 +964,326 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 			{DestName: destName, OldDestName: destName},
 		}
 
-		filesDiff, err := GetUserCodeFromFiles(tmpDir, files)
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
 		if _, ok := filesDiff.ObsoleteFiles[destName]; ok {
 			t.Errorf("file in template set should NOT be in ObsoleteFiles")
+		}
+	})
+}
+
+// writeFile creates path with content, making parent directories as needed.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// genRecord builds a manifest record for a generated file as the previous run
+// would have written it.
+func genRecord(t *testing.T, relPath, content string) meta.FileRecord {
+	t.Helper()
+
+	hash, err := GeneratedRegionHash(relPath, []byte(content))
+	if err != nil {
+		t.Fatalf("hash %s: %v", relPath, err)
+	}
+
+	return meta.FileRecord{Path: relPath, Kind: meta.KindGenerated, Hash: hash}
+}
+
+func TestGetUserCodeFromFilesWithManifest(t *testing.T) {
+	disclaimerLine := "// " + disclaimer
+
+	t.Run("foreign file with disclaimer is neither read nor deleted", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genContent := "package main\n\n" + disclaimerLine + "\n"
+		genFile := filepath.Join(tmpDir, "psg_handler_gen.go")
+		writeFile(t, genFile, genContent)
+
+		// A code-intelligence index that happens to embed the disclaimer
+		// string, plus a merge leftover of a generated file. Neither was
+		// written by the generator, so neither is in the manifest.
+		indexFile := filepath.Join(tmpDir, ".codegraph", "codegraph.db")
+		writeFile(t, indexFile, "SQLite format 3\x00"+disclaimer+"\x00package main\n")
+
+		orig := filepath.Join(tmpDir, "psg_handler_gen.go.orig")
+		writeFile(t, orig, genContent+"\nfunc userCode() {}\n")
+
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{genRecord(t, "psg_handler_gen.go", genContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(filesDiff.ObsoleteFiles) != 0 {
+			t.Errorf("foreign files must not be deleted, got ObsoleteFiles=%v", filesDiff.ObsoleteFiles)
+		}
+
+		if len(filesDiff.DriftFiles) != 0 {
+			t.Errorf("foreign files must not be reported as drift, got %v", filesDiff.DriftFiles)
+		}
+	})
+
+	t.Run("orphan from manifest with untouched content is obsolete", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		staleContent := "package main\n\n" + disclaimerLine + "\n"
+		staleFile := filepath.Join(tmpDir, "psg_old_gen.go")
+		writeFile(t, staleFile, staleContent)
+
+		prev := meta.Manifest{genRecord(t, "psg_old_gen.go", staleContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[staleFile]; !ok {
+			t.Errorf("expected %s in ObsoleteFiles, got %v", staleFile, filesDiff.ObsoleteFiles)
+		}
+	})
+
+	t.Run("orphan from manifest with user code returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		staleContent := "package main\n\n" + disclaimerLine + "\n"
+		staleFile := filepath.Join(tmpDir, "psg_old_gen.go")
+		writeFile(t, staleFile, staleContent+"\nfunc myCustomCode() {}\n")
+
+		prev := meta.Manifest{genRecord(t, "psg_old_gen.go", staleContent)}
+
+		_, err := GetUserCodeFromFiles(tmpDir, nil, prev)
+		if err == nil {
+			t.Fatal("expected error for stale file with user code, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "found user code in stale gen file") {
+			t.Errorf("error should mention stale gen file, got: %v", err)
+		}
+	})
+
+	t.Run("orphan edited above the marker is kept and reported", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		staleContent := "package main\n\n" + disclaimerLine + "\n"
+		staleFile := filepath.Join(tmpDir, "psg_old_gen.go")
+		writeFile(t, staleFile, "package main\n\n// hand written\n\n"+disclaimerLine+"\n")
+
+		prev := meta.Manifest{genRecord(t, "psg_old_gen.go", staleContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[staleFile]; ok {
+			t.Error("edited file must not be deleted")
+		}
+
+		if _, ok := filesDiff.DriftFiles[staleFile]; !ok {
+			t.Errorf("expected %s in DriftFiles, got %v", staleFile, filesDiff.DriftFiles)
+		}
+	})
+
+	t.Run("copied orphan is left on disk", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		spec := filepath.Join(tmpDir, "api", "rest", "svc", "v1", "svc.swagger.yml")
+		writeFile(t, spec, "openapi: 3.0.0\n")
+
+		prev := meta.Manifest{{
+			Path: "api/rest/svc/v1/svc.swagger.yml",
+			Kind: meta.KindCopied,
+			Hash: meta.HashContent([]byte("openapi: 3.0.0\n")),
+		}}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[spec]; ok {
+			t.Error("copied file must not be deleted automatically")
+		}
+
+		if _, ok := filesDiff.OtherFiles[spec]; !ok {
+			t.Errorf("expected %s in OtherFiles, got %v", spec, filesDiff.OtherFiles)
+		}
+	})
+
+	t.Run("hand edit above the marker is reported, user code preserved", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genContent := "package main\n\n" + disclaimerLine + "\n"
+		genFile := filepath.Join(tmpDir, "psg_handler_gen.go")
+		writeFile(t, genFile, "package main\n\n// hand written\n\n"+disclaimerLine+"\n\nfunc userCode() {}\n")
+
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{genRecord(t, "psg_handler_gen.go", genContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.DriftFiles[genFile]; !ok {
+			t.Errorf("expected %s in DriftFiles, got %v", genFile, filesDiff.DriftFiles)
+		}
+
+		if got := string(filesDiff.UserContent[genFile]); got != "\nfunc userCode() {}\n" {
+			t.Errorf("user code must be preserved, got %q", got)
+		}
+	})
+
+	t.Run("unchanged generated file is not reported as drift", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genContent := "package main\n\n" + disclaimerLine + "\n"
+		genFile := filepath.Join(tmpDir, "psg_handler_gen.go")
+		writeFile(t, genFile, genContent+"\nfunc userCode() {}\n")
+
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{genRecord(t, "psg_handler_gen.go", genContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(filesDiff.DriftFiles) != 0 {
+			t.Errorf("user code below the marker is not drift, got %v", filesDiff.DriftFiles)
+		}
+
+		if _, ok := filesDiff.NewFiles[genFile]; ok {
+			t.Error("existing file must not be reported as new")
+		}
+	})
+
+	t.Run("new file absent on disk stays in NewFiles", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genFile := filepath.Join(tmpDir, "pkg", "app", "psg_new_gen.go")
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{genRecord(t, "psg_other_gen.go", "package main\n\n"+disclaimerLine+"\n")}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.NewFiles[genFile]; !ok {
+			t.Errorf("expected %s in NewFiles, got %v", genFile, filesDiff.NewFiles)
+		}
+	})
+
+	t.Run("ignore-if-exists file is left untouched", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		goMod := filepath.Join(tmpDir, "go.mod")
+		writeFile(t, goMod, "module example.com/project\n")
+
+		files := []ds.Files{{DestName: goMod, OldDestName: goMod}}
+		prev := meta.Manifest{genRecord(t, "psg_other_gen.go", "package main\n\n"+disclaimerLine+"\n")}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.IgnoreFiles[goMod]; !ok {
+			t.Errorf("expected %s in IgnoreFiles, got %v", goMod, filesDiff.IgnoreFiles)
+		}
+
+		if _, ok := filesDiff.NewFiles[goMod]; ok {
+			t.Error("ignored file must not be rewritten")
+		}
+	})
+
+	t.Run("non-regular entries in the tree are not visited", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// A dangling symlink and a fifo break the fallback tree walk; with a
+		// manifest they are never looked at.
+		if err := os.Symlink(filepath.Join(tmpDir, "missing"), filepath.Join(tmpDir, "dangling")); err != nil {
+			t.Fatal(err)
+		}
+
+		genContent := "package main\n\n" + disclaimerLine + "\n"
+		genFile := filepath.Join(tmpDir, "psg_handler_gen.go")
+		writeFile(t, genFile, genContent)
+
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{genRecord(t, "psg_handler_gen.go", genContent)}
+
+		if _, err := GetUserCodeFromFiles(tmpDir, files, prev); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestGeneratedRegionHash(t *testing.T) {
+	disclaimerLine := "// " + disclaimer
+	genContent := "package main\n\n" + disclaimerLine + "\n"
+
+	t.Run("user code below the marker does not change the hash", func(t *testing.T) {
+		bare, err := GeneratedRegionHash("psg_handler_gen.go", []byte(genContent))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		withUser, err := GeneratedRegionHash("psg_handler_gen.go", []byte(genContent+"\nfunc userCode() {}\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if bare != withUser {
+			t.Errorf("hash must cover the generated region only: %s != %s", bare, withUser)
+		}
+	})
+
+	t.Run("generated region change changes the hash", func(t *testing.T) {
+		bare, err := GeneratedRegionHash("psg_handler_gen.go", []byte(genContent))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		edited, err := GeneratedRegionHash("psg_handler_gen.go", []byte("package main\n\n// hand written\n"+disclaimerLine+"\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if bare == edited {
+			t.Error("edit above the marker must change the hash")
+		}
+	})
+
+	t.Run("file without disclaimer support is hashed whole", func(t *testing.T) {
+		got, err := GeneratedRegionHash("schema.json", []byte(`{"a":1}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if want := meta.HashContent([]byte(`{"a":1}`)); got != want {
+			t.Errorf("GeneratedRegionHash() = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("missing marker is an error", func(t *testing.T) {
+		if _, err := GeneratedRegionHash("psg_handler_gen.go", []byte("package main\n")); err == nil {
+			t.Error("expected error for content without disclaimer")
 		}
 	})
 }
