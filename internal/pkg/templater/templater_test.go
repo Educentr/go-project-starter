@@ -1234,6 +1234,29 @@ func TestGetUserCodeFromFilesWithManifest(t *testing.T) {
 	})
 }
 
+func TestIsUserOwned(t *testing.T) {
+	tests := []struct {
+		name    string
+		relPath string
+		ignore  []string
+		want    bool
+	}{
+		{name: "go.mod is user owned once created", relPath: "go.mod", want: true},
+		{name: "docs are user owned", relPath: "docs/index.md", want: true},
+		{name: "static assets are user owned", relPath: "static/app.js", ignore: []string{"static/"}, want: true},
+		{name: "generated source is not", relPath: "cmd/api/psg_main_gen.go", want: false},
+		{name: "static prefix does not leak", relPath: "pkg/static.go", ignore: []string{"static/"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsUserOwned(tt.relPath, tt.ignore...); got != tt.want {
+				t.Errorf("IsUserOwned(%q, %v) = %v, want %v", tt.relPath, tt.ignore, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGeneratedRegionHash(t *testing.T) {
 	disclaimerLine := "// " + disclaimer
 	genContent := "package main\n\n" + disclaimerLine + "\n"
