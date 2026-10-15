@@ -65,3 +65,10 @@ applications:
     grafana:
       datasources:
         - Prometheus
+
+  # A second application WITHOUT a sys transport, i.e. without a /metrics
+  # endpoint. It must get neither the collector-package import nor the
+  # registration call — an import it never uses would not compile.
+  - name: worker
+    transport:
+      - name: api

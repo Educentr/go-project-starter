@@ -134,6 +134,19 @@ func TestGenerateMetricsMap(t *testing.T) {
 		t.Error("generated main should import the generated collector package")
 	}
 
+	// The second application has no sys transport, so no /metrics endpoint and
+	// no registry to register into. It must get neither the call nor the
+	// import — an import it never uses would not compile.
+	workerMain := readGenerated(t, tmpDir, "cmd", "worker", "psg_main_gen.go")
+
+	if strings.Contains(workerMain, "metrics.Register(") {
+		t.Error("an application without a /metrics endpoint should not register collectors")
+	}
+
+	if strings.Contains(workerMain, `"github.com/test/metricstest/internal/pkg/metrics"`) {
+		t.Error("an application that does not register collectors must not import the package")
+	}
+
 	// Validator: standalone config, the rule in the main lint config, and the
 	// Makefile target.
 	metricsLint := readGenerated(t, tmpDir, "configs", "golangci-metrics.yml")
