@@ -452,7 +452,10 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			}
 			return strings.Join(parts, "")
 		},
-		"errorf": func(format string, args ...any) error { return fmt.Errorf(format, args...) },
+		// Returning (string, error) makes text/template abort execution with
+		// this error. Returning only an error would render its message into
+		// the output file instead, leaving a broken artifact behind.
+		"errorf": func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
 		"add":    func(a, b int) int { return a + b },
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string

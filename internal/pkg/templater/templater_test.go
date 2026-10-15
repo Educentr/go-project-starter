@@ -973,3 +973,155 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 		}
 	})
 }
+
+// ogenClientAuthParams builds the render params the ogen_client templates
+// expect for a single client transport with the given auth_params.
+func ogenClientAuthParams(authTransport, authType, instantiation string) GeneratorHandlerParams {
+	const projectPath = "github.com/test/authproj"
+
+	return GeneratorHandlerParams{
+		GeneratorParams: GeneratorParams{
+			ProjectName: "authproj",
+			ProjectPath: projectPath,
+			AppInfo:     "test",
+			Applications: ds.Apps{
+				{Name: "api", Transports: ds.Transports{"billing": ds.Transport{Name: "billing"}}},
+			},
+		},
+		Transport: ds.Transport{
+			Name:          "billing",
+			PkgName:       "billing_v1",
+			ApiVersion:    "v1",
+			Type:          ds.RestTransportType,
+			GeneratorType: "ogen_client",
+			Instantiation: instantiation,
+			AuthParams:    ds.AuthParams{Transport: authTransport, Type: authType},
+			Import: []string{
+				`billing_v1 "` + projectPath + `/pkg/rest/billing/v1"`,
+				`"` + projectPath + `/internal/app/transport/rest/billing/v1"`,
+			},
+			WrapperImport: `"` + projectPath + `/internal/app/transport/rest/billing/v1"`,
+		},
+	}
+}
+
+func renderOgenClientTmpl(t *testing.T, name string, params GeneratorHandlerParams) (string, error) {
+	t.Helper()
+
+	tmpl, err := GetTemplate("embedded/templates/transport/rest/ogen_client/files/" + name)
+	if err != nil {
+		t.Fatalf("GetTemplate(%s) unexpected error: %v", name, err)
+	}
+
+	buf, err := GenerateByTmpl(tmpl, params, nil, "/project/internal/app/transport/rest/billing/v1/psg_gen.go")
+	if err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+// TestOgenClientAuthTemplate covers the SecuritySource wrapper the
+// ogen_client templates emit per auth_params type: the method name must match
+// the ogen security scheme (AuthHeader / BearerAuth / BasicAuth) and the
+// credentials must be read from the documented OnlineConf paths.
+func TestOgenClientAuthTemplate(t *testing.T) {
+	tests := []struct {
+		name         string
+		authType     string
+		wantMethod   string
+		wantOCLeaves []string
+	}{
+		{
+			name:         "apikey",
+			authType:     "apikey",
+			wantMethod:   "func (ak *SecuritySource) AuthHeader(",
+			wantOCLeaves: []string{`"auth_params", "apikey"`},
+		},
+		{
+			name:         "bearer",
+			authType:     "bearer",
+			wantMethod:   "func (s *SecuritySource) BearerAuth(",
+			wantOCLeaves: []string{`"auth_params", "token"`},
+		},
+		{
+			name:         "basic",
+			authType:     "basic",
+			wantMethod:   "func (s *SecuritySource) BasicAuth(",
+			wantOCLeaves: []string{`"auth_params", "username"`, `"auth_params", "password"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("header", tt.authType, "static"))
+			if err != nil {
+				t.Fatalf("rendering auth.go.tmpl for %s failed: %v", tt.authType, err)
+			}
+
+			if !strings.Contains(content, tt.wantMethod) {
+				t.Errorf("auth.go for %s should contain %q, got:\n%s", tt.authType, tt.wantMethod, content)
+			}
+
+			for _, leaf := range tt.wantOCLeaves {
+				if !strings.Contains(content, leaf) {
+					t.Errorf("auth.go for %s should read OnlineConf leaf %s", tt.authType, leaf)
+				}
+			}
+
+			// The wrapper lives in internal/app/transport/rest/billing/v1
+			// itself — importing that path here is a self-import and makes
+			// the generated project fail with an import cycle.
+			if strings.Contains(content, "/internal/app/transport/rest/billing/v1") {
+				t.Errorf("auth.go for %s must not import its own package, got:\n%s", tt.authType, content)
+			}
+		})
+	}
+}
+
+// TestOgenClientAuthTemplateUnsupportedType asserts the template still fails
+// loudly for auth types that have no SecuritySource branch, instead of
+// emitting a wrapper that cannot compile.
+func TestOgenClientAuthTemplateUnsupportedType(t *testing.T) {
+	_, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("header", "oauth2", "static"))
+	if err == nil {
+		t.Fatal("rendering auth.go.tmpl with an unsupported auth type should fail")
+	}
+
+	if !strings.Contains(err.Error(), "Unsupported auth type") {
+		t.Errorf("error should mention the unsupported auth type, got: %v", err)
+	}
+}
+
+// TestOgenClientPassesSecuritySource verifies that both instantiation modes
+// hand the generated SecuritySource to ogen's NewClient for every supported
+// auth type — a client that skips it does not compile against a spec with a
+// security scheme.
+func TestOgenClientPassesSecuritySource(t *testing.T) {
+	for _, instantiation := range []string{"static", "dynamic"} {
+		for _, authType := range []string{"apikey", "bearer", "basic"} {
+			t.Run(instantiation+"/"+authType, func(t *testing.T) {
+				content, err := renderOgenClientTmpl(t, "client.go.tmpl", ogenClientAuthParams("header", authType, instantiation))
+				if err != nil {
+					t.Fatalf("rendering client.go.tmpl failed: %v", err)
+				}
+
+				if !strings.Contains(content, "&SecuritySource{},") {
+					t.Errorf("%s client with %s auth should pass &SecuritySource{} to NewClient, got:\n%s",
+						instantiation, authType, content)
+				}
+			})
+		}
+	}
+
+	t.Run("no auth params", func(t *testing.T) {
+		content, err := renderOgenClientTmpl(t, "client.go.tmpl", ogenClientAuthParams("", "", "static"))
+		if err != nil {
+			t.Fatalf("rendering client.go.tmpl failed: %v", err)
+		}
+
+		if strings.Contains(content, "&SecuritySource{}") {
+			t.Errorf("client without auth params must not reference SecuritySource, got:\n%s", content)
+		}
+	})
+}

@@ -202,6 +202,58 @@ func TestTransport_HasAuthParams(t *testing.T) {
 	}
 }
 
+func TestTransport_UsesSecuritySource(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport Transport
+		want      bool
+	}{
+		{
+			name:      "no auth params",
+			transport: Transport{},
+			want:      false,
+		},
+		{
+			name:      "apikey in header",
+			transport: Transport{AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			want:      true,
+		},
+		{
+			name:      "bearer in header",
+			transport: Transport{AuthParams: AuthParams{Transport: "header", Type: "bearer"}},
+			want:      true,
+		},
+		{
+			name:      "basic in header",
+			transport: Transport{AuthParams: AuthParams{Transport: "header", Type: "basic"}},
+			want:      true,
+		},
+		{
+			name:      "unknown type in header",
+			transport: Transport{AuthParams: AuthParams{Transport: "header", Type: "oauth2"}},
+			want:      false,
+		},
+		{
+			name:      "known type but unsupported transport",
+			transport: Transport{AuthParams: AuthParams{Transport: "query", Type: "apikey"}},
+			want:      false,
+		},
+		{
+			name:      "type without transport",
+			transport: Transport{AuthParams: AuthParams{Type: "basic"}},
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.transport.UsesSecuritySource(); got != tt.want {
+				t.Errorf("Transport.UsesSecuritySource() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApp_GetRestTransport(t *testing.T) {
 	app := App{
 		Transports: Transports{
