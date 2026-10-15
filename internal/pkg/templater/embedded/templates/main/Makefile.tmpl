@@ -18,7 +18,7 @@ LOCAL_BIN:=$(CURDIR)/bin
 # Путь до бинарника golang-ci
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 # Minimal Golang version
-MIN_GO_VERSION = 1.23.8
+MIN_GO_VERSION = 1.25.0
 # Ogen version
 OGENVERSION = {{ .OgenVersion }}
 {{ if .UseActiveRecord }}
@@ -573,13 +573,10 @@ install-buf:
   	chmod +x "$(shell go env GOPATH)/bin/buf"
 
 # Install protoc-gen-go and protoc-gen-go-grpc
-# Pin protoc-gen-go-grpc: v1.6.2 bumped the required Go version to 1.25.0,
-# which breaks generated projects pinned to Go 1.24. v1.6.1 is the last
-# release still compatible.
 .PHONY: install-protoc-gen-go-grpc
 install-protoc-gen-go-grpc:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 {{- end }}
 
 # Install local git hooks
@@ -639,9 +636,7 @@ ToDo select driver for PG
 
 .PHONY: install-goimports
 install-goimports:
-	# Pin: golang.org/x/tools@v0.43.0+ requires Go 1.25.0. v0.42.0 is the
-	# last release still compatible with generated projects pinned to Go 1.24.
-	go install golang.org/x/tools/cmd/goimports@v0.42.0
+	go install golang.org/x/tools/cmd/goimports@latest
 
 .PHONY: install-onlineconf-updater
 install-onlineconf-updater:
