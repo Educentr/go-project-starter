@@ -168,6 +168,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config documentation section: "+msg)
 	}
 
+	// Validate GitHub CI configuration
+	if ok, msg := config.GithubCI.IsValid(); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
+	}
+
 	for i := range config.Applications {
 		// Normalize transport list (supports both old string[] and new object[] format)
 		if err := config.Applications[i].NormalizeTransports(); err != nil {
@@ -286,7 +291,6 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 
 	return config, nil
 }
-
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
 // are referenced in at least one application

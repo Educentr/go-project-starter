@@ -65,6 +65,7 @@ type Generator struct {
 	Grafana             grafana.Config
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
+	GithubCI            ds.GithubCIConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -445,6 +446,19 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 	}
 
+	// Process GitHub CI configuration. Config validation already rejected
+	// malformed runs_on values, so this only normalizes them.
+	runsOn, err := config.GithubCI.ParseRunsOn()
+	if err != nil {
+		return errors.Wrap(err, "invalid github_ci configuration")
+	}
+
+	g.GithubCI = ds.GithubCIConfig{
+		RunsOn:            runsOn,
+		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
+		DoctlVersion:      config.GithubCI.DoctlVersion,
+	}
+
 	for _, app := range config.Applications {
 		// Вычисляем use_active_record для приложения
 		// Default из main, override может быть только false
@@ -758,6 +772,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Grafana:             g.Grafana,
 		Artifacts:           g.Artifacts,
 		Documentation:       g.Documentation,
+		GithubCI:            g.GithubCI,
 	}
 }
 
