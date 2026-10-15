@@ -3,6 +3,7 @@ package generator
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
@@ -12,34 +13,68 @@ import (
 // The ref override has to reach BOTH resolve paths: the pre-pass that stages
 // REST/gRPC/JSON Schema specs, and the inline resolve used by queue workers
 // and CLI commands. If it reached only one of them, the generated tree would
-// be built from two different states of the contracts — silently. Both tests
-// below use a ref that NewResolver rejects outright, so the assertion is a
-// hermetic "the option arrived", with no clone attempted.
-const unusableRef = "-not-a-ref"
+// be built from two different states of the contracts — silently.
+//
+// Both tests below use a git+https source whose token_env is unset, so the
+// resolve stops before any network access and the error names the source with
+// its effective ref — which is the assertion: the override arrived.
+const (
+	// tokenEnvNotSet must not exist in the environment.
+	tokenEnvNotSet = "GPS_TEST_TOKEN_ENV_THAT_IS_NEVER_SET"
+	specURI        = "git+https://github.com/org/specs.git?token_env=" + tokenEnvNotSet + "#openapi/users.yaml"
+	scopedRefEntry = "github.com/org/specs:release/scoped"
+	scopedRef      = "release/scoped"
+)
 
-func TestResolveInlineSpec_PassesSourceRefToResolver(t *testing.T) {
-	_, cleanup, err := resolveInlineSpec(
-		t.Context(),
-		t.TempDir(),
-		"git+https://github.com/org/repo.git#commands.yaml",
-		unusableRef,
-	)
+func mustSourceRefs(t *testing.T, entries ...string) *specsource.SourceRefs {
+	t.Helper()
 
-	cleanup()
+	refs, err := specsource.ParseSourceRefs(entries)
+	if err != nil {
+		t.Fatalf("ParseSourceRefs(%q): %v", entries, err)
+	}
 
-	if !errors.Is(err, specsource.ErrInvalidRef) {
-		t.Fatalf("got %v, want ErrInvalidRef (sourceRef not forwarded to the resolver?)", err)
+	return refs
+}
+
+// assertResolvedWithRef checks that resolving failed at the token lookup (no
+// network) and that the source it names carries ref.
+func assertResolvedWithRef(t *testing.T, err error, ref string) {
+	t.Helper()
+
+	if !errors.Is(err, specsource.ErrTokenEnvMissing) {
+		t.Fatalf("got %v, want ErrTokenEnvMissing", err)
+	}
+
+	if !strings.Contains(err.Error(), ref) {
+		t.Errorf("resolved source must carry ref %q, got %v", ref, err)
 	}
 }
 
-func TestResolveAllSources_PassesSourceRefToResolver(t *testing.T) {
+func TestResolveInlineSpec_PassesSourceRefsToResolver(t *testing.T) {
+	refs := mustSourceRefs(t, scopedRefEntry)
+
+	_, cleanup, err := resolveInlineSpec(t.Context(), t.TempDir(), specURI, refs)
+
+	cleanup()
+
+	assertResolvedWithRef(t, err, scopedRef)
+
+	if cerr := refs.CheckUsed(); cerr != nil {
+		t.Errorf("the selector matched the inline source, got %v", cerr)
+	}
+}
+
+func TestResolveAllSources_PassesSourceRefsToResolver(t *testing.T) {
+	refs := mustSourceRefs(t, scopedRefEntry)
+
 	g := &Generator{
-		BasePath:  t.TempDir(),
-		SourceRef: unusableRef,
+		BasePath:   t.TempDir(),
+		SourceRefs: refs,
 		Transports: ds.Transports{
 			"users": ds.Transport{
 				Name:     "users",
-				SpecPath: []string{"git+https://github.com/org/repo.git#openapi/users.yaml"},
+				SpecPath: []string{specURI},
 			},
 		},
 		JSONSchemas: ds.JSONSchemas{},
@@ -52,16 +87,52 @@ func TestResolveAllSources_PassesSourceRefToResolver(t *testing.T) {
 		}
 	}
 
-	if !errors.Is(err, specsource.ErrInvalidRef) {
-		t.Fatalf("got %v, want ErrInvalidRef (sourceRef not forwarded to the resolver?)", err)
+	assertResolvedWithRef(t, err, scopedRef)
+
+	if cerr := refs.CheckUsed(); cerr != nil {
+		t.Errorf("the selector matched the staged source, got %v", cerr)
+	}
+}
+
+// A selector naming a repository the project does not use is a typo: it must
+// be reported, not silently ignored, or the build would quietly take that
+// repository from its default branch.
+func TestSourceRefs_UnusedSelectorIsReported(t *testing.T) {
+	refs := mustSourceRefs(t, "github.com/org/typo:release/scoped")
+
+	g := &Generator{
+		BasePath:   t.TempDir(),
+		SourceRefs: refs,
+		Transports: ds.Transports{
+			"users": ds.Transport{
+				Name:     "users",
+				SpecPath: []string{specURI},
+			},
+		},
+		JSONSchemas: ds.JSONSchemas{},
+	}
+
+	cleanup, err := g.resolveAllSources()
+	if cleanup != nil {
+		if cerr := cleanup(); cerr != nil {
+			t.Logf("cleanup: %v", cerr)
+		}
+	}
+
+	// The source itself still fails on the missing token — with the ref it had
+	// in the config, since no selector matched it.
+	assertResolvedWithRef(t, err, "HEAD")
+
+	if cerr := refs.CheckUsed(); !errors.Is(cerr, specsource.ErrUnusedSourceRef) {
+		t.Fatalf("got %v, want ErrUnusedSourceRef", cerr)
 	}
 }
 
 // A local-only project must not notice the knob at all: no staging, no git.
-func TestResolveInlineSpec_LocalSourceIgnoresSourceRef(t *testing.T) {
+func TestResolveInlineSpec_LocalSourceIgnoresSourceRefs(t *testing.T) {
 	base := t.TempDir()
 
-	path, cleanup, err := resolveInlineSpec(t.Context(), base, "./commands.yaml", "release/a")
+	path, cleanup, err := resolveInlineSpec(t.Context(), base, "./commands.yaml", mustSourceRefs(t, "release/a"))
 
 	cleanup()
 
