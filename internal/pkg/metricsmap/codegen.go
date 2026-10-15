@@ -61,13 +61,13 @@ func (m Metric) Constructor() string {
 // "prometheus.CounterOpts".
 func (m Metric) OptsType() string {
 	switch m.Kind() {
-	case "counter":
+	case KindCounter:
 		return "prometheus.CounterOpts"
-	case "gauge":
+	case KindGauge:
 		return "prometheus.GaugeOpts"
-	case "histogram":
+	case KindHistogram:
 		return "prometheus.HistogramOpts"
-	case "summary":
+	case KindSummary:
 		return "prometheus.SummaryOpts"
 	default:
 		return ""
@@ -81,7 +81,7 @@ func (m Metric) GoType() string {
 }
 
 // LabelsLiteral renders the label name list as a Go slice literal, or the empty
-// string for an unlabelled metric (whose constructor takes no label argument).
+// string for a metric without labels (whose constructor takes no label argument).
 func (m Metric) LabelsLiteral() string {
 	if len(m.Labels) == 0 {
 		return ""
@@ -99,7 +99,7 @@ func (m Metric) LabelsLiteral() string {
 // unspecified bucket list falls back to prometheus.DefBuckets — a histogram
 // with no buckets at all would observe nothing useful.
 func (m Metric) BucketsLiteral() string {
-	if m.Kind() != "histogram" {
+	if m.Kind() != KindHistogram {
 		return ""
 	}
 
@@ -120,7 +120,7 @@ func (m Metric) BucketsLiteral() string {
 // (no quantiles — only _sum and _count), which is a deliberate choice: made-up
 // quantile targets would be as wrong as made-up alert thresholds.
 func (m Metric) ObjectivesLiteral() string {
-	if m.Kind() != "summary" || len(m.Objectives) == 0 {
+	if m.Kind() != KindSummary || len(m.Objectives) == 0 {
 		return ""
 	}
 
@@ -158,7 +158,7 @@ func ValidateVarNames(metrics []Metric) error {
 	}
 
 	if len(problems) > 0 {
-		return fmt.Errorf("%w:\n  %s", ErrVarNameCollision, strings.Join(problems, "\n  "))
+		return problemList(ErrVarNameCollision, problems)
 	}
 
 	return nil

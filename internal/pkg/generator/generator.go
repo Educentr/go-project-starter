@@ -78,6 +78,15 @@ type ExecCmd struct {
 	Msg string
 }
 
+const (
+	// knownCapabilityCount is the number of project capabilities
+	// projectCapabilities can report — used only to pre-size the map.
+	knownCapabilityCount = 3
+
+	// errMetricsMapCtx prefixes failures of the metrics map merge.
+	errMetricsMapCtx = "metrics map"
+)
+
 var errUnknownTransport = errors.New("unknown transport")
 
 func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
@@ -796,7 +805,7 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 // project can actually emit. Read by metricsmap to drop internal declarations
 // nothing in this project produces.
 func projectCapabilities(config cfg.Config) map[string]bool {
-	capabilities := make(map[string]bool, 3)
+	capabilities := make(map[string]bool, knownCapabilityCount)
 
 	for _, rest := range config.RestList {
 		switch rest.GeneratorType {
@@ -838,6 +847,7 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 		}
 
 		serviceMap, err = metricsmap.Load(mapPath)
+
 		cleanup()
 
 		if err != nil {
@@ -847,11 +857,11 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 
 	merged, err := metricsmap.MergeWithInternal(serviceMap, projectCapabilities(config))
 	if err != nil {
-		return errors.Wrap(err, "metrics map")
+		return errors.Wrap(err, errMetricsMapCtx)
 	}
 
 	if err := metricsmap.ValidateVarNames(merged); err != nil {
-		return errors.Wrap(err, "metrics map")
+		return errors.Wrap(err, errMetricsMapCtx)
 	}
 
 	g.Metrics = ds.MetricsConfig{

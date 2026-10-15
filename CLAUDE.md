@@ -174,6 +174,24 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/refrewrite/`. Подключение в `Generator.Generate()` сразу после `CopySpecs`/`CopySchemas` (`internal/pkg/generator/generator.go`). Полная документация: [docs/configuration/rewrite-refs.md](docs/configuration/rewrite-refs.md).
 
+## Metrics Map
+
+Секция `metrics.path` в `project.yaml` — ссылка на **карту метрик**, объявление всех метрик, которые сервису разрешено эмитить. Форма ссылки та же, что у `rest[].path` (local / https / git+ssh / git+https). Карта читается во время генерации и в проект **не копируется** — ничего ниже по цепочке её не читает, артефакт это сгенерированный пакет.
+
+Карта не указана — ничего не включается (ни пакета, ни валидатора, ни панелей), поведение проекта прежнее.
+
+Указана — генерируется:
+
+- `internal/pkg/metrics/psg_metrics_gen.go` — по переменной-коллектору на метрику плюс `Register(prometheus.Registerer)` / `Collectors()` / `Unregister()`. Registerer явный, `promauto` не используется. Вызов `metrics.Register(application.GetMetrics())` проставляется в `psg_main_gen.go` (только для app с `sys`-транспортом);
+- `configs/golangci-metrics.yml` + цель `make metrics-validate` — валидатор: `forbidigo` запрещает **вызовы** конструкторов метрик (`prometheus.New*`, `promauto.*`, позиционный `prometheus.NewDesc`) вне сгенерированного пакета. Литералы `prometheus.CounterOpts{…}` не запрещены намеренно — сами по себе они ничего не эмитят. Те же правила дублируются в `configs/golangci-lint.yml`, но **гейт — `metrics-validate`**: основной конфиг ставит `exclusions.generated: lax`, что выводит из проверки все `psg_*_gen.go`, включая секцию ручного кода ниже disclaimer-маркера;
+- ряд **Service Metrics** в дашборде с канонической панелью на метрику (counter → `rate`, gauge → значение, histogram → квантили, summary → `quantile`-серия либо `rate(_sum)/rate(_count)`). Пороги и алерты не генерируются.
+
+`name` в карте — **полное** имя метрики, без разбиения на namespace/subsystem/name: имя, собираемое в рантайме, не находится ни поиском по коду, ни дашбордом.
+
+Свои метрики генератор описывает той же картой — `internal/pkg/metricsmap/embedded/internal-metrics.yaml` (Go-рантайм, ogen, Kafka-продюсер). Наборы складываются в одно пространство имён, совпадение имён — ошибка генерации, не переопределение. Внутренние поля `owner` (какой компонент конструирует коллектор) и `requires` (какая возможность проекта нужна) зарезервированы за внутренней картой и в карте сервиса отвергаются.
+
+Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
+
 ## Regeneration Behavior
 
 ### Disclaimer Marker (env-файлы и другие файлы с ручными правками)

@@ -376,7 +376,7 @@ type (
 	//	metrics:
 	//	  path: "git+https://github.com/org/contracts.git@v1#common/metrics-map.yaml"
 	//
-	// Omitting the section keeps the previous behaviour: no collector package,
+	// Omitting the section keeps the previous behavior: no collector package,
 	// no metrics validator, no metric panels on the dashboard.
 	//
 	// See docs/configuration/metrics-map.md for full documentation.

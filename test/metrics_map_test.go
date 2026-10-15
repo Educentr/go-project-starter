@@ -95,10 +95,16 @@ func TestGenerateMetricsMap(t *testing.T) {
 		t.Error("external metrics must not get a generated collector")
 	}
 
-	// Kafka producer metrics are declared internally but constructed by the
-	// Kafka driver, and this project has no Kafka producer at all.
+	// This project HAS a Kafka producer, so the Kafka declarations are merged
+	// into the namespace — but their collectors belong to the driver (the
+	// producer name is a ConstLabel), not to the shared package.
 	if strings.Contains(metricsFile, "KafkaProducerPublish") {
 		t.Error("Kafka producer collectors must not land in the shared collector package")
+	}
+
+	if _, err := os.Stat(filepath.Join(tmpDir,
+		"pkg", "drivers", "kafka", "events_producer", "psg_metrics_gen.go")); err != nil {
+		t.Errorf("the Kafka producer's own metrics file should still be generated: %v", err)
 	}
 
 	// Explicit registry, no promauto: nothing may reach the default registerer
@@ -234,6 +240,9 @@ func TestGenerateMetricsMapDashboard(t *testing.T) {
 		// Declared but library-emitted: no collector, but still charted —
 		// charting it is why a service declares a library's metric.
 		"otel_sdk_exporter_spans_total": "sum by(outcome) (rate(otel_sdk_exporter_spans_total[$__rate_interval]))",
+		// Declared by the generator's internal map, applicable because this
+		// project has a Kafka producer.
+		"kafka_producer_publish_total": "sum by(topic) (rate(kafka_producer_publish_total[$__rate_interval]))",
 	}
 
 	for metric, wantExpr := range wantExprs {

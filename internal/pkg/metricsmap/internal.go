@@ -6,9 +6,6 @@ import (
 	"sync"
 )
 
-//go:embed embedded/internal-metrics.yaml
-var embedded embed.FS
-
 const (
 	internalMapPath = "embedded/internal-metrics.yaml"
 
@@ -24,10 +21,13 @@ const (
 	KafkaPublishDuration = "kafka_producer_publish_duration_seconds"
 )
 
+//go:embed embedded/internal-metrics.yaml
+var embedded embed.FS
+
 var (
-	internalOnce sync.Once
-	internalMap  *Map
-	internalErr  error
+	internalOnce   sync.Once
+	internalMap    *Map
+	errInternalMap error
 )
 
 // Internal returns the generator's own metric declarations. The embedded map is
@@ -37,18 +37,18 @@ func Internal() (*Map, error) {
 	internalOnce.Do(func() {
 		data, err := embedded.ReadFile(internalMapPath)
 		if err != nil {
-			internalErr = fmt.Errorf("read embedded internal metrics map: %w", err)
+			errInternalMap = fmt.Errorf("%w: read embedded %s: %w", ErrInternalMapDefect, internalMapPath, err)
 
 			return
 		}
 
-		internalMap, internalErr = Parse(data)
-		if internalErr != nil {
-			internalErr = fmt.Errorf("embedded internal metrics map is invalid (generator defect): %w", internalErr)
+		internalMap, err = Parse(data)
+		if err != nil {
+			errInternalMap = fmt.Errorf("%w: embedded %s is invalid: %w", ErrInternalMapDefect, internalMapPath, err)
 		}
 	})
 
-	return internalMap, internalErr
+	return internalMap, errInternalMap
 }
 
 // Find returns the declaration with the given name, or false when it is not
@@ -78,7 +78,7 @@ func MustFindInternal(name string) (Metric, error) {
 
 	metric, ok := internal.Find(name)
 	if !ok {
-		return Metric{}, fmt.Errorf("internal metric %q is not declared in %s (generator defect)", name, internalMapPath)
+		return Metric{}, fmt.Errorf("%w: metric %q is not declared in %s", ErrInternalMapDefect, name, internalMapPath)
 	}
 
 	return metric, nil

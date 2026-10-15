@@ -26,19 +26,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Metric type constants. These mirror the client_golang constructor names so
-// that a reader of the map knows exactly which collector they get.
-const (
-	TypeCounter      = "Counter"
-	TypeCounterVec   = "CounterVec"
-	TypeGauge        = "Gauge"
-	TypeGaugeVec     = "GaugeVec"
-	TypeHistogram    = "Histogram"
-	TypeHistogramVec = "HistogramVec"
-	TypeSummary      = "Summary"
-	TypeSummaryVec   = "SummaryVec"
-)
-
 // Labels is the label-name list of a metric series. It accepts both a YAML
 // sequence and a comma-separated scalar, because the declaration form in the
 // original request writes `labels: reason, stage`.
@@ -93,6 +80,34 @@ type Metric struct {
 	Requires string `yaml:"requires"`
 }
 
+// Map is a parsed metrics map.
+type Map struct {
+	Metrics []Metric `yaml:"metrics"`
+}
+
+// Metric type constants. These mirror the client_golang constructor names so
+// that a reader of the map knows exactly which collector they get.
+const (
+	TypeCounter      = "Counter"
+	TypeCounterVec   = "CounterVec"
+	TypeGauge        = "Gauge"
+	TypeGaugeVec     = "GaugeVec"
+	TypeHistogram    = "Histogram"
+	TypeHistogramVec = "HistogramVec"
+	TypeSummary      = "Summary"
+	TypeSummaryVec   = "SummaryVec"
+)
+
+// Metric kinds — the Prometheus kind behind a type, with the Vec distinction
+// dropped. Used to pick the options struct, the bucket/objective rules and the
+// canonical dashboard panel shape.
+const (
+	KindCounter   = "counter"
+	KindGauge     = "gauge"
+	KindHistogram = "histogram"
+	KindSummary   = "summary"
+)
+
 // Metric owners. Empty owner means the service.
 const (
 	// OwnerKafkaProducer marks metrics constructed by the generated Kafka
@@ -113,9 +128,24 @@ const (
 	CapabilityRESTClient = "rest_client"
 )
 
-// Map is a parsed metrics map.
-type Map struct {
-	Metrics []Metric `yaml:"metrics"`
+const (
+	// objectivePairSize is the number of yaml.Node entries one
+	// `quantile: error` pair occupies in a mapping node's Content slice (the
+	// key and the value).
+	objectivePairSize = 2
+
+	// errLabelsCtx wraps a decode failure of the `labels` field.
+	errLabelsCtx = "labels: %w"
+)
+
+// metricFields is the closed set of keys a map entry may carry. Enforced
+// explicitly because yaml.Decoder.KnownFields does not reach into a custom
+// UnmarshalYAML, and a silently ignored key is a declaration that never takes
+// effect — exactly the failure mode the map exists to remove.
+var metricFields = map[string]struct{}{
+	"name": {}, "type": {}, "labels": {}, "help": {},
+	"buckets": {}, "objectives": {}, "external": {},
+	"owner": {}, "requires": {},
 }
 
 // UnmarshalYAML accepts either a sequence of strings or a single scalar holding
@@ -125,7 +155,7 @@ func (l *Labels) UnmarshalYAML(value *yaml.Node) error {
 	case yaml.ScalarNode:
 		var raw string
 		if err := value.Decode(&raw); err != nil {
-			return fmt.Errorf("labels: %w", err)
+			return fmt.Errorf(errLabelsCtx, err)
 		}
 
 		*l = splitLabels(raw)
@@ -134,7 +164,7 @@ func (l *Labels) UnmarshalYAML(value *yaml.Node) error {
 	case yaml.SequenceNode:
 		var raw []string
 		if err := value.Decode(&raw); err != nil {
-			return fmt.Errorf("labels: %w", err)
+			return fmt.Errorf(errLabelsCtx, err)
 		}
 
 		out := make(Labels, 0, len(raw))
@@ -147,7 +177,7 @@ func (l *Labels) UnmarshalYAML(value *yaml.Node) error {
 
 		return nil
 	default:
-		return fmt.Errorf("labels: expected a list or a comma-separated string, got %s", nodeKindName(value.Kind))
+		return fmt.Errorf("%w: labels: expected a list or a comma-separated string, got %s", ErrMalformedMap, nodeKindName(value.Kind))
 	}
 }
 
@@ -168,7 +198,7 @@ func (o *Objective) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	if explicit.Quantile == nil {
-		return fmt.Errorf("objectives: missing quantile")
+		return fmt.Errorf("%w: objectives: missing quantile", ErrMalformedMap)
 	}
 
 	o.Quantile = *explicit.Quantile
@@ -178,16 +208,6 @@ func (o *Objective) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	return nil
-}
-
-// metricFields is the closed set of keys a map entry may carry. Enforced
-// explicitly because yaml.Decoder.KnownFields does not reach into a custom
-// UnmarshalYAML, and a silently ignored key is a declaration that never takes
-// effect — exactly the failure mode the map exists to remove.
-var metricFields = map[string]struct{}{
-	"name": {}, "type": {}, "labels": {}, "help": {},
-	"buckets": {}, "objectives": {}, "external": {},
-	"owner": {}, "requires": {},
 }
 
 // UnmarshalYAML decodes a metric entry. It is hand-rolled to support the
@@ -328,13 +348,13 @@ func (m Metric) Applies(capabilities map[string]bool) bool {
 func (m Metric) Kind() string {
 	switch m.Type {
 	case TypeCounter, TypeCounterVec:
-		return "counter"
+		return KindCounter
 	case TypeGauge, TypeGaugeVec:
-		return "gauge"
+		return KindGauge
 	case TypeHistogram, TypeHistogramVec:
-		return "histogram"
+		return KindHistogram
 	case TypeSummary, TypeSummaryVec:
-		return "summary"
+		return KindSummary
 	default:
 		return ""
 	}
@@ -361,13 +381,13 @@ func (m *Map) Generatable() []Metric {
 // offending key and the line it sits on.
 func rejectUnknownFields(value *yaml.Node, allowed map[string]struct{}) error {
 	if value.Kind != yaml.MappingNode {
-		return fmt.Errorf("expected a mapping, got %s", nodeKindName(value.Kind))
+		return fmt.Errorf("%w: expected a mapping, got %s", ErrMalformedMap, nodeKindName(value.Kind))
 	}
 
 	for i := 0; i < len(value.Content)-1; i += 2 {
 		key := value.Content[i].Value
 		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("line %d: unknown field %q", value.Content[i].Line, key)
+			return fmt.Errorf("%w: line %d: unknown field %q", ErrMalformedMap, value.Content[i].Line, key)
 		}
 	}
 
@@ -405,13 +425,13 @@ func decodeObjectives(node *yaml.Node) ([]Objective, error) {
 
 	switch node.Kind {
 	case yaml.MappingNode:
-		if len(node.Content)%2 != 0 {
-			return nil, fmt.Errorf("objectives: malformed mapping")
+		if len(node.Content)%objectivePairSize != 0 {
+			return nil, fmt.Errorf("%w: objectives: malformed mapping", ErrMalformedMap)
 		}
 
-		out := make([]Objective, 0, len(node.Content)/2)
+		out := make([]Objective, 0, len(node.Content)/objectivePairSize)
 
-		for i := 0; i < len(node.Content); i += 2 {
+		for i := 0; i < len(node.Content); i += objectivePairSize {
 			var quantile, allowedError float64
 
 			if err := node.Content[i].Decode(&quantile); err != nil {
@@ -434,7 +454,7 @@ func decodeObjectives(node *yaml.Node) ([]Objective, error) {
 
 		return out, nil
 	default:
-		return nil, fmt.Errorf("objectives: expected a mapping of quantile to error, got %s", nodeKindName(node.Kind))
+		return nil, fmt.Errorf("%w: objectives: expected a mapping of quantile to error, got %s", ErrMalformedMap, nodeKindName(node.Kind))
 	}
 }
 

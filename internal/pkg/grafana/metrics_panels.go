@@ -6,14 +6,29 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
 )
 
-// Row title of the declared-metrics section.
-const serviceMetricsRowTitle = "Service Metrics"
-
-// Quantiles charted for histograms and summaries.
 const (
+	// serviceMetricsRowTitle is the row title of the declared-metrics section.
+	serviceMetricsRowTitle = "Service Metrics"
+
+	// Quantiles charted for histograms and summaries.
 	quantileP99 = "0.99"
 	quantileP95 = "0.95"
+
+	// legendAuto lets Grafana derive the series legend itself — right for a
+	// metric with no labels to name.
+	legendAuto = "__auto"
 )
+
+// dedicatedRowPrefixes lists the metric name prefixes already charted by the
+// generator's hand-built rows. A declaration for one of these still reserves
+// its name and documents its help text; it just does not get a second,
+// poorer panel.
+var dedicatedRowPrefixes = []string{
+	"go_",
+	"process_",
+	"ogen_server_",
+	"ogen_client_",
+}
 
 // DeclaredMetricPanels builds the canonical panel for each declared metric:
 // a rate for counters, the current value for gauges, quantiles for histograms
@@ -71,13 +86,13 @@ func DeclaredMetricsRow(metrics []metricsmap.Metric) (Row, bool) {
 // canonicalTargets returns the PromQL for a metric, by type.
 func canonicalTargets(metric metricsmap.Metric) []PanelTarget {
 	switch metric.Kind() {
-	case "counter":
+	case metricsmap.KindCounter:
 		return counterTargets(metric)
-	case "gauge":
+	case metricsmap.KindGauge:
 		return gaugeTargets(metric)
-	case "histogram":
+	case metricsmap.KindHistogram:
 		return quantileTargets(metric.Name+"_bucket", metric.Labels)
-	case "summary":
+	case metricsmap.KindSummary:
 		return summaryTargets(metric)
 	default:
 		return nil
@@ -89,7 +104,7 @@ func canonicalTargets(metric metricsmap.Metric) []PanelTarget {
 // is what the declaration implies.
 func counterTargets(metric metricsmap.Metric) []PanelTarget {
 	expr := "sum(rate(" + metric.Name + "[$__rate_interval]))"
-	legend := "__auto"
+	legend := legendAuto
 
 	if len(metric.Labels) > 0 {
 		expr = "sum by(" + strings.Join(metric.Labels, ", ") + ") (rate(" + metric.Name + "[$__rate_interval]))"
@@ -102,7 +117,7 @@ func counterTargets(metric metricsmap.Metric) []PanelTarget {
 // gaugeTargets charts the value itself — a gauge is already a level.
 func gaugeTargets(metric metricsmap.Metric) []PanelTarget {
 	expr := metric.Name
-	legend := "__auto"
+	legend := legendAuto
 
 	if len(metric.Labels) > 0 {
 		expr = "sum by(" + strings.Join(metric.Labels, ", ") + ") (" + metric.Name + ")"
@@ -177,17 +192,6 @@ func labelLegend(labels metricsmap.Labels) string {
 	}
 
 	return strings.Join(parts, " - ")
-}
-
-// dedicatedRowPrefixes lists the metric name prefixes already charted by the
-// generator's hand-built rows. A declaration for one of these still reserves
-// its name and documents its help text; it just does not get a second,
-// poorer panel.
-var dedicatedRowPrefixes = []string{
-	"go_",
-	"process_",
-	"ogen_server_",
-	"ogen_client_",
 }
 
 func hasDedicatedRow(name string) bool {

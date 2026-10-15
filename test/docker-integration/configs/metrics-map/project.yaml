@@ -44,11 +44,24 @@ rest:
     generator_type: template
     generator_template: sys
 
+# A Kafka producer is present on purpose: its metrics are declared in the
+# generator's internal map, which exercises the merge of the two namespaces and
+# keeps the producer's collectors out of the shared collector package.
+kafka:
+  - name: events_producer
+    type: producer
+    driver: segmentio
+    client: main_kafka
+    events:
+      - name: user_events
+
 applications:
   - name: api
     transport:
       - name: api
       - name: sys
+    kafka:
+      - events_producer
     grafana:
       datasources:
         - Prometheus

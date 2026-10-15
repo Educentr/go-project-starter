@@ -6,14 +6,6 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
 )
 
-// MetricsPackage is the Go package name of the generated collector package.
-const MetricsPackage = "metrics"
-
-// metricsDir is the project-relative directory of the generated collector
-// package. It sits under internal/pkg/ because it is generated core logic with
-// no config dependency, following the repository's three-layer split.
-var metricsDir = filepath.Join("internal", "pkg", MetricsPackage)
-
 // MetricsConfig carries the resolved metric declarations into templates.
 //
 // Enabled mirrors the presence of `metrics.path` in project.yaml. When it is
@@ -29,6 +21,43 @@ type MetricsConfig struct {
 	Enabled bool
 	Metrics []metricsmap.Metric
 }
+
+// MetricForbidRule is one forbidigo rule of the metrics validator: a regexp
+// over the called identifier plus the message the developer sees.
+type MetricForbidRule struct {
+	Pattern string
+	Msg     string
+}
+
+// KafkaProducerMetrics carries the Kafka producer's metric declarations into
+// its driver template. The producer needs one collector per producer instance
+// (the producer name is a ConstLabel), so the collectors cannot be the
+// package-level variables of the generated collector package — but their
+// names, help texts and label sets still come from the single declaration.
+type KafkaProducerMetrics struct {
+	PublishTotal    metricsmap.Metric
+	PublishErrors   metricsmap.Metric
+	PublishDuration metricsmap.Metric
+}
+
+const (
+	// MetricsPackage is the Go package name of the generated collector package.
+	MetricsPackage = "metrics"
+
+	// ProducerLabel is the ConstLabel naming the producer instance a Kafka
+	// collector belongs to.
+	ProducerLabel = "producer"
+
+	// metricsValidatorMsg is the common tail of every validator message. Kept
+	// in one place so the two generated lint configs cannot drift.
+	metricsValidatorMsg = "declare the metric in the metrics map instead — " +
+		"the generated collector package is the only place metrics are constructed"
+)
+
+// metricsDir is the project-relative directory of the generated collector
+// package. It sits under internal/pkg/ because it is generated core logic with
+// no config dependency, following the repository's three-layer split.
+var metricsDir = filepath.Join("internal", "pkg", MetricsPackage)
 
 // IsEnabled reports whether a metrics map is configured.
 func (m MetricsConfig) IsEnabled() bool {
@@ -60,18 +89,6 @@ func (m MetricsConfig) HasGenerated() bool {
 
 	return false
 }
-
-// MetricForbidRule is one forbidigo rule of the metrics validator: a regexp
-// over the called identifier plus the message the developer sees.
-type MetricForbidRule struct {
-	Pattern string
-	Msg     string
-}
-
-// metricsValidatorMsg is the common tail of every validator message. Kept in
-// one place so the two generated lint configs cannot drift.
-const metricsValidatorMsg = "declare the metric in the metrics map instead — " +
-	"the generated collector package is the only place metrics are constructed"
 
 // ForbiddenConstructors returns the metrics validator's rules: the collector
 // constructors that may not appear outside the generated collector package.
@@ -112,21 +129,6 @@ func (m MetricsConfig) OwnedBy(owner string) []metricsmap.Metric {
 
 	return out
 }
-
-// KafkaProducerMetrics carries the Kafka producer's metric declarations into
-// its driver template. The producer needs one collector per producer instance
-// (the producer name is a ConstLabel), so the collectors cannot be the
-// package-level variables of the generated collector package — but their
-// names, help texts and label sets still come from the single declaration.
-type KafkaProducerMetrics struct {
-	PublishTotal    metricsmap.Metric
-	PublishErrors   metricsmap.Metric
-	PublishDuration metricsmap.Metric
-}
-
-// ProducerLabel is the ConstLabel naming the producer instance a Kafka
-// collector belongs to.
-const ProducerLabel = "producer"
 
 // NewKafkaProducerMetrics resolves the Kafka producer declarations from the
 // generator's internal map. An error here means this repository's embedded map

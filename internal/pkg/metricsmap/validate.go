@@ -8,6 +8,17 @@ import (
 	"strings"
 )
 
+// Set is a named group of declared metrics taking part in a merge. The name is
+// used in collision messages so that the reader learns which two declarations
+// clashed.
+type Set struct {
+	// Origin names the source of the declarations, e.g. "service metrics map"
+	// or "go-project-starter internal metrics".
+	Origin string
+	// Metrics holds the declarations.
+	Metrics []Metric
+}
+
 // Sentinel errors. Use errors.Is to distinguish.
 var (
 	// ErrInvalidMap reports a metrics map that cannot be used for generation.
@@ -19,6 +30,13 @@ var (
 	// sets being merged (typically the service map and the generator's own
 	// internal set).
 	ErrNameCollision = errors.New("metric name collision")
+	// ErrMalformedMap reports YAML that cannot be decoded into a metrics map
+	// at all — a wrong node kind or an unknown field.
+	ErrMalformedMap = errors.New("malformed metrics map")
+	// ErrInternalMapDefect reports a mismatch between the generator's embedded
+	// internal map and the Go code that reads it. It is a defect in
+	// go-project-starter, not in the user's project.
+	ErrInternalMapDefect = errors.New("internal metrics map defect")
 )
 
 // Prometheus identifier grammar, from
@@ -85,7 +103,7 @@ func (m *Map) Validate() error {
 	}
 
 	if len(problems) > 0 {
-		return fmt.Errorf("%w:\n  %s", ErrInvalidMap, strings.Join(problems, "\n  "))
+		return problemList(ErrInvalidMap, problems)
 	}
 
 	return nil
@@ -108,7 +126,7 @@ func (m *Map) validateNoReservedFields() error {
 	}
 
 	if len(problems) > 0 {
-		return fmt.Errorf("%w:\n  %s", ErrInvalidMap, strings.Join(problems, "\n  "))
+		return problemList(ErrInvalidMap, problems)
 	}
 
 	return nil
@@ -135,7 +153,9 @@ func (m Metric) problems() []string {
 		}
 
 		if m.External {
-			problems = append(problems, "external and owner are mutually exclusive: either a library emits the metric or a generator component constructs it")
+			problems = append(problems,
+				"external and owner are mutually exclusive: either a library emits the metric "+
+					"or a generator component constructs it")
 		}
 	}
 
@@ -163,12 +183,12 @@ func (m Metric) labelProblems() []string {
 	var problems []string
 
 	if m.IsVec() && len(m.Labels) == 0 {
-		problems = append(problems, fmt.Sprintf("type %s requires labels; use %s for an unlabelled metric",
+		problems = append(problems, fmt.Sprintf("type %s requires labels; use %s for a metric without labels",
 			m.Type, strings.TrimSuffix(m.Type, "Vec")))
 	}
 
 	if !m.IsVec() && len(m.Labels) > 0 {
-		problems = append(problems, fmt.Sprintf("type %s takes no labels; use %sVec to declare a labelled series", m.Type, m.Type))
+		problems = append(problems, fmt.Sprintf("type %s takes no labels; use %sVec to declare a series with labels", m.Type, m.Type))
 	}
 
 	seen := make(map[string]struct{}, len(m.Labels))
@@ -203,7 +223,7 @@ func (m Metric) bucketProblems() []string {
 		return nil
 	}
 
-	if m.Kind() != "histogram" {
+	if m.Kind() != KindHistogram {
 		return []string{fmt.Sprintf("buckets are only valid for Histogram/HistogramVec, not %s", m.Type)}
 	}
 
@@ -226,7 +246,7 @@ func (m Metric) objectiveProblems() []string {
 		return nil
 	}
 
-	if m.Kind() != "summary" {
+	if m.Kind() != KindSummary {
 		return []string{fmt.Sprintf("objectives are only valid for Summary/SummaryVec, not %s", m.Type)}
 	}
 
@@ -256,17 +276,6 @@ func KnownTypes() []string {
 	sort.Strings(out)
 
 	return out
-}
-
-// Set is a named group of declared metrics taking part in a merge. The name is
-// used in collision messages so that the reader learns which two declarations
-// clashed.
-type Set struct {
-	// Origin names the source of the declarations, e.g. "service metrics map"
-	// or "go-project-starter internal metrics".
-	Origin string
-	// Metrics holds the declarations.
-	Metrics []Metric
 }
 
 // Merge folds several sets into one namespace. A name declared by two sets is
@@ -299,13 +308,21 @@ func Merge(sets ...Set) ([]Metric, error) {
 			}
 
 			owner[metric.Name] = provenance{origin: set.Origin, index: i}
+
 			merged = append(merged, metric)
 		}
 	}
 
 	if len(problems) > 0 {
-		return nil, fmt.Errorf("%w:\n  %s", ErrNameCollision, strings.Join(problems, "\n  "))
+		return nil, problemList(ErrNameCollision, problems)
 	}
 
 	return merged, nil
+}
+
+// problemList wraps sentinel with every collected problem on its own indented
+// line. All problems are reported together on purpose: fixing a bad map should
+// take one round trip, not one per entry.
+func problemList(sentinel error, problems []string) error {
+	return fmt.Errorf("%w:\n  %s", sentinel, strings.Join(problems, "\n  "))
 }

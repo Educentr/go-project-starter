@@ -293,7 +293,6 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	return config, nil
 }
 
-
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
 // are referenced in at least one application
 func validateEntityUsage(config *Config) error {

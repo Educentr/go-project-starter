@@ -17,7 +17,7 @@ func TestDeclaredMetricPanels_CanonicalShapePerType(t *testing.T) {
 		legends []string
 	}{
 		{
-			name: "labelled counter charts a rate broken down by its labels",
+			name: "counter with labels charts a rate broken down by its labels",
 			metric: metricsmap.Metric{
 				Name:   "spawn_errors_total",
 				Type:   metricsmap.TypeCounterVec,
@@ -27,7 +27,7 @@ func TestDeclaredMetricPanels_CanonicalShapePerType(t *testing.T) {
 			legends: []string{"{{reason}} - {{stage}}"},
 		},
 		{
-			name: "unlabelled counter charts a plain rate",
+			name: "counter without labels charts a plain rate",
 			metric: metricsmap.Metric{
 				Name: "restarts_total",
 				Type: metricsmap.TypeCounter,
@@ -45,7 +45,7 @@ func TestDeclaredMetricPanels_CanonicalShapePerType(t *testing.T) {
 			legends: []string{"__auto"},
 		},
 		{
-			name: "labelled gauge sums by its labels",
+			name: "gauge with labels sums by its labels",
 			metric: metricsmap.Metric{
 				Name:   "queue_depth",
 				Type:   metricsmap.TypeGaugeVec,
