@@ -17,6 +17,8 @@ GOLANGCI_TAG:={{ .GolangciVersion }}
 LOCAL_BIN:=$(CURDIR)/bin
 # Путь до бинарника golang-ci
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
+# Дополнительные аргументы линтера (точка расширения, напр. LINT_ARGS='--build-tags=integration')
+LINT_ARGS ?=
 # Minimal Golang version
 MIN_GO_VERSION = 1.23.8
 # Ogen version
@@ -164,17 +166,17 @@ check-go-version:
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
 lint: install-lint
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME) --path-prefix='config/'
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main $(LINT_ARGS)
 
 # Run full code lint
 .PHONY: lint-full
 lint-full: lint
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME) --path-prefix='config/'
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... $(LINT_ARGS)
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint-fix
 lint-fix: lint
-	$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
+	$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... $(LINT_ARGS)
 
 # Create test coverage report
 .PHONY: coverage
