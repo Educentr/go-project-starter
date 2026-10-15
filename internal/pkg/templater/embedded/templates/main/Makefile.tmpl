@@ -175,6 +175,17 @@ lint-full: lint
 .PHONY: lint-fix
 lint-fix: lint
 	$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... --build-tags=$(SERVICE_NAME)
+{{ if .Metrics.IsEnabled }}
+# Metrics validator: metric constructors are only allowed in the generated
+# collector package. The metrics map declares what the service may emit;
+# this check is what makes that binding rather than advisory.
+#
+# Uses its own config instead of a flag so the target does not depend on the
+# flag set of a particular golangci-lint release.
+.PHONY: metrics-validate
+metrics-validate: install-lint
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-metrics.yml ./... --build-tags=$(SERVICE_NAME)
+{{ end }}
 
 # Create test coverage report
 .PHONY: coverage

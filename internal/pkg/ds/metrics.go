@@ -61,6 +61,44 @@ func (m MetricsConfig) HasGenerated() bool {
 	return false
 }
 
+// MetricForbidRule is one forbidigo rule of the metrics validator: a regexp
+// over the called identifier plus the message the developer sees.
+type MetricForbidRule struct {
+	Pattern string
+	Msg     string
+}
+
+// metricsValidatorMsg is the common tail of every validator message. Kept in
+// one place so the two generated lint configs cannot drift.
+const metricsValidatorMsg = "declare the metric in the metrics map instead — " +
+	"the generated collector package is the only place metrics are constructed"
+
+// ForbiddenConstructors returns the metrics validator's rules: the collector
+// constructors that may not appear outside the generated collector package.
+//
+// Only constructor CALLS are forbidden, deliberately. The options literals
+// (prometheus.CounterOpts{…}) are left alone because on their own they emit
+// nothing — without a constructor call no metric comes out of them, so banning
+// the calls closes the hole completely. That includes the positional
+// prometheus.NewDesc form used by hand-written collectors with their own
+// Collect/Describe, which a rule aimed only at the Opts structs would miss.
+func (m MetricsConfig) ForbiddenConstructors() []MetricForbidRule {
+	return []MetricForbidRule{
+		{
+			Pattern: `^prometheus\.New(Counter|Gauge|Histogram|Summary|Untyped)(Vec|Func)?$`,
+			Msg:     "metric constructors are not allowed here: " + metricsValidatorMsg,
+		},
+		{
+			Pattern: `^prometheus\.New(Desc|ConstMetric|ConstHistogram|ConstSummary|InvalidMetric|MetricWithTimestamp)$`,
+			Msg:     "low-level metric constructors are not allowed here: " + metricsValidatorMsg,
+		},
+		{
+			Pattern: `^promauto\.`,
+			Msg:     "promauto registers metrics into a global registry: " + metricsValidatorMsg,
+		},
+	}
+}
+
 // OwnedBy returns the declarations constructed by the named generator
 // component.
 func (m MetricsConfig) OwnedBy(owner string) []metricsmap.Metric {

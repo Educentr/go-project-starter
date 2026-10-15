@@ -24,6 +24,10 @@ const (
 	ciGitHubPrefix   = ".github"
 	ciGitLabFileName = ".gitlab-ci.yml"
 
+	// metricsLintConfigPath is the standalone metrics-validator lint config,
+	// generated only when a metrics map is configured.
+	metricsLintConfigPath = "configs/golangci-metrics.yml"
+
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
 	embedTransportPrefix = "embedded/templates/transport"
 	embedWorkerPrefix    = "embedded/templates/worker"
@@ -155,6 +159,21 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 			// Skip docker-compose-dev.yaml and etc/onlineconf/ files
 			if strings.HasPrefix(f.DestName, "docker-compose-dev") ||
 				strings.Contains(f.DestName, "etc/onlineconf") {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
+	}
+
+	// The metrics validator config only makes sense alongside a metrics map.
+	if !params.Metrics.IsEnabled() {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			if f.DestName == metricsLintConfigPath {
 				continue
 			}
 

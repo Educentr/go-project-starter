@@ -1,0 +1,58 @@
+# Metrics validator — the enforcing half of the metrics map.
+#
+# The map gives the service generated collectors to emit through (see
+# {{ .Metrics.GetPackagePath }}); this config makes that the ONLY way to emit.
+# Without it the declaration would be a convention: nothing stops a developer
+# from putting another promauto.NewCounter next to the generated variables.
+#
+# Run it with `make metrics-validate`. This is the authoritative gate, not
+# `make lint`: configs/golangci-lint.yml carries the same rules, but it also
+# sets `exclusions.generated: lax` for the other linters, which skips every
+# psg_*_gen.go file — including the user-code section below the disclaimer
+# marker, which is exactly where handlers are written by hand. Here
+# `generated: disable` keeps those files in scope, and the only exemption is
+# the explicit path list below.
+#
+# Only constructor CALLS are forbidden. The options literals
+# (prometheus.CounterOpts{…}) are deliberately left alone: on their own they
+# emit nothing, so banning the calls closes the hole completely — including the
+# positional prometheus.NewDesc form used by custom collectors, which a rule
+# aimed at the Opts structs would miss.
+version: "2"
+run:
+  concurrency: 4
+  issues-exit-code: 10
+  tests: true
+linters:
+  default: none
+  enable:
+    - forbidigo
+  settings:
+    forbidigo:
+      forbid:
+{{- range $_, $rule := .Metrics.ForbiddenConstructors }}
+        - pattern: '{{ $rule.Pattern }}'
+          msg: "{{ $rule.Msg }}"
+{{- end }}
+  exclusions:
+    # Deliberately NOT `lax`: generated files must stay in scope, because the
+    # section below the disclaimer marker in psg_*_gen.go is hand-written.
+    generated: disable
+    rules:
+      # The generated collector package is where metrics ARE constructed, and
+      # the generated Kafka producer driver needs its own per-producer
+      # collectors (the producer name is a ConstLabel). Both are generated in
+      # full from the declaration.
+      - linters:
+          - forbidigo
+        path: ({{ .Metrics.GetPackagePath }}/|pkg/drivers/kafka/)
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+{{- range $_, $p := .LintExcludePaths }}
+      - {{ $p }}
+{{- end }}
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
