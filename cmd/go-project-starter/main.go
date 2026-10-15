@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -15,10 +16,12 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/migrate"
 	"github.com/Educentr/go-project-starter/internal/pkg/setup"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
 
 const (
 	msgConfig         = "used config path ="
+	msgSourceRef      = "spec sources without an explicit @ref are taken from ref ="
 	cmdSetup          = "setup"
 	cmdInit           = "init"
 	cmdMigrate        = "migrate"
@@ -27,7 +30,11 @@ const (
 	defaultConfigFile = "project.yaml"
 	flagConfig        = "config"
 	flagDryRun        = "dry-run"
+	flagSourceRef     = "sourceRef"
+	envSourceRef      = "GPS_SOURCE_REF"
 	usageConfigFile   = "project configuration file"
+	usageSourceRef    = "git ref for every spec source in project.yaml that does not pin one explicitly " +
+		"(branch, tag or commit SHA; env " + envSourceRef + ")"
 
 	layoutFailedToBindFlags       = "failed to bind flags: %v"
 	layoutFailedToLoadConfig      = "failed to load config: %v"
@@ -37,6 +44,7 @@ const (
 	layoutFailedToSetup           = "failed to run setup: %v"
 	layoutFailedToInit            = "failed to run init: %v"
 	layoutFailedToMigrate         = "failed to migrate config: %v"
+	layoutInvalidSourceRef        = "invalid --%s: %v"
 )
 
 var (
@@ -218,6 +226,7 @@ func runGenerator() {
 		cfgPath       string
 		targetDir     string
 		baseConfigDir string
+		sourceRef     string
 		err           error
 		dryRun        bool
 	)
@@ -226,6 +235,9 @@ func runGenerator() {
 	pflag.StringVar(&cfgPath, flagConfig, defaultConfigFile, usageConfigFile)
 	pflag.StringVar(&targetDir, "target", "", "target directory")
 	pflag.BoolVar(&dryRun, flagDryRun, false, "Dry run")
+	// Read back through viper (see resolveSourceRef) so that the env var is
+	// honored too; the flag itself only needs to be registered here.
+	pflag.String(flagSourceRef, "", usageSourceRef)
 
 	pflag.Parse()
 
@@ -233,7 +245,15 @@ func runGenerator() {
 		log.Fatalf(layoutFailedToBindFlags, err)
 	}
 
+	if sourceRef, err = resolveSourceRef(); err != nil {
+		log.Fatalf(layoutInvalidSourceRef, flagSourceRef, err)
+	}
+
 	log.Println(msgConfig, cfgPath)
+
+	if sourceRef != "" {
+		log.Println(msgSourceRef, sourceRef)
+	}
 
 	cfgDir := baseConfigDir
 	if !filepath.IsAbs(baseConfigDir) {
@@ -255,7 +275,7 @@ func runGenerator() {
 	}
 
 	appInfo := fmt.Sprintf("go-project-starter-%s", version)
-	if gen, err = generator.New(appInfo, cfg, genMeta, dryRun); err != nil {
+	if gen, err = generator.New(appInfo, cfg, genMeta, dryRun, sourceRef); err != nil {
 		log.Fatalf(layoutFailedToCreateGenerator, err)
 	}
 
@@ -268,4 +288,26 @@ func runGenerator() {
 	}
 
 	log.Println("done")
+}
+
+// resolveSourceRef returns the effective git ref override for the `path:`
+// sources of project.yaml: the --sourceRef flag when it was passed, otherwise
+// the GPS_SOURCE_REF env var, otherwise "" (no override — every source keeps
+// the ref written in the config). Must be called after viper.BindPFlags, from
+// which the flag precedence comes.
+//
+// The ref is validated here, at the boundary where it enters the process, so a
+// typo fails before any config is read or any repository is cloned.
+func resolveSourceRef() (string, error) {
+	if err := viper.BindEnv(flagSourceRef, envSourceRef); err != nil {
+		return "", fmt.Errorf("bind %s: %w", envSourceRef, err)
+	}
+
+	ref := strings.TrimSpace(viper.GetString(flagSourceRef))
+
+	if err := specsource.ValidateRef(ref); err != nil {
+		return "", err
+	}
+
+	return ref, nil
 }

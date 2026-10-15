@@ -68,6 +68,11 @@ type Generator struct {
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
+	// SourceRef overrides the git ref of every spec source in project.yaml
+	// that did not pin one explicitly ("@<ref>" in the URI). Comes from the
+	// --sourceRef flag / GPS_SOURCE_REF env, never from the config file.
+	// Empty means every source keeps the ref written in the config.
+	SourceRef string
 }
 
 type ExecCmd struct {
@@ -78,7 +83,11 @@ type ExecCmd struct {
 
 var errUnknownTransport = errors.New("unknown transport")
 
-func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
+// New builds a Generator from the loaded config. sourceRef, when non-empty,
+// overrides the git ref of every non-pinned spec source (see
+// Generator.SourceRef); it must already be validated with
+// specsource.ValidateRef by the caller that read it.
+func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRef string) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
@@ -89,6 +98,9 @@ func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Ge
 		Kafka:        make(ds.KafkaConfigs),
 		DryRun:       dryrun,
 		Meta:         genMeta,
+		// Set before processConfig: the inline spec resolve for queue workers
+		// and CLI commands happens inside it and needs the override.
+		SourceRef: sourceRef,
 	}
 
 	if err := g.processConfig(config); err != nil {
@@ -225,7 +237,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		// (local paths join with BasePath, remote URIs resolve into a
 		// scratch staging dir that is wiped right after the parse).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0])
+			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0], g.SourceRef)
 			if err != nil {
 				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
 			}
@@ -594,7 +606,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			// (git+ssh://, git+https://, https://) materialize into a
 			// scratch staging dir that is wiped right after the parse.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0])
+				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0], g.SourceRef)
 				if err != nil {
 					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
 				}
@@ -794,7 +806,12 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 //
 // LocalSource short-circuits: returns filepath.Join(basePath, raw) without
 // touching the filesystem, so existing local-only flows incur zero cost.
-func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath string, cleanup func(), err error) {
+//
+// sourceRef is the ref override for non-pinned git sources; it must be the
+// same value the resolve pre-pass uses, otherwise the inline channels (queue,
+// CLI) would be built from a different state of the contracts than the
+// REST/gRPC/JSON Schema ones.
+func resolveInlineSpec(ctx context.Context, basePath, raw, sourceRef string) (specPath string, cleanup func(), err error) {
 	src, perr := specsource.ParseSpecSource(raw)
 	if perr != nil {
 		return "", func() {}, perr
@@ -809,7 +826,9 @@ func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath stri
 	}
 	cleanupStaging := func() { _ = os.RemoveAll(stagingDir) }
 
-	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{})
+	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{
+		SourceRef: sourceRef,
+	})
 	if rerr != nil {
 		cleanupStaging()
 		return "", func() {}, rerr
@@ -847,6 +866,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 
 	resolver, err := specsource.NewResolver(g.BasePath, stagingDir, specsource.ResolverOptions{
 		SkipGitCheck: skipGit,
+		SourceRef:    g.SourceRef,
 	})
 	if err != nil {
 		_ = os.RemoveAll(stagingDir)
