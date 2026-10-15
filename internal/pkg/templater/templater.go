@@ -99,6 +99,12 @@ type GeneratorRunnerParams struct {
 type GeneratorKafkaParams struct {
 	GeneratorParams
 	Kafka ds.KafkaConfig
+	// ProducerMetrics carries the producer's metric declarations, so that the
+	// driver template renders names, help texts and label sets from the
+	// generator's internal metrics map instead of repeating them as literals.
+	ProducerMetrics ds.KafkaProducerMetrics
+	// ProducerLabel is the ConstLabel naming the producer instance.
+	ProducerLabel string
 }
 
 // GeneratorStaticDirParams holds parameters for generating the static-files

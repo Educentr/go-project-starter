@@ -708,6 +708,16 @@ func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds
 	kafkaParams := GeneratorKafkaParams{
 		GeneratorParams: params,
 		Kafka:           kafka,
+		ProducerLabel:   ds.ProducerLabel,
+	}
+
+	if kafka.Type == ds.KafkaTypeProducer {
+		producerMetrics, err := ds.NewKafkaProducerMetrics()
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "kafka producer %s", kafka.Name)
+		}
+
+		kafkaParams.ProducerMetrics = producerMetrics
 	}
 
 	templatePath := embedJoin("embedded/templates/driver/kafka", kafka.Type, embedFilesSuffix)

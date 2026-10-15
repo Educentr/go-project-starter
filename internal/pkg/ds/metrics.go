@@ -61,6 +61,60 @@ func (m MetricsConfig) HasGenerated() bool {
 	return false
 }
 
+// OwnedBy returns the declarations constructed by the named generator
+// component.
+func (m MetricsConfig) OwnedBy(owner string) []metricsmap.Metric {
+	out := make([]metricsmap.Metric, 0, len(m.Metrics))
+
+	for _, metric := range m.Metrics {
+		if metric.OwnedBy(owner) {
+			out = append(out, metric)
+		}
+	}
+
+	return out
+}
+
+// KafkaProducerMetrics carries the Kafka producer's metric declarations into
+// its driver template. The producer needs one collector per producer instance
+// (the producer name is a ConstLabel), so the collectors cannot be the
+// package-level variables of the generated collector package — but their
+// names, help texts and label sets still come from the single declaration.
+type KafkaProducerMetrics struct {
+	PublishTotal    metricsmap.Metric
+	PublishErrors   metricsmap.Metric
+	PublishDuration metricsmap.Metric
+}
+
+// ProducerLabel is the ConstLabel naming the producer instance a Kafka
+// collector belongs to.
+const ProducerLabel = "producer"
+
+// NewKafkaProducerMetrics resolves the Kafka producer declarations from the
+// generator's internal map. An error here means this repository's embedded map
+// and its Go callers have drifted apart.
+func NewKafkaProducerMetrics() (KafkaProducerMetrics, error) {
+	var out KafkaProducerMetrics
+
+	for _, target := range []struct {
+		name string
+		dst  *metricsmap.Metric
+	}{
+		{metricsmap.KafkaPublishTotal, &out.PublishTotal},
+		{metricsmap.KafkaPublishErrors, &out.PublishErrors},
+		{metricsmap.KafkaPublishDuration, &out.PublishDuration},
+	} {
+		metric, err := metricsmap.MustFindInternal(target.name)
+		if err != nil {
+			return KafkaProducerMetrics{}, err
+		}
+
+		*target.dst = metric
+	}
+
+	return out, nil
+}
+
 // GetTargetGeneratePath returns the directory of the generated collector
 // package.
 func (m MetricsConfig) GetTargetGeneratePath(targetDir string) string {
