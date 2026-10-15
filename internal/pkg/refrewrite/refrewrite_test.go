@@ -316,13 +316,24 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Backdate the fixture far beyond any filesystem mtime
+			// granularity, so "was the file rewritten?" stays decidable from
+			// the mtime alone. Kernel timestamps are coarse (4ms steps on a
+			// HZ=250 host, a full second on some filesystems): writing the
+			// fixture and rewriting it microseconds later can land in the same
+			// tick and yield an identical mtime. Sleeping instead of
+			// backdating only narrows that window — it does not close it.
+			backdated := time.Now().Add(-time.Hour)
+			if err := os.Chtimes(targetPath, backdated, backdated); err != nil {
+				t.Fatalf("backdate fixture %s: %v", tc.target, err)
 			}
 
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
+			info, err := os.Stat(targetPath)
+			if err != nil {
+				t.Fatalf("stat fixture %s: %v", tc.target, err)
+			}
+
+			beforeMTime := info.ModTime()
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +379,14 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			afterInfo, err := os.Stat(targetPath)
+			if err != nil {
+				t.Fatalf("stat target after rewrite: %v", err)
+			}
+
+			if modified := afterInfo.ModTime().After(beforeMTime); modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v (mtime %v -> %v)",
+					modified, tc.expectModif, beforeMTime, afterInfo.ModTime())
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
