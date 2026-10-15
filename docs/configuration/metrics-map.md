@@ -204,6 +204,26 @@ internal/app/svc/svc.go:9:14: use of `prometheus.NewCounter` forbidden because
 
 `prometheus.NewDesc` в списке не случайно: это **позиционная** форма (`NewDesc(name, help, …)`), которой пользуются кастомные коллекторы со своими `Collect`/`Describe`. Правило, знающее только `prometheus.CounterOpts{…}`, оставляло бы дыру ровно там, где пишут нестандартное.
 
+### Почему правила не обходятся алиасом импорта
+
+Оба конфига ставят `forbidigo: analyze-types: true`. Это не косметика: по умолчанию `forbidigo` сравнивает паттерн с **текстом вызова, как он написан**, а паттерны называют пакет (`^prometheus\.New…`). Без резолва типов мимо запрета проходят обе переименованные формы:
+
+```go
+import prom "github.com/prometheus/client_golang/prometheus"
+
+var sneaky = prom.NewCounter(prom.CounterOpts{Name: "undeclared_total", Help: "…"})
+```
+
+```go
+import . "github.com/prometheus/client_golang/prometheus"
+
+var sneaky = NewCounter(CounterOpts{Name: "undeclared_total", Help: "…"})
+```
+
+С `analyze-types: true` вызов резолвится до настоящего пакета, и обе формы ловятся тем же правилом. Гейт, который обходится переименованием импорта, гейтом не является, — поэтому флаг относится к сути запрета, а не к его настройкам.
+
+Побочное следствие: валидатору нужна информация о типах, то есть проект должен компилироваться. Для `make metrics-validate` это не ограничение — цель и так запускается после генерации, как и `make lint`.
+
 ### Что НЕ запрещено и почему
 
 Литералы опций — `prometheus.CounterOpts{Name: …, Help: …}` — не запрещены намеренно: сами по себе они ничего не эмитят. Без вызова конструктора коллектора метрики из них не получится, поэтому запрета вызовов достаточно, чтобы закрыть дыру полностью.

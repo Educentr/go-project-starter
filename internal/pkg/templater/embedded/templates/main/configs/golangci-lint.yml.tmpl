@@ -99,6 +99,10 @@ linters:
     # Metrics validator: metric constructors belong in the generated collector
     # package only. See configs/golangci-metrics.yml and `make metrics-validate`.
     forbidigo:
+      # Match on the resolved package, not on the spelling at the call site —
+      # otherwise an import alias defeats the rule. See
+      # configs/golangci-metrics.yml for the full reasoning.
+      analyze-types: true
       forbid:
 {{- range $_, $rule := .Metrics.ForbiddenConstructors }}
         - pattern: '{{ $rule.Pattern }}'

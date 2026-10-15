@@ -18,6 +18,12 @@
 # emit nothing, so banning the calls closes the hole completely — including the
 # positional prometheus.NewDesc form used by custom collectors, which a rule
 # aimed at the Opts structs would miss.
+#
+# `analyze-types` is what makes the patterns name the package rather than the
+# spelling at the call site. Without it forbidigo matches the literal source
+# text, so `prom "…/prometheus"` + `prom.NewCounter(…)` — or a dot-import
+# calling `NewCounter(…)` bare — walks straight past a rule written for
+# `prometheus.NewCounter`. A gate that an import alias defeats is not a gate.
 version: "2"
 run:
   concurrency: 4
@@ -29,6 +35,10 @@ linters:
     - forbidigo
   settings:
     forbidigo:
+      # Resolve the called identifier through type information, so a rule
+      # written for `prometheus.New*` also catches an aliased or dot-imported
+      # call of the same function.
+      analyze-types: true
       forbid:
 {{- range $_, $rule := .Metrics.ForbiddenConstructors }}
         - pattern: '{{ $rule.Pattern }}'

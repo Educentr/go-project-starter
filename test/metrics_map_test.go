@@ -191,6 +191,15 @@ func TestGenerateMetricsMap(t *testing.T) {
 		t.Error("the metrics validator must not exempt generated files: user code lives below the disclaimer marker")
 	}
 
+	// Without analyze-types forbidigo matches the literal source text, so
+	// `prom "…/prometheus"` + `prom.NewCounter(…)` — or a bare `NewCounter(…)`
+	// through a dot-import — sails past a rule written for
+	// `prometheus.NewCounter`. The patterns name the package, so they only
+	// mean what they say with type resolution on.
+	if !strings.Contains(metricsLint, "analyze-types: true") {
+		t.Error("the metrics validator must resolve types: an import alias would otherwise defeat every rule")
+	}
+
 	mainLint := readGenerated(t, tmpDir, "configs", "golangci-lint.yml")
 
 	if !strings.Contains(mainLint, "- forbidigo") {
@@ -199,6 +208,10 @@ func TestGenerateMetricsMap(t *testing.T) {
 
 	if !strings.Contains(mainLint, `^promauto\.`) {
 		t.Error("configs/golangci-lint.yml should carry the metrics validator patterns")
+	}
+
+	if !strings.Contains(mainLint, "analyze-types: true") {
+		t.Error("configs/golangci-lint.yml should resolve types too, or its copy of the rules is weaker than the gate's")
 	}
 
 	makefile := readGenerated(t, tmpDir, "Makefile")
