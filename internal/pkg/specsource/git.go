@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // GitTransport is the underlying transport used to talk to the remote.
@@ -26,12 +27,18 @@ const (
 //
 //	Repo      e.g. "ssh://git@github.com/org/repo.git" or "https://github.com/org/repo.git"
 //	Ref       branch / tag / commit SHA. Defaults to "HEAD" when absent.
+//	RefPinned whether Ref came from an explicit "@ref" in the URI.
 //	Subpath   path to the file inside the repo (after the URI fragment).
 //	Transport ssh or https.
 //	TokenEnv  name of env var with a token (https only).
 type GitSource struct {
-	Repo      string
-	Ref       string
+	Repo string
+	Ref  string
+	// RefPinned reports that the URI carried an explicit "@<ref>". Such a ref
+	// is a pin — a deliberate decision to lag behind for this one entry — and
+	// is never overridden by ResolverOptions.SourceRef. Sources without "@"
+	// (Ref == "HEAD") follow the override.
+	RefPinned bool
 	Subpath   string
 	Transport GitTransport
 	TokenEnv  string
@@ -58,9 +65,48 @@ func (s GitSource) Describe() string {
 	return out
 }
 
-// cloneKey is the per-run cache key for a (repo, ref) pair.
+// cloneKey is the per-run cache key for a (repo, ref) pair. It is computed
+// from the effective ref, so a source whose ref came from an override shares
+// the clone with every other source resolved against the same ref.
 func (s GitSource) cloneKey() string {
 	return s.Repo + "\x00" + s.Ref
+}
+
+// applySourceRef returns s with Ref replaced by ref. The source is returned
+// unchanged when there is no override (ref == "") or when the URI pinned a ref
+// explicitly.
+func (s GitSource) applySourceRef(ref string) GitSource {
+	if ref == "" || s.RefPinned {
+		return s
+	}
+
+	s.Ref = ref
+
+	return s
+}
+
+// ValidateRef checks a ref coming from outside the config (the --sourceRef
+// flag / GPS_SOURCE_REF env). An empty ref means "no override" and is valid.
+// The check is deliberately narrow: it rejects values that `git` would not
+// read as a ref at all (whitespace, control characters) or would read as one
+// of its own options (leading "-"). Whether the ref exists upstream is only
+// knowable at clone time and is reported there.
+func ValidateRef(ref string) error {
+	if ref == "" {
+		return nil
+	}
+
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("%w: %q starts with '-'", ErrInvalidRef, ref)
+	}
+
+	for _, r := range ref {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return fmt.Errorf("%w: %q contains whitespace or control characters", ErrInvalidRef, ref)
+		}
+	}
+
+	return nil
 }
 
 // gitClone clones repo@ref into target. It expects target to NOT exist (git

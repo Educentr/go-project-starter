@@ -62,5 +62,6 @@ var (
 	ErrSubpathNotFound  = errors.New("specsource: subpath not found in repository")
 	ErrGitNotInstalled  = errors.New("specsource: 'git' executable not found in PATH")
 	ErrCloneFailed      = errors.New("specsource: git clone failed")
+	ErrInvalidRef       = errors.New("specsource: invalid git ref")
 	ErrHTTPStatus       = errors.New("specsource: HTTP request returned non-2xx status")
 )

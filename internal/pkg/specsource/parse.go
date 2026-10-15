@@ -66,8 +66,11 @@ func parseGitURL(u *url.URL, scheme, raw string) (GitSource, error) {
 	repoURL := buildGitRepoURL(u, repoPath, transport)
 
 	return GitSource{
-		Repo:      repoURL,
-		Ref:       defaultRef(ref),
+		Repo: repoURL,
+		Ref:  defaultRef(ref),
+		// An "@<ref>" written in the URI is a pin: Resolver keeps it even when
+		// an override (--sourceRef) is in effect.
+		RefPinned: ref != "",
 		Subpath:   subpath,
 		Transport: transport,
 		TokenEnv:  tokenEnv,
