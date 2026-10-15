@@ -1164,6 +1164,165 @@ func TestGenerateLintExcludePaths(t *testing.T) {
 	}
 }
 
+// TestGenerateGrafanaDatasourceUID — grafana.datasources[].uid задаёт uid, с которым
+// datasource попадает и в provisioning, и в каждую панель дашборда. Без него uid всегда
+// вычислялся как ds-<name>, и сгенерированную доску нельзя было отдать в общую Grafana,
+// где datasource провижинится централизованно под своим uid: панели падали с
+// «Datasource ... was not found». Ручная правка uid в копии доски стиралась при
+// следующей синхронизации сгенерированного файла.
+//
+// Фикстура configs/grafana покрывает обе ветки одной генерацией: у Prometheus uid задан
+// явно, у Loki — нет.
+func TestGenerateGrafanaDatasourceUID(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	read := func(t *testing.T, relPath string) string {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		return string(content)
+	}
+
+	const (
+		datasourcesFile = "configs/grafana/provisioning/datasources/datasources.yaml"
+		dashboardFile   = "configs/grafana/dashboards/api.json"
+	)
+
+	datasources := read(t, datasourcesFile)
+	for _, exp := range []string{"uid: victoriametrics", "uid: ds-loki"} {
+		if !strings.Contains(datasources, exp) {
+			t.Errorf("%s should contain %q", datasourcesFile, exp)
+		}
+	}
+
+	// Панели дашборда ссылаются на datasource по uid — значение обязано совпадать с
+	// provisioning, иначе доска ссылается на несуществующий datasource.
+	dashboard := read(t, dashboardFile)
+	for _, exp := range []string{`"uid": "victoriametrics"`, `"uid": "ds-loki"`} {
+		if !strings.Contains(dashboard, exp) {
+			t.Errorf("%s should contain %q", dashboardFile, exp)
+		}
+	}
+
+	// Сгенерированный ds-<name> не должен остаться нигде, где uid задан явно: иначе
+	// часть панелей смотрела бы на старый uid.
+	for file, content := range map[string]string{datasourcesFile: datasources, dashboardFile: dashboard} {
+		if strings.Contains(content, "ds-prometheus") {
+			t.Errorf("%s must not contain the generated ds-prometheus uid — uid is set explicitly", file)
+		}
+	}
+}
+
+// TestGenerateGrafanaDatasourceUIDDefault — обратная совместимость: конфиг без uid
+// генерируется как до появления поля, uid остаётся ds-<name>. Фикстура копируется с
+// вырезанной строкой uid, чтобы проверка не зависела от того, что в ней стоит сейчас.
+func TestGenerateGrafanaDatasourceUIDDefault(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	srcConfigDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	configDir := t.TempDir()
+
+	entries, err := os.ReadDir(srcConfigDir)
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", srcConfigDir, err)
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join(srcConfigDir, e.Name()))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", e.Name(), err)
+		}
+
+		if e.Name() == "project.yaml" {
+			var (
+				kept     []string
+				stripped int
+			)
+
+			for _, line := range strings.Split(string(content), "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "uid:") {
+					stripped++
+
+					continue
+				}
+
+				kept = append(kept, line)
+			}
+
+			if stripped == 0 {
+				t.Fatalf("fixture %s is expected to declare an explicit uid to strip", srcConfigDir)
+			}
+
+			content = []byte(strings.Join(kept, "\n"))
+		}
+
+		if err := os.WriteFile(filepath.Join(configDir, e.Name()), content, 0644); err != nil {
+			t.Fatalf("Error writing %s: %v", e.Name(), err)
+		}
+	}
+
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project without uid ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	datasources, err := os.ReadFile(filepath.Join(tmpDir, "configs/grafana/provisioning/datasources/datasources.yaml"))
+	if err != nil {
+		t.Fatalf("Error reading datasources.yaml: %v", err)
+	}
+
+	dashboard, err := os.ReadFile(filepath.Join(tmpDir, "configs/grafana/dashboards/api.json"))
+	if err != nil {
+		t.Fatalf("Error reading dashboard: %v", err)
+	}
+
+	for _, exp := range []string{"uid: ds-prometheus", "uid: ds-loki"} {
+		if !strings.Contains(string(datasources), exp) {
+			t.Errorf("datasources.yaml without explicit uid should contain %q", exp)
+		}
+	}
+
+	for _, exp := range []string{`"uid": "ds-prometheus"`, `"uid": "ds-loki"`} {
+		if !strings.Contains(string(dashboard), exp) {
+			t.Errorf("dashboard without explicit uid should contain %q", exp)
+		}
+	}
+}
+
 func TestObsoleteFileCleanup(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
