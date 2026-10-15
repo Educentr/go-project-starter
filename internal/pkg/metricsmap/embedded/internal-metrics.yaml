@@ -1,0 +1,130 @@
+# go-project-starter's own metrics, declared in the same form as a service's
+# metrics map. Two reasons this file exists instead of the knowledge staying
+# implicit in Go code:
+#
+#  1. it puts generator-owned names into the same namespace as the service's,
+#     so a service declaring one of them fails generation instead of silently
+#     shadowing it;
+#  2. it lets the dashboard generator build canonical panels for them from the
+#     same data path as for service metrics.
+#
+# `external: true` means "emitted by a library, not constructed by the
+# generator" — no collector is generated, the entry exists for the namespace
+# and the dashboard. Everything without the flag is constructed by generated
+# code.
+metrics:
+  # --- Go runtime, from client_golang's collectors (external) ---------------
+  - name: go_goroutines
+    type: Gauge
+    help: Number of goroutines that currently exist.
+    external: true
+
+  - name: go_threads
+    type: Gauge
+    help: Number of OS threads created.
+    external: true
+
+  - name: go_gc_duration_seconds
+    type: Summary
+    help: A summary of the wall-time pause (stop-the-world) duration in garbage collection cycles.
+    external: true
+
+  - name: go_memstats_alloc_bytes
+    type: Gauge
+    help: Number of bytes allocated in heap objects.
+    external: true
+
+  - name: go_memstats_heap_inuse_bytes
+    type: Gauge
+    help: Number of heap bytes that are in use.
+    external: true
+
+  - name: go_memstats_sys_bytes
+    type: Gauge
+    help: Number of bytes obtained from the OS.
+    external: true
+
+  - name: process_cpu_seconds_total
+    type: Counter
+    help: Total user and system CPU time spent in seconds.
+    external: true
+
+  - name: process_resident_memory_bytes
+    type: Gauge
+    help: Resident memory size in bytes.
+    external: true
+
+  - name: process_open_fds
+    type: Gauge
+    help: Number of open file descriptors.
+    external: true
+
+  # --- ogen HTTP server instrumentation (external) -------------------------
+  # Emitted by ogen only when the project actually serves an ogen transport,
+  # hence `requires`.
+  - name: ogen_server_request_count_total
+    type: CounterVec
+    labels: server_name, http_request_method, http_route, http_response_status_code
+    help: Total number of HTTP requests served, by route and response status.
+    external: true
+    requires: rest_server
+
+  - name: ogen_server_errors_count_total
+    type: CounterVec
+    labels: server_name, http_request_method, http_route, http_response_status_code
+    help: Total number of HTTP requests served with an error status, by route and response status.
+    external: true
+    requires: rest_server
+
+  - name: ogen_server_duration_milliseconds
+    type: HistogramVec
+    labels: server_name, http_request_method, http_route
+    help: Latency of HTTP requests served, in milliseconds.
+    external: true
+    requires: rest_server
+
+  # --- ogen HTTP client instrumentation (external) -------------------------
+  - name: ogen_client_request_count_total
+    type: CounterVec
+    labels: client_name, http_request_method, http_response_status_code
+    help: Total number of outgoing HTTP requests, by method and response status.
+    external: true
+    requires: rest_client
+
+  - name: ogen_client_errors_count_total
+    type: CounterVec
+    labels: client_name, http_request_method, http_response_status_code
+    help: Total number of outgoing HTTP requests that failed, by method and response status.
+    external: true
+    requires: rest_client
+
+  - name: ogen_client_duration_milliseconds
+    type: HistogramVec
+    labels: client_name, http_request_method
+    help: Latency of outgoing HTTP requests, in milliseconds.
+    external: true
+    requires: rest_client
+
+  # --- Kafka producer, constructed by generated code -----------------------
+  # The `producer` dimension is a ConstLabel on the generated collector (one
+  # collector per producer), so it is not part of the declared label set.
+  - name: kafka_producer_publish_total
+    type: CounterVec
+    labels: topic
+    help: Total number of messages published to Kafka, by topic.
+    owner: kafka_producer
+    requires: kafka_producer
+
+  - name: kafka_producer_publish_errors_total
+    type: CounterVec
+    labels: topic, error_type
+    help: Total number of Kafka publish failures, by topic and failure kind.
+    owner: kafka_producer
+    requires: kafka_producer
+
+  - name: kafka_producer_publish_duration_seconds
+    type: HistogramVec
+    labels: topic
+    help: Duration of Kafka publish operations, in seconds, by topic.
+    owner: kafka_producer
+    requires: kafka_producer

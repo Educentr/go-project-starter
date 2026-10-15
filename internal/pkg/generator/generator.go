@@ -16,6 +16,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
 	"github.com/Educentr/go-project-starter/internal/pkg/refrewrite"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
@@ -65,6 +66,7 @@ type Generator struct {
 	Grafana             grafana.Config
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
+	Metrics             ds.MetricsConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -148,6 +150,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 	if config.Main.TargetDir != "" {
 		g.TargetDir = config.Main.TargetDir
+	}
+
+	if err := g.processMetricsMap(config); err != nil {
+		return err
 	}
 
 	for _, rest := range config.RestList {
@@ -758,6 +764,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Grafana:             g.Grafana,
 		Artifacts:           g.Artifacts,
 		Documentation:       g.Documentation,
+		Metrics:             g.Metrics,
 	}
 }
 
@@ -783,6 +790,76 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 		Worker:          worker,
 		WorkerParams:    worker.GeneratorParams,
 	}
+}
+
+// projectCapabilities reports which of the generator's own metric groups the
+// project can actually emit. Read by metricsmap to drop internal declarations
+// nothing in this project produces.
+func projectCapabilities(config cfg.Config) map[string]bool {
+	capabilities := make(map[string]bool, 3)
+
+	for _, rest := range config.RestList {
+		switch rest.GeneratorType {
+		case "ogen":
+			capabilities[metricsmap.CapabilityRESTServer] = true
+		case cfg.GeneratorTypeOgenClient:
+			capabilities[metricsmap.CapabilityRESTClient] = true
+		}
+	}
+
+	for _, kafka := range config.KafkaList {
+		if kafka.Type == ds.KafkaTypeProducer {
+			capabilities[metricsmap.CapabilityKafkaProducer] = true
+		}
+	}
+
+	return capabilities
+}
+
+// processMetricsMap resolves and parses the service's metrics map, then folds
+// it into the generator's own declarations.
+//
+// The map is materialized inline (same mechanism as the CLI and queue-worker
+// contracts) because the declarations are needed by collectFiles, which runs
+// before the resolveAllSources pre-pass. Nothing downstream reads the map file
+// itself — the generated collector package is the artifact — so the staged
+// copy is dropped right after the parse and no copy lands in the project.
+//
+// Without `metrics.path` the generator still merges its own declarations so
+// that internal names keep a single home, but Metrics stays disabled and no
+// generated artifact changes (§2.3 of the request).
+func (g *Generator) processMetricsMap(config cfg.Config) error {
+	var serviceMap *metricsmap.Map
+
+	if config.Metrics.IsEnabled() {
+		mapPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, config.Metrics.Path)
+		if err != nil {
+			return errors.Wrapf(err, "metrics.path: resolve %s", config.Metrics.Path)
+		}
+
+		serviceMap, err = metricsmap.Load(mapPath)
+		cleanup()
+
+		if err != nil {
+			return errors.Wrap(err, "metrics.path")
+		}
+	}
+
+	merged, err := metricsmap.MergeWithInternal(serviceMap, projectCapabilities(config))
+	if err != nil {
+		return errors.Wrap(err, "metrics map")
+	}
+
+	if err := metricsmap.ValidateVarNames(merged); err != nil {
+		return errors.Wrap(err, "metrics map")
+	}
+
+	g.Metrics = ds.MetricsConfig{
+		Enabled: config.Metrics.IsEnabled(),
+		Metrics: merged,
+	}
+
+	return nil
 }
 
 // resolveInlineSpec materializes a spec source into a local file for
@@ -1537,6 +1614,15 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 	dirs = append(dirs, dirsL...)
 	files = append(files, filesL...)
+
+	// Generated metric collectors — only when a metrics map is configured.
+	dirsM, filesM, err := templater.GetMetricsTemplates(g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get metrics templates: %w", err)
+	}
+
+	dirs = append(dirs, dirsM...)
+	files = append(files, filesM...)
 
 	// Generate Kafka driver templates for segmentio drivers
 	for _, kafka := range g.Kafka {

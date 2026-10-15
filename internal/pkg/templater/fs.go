@@ -542,6 +542,35 @@ func GetGrafanaProvisioningTemplates(params GeneratorParams) (dirs []ds.Files, f
 	return
 }
 
+// GetMetricsTemplates returns the generated collector package built from the
+// service's metrics map. Returns nothing when no map is configured, or when the
+// map declares only external metrics (library-emitted) and there is therefore
+// no collector to construct.
+func GetMetricsTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	if !params.Metrics.IsEnabled() || !params.Metrics.HasGenerated() {
+		return nil, nil, nil
+	}
+
+	dirs, files, err = GetTemplates(templates, "embedded/templates/metrics", params)
+	if err != nil {
+		err = errors.Wrap(err, "error while get metrics templates")
+
+		return
+	}
+
+	metricsPath := params.Metrics.GetPackagePath()
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(metricsPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(metricsPath, files[i].DestName)
+	}
+
+	return
+}
+
 // GetGrafanaDashboardTemplates returns Grafana dashboard templates for an application
 func GetGrafanaDashboardTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs, files, err = GetTemplates(templates, "embedded/templates/grafana/dashboards", params)

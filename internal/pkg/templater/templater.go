@@ -61,6 +61,7 @@ type GeneratorParams struct {
 	Grafana       grafana.Config
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
+	Metrics       ds.MetricsConfig
 }
 
 // type GeneratorParamDriver struct {
@@ -525,6 +526,11 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			return "*" + varName
 		},
 		"printf": fmt.Sprintf,
+		// GoQuote renders a string as a Go double-quoted literal. Used for
+		// values that come from a contract file rather than from the config —
+		// metric help texts in particular, which are free-form prose and may
+		// legitimately contain quotes, backslashes or newlines.
+		"GoQuote": strconv.Quote,
 		// Queue serialization template helpers
 		"serializeField": func(field ds.QueueField) string {
 			switch field.Type {

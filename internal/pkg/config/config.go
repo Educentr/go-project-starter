@@ -168,6 +168,12 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config documentation section: "+msg)
 	}
 
+	// Validate the metrics map reference. The map's own contents are checked
+	// at generation time, once a remote map has been fetched.
+	if ok, msg := config.Metrics.IsValid(baseDir); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config metrics section: "+msg)
+	}
+
 	for i := range config.Applications {
 		// Normalize transport list (supports both old string[] and new object[] format)
 		if err := config.Applications[i].NormalizeTransports(); err != nil {

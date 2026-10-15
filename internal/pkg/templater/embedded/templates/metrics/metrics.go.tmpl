@@ -1,0 +1,81 @@
+// Package {{ .Metrics.GetPackageName }} holds every Prometheus collector this
+// service is allowed to emit, generated from the service's metrics map.
+//
+// The service does not declare metrics in code: it uses the variables below.
+// That is the point — a metric that is not in the map has no object to emit
+// through, so emitting an undeclared metric is impossible rather than merely
+// discouraged. `make metrics-validate` enforces the other half of the rule:
+// no metric constructors outside this package.
+//
+// Register wires the collectors into a registry. It is called from the
+// generated main of each application that exposes /metrics.
+package {{ .Metrics.GetPackageName }}
+
+import (
+	"fmt"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+{{- range $_, $m := .Metrics.Generated }}
+
+// {{ $m.VarName }} — {{ $m.Help }}
+//
+// Metric: {{ $m.Name }} ({{ $m.Type }}){{ if $m.Labels }}, labels: {{ range $i, $l := $m.Labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}{{ end }}
+var {{ $m.VarName }} = {{ $m.Constructor }}(
+	{{ $m.OptsType }}{
+		Name: "{{ $m.Name }}",
+		Help: {{ $m.Help | GoQuote }},
+{{- if $m.BucketsLiteral }}
+		Buckets: {{ $m.BucketsLiteral }},
+{{- end }}
+{{- if $m.ObjectivesLiteral }}
+		Objectives: {{ $m.ObjectivesLiteral }},
+{{- end }}
+	},
+{{- if $m.LabelsLiteral }}
+	{{ $m.LabelsLiteral }},
+{{- end }}
+)
+{{- end }}
+
+// Collectors returns every generated collector, in declaration order.
+func Collectors() []prometheus.Collector {
+	return []prometheus.Collector{
+{{- range $_, $m := .Metrics.Generated }}
+		{{ $m.VarName }},
+{{- end }}
+	}
+}
+
+// Register registers every generated collector with reg.
+//
+// The registerer is explicit rather than the client_golang default one: tests
+// need a throwaway registry, and several applications can share one binary.
+// A nil registerer is a no-op, which is what an application without a
+// /metrics endpoint gets.
+func Register(reg prometheus.Registerer) error {
+	if reg == nil {
+		return nil
+	}
+
+	for _, collector := range Collectors() {
+		if err := reg.Register(collector); err != nil {
+			return fmt.Errorf("register metrics collector: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Unregister removes every generated collector from reg. Useful in tests that
+// build and tear down a registry per case.
+func Unregister(reg prometheus.Registerer) {
+	if reg == nil {
+		return
+	}
+
+	for _, collector := range Collectors() {
+		reg.Unregister(collector)
+	}
+}
