@@ -636,7 +636,9 @@ ToDo select driver for PG
 
 .PHONY: install-goimports
 install-goimports:
-	go install golang.org/x/tools/cmd/goimports@latest
+	# Pin: golang.org/x/tools@v0.50.0+ requires Go 1.26.0. v0.49.0 is the newest
+	# release still installable on the Go 1.25 these projects target.
+	go install golang.org/x/tools/cmd/goimports@v0.49.0
 
 .PHONY: install-onlineconf-updater
 install-onlineconf-updater:

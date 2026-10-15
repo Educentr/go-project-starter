@@ -33,6 +33,9 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Install goimports
-RUN go install golang.org/x/tools/cmd/goimports@latest
+# Pin: golang.org/x/tools@v0.50.0+ requires Go 1.26.0, which this image's
+# golang:1.25-bookworm base cannot satisfy. v0.49.0 is the newest release
+# still installable on Go 1.25.
+RUN go install golang.org/x/tools/cmd/goimports@v0.49.0
 
 WORKDIR /workspace
