@@ -537,6 +537,19 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		// metric help texts in particular, which are free-form prose and may
 		// legitimately contain quotes, backslashes or newlines.
 		"GoQuote": strconv.Quote,
+		// GoComment renders a possibly multi-line string as the body of a
+		// line comment, continuing every line after the first with "// ".
+		// Needed wherever contract prose lands in a doc comment: a help text
+		// written as a YAML literal block keeps its newlines, and the second
+		// line would otherwise escape the comment and not compile.
+		"GoComment": func(s string) string {
+			lines := strings.Split(strings.TrimRight(s, "\r\n"), "\n")
+			for i := range lines {
+				lines[i] = strings.TrimRight(lines[i], "\r")
+			}
+
+			return strings.Join(lines, "\n// ")
+		},
 		// Queue serialization template helpers
 		"serializeField": func(field ds.QueueField) string {
 			switch field.Type {

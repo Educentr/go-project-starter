@@ -29,6 +29,14 @@ metrics:
     type: Counter
     help: Supervisor restarts since process start.
 
+  # Help written as a YAML literal block, so the newlines survive. Both places
+  # the prose lands have to cope: the Go string literal and the doc comment.
+  - name: multiline_help_total
+    type: Counter
+    help: |
+      First line of the help text.
+      Second line of the help text.
+
   # Declared but not constructed here: the OTEL SDK emits it. Present so that
   # the service cannot shadow the name and so the dashboard can chart it.
   - name: otel_sdk_exporter_spans_total

@@ -2,6 +2,8 @@ package test
 
 import (
 	"encoding/json"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +89,25 @@ func TestGenerateMetricsMap(t *testing.T) {
 	if !strings.Contains(metricsFile, "Buckets: prometheus.DefBuckets") &&
 		strings.Contains(metricsFile, "NewHistogram(") {
 		t.Error("an unbucketed histogram should fall back to prometheus.DefBuckets")
+	}
+
+	// Help is free-form prose from a contract file, and both places it lands
+	// have to cope with newlines: the Go string literal (escaped) and the doc
+	// comment (every line after the first continued with "// ", or the second
+	// line escapes the comment and the package does not compile).
+	if !strings.Contains(metricsFile,
+		`Help: "First line of the help text.\nSecond line of the help text.\n"`) {
+		t.Error("a multi-line help text should be emitted as an escaped Go string literal")
+	}
+
+	if !strings.Contains(metricsFile,
+		"// MultilineHelpTotal — First line of the help text.\n// Second line of the help text.\n//") {
+		t.Error("a multi-line help text should continue the doc comment, not escape it")
+	}
+
+	// The strongest check of the above: the generated package must parse.
+	if _, err := parser.ParseFile(token.NewFileSet(), "psg_metrics_gen.go", metricsFile, parser.SkipObjectResolution); err != nil {
+		t.Errorf("generated collector package is not valid Go: %v", err)
 	}
 
 	// External declarations are declared, not constructed: the OTEL SDK emits

@@ -19,7 +19,7 @@ import (
 
 {{- range $_, $m := .Metrics.Generated }}
 
-// {{ $m.VarName }} — {{ $m.Help }}
+// {{ $m.VarName }} — {{ $m.Help | GoComment }}
 //
 // Metric: {{ $m.Name }} ({{ $m.Type }}){{ if $m.Labels }}, labels: {{ range $i, $l := $m.Labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}{{ end }}
 var {{ $m.VarName }} = {{ $m.Constructor }}(
