@@ -1359,6 +1359,46 @@ func TestManifestMigrationFromV4(t *testing.T) {
 	}
 }
 
+// TestManifestIsIdempotent guards the hash round-trip: the manifest is built
+// from the buffer the generator is about to write, while drift is measured
+// against what is on disk afterwards. If those two ever disagree — a
+// post_generate step reformatting the output, a disclaimer split that is not
+// stable — every regeneration would report drift for every file. That is a
+// warning, not an error, so it would pass unnoticed without this test.
+func TestManifestIsIdempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for idempotency test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	first, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate untouched project")
+	if err != nil {
+		t.Fatalf("Regeneration failed: %s\n%s", err, out)
+	}
+
+	if strings.Contains(out, "generated part was changed") {
+		t.Errorf("Regeneration of an untouched project must not report drift:\n%s", out)
+	}
+
+	second, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	if string(first) != string(second) {
+		t.Errorf("meta.yaml must be stable across runs with identical output\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
 // TestGenerateRESTEnvsGoat verifies that when use_envs=true is combined with
 // goat_tests=true, the generated Makefile does NOT invoke onlineconf-update-tests
 // or generate-test-env-<app> — env-based projects don't rely on OnlineConf to
