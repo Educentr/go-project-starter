@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,6 +169,106 @@ func TestGenerateMetricsMap(t *testing.T) {
 
 	if !strings.Contains(makefile, "--config=./configs/golangci-metrics.yml") {
 		t.Error("metrics-validate should use the standalone validator config, not a flag")
+	}
+}
+
+// TestGenerateMetricsMapDashboard pins §2.6: the dev dashboard's rows now
+// carry queries derived from the declarations instead of being empty.
+func TestGenerateMetricsMapDashboard(t *testing.T) {
+	tmpDir := generateFromConfig(t, "metrics-map", "Generate project with a metrics map")
+
+	raw := readGenerated(t, tmpDir, "configs", "grafana", "dashboards", "api.json")
+
+	// The dashboard is consumed by Grafana, so a template that renders
+	// syntactically broken JSON must fail here rather than at provisioning.
+	var dashboard struct {
+		Panels []struct {
+			Title  string `json:"title"`
+			Type   string `json:"type"`
+			Panels []struct {
+				Title   string `json:"title"`
+				Type    string `json:"type"`
+				Targets []struct {
+					Expr         string `json:"expr"`
+					LegendFormat string `json:"legendFormat"`
+				} `json:"targets"`
+			} `json:"panels"`
+		} `json:"panels"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &dashboard); err != nil {
+		t.Fatalf("generated dashboard is not valid JSON: %v", err)
+	}
+
+	var metricPanels map[string][]string
+
+	for _, row := range dashboard.Panels {
+		if row.Title != "Service Metrics" {
+			continue
+		}
+
+		metricPanels = make(map[string][]string, len(row.Panels))
+
+		for _, panel := range row.Panels {
+			exprs := make([]string, 0, len(panel.Targets))
+			for _, target := range panel.Targets {
+				exprs = append(exprs, target.Expr)
+			}
+
+			metricPanels[panel.Title] = exprs
+		}
+	}
+
+	if metricPanels == nil {
+		t.Fatal("dashboard should carry a Service Metrics row built from the declarations")
+	}
+
+	// Canonical shape per metric type: rate for counters, value for gauges,
+	// quantiles for histograms and summaries.
+	wantExprs := map[string]string{
+		"spawn_errors_total":    "sum by(reason, stage) (rate(spawn_errors_total[$__rate_interval]))",
+		"queue_depth":           "queue_depth",
+		"task_duration_seconds": "histogram_quantile(0.99, sum by(le, kind, outcome) (rate(task_duration_seconds_bucket[$__rate_interval])))",
+		"batch_size":            "sum by(quantile) (batch_size)",
+		"restarts_total":        "sum(rate(restarts_total[$__rate_interval]))",
+		// Declared but library-emitted: no collector, but still charted —
+		// charting it is why a service declares a library's metric.
+		"otel_sdk_exporter_spans_total": "sum by(outcome) (rate(otel_sdk_exporter_spans_total[$__rate_interval]))",
+	}
+
+	for metric, wantExpr := range wantExprs {
+		exprs, ok := metricPanels[metric]
+		if !ok {
+			t.Errorf("Service Metrics row should carry a panel for %s", metric)
+
+			continue
+		}
+
+		found := false
+
+		for _, expr := range exprs {
+			if expr == wantExpr {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			t.Errorf("panel %s: expected query %q, got %v", metric, wantExpr, exprs)
+		}
+	}
+
+	// Metrics with a hand-built row must not get a second, poorer panel.
+	for _, skipped := range []string{"go_goroutines", "ogen_server_request_count_total"} {
+		if _, ok := metricPanels[skipped]; ok {
+			t.Errorf("%s already has a dedicated row; it must not be duplicated in Service Metrics", skipped)
+		}
+	}
+
+	// Out of scope by §3: no thresholds, no alert rules.
+	if strings.Contains(raw, "alert") {
+		t.Error("the generated dashboard must not carry alert rules — thresholds belong to an installation")
 	}
 }
 
