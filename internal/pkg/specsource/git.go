@@ -23,6 +23,11 @@ const (
 	GitTransportHTTPS GitTransport = "https"
 )
 
+// refForbiddenChars are the characters git itself refuses in a refname
+// (git-check-ref-format(1)). ":" is on that list, which is what lets
+// ParseSourceRefs split a "<repo>:<ref>" override at the last colon.
+const refForbiddenChars = ":?*[\\~^"
+
 // GitSource describes a file inside a git repository.
 //
 //	Repo      e.g. "ssh://git@github.com/org/repo.git" or "https://github.com/org/repo.git"
@@ -36,7 +41,8 @@ type GitSource struct {
 	Ref  string
 	// RefPinned reports that the URI carried an explicit "@<ref>". Such a ref
 	// is a pin — a deliberate decision to lag behind for this one entry — and
-	// is never overridden by ResolverOptions.SourceRef. Sources without "@"
+	// is never overridden by ResolverOptions.SourceRefs, neither by its blanket
+	// entry nor by one scoped to this very repository. Sources without "@"
 	// (Ref == "HEAD") follow the override.
 	RefPinned bool
 	Subpath   string
@@ -88,9 +94,10 @@ func (s GitSource) applySourceRef(ref string) GitSource {
 // ValidateRef checks a ref coming from outside the config (the --sourceRef
 // flag / GPS_SOURCE_REF env). An empty ref means "no override" and is valid.
 // The check is deliberately narrow: it rejects values that `git` would not
-// read as a ref at all (whitespace, control characters) or would read as one
-// of its own options (leading "-"). Whether the ref exists upstream is only
-// knowable at clone time and is reported there.
+// read as a ref at all (whitespace, control characters, the characters
+// git-check-ref-format(1) forbids) or would read as one of its own options
+// (leading "-"). Whether the ref exists upstream is only knowable at clone
+// time and is reported there.
 func ValidateRef(ref string) error {
 	if ref == "" {
 		return nil
@@ -103,6 +110,10 @@ func ValidateRef(ref string) error {
 	for _, r := range ref {
 		if unicode.IsSpace(r) || unicode.IsControl(r) {
 			return fmt.Errorf("%w: %q contains whitespace or control characters", ErrInvalidRef, ref)
+		}
+
+		if strings.ContainsRune(refForbiddenChars, r) {
+			return fmt.Errorf("%w: %q contains %q, which git does not allow in a ref", ErrInvalidRef, ref, r)
 		}
 	}
 
@@ -123,7 +134,9 @@ func gitClone(ctx context.Context, src GitSource, envLookup func(string) string,
 	if src.Transport == GitTransportHTTPS && src.TokenEnv != "" {
 		token = envLookup(src.TokenEnv)
 		if token == "" {
-			return fmt.Errorf("%w: %s", ErrTokenEnvMissing, src.TokenEnv)
+			// Name the source too: with several git sources in one project,
+			// "GITHUB_TOKEN is empty" alone does not say which entry wants it.
+			return fmt.Errorf("%w: %s: %s", ErrTokenEnvMissing, src.TokenEnv, src.Describe())
 		}
 		injected, err := injectUserInfo(cloneURL, "oauth2", token)
 		if err != nil {

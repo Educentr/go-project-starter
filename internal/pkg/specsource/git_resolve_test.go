@@ -76,12 +76,15 @@ func newTestRepo(t *testing.T) testRepo {
 	return testRepo{path: dir, defaultBranch: defaultBranch}
 }
 
-func resolveFromRepo(t *testing.T, src GitSource, sourceRef string) (string, error) {
+// resolveFromRepo resolves src with the given override entries (see
+// ParseSourceRefs) and returns the content of the resolved file, which names
+// the branch it came from.
+func resolveFromRepo(t *testing.T, src GitSource, refEntries ...string) (string, error) {
 	t.Helper()
 
 	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
-		SourceRef: sourceRef,
-		LogStderr: io.Discard,
+		SourceRefs: mustSourceRefs(t, refEntries...),
+		LogStderr:  io.Discard,
 	})
 	if err != nil {
 		return "", err
@@ -136,7 +139,7 @@ func TestResolveGit_NoSourceRefKeepsHEAD(t *testing.T) {
 	repo := newTestRepo(t)
 	src := GitSource{Repo: repo.path, Ref: "HEAD", Subpath: "api.yaml"}
 
-	got, err := resolveFromRepo(t, src, "")
+	got, err := resolveFromRepo(t, src)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -161,14 +164,75 @@ func TestResolveGit_MissingSourceRefFailsLoudly(t *testing.T) {
 	}
 }
 
+// The point of the per-repository form: one build, two contract repositories,
+// each taken from its own branch.
+func TestResolveGit_ScopedRefsPerRepository(t *testing.T) {
+	specs := newTestRepo(t)
+	proto := newTestRepo(t)
+
+	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+		SourceRefs: mustSourceRefs(t, specs.path+":"+branchA, proto.path+":"+branchB),
+		LogStderr:  io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer r.Close()
+
+	want := map[string]string{
+		specs.path: "from-" + branchA,
+		proto.path: "from-" + branchB,
+	}
+
+	for repo, wantContent := range want {
+		res, resErr := r.Resolve(t.Context(), GitSource{Repo: repo, Ref: "HEAD", Subpath: "api.yaml"})
+		if resErr != nil {
+			t.Fatalf("resolve %s: %v", repo, resErr)
+		}
+
+		content, readErr := os.ReadFile(res.LocalPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+
+		if string(content) != wantContent {
+			t.Errorf("%s: got %q, want %q", repo, content, wantContent)
+		}
+	}
+
+	if err := r.sourceRefs.CheckUsed(); err != nil {
+		t.Errorf("both selectors matched, got %v", err)
+	}
+}
+
+// A repository nobody named keeps its own ref even when other repositories are
+// overridden — the scoped form must not leak.
+func TestResolveGit_ScopedRefLeavesOtherRepositoriesAlone(t *testing.T) {
+	specs := newTestRepo(t)
+	proto := newTestRepo(t)
+
+	got, err := resolveFromRepo(t,
+		GitSource{Repo: proto.path, Ref: "HEAD", Subpath: "api.yaml"},
+		specs.path+":"+branchA,
+	)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	if got != "from-default" {
+		t.Errorf("content: got %q, want %q", got, "from-default")
+	}
+}
+
 // Two sources from the same repo — one unpinned, one pinned to the ref the
 // override names — must result in a single clone.
 func TestResolveGit_OverriddenAndPinnedShareOneClone(t *testing.T) {
 	repo := newTestRepo(t)
 
 	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
-		SourceRef: branchA,
-		LogStderr: io.Discard,
+		SourceRefs: mustSourceRefs(t, branchA),
+		LogStderr:  io.Discard,
 	})
 	if err != nil {
 		t.Fatal(err)

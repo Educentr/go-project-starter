@@ -63,5 +63,7 @@ var (
 	ErrGitNotInstalled  = errors.New("specsource: 'git' executable not found in PATH")
 	ErrCloneFailed      = errors.New("specsource: git clone failed")
 	ErrInvalidRef       = errors.New("specsource: invalid git ref")
+	ErrInvalidSourceRef = errors.New("specsource: invalid ref override")
+	ErrUnusedSourceRef  = errors.New("specsource: ref override names a repository that no spec source uses")
 	ErrHTTPStatus       = errors.New("specsource: HTTP request returned non-2xx status")
 )
