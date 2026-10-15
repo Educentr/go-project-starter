@@ -54,6 +54,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "ArgenVersion required when use_active_record is true")
 	}
 
+	// Проверяется здесь, а не в Git.IsValid(): тот метод существует, но из
+	// GetConfig не вызывается, и включать его сейчас значит задним числом
+	// активировать проверки repo/module_path на уже рабочих конфигах.
+	if ok, msg := validateSecretName("git.private_repos_token_secret", config.Git.PrivateReposTokenSecret); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config git section: "+msg)
+	}
+
 	config.Main.LoggerObj = loggers.LoggerMapping[config.Main.Logger]
 
 	// создаем мапки
@@ -286,7 +293,6 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 
 	return config, nil
 }
-
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
 // are referenced in at least one application

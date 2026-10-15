@@ -25,46 +25,49 @@ import (
 )
 
 type Generator struct {
-	AppInfo             string
-	DryRun              bool
-	Meta                meta.Meta
-	Logger              ds.Logger
-	ProjectName         string
-	Deploy              ds.DeployType
-	RegistryType        string
-	Author              string
-	ProjectPath         string
-	UseActiveRecord     bool
-	DevStand            bool
-	GenerateLlmsMd      bool
-	LlmsFileName        string
-	CI                  []string
-	CISet               bool
-	Repo                string
-	PrivateRepos        string
-	GoLangVersion       string
-	OgenVersion         string
-	ArgenVersion        string
-	GolangciVersion     string
-	LintExcludePaths    []string
-	RuntimeVersion      string
-	GoJSONSchemaVersion string
-	GoatVersion         string
-	GoatServicesVersion string
-	TargetDir           string
-	ConfigPath          string // Source config file path for copying to target
-	DockerImagePrefix   string
-	SkipInitService     bool
-	PostGenerate        []ExecCmd
-	Transports          ds.Transports
-	Workers             ds.Workers
-	Drivers             ds.Drivers
-	JSONSchemas         ds.JSONSchemas
-	Kafka               ds.KafkaConfigs
-	Applications        ds.Apps
-	Grafana             grafana.Config
-	Artifacts           ds.ArtifactsConfig
-	Documentation       ds.DocsConfig
+	AppInfo         string
+	DryRun          bool
+	Meta            meta.Meta
+	Logger          ds.Logger
+	ProjectName     string
+	Deploy          ds.DeployType
+	RegistryType    string
+	Author          string
+	ProjectPath     string
+	UseActiveRecord bool
+	DevStand        bool
+	GenerateLlmsMd  bool
+	LlmsFileName    string
+	CI              []string
+	CISet           bool
+	Repo            string
+	PrivateRepos    string
+	// PrivateReposTokenSecret is the CI secret name holding the token for
+	// private Go modules. Empty means templater.DefaultPrivateReposTokenSecret.
+	PrivateReposTokenSecret string
+	GoLangVersion           string
+	OgenVersion             string
+	ArgenVersion            string
+	GolangciVersion         string
+	LintExcludePaths        []string
+	RuntimeVersion          string
+	GoJSONSchemaVersion     string
+	GoatVersion             string
+	GoatServicesVersion     string
+	TargetDir               string
+	ConfigPath              string // Source config file path for copying to target
+	DockerImagePrefix       string
+	SkipInitService         bool
+	PostGenerate            []ExecCmd
+	Transports              ds.Transports
+	Workers                 ds.Workers
+	Drivers                 ds.Drivers
+	JSONSchemas             ds.JSONSchemas
+	Kafka                   ds.KafkaConfigs
+	Applications            ds.Apps
+	Grafana                 grafana.Config
+	Artifacts               ds.ArtifactsConfig
+	Documentation           ds.DocsConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -113,6 +116,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.CISet = config.Main.CISet
 	g.Repo = config.Git.Repo
 	g.PrivateRepos = config.Git.PrivateRepos
+	g.PrivateReposTokenSecret = config.Git.PrivateReposTokenSecret
 	g.GoLangVersion = config.Tools.GolangVersion
 	g.OgenVersion = config.Tools.OgenVersion
 	g.ArgenVersion = config.Tools.ArgenVersion
@@ -725,39 +729,40 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 func (g *Generator) GetTmplParams() templater.GeneratorParams {
 	return templater.GeneratorParams{
-		Logger:              g.Logger,
-		ProjectName:         g.ProjectName,
-		RegistryType:        g.RegistryType,
-		Author:              g.Author,
-		Year:                time.Now().Format("2006"),
-		ProjectPath:         g.ProjectPath,
-		UseActiveRecord:     g.UseActiveRecord,
-		DevStand:            g.DevStand,
-		GenerateLlmsMd:      g.GenerateLlmsMd,
-		LlmsFileName:        g.LlmsFileName,
-		CI:                  g.CI,
-		CISet:               g.CISet,
-		Repo:                g.Repo,
-		PrivateRepos:        g.PrivateRepos,
-		DockerImagePrefix:   g.DockerImagePrefix,
-		SkipServiceInit:     g.SkipInitService,
-		GoLangVersion:       g.GoLangVersion,
-		OgenVersion:         g.OgenVersion,
-		ArgenVersion:        g.ArgenVersion,
-		GolangciVersion:     g.GolangciVersion,
-		LintExcludePaths:    g.LintExcludePaths,
-		RuntimeVersion:      g.RuntimeVersion,
-		GoJSONSchemaVersion: g.GoJSONSchemaVersion,
-		GoatVersion:         g.GoatVersion,
-		GoatServicesVersion: g.GoatServicesVersion,
-		Applications:        g.Applications,
-		Drivers:             g.Drivers,
-		Workers:             g.Workers,
-		JSONSchemas:         g.JSONSchemas,
-		Kafka:               g.Kafka,
-		Grafana:             g.Grafana,
-		Artifacts:           g.Artifacts,
-		Documentation:       g.Documentation,
+		Logger:                  g.Logger,
+		ProjectName:             g.ProjectName,
+		RegistryType:            g.RegistryType,
+		Author:                  g.Author,
+		Year:                    time.Now().Format("2006"),
+		ProjectPath:             g.ProjectPath,
+		UseActiveRecord:         g.UseActiveRecord,
+		DevStand:                g.DevStand,
+		GenerateLlmsMd:          g.GenerateLlmsMd,
+		LlmsFileName:            g.LlmsFileName,
+		CI:                      g.CI,
+		CISet:                   g.CISet,
+		Repo:                    g.Repo,
+		PrivateRepos:            g.PrivateRepos,
+		PrivateReposTokenSecret: g.PrivateReposTokenSecret,
+		DockerImagePrefix:       g.DockerImagePrefix,
+		SkipServiceInit:         g.SkipInitService,
+		GoLangVersion:           g.GoLangVersion,
+		OgenVersion:             g.OgenVersion,
+		ArgenVersion:            g.ArgenVersion,
+		GolangciVersion:         g.GolangciVersion,
+		LintExcludePaths:        g.LintExcludePaths,
+		RuntimeVersion:          g.RuntimeVersion,
+		GoJSONSchemaVersion:     g.GoJSONSchemaVersion,
+		GoatVersion:             g.GoatVersion,
+		GoatServicesVersion:     g.GoatServicesVersion,
+		Applications:            g.Applications,
+		Drivers:                 g.Drivers,
+		Workers:                 g.Workers,
+		JSONSchemas:             g.JSONSchemas,
+		Kafka:                   g.Kafka,
+		Grafana:                 g.Grafana,
+		Artifacts:               g.Artifacts,
+		Documentation:           g.Documentation,
 	}
 }
 

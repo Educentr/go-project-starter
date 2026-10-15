@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -1452,6 +1453,86 @@ func TestRest_IsValid(t *testing.T) {
 
 			if !tt.wantOK && gotMsg != tt.wantMsg {
 				t.Errorf("Rest.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestValidateSecretName(t *testing.T) {
+	const field = "git.private_repos_token_secret"
+
+	tests := []struct {
+		name   string
+		secret string
+		wantOK bool
+	}{
+		{
+			name:   "empty means not configured, caller applies its default",
+			secret: "",
+			wantOK: true,
+		},
+		{
+			name:   "upper snake case",
+			secret: "GO_MODULES_TOKEN",
+			wantOK: true,
+		},
+		{
+			name:   "legacy default",
+			secret: "GH_PAT",
+			wantOK: true,
+		},
+		{
+			name:   "leading underscore",
+			secret: "_TOKEN",
+			wantOK: true,
+		},
+		{
+			name:   "digits after the first character",
+			secret: "TOKEN_V2",
+			wantOK: true,
+		},
+		{
+			name:   "lowercase is accepted",
+			secret: "go_modules_token",
+			wantOK: true,
+		},
+		{
+			name:   "leading digit is rejected",
+			secret: "2TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "dash is rejected",
+			secret: "GO-MODULES-TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "dot is rejected",
+			secret: "secrets.TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "whitespace is rejected",
+			secret: "GO MODULES TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "expression injection is rejected",
+			secret: "TOKEN }} ${{ secrets.OTHER",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := validateSecretName(field, tt.secret)
+
+			if gotOK != tt.wantOK {
+				t.Errorf("validateSecretName(%q) ok = %v, want %v (msg=%q)", tt.secret, gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && !strings.Contains(gotMsg, field) {
+				t.Errorf("validateSecretName(%q) msg = %q, want it to name the field %q", tt.secret, gotMsg, field)
 			}
 		})
 	}

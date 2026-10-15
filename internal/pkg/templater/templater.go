@@ -23,37 +23,43 @@ import (
 // This should be updated when new runtime version is released.
 const MinRuntimeVersion = "v0.15.0"
 
+// DefaultPrivateReposTokenSecret is the CI secret name used to fetch private
+// Go modules when git.private_repos_token_secret is not set in project.yaml.
+const DefaultPrivateReposTokenSecret = "GH_PAT"
+
 type GeneratorParams struct {
-	AppInfo             string
-	Logger              ds.Logger
-	Author              string
-	Year                string
-	ProjectName         string
-	ProjectPath         string
-	RegistryType        string
-	UseActiveRecord     bool
-	DevStand            bool
-	GenerateLlmsMd      bool
-	LlmsFileName        string // "CLAUDE.md" or "LLMS.md" — determined at generation time
-	CI                  []string
-	CISet               bool
-	Repo                string
-	PrivateRepos        string
-	DockerImagePrefix   string
-	SkipServiceInit     bool
-	GoLangVersion       string
-	OgenVersion         string
-	ArgenVersion        string
-	GolangciVersion     string
-	LintExcludePaths    []string
-	RuntimeVersion      string
-	GoJSONSchemaVersion string
-	GoatVersion         string
-	GoatServicesVersion string
-	Drivers             ds.Drivers
-	Workers             ds.Workers
-	JSONSchemas         ds.JSONSchemas
-	Kafka               ds.KafkaConfigs
+	AppInfo         string
+	Logger          ds.Logger
+	Author          string
+	Year            string
+	ProjectName     string
+	ProjectPath     string
+	RegistryType    string
+	UseActiveRecord bool
+	DevStand        bool
+	GenerateLlmsMd  bool
+	LlmsFileName    string // "CLAUDE.md" or "LLMS.md" — determined at generation time
+	CI              []string
+	CISet           bool
+	Repo            string
+	PrivateRepos    string
+	// Read via PrivateReposTokenSecretName, which applies the default.
+	PrivateReposTokenSecret string
+	DockerImagePrefix       string
+	SkipServiceInit         bool
+	GoLangVersion           string
+	OgenVersion             string
+	ArgenVersion            string
+	GolangciVersion         string
+	LintExcludePaths        []string
+	RuntimeVersion          string
+	GoJSONSchemaVersion     string
+	GoatVersion             string
+	GoatServicesVersion     string
+	Drivers                 ds.Drivers
+	Workers                 ds.Workers
+	JSONSchemas             ds.JSONSchemas
+	Kafka                   ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
@@ -61,6 +67,19 @@ type GeneratorParams struct {
 	Grafana       grafana.Config
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
+}
+
+// PrivateReposTokenSecretName returns the name of the CI secret that holds the
+// token used to fetch private Go modules, falling back to
+// DefaultPrivateReposTokenSecret when the project does not configure one.
+// Templates call this instead of reading PrivateReposTokenSecret directly, so
+// an unset value never renders as an empty secret reference.
+func (g GeneratorParams) PrivateReposTokenSecretName() string {
+	if g.PrivateReposTokenSecret == "" {
+		return DefaultPrivateReposTokenSecret
+	}
+
+	return g.PrivateReposTokenSecret
 }
 
 // type GeneratorParamDriver struct {

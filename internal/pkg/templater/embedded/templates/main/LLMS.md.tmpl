@@ -120,6 +120,7 @@ git:
   repo: git@github.com:org/myproject.git    # REQUIRED. Git repository URL
   module_path: github.com/org/myproject     # REQUIRED. Go module path
   private_repos: "github.com/myorg/*"       # Optional. GOPRIVATE setting
+  private_repos_token_secret: GH_PAT        # Optional. CI secret with the token for private modules
 
 # ── Transports ─────────────────────────────────────────────────────
 

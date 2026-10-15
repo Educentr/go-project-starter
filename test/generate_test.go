@@ -1304,3 +1304,121 @@ func TestGenerateRESTEnvsGoat(t *testing.T) {
 		}
 	}
 }
+
+// TestGeneratePrivateReposTokenSecret covers git.private_repos_token_secret:
+// the name of the CI secret the generated GitHub workflow reads to fetch
+// private Go modules.
+//
+// Both cases render from the same fixture, so the configured secret name is
+// the only difference between them: unset must keep the historical GH_PAT
+// (existing projects regenerate unchanged), and a configured name must replace
+// every occurrence.
+func TestGeneratePrivateReposTokenSecret(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	fixtureDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "private-token-secret")
+
+	// generate renders the fixture, optionally dropping the
+	// private_repos_token_secret line to exercise the default, and returns the
+	// generated workflow.
+	generate := func(t *testing.T, withTokenSecret bool) string {
+		t.Helper()
+
+		configDir := t.TempDir()
+
+		entries, err := os.ReadDir(fixtureDir)
+		if err != nil {
+			t.Fatalf("Error reading fixture dir: %v", err)
+		}
+
+		const tokenSecretKey = "private_repos_token_secret:"
+
+		droppedLine := false
+
+		for _, e := range entries {
+			content, err := os.ReadFile(filepath.Join(fixtureDir, e.Name()))
+			if err != nil {
+				t.Fatalf("Error reading fixture %s: %v", e.Name(), err)
+			}
+
+			if !withTokenSecret && e.Name() == "project.yaml" {
+				lines := strings.Split(string(content), "\n")
+				kept := make([]string, 0, len(lines))
+
+				for _, l := range lines {
+					if strings.Contains(l, tokenSecretKey) {
+						droppedLine = true
+
+						continue
+					}
+
+					kept = append(kept, l)
+				}
+
+				content = []byte(strings.Join(kept, "\n"))
+			}
+
+			if err := os.WriteFile(filepath.Join(configDir, e.Name()), content, 0o644); err != nil {
+				t.Fatalf("Error writing config %s: %v", e.Name(), err)
+			}
+		}
+
+		// Guards the default case against a fixture that silently stopped
+		// setting the field — without this the test would pass vacuously.
+		if !withTokenSecret && !droppedLine {
+			t.Fatalf("fixture %s/project.yaml no longer contains %q", fixtureDir, tokenSecretKey)
+		}
+
+		tmpDir := t.TempDir()
+
+		out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+			"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+			"--target", tmpDir,
+			"--configDir", configDir,
+			"--config", "project.yaml",
+		}, "Generate project for private repos token secret tests ("+tmpDir+")")
+		if err != nil {
+			t.Fatalf("Error creating project: %s\n%s", err, out)
+		}
+
+		workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
+		if err != nil {
+			t.Fatalf("Error reading generated workflow: %v", err)
+		}
+
+		return string(workflow)
+	}
+
+	// The fixture enables goat tests plus docker and deb artifacts so that
+	// every job referencing the token is rendered. Pinning the count keeps a
+	// newly added reference from escaping the check.
+	const wantRefs = 4
+
+	t.Run("configured name replaces every occurrence", func(t *testing.T) {
+		workflow := generate(t, true)
+
+		if got := strings.Count(workflow, "secrets.GO_MODULES_TOKEN"); got != wantRefs {
+			t.Errorf("workflow references secrets.GO_MODULES_TOKEN %d times, want %d", got, wantRefs)
+		}
+
+		if strings.Contains(workflow, "GH_PAT") {
+			t.Error("workflow should NOT contain GH_PAT when private_repos_token_secret is set")
+		}
+	})
+
+	t.Run("unset keeps the default GH_PAT", func(t *testing.T) {
+		workflow := generate(t, false)
+
+		if got := strings.Count(workflow, "secrets.GH_PAT"); got != wantRefs {
+			t.Errorf("workflow references secrets.GH_PAT %d times, want %d", got, wantRefs)
+		}
+
+		// An unset field must never render as an empty secret reference.
+		if strings.Contains(workflow, "secrets. ") || strings.Contains(workflow, "secrets.}}") {
+			t.Error("workflow contains an empty secret reference")
+		}
+	})
+}
