@@ -141,6 +141,12 @@ func (m Metric) problems() []string {
 		problems = append(problems, "name is required")
 	case !metricNameRx.MatchString(m.Name):
 		problems = append(problems, fmt.Sprintf("name %q is not a valid Prometheus metric name", m.Name))
+	case m.VarName() == "":
+		// Prometheus accepts a name built only from '_' and ':', but there is
+		// no Go identifier left after folding those away — the generated
+		// package would not compile.
+		problems = append(problems, fmt.Sprintf(
+			"name %q leaves no Go identifier once '_' and ':' are folded away; it needs at least one letter or digit", m.Name))
 	}
 
 	if m.Help == "" {

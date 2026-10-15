@@ -263,11 +263,17 @@ func (m *Metric) UnmarshalYAML(value *yaml.Node) error {
 func Parse(data []byte) (*Map, error) {
 	var m Map
 
+	if len(strings.TrimSpace(string(data))) == 0 {
+		// Without this the yaml decoder reports a bare "EOF", which says
+		// nothing about what to do.
+		return nil, fmt.Errorf("%w: the file is empty", ErrInvalidMap)
+	}
+
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	dec.KnownFields(true)
 
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("parse metrics map: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformedMap, err)
 	}
 
 	if err := m.Validate(); err != nil {

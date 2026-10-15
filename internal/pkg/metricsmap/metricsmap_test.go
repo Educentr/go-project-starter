@@ -148,6 +148,25 @@ func TestValidate_Problems(t *testing.T) {
 			wantMsg: "is not a valid Prometheus metric name",
 		},
 		{
+			// Prometheus accepts this name; Go has no identifier left after
+			// folding '_' and ':' away, so the generated package would not
+			// compile. Caught here rather than by the Go compiler on
+			// `var  = prometheus.NewCounter(`.
+			name:    "name that leaves no Go identifier",
+			yaml:    "metrics:\n  - name: \"_\"\n    type: Counter\n    help: Only separators.",
+			wantMsg: "leaves no Go identifier",
+		},
+		{
+			name:    "name of only colons",
+			yaml:    "metrics:\n  - name: \"::\"\n    type: Counter\n    help: Only separators.",
+			wantMsg: "leaves no Go identifier",
+		},
+		{
+			name:    "empty file",
+			yaml:    "   \n\n",
+			wantMsg: "the file is empty",
+		},
+		{
 			name:    "missing help",
 			yaml:    "metrics:\n  - name: own_total\n    type: Counter",
 			wantMsg: "help is required",
