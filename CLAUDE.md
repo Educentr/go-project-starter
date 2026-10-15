@@ -166,6 +166,12 @@ CLI и queue-worker spec'и (которые парсятся inline во вре�
 
 Известные ограничения v1: subpath = только файл (не директория), токен в `git clone` светится в `ps`.
 
+### Переопределение ref (`--sourceRef`)
+
+Флаг `--sourceRef <ref>` (env `GPS_SOURCE_REF`, флаг приоритетнее) задаёт ref для всех git-источников, у которых ref **не** указан в строке; запись с явным `@<ref>` — пин, он не перекрывается. Действует на все каналы (`rest`, `grpc`, `jsonschema`, queue worker, CLI), иначе дерево собралось бы из двух состояний контрактов. Поля в `project.yaml` для дефолтного ref нет осознанно — ref задаёт тот, кто запускает сборку.
+
+Реализация: признак пина — `GitSource.RefPinned` (выставляется в `parseGitURL`), применение — `GitSource.applySourceRef` в начале `Resolver.resolveGit`, поэтому эффективный ref попадает и в `cloneKey`, и в текст ошибок. Прокидка: `resolveSourceRef()` в `cmd/go-project-starter/main.go` → `generator.New(..., sourceRef)` → `Generator.SourceRef` → `ResolverOptions.SourceRef` в **обоих** путях резолва (`resolveAllSources` и `resolveInlineSpec`). Валидация ref — `specsource.ValidateRef` на границе процесса. В сгенерированном проекте: `make regenerate SOURCE_REF=<ref>` (`main/Makefile.tmpl`). Документация: [docs/configuration/remote-specs.md](docs/configuration/remote-specs.md#переопределение-ref-sourceref).
+
 ## Rewrite Refs
 
 Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `project.yaml`. После `CopySpecs`/`CopySchemas` стартер сканирует target-директорию (`api/rest/<svc>/<ver>/` или `api/schema/<name>/`) и переписывает кросс-директорные `$ref` (`../common/foo.yaml#/X`) в локальные (`./foo.yaml#/X`) — при условии, что sibling-файл с этим basename уже скопирован рядом и входит в whitelist `SpecTargetFiles`/`SchemaTargetFiles`.

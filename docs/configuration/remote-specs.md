@@ -13,11 +13,44 @@
 
 Правила:
 
-- `<ref>` — branch, tag или commit-SHA. Если опущен (`@` отсутствует) — `HEAD`. Для воспроизводимости рекомендуется фиксировать тег или SHA.
+- `<ref>` — branch, tag или commit-SHA. Если опущен (`@` отсутствует) — `HEAD`, и такая запись подчиняется [`--sourceRef`](#переопределение-ref-sourceref). Для воспроизводимости рекомендуется фиксировать тег или SHA — указанный `@<ref>` считается пином и не перекрывается.
 - `<subpath>` — путь к файлу внутри репо (фрагмент после `#`). Обязателен для git. Поддерживается **только файл**, не директория.
 - `?token_env=NAME` (только для `git+https` и `https`) — имя переменной окружения, в которой лежит токен. **Сам токен в YAML не пишется** и в логах не появляется.
 - Порядок query/fragment по RFC 3986: `?token_env=...` идёт **до** `#subpath`.
 - SCP-style git-URL (`git@github.com:org/repo.git`) **не поддерживается** — используйте `git+ssh://git@github.com/org/repo.git`.
+
+## Переопределение ref (`--sourceRef`)
+
+Одна ручка задаёт ref для **всех** git-источников проекта разом — чтобы собрать дерево против контрактов релизной ветки или ветки задачи, не трогая `project.yaml`:
+
+```bash
+# из сгенерированного проекта
+make regenerate SOURCE_REF=release/2026.10
+
+# напрямую
+go-project-starter --target . --sourceRef release/2026.10
+
+# то же через окружение (например, в CI)
+export GPS_SOURCE_REF=release/2026.10
+make regenerate
+```
+
+Правило одно: **любой явный `@<ref>` в строке — это пин, и он не перекрывается**.
+
+| Запись в `project.yaml` | `--sourceRef release/X` | Что склонируется |
+|---|---|---|
+| `git+ssh://git@host/org/specs.git#api.yaml` | задан | `release/X` |
+| `git+ssh://git@host/org/specs.git#api.yaml` | не задан | дефолтная ветка (`HEAD`) |
+| `git+ssh://git@host/org/specs.git@v1.2.0#api.yaml` | задан | `v1.2.0` (пин сильнее) |
+| `https://host/api.yaml` | задан | без изменений — у HTTP-ссылок нет ref |
+
+Подробности:
+
+- Действует на все каналы: `rest.path`, `grpc.path`, `jsonschema.path` / `jsonschema.schemas[].path`, `worker.path` (queue) и `cli.path`. Дерево не может собраться из двух разных состояний контрактов.
+- Приоритет: флаг `--sourceRef` > переменная `GPS_SOURCE_REF` > поведение без переопределения.
+- Если ветки/тега не существует, регенерация падает с ошибкой, которая называет источник и ref. Тихого возврата к дефолтной ветке нет.
+- Один clone на `(repo, ref)`: источник, перекрытый до `release/X`, и источник, пинованный на `release/X`, делят один клон.
+- Поля в `project.yaml` для дефолтного ref **нет** — это осознанно. Ref сборки задаёт тот, кто её запускает, а конфиг остаётся одинаковым для всех веток.
 
 ## Аутентификация
 
@@ -107,6 +140,8 @@ rest:
 | `git clone failed: authentication failed` (ssh) | ssh-agent не запущен или ключ не добавлен | `ssh-add -l`, затем `ssh-add ~/.ssh/id_ed25519` |
 | `git clone failed: authentication failed` (https) | Невалидный токен или нет прав на репо | Проверить токен и его scope (для GitHub: `repo`) |
 | `git clone failed: repository not found` | Опечатка в URL или нет доступа | Проверить URL, попробовать `git clone <repo>` локально |
+| `git clone failed: ssh://...@release/X#api.yaml` | Ветки из `--sourceRef` / `GPS_SOURCE_REF` нет в этом репо | Проверить ветку в репо контрактов; либо пиновать запись через `@<ref>`, чтобы она не следовала за переопределением |
+| `invalid --sourceRef: specsource: invalid git ref` | Ref с пробелом или начинающийся с `-` | Передать имя ветки/тега без пробелов и ведущего `-` |
 | `subpath not found in repository: openapi/foo.yaml (similar: api/foo.yaml)` | Опечатка в subpath | Использовать предложенный путь или поправить YAML |
 | `HTTP request returned non-2xx status: 404 ...` | Неверный URL или ref | Проверить URL в браузере / `curl -I` |
 | `directory subpaths are not supported yet` | `#openapi/` (с `/` в конце) | Указать конкретный файл, не директорию |

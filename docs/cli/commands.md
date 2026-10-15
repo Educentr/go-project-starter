@@ -18,6 +18,7 @@ go-project-starter --config=config.yaml
 | `--configDir` | Директория с конфигурацией | `.` |
 | `--target` | Целевая директория для генерации | `.` |
 | `--dry-run` | Показать изменения без записи файлов | `false` |
+| `--sourceRef` | Ref для удалённых спек без явного `@<ref>` (env `GPS_SOURCE_REF`) | пусто |
 
 ### Примеры
 
@@ -33,6 +34,9 @@ go-project-starter --dry-run --config=config.yaml --target=./my-service
 
 # Конфигурация из директории
 go-project-starter --configDir=.project-config --config=project.yaml --target=.
+
+# Контракты из релизной ветки (пины @<ref> в project.yaml не перекрываются)
+go-project-starter --configDir=.project-config --target=. --sourceRef=release/2026.10
 ```
 
 ## init

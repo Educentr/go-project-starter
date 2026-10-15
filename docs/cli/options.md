@@ -58,6 +58,22 @@ go-project-starter --dry-run --config=config.yaml --target=./my-service
 - Какие файлы будут изменены
 - Какие файлы будут удалены
 
+### --sourceRef
+
+Git-ref для всех удалённых спек в `project.yaml`, у которых ref не указан в строке.
+
+```bash
+go-project-starter --target=. --sourceRef=release/2026.10
+```
+
+**По умолчанию:** пусто — каждый источник берётся с тем ref, что написан в конфиге (без `@<ref>` это дефолтная ветка репозитория).
+
+Записи с явным `@<ref>` (`...repo.git@v1.2.0#api.yaml`) — это пин: они не перекрываются. Действует на `rest.path`, `grpc.path`, `jsonschema`, `worker.path` (queue) и `cli.path`; на `https://`-ссылки не действует — у них нет ref.
+
+Эквивалент через окружение — `GPS_SOURCE_REF`; флаг приоритетнее переменной. В сгенерированном проекте то же самое доступно как `make regenerate SOURCE_REF=release/2026.10`.
+
+Подробнее: [Удалённые спеки → Переопределение ref](../configuration/remote-specs.md#переопределение-ref-sourceref).
+
 ## Информационные параметры
 
 ### --help, -h
@@ -117,6 +133,7 @@ go build ./...
 
 | Переменная | Описание |
 |------------|----------|
+| `GPS_SOURCE_REF` | То же, что `--sourceRef` (флаг приоритетнее) |
 | `GOPROXY` | Go proxy для загрузки зависимостей |
 | `GOPRIVATE` | Список приватных Go модулей |
 
