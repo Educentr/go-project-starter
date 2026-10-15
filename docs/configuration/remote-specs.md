@@ -21,33 +21,64 @@
 
 ## Переопределение ref (`--sourceRef`)
 
-Одна ручка задаёт ref для **всех** git-источников проекта разом — чтобы собрать дерево против контрактов релизной ветки или ветки задачи, не трогая `project.yaml`:
+Ручка задаёт ref git-источников на время сборки — чтобы собрать дерево против контрактов релизной ветки или ветки задачи, не трогая `project.yaml`. Контракты проекта обычно лежат в нескольких репозиториях (и на разных хостах), поэтому у ручки две формы: **одна на все репозитории** и **своя на каждый**.
 
 ```bash
-# из сгенерированного проекта
-make regenerate SOURCE_REF=release/2026.10
-
-# напрямую
+# все непинованные источники — из release/2026.10
 go-project-starter --target . --sourceRef release/2026.10
 
+# у каждого репозитория контрактов свой ref; флаг повторяемый
+go-project-starter --target . \
+  --sourceRef github.com/org/specs:release/2026.10 \
+  --sourceRef gitlab.example.com/org/proto:main
+
+# из сгенерированного проекта (список — через пробел или запятую)
+make regenerate SOURCE_REF=release/2026.10
+make regenerate SOURCE_REF="github.com/org/specs:release/2026.10 github.com/org/proto:main"
+
 # то же через окружение (например, в CI)
-export GPS_SOURCE_REF=release/2026.10
+export GPS_SOURCE_REF=github.com/org/specs:release/2026.10,github.com/org/proto:main
 make regenerate
 ```
 
-Правило одно: **любой явный `@<ref>` в строке — это пин, и он не перекрывается**.
+Формы записи:
 
-| Запись в `project.yaml` | `--sourceRef release/X` | Что склонируется |
+| Запись | Что делает |
+|---|---|
+| `<ref>` | ref для всех непинованных источников любого репозитория. Такая запись допустима **одна** на запуск |
+| `<репозиторий>:<ref>` | ref только для источников этого репозитория |
+| оба вида вместе | именованные репозитории берут свой ref, все остальные — общий |
+
+Правило одно: **любой явный `@<ref>` в строке `project.yaml` — это пин, и он не перекрывается** (ни общей формой, ни адресной).
+
+| Запись в `project.yaml` | Переопределение | Что склонируется |
 |---|---|---|
-| `git+ssh://git@host/org/specs.git#api.yaml` | задан | `release/X` |
-| `git+ssh://git@host/org/specs.git#api.yaml` | не задан | дефолтная ветка (`HEAD`) |
-| `git+ssh://git@host/org/specs.git@v1.2.0#api.yaml` | задан | `v1.2.0` (пин сильнее) |
-| `https://host/api.yaml` | задан | без изменений — у HTTP-ссылок нет ref |
+| `git+ssh://git@host/org/specs.git#api.yaml` | `--sourceRef release/X` | `release/X` |
+| `git+ssh://git@host/org/specs.git#api.yaml` | нет | дефолтная ветка (`HEAD`) |
+| `git+ssh://git@host/org/specs.git@v1.2.0#api.yaml` | `--sourceRef release/X` | `v1.2.0` (пин сильнее) |
+| `git+ssh://git@host/org/specs.git#api.yaml` | `--sourceRef org/proto:release/X` | дефолтная ветка — адресная запись про другой репозиторий |
+| `https://host/api.yaml` | любое | без изменений — у HTTP-ссылок нет ref |
+
+### Как записывается репозиторий
+
+Селектор сопоставляется с URL источника по канонической форме `host/owner/repo`: схема (`git+ssh://`, `https://`), userinfo (`git@`), порт, `.git` и регистр отбрасываются. Поэтому репозиторий можно назвать как удобно — лишь бы однозначно:
+
+```text
+github.com/org/specs                      # полностью (рекомендуется в CI)
+org/specs                                 # хвост пути
+specs                                     # только имя
+git@github.com:org/specs.git              # как в `git remote -v`
+git+ssh://git@github.com/org/specs.git    # как в project.yaml
+```
+
+Совпадение всегда по границе сегмента: `specs` **не** матчит `org/my-specs`. Если подходят несколько селекторов, выигрывает самый конкретный (длинный) — `github.com/org/specs` сильнее, чем `specs`. Разные хосты с одинаковым `owner/repo` различаются: `github.com/org/specs` и `gitlab.example.com/org/specs` — два разных репозитория.
 
 Подробности:
 
 - Действует на все каналы: `rest.path`, `grpc.path`, `jsonschema.path` / `jsonschema.schemas[].path`, `worker.path` (queue) и `cli.path`. Дерево не может собраться из двух разных состояний контрактов.
-- Приоритет: флаг `--sourceRef` > переменная `GPS_SOURCE_REF` > поведение без переопределения.
+- Приоритет: **если в командной строке есть хотя бы один `--sourceRef`, переменная `GPS_SOURCE_REF` игнорируется целиком** (а не дополняется флагами). Набор по репозиториям осмыслен только как целое: половина из забытой переменной окружения — это ровно то «дерево из двух состояний», от чего ручка и защищает.
+- **Адресная запись, не совпавшая ни с одним источником, — ошибка** (`ref override names a repository that no spec source uses`), в тексте перечислены репозитории, которые проект реально использует. Опечатка в имени репозитория не должна молча оставлять его на дефолтной ветке.
+- Общая форма (`<ref>` без репозитория) «неиспользованной» не считается: её выставляют на весь CI-пайплайн, в том числе для проектов без git-источников.
 - Если ветки/тега не существует, регенерация падает с ошибкой, которая называет источник и ref. Тихого возврата к дефолтной ветке нет.
 - Один clone на `(repo, ref)`: источник, перекрытый до `release/X`, и источник, пинованный на `release/X`, делят один клон.
 - Поля в `project.yaml` для дефолтного ref **нет** — это осознанно. Ref сборки задаёт тот, кто её запускает, а конфиг остаётся одинаковым для всех веток.
@@ -140,8 +171,10 @@ rest:
 | `git clone failed: authentication failed` (ssh) | ssh-agent не запущен или ключ не добавлен | `ssh-add -l`, затем `ssh-add ~/.ssh/id_ed25519` |
 | `git clone failed: authentication failed` (https) | Невалидный токен или нет прав на репо | Проверить токен и его scope (для GitHub: `repo`) |
 | `git clone failed: repository not found` | Опечатка в URL или нет доступа | Проверить URL, попробовать `git clone <repo>` локально |
-| `git clone failed: ssh://...@release/X#api.yaml` | Ветки из `--sourceRef` / `GPS_SOURCE_REF` нет в этом репо | Проверить ветку в репо контрактов; либо пиновать запись через `@<ref>`, чтобы она не следовала за переопределением |
-| `invalid --sourceRef: specsource: invalid git ref` | Ref с пробелом или начинающийся с `-` | Передать имя ветки/тега без пробелов и ведущего `-` |
+| `git clone failed: ssh://...@release/X#api.yaml` | Ветки из `--sourceRef` / `GPS_SOURCE_REF` нет в этом репо | Проверить ветку в репо контрактов; либо пиновать запись через `@<ref>`, чтобы она не следовала за переопределением; либо задать этому репозиторию свой ref адресной формой |
+| `invalid --sourceRef: specsource: invalid git ref` | Ref с пробелом, двоеточием или начинающийся с `-` | Передать имя ветки/тега без пробелов и ведущего `-`. Двоеточие в записи разделяет `<репозиторий>:<ref>`, в самом ref его быть не может |
+| `ref override names a repository that no spec source uses: "org/spec" (repositories used by this project: github.com/org/specs)` | Опечатка в селекторе репозитория либо этот репозиторий не используется проектом | Взять имя из списка в скобках (или убрать запись) |
+| `invalid ref override: "release/a" and "release/b" both set the ref for every repository` | Два `--sourceRef` без указания репозитория | Оставить один общий ref, остальные привязать к репозиториям (`<репозиторий>:<ref>`) |
 | `subpath not found in repository: openapi/foo.yaml (similar: api/foo.yaml)` | Опечатка в subpath | Использовать предложенный путь или поправить YAML |
 | `HTTP request returned non-2xx status: 404 ...` | Неверный URL или ref | Проверить URL в браузере / `curl -I` |
 | `directory subpaths are not supported yet` | `#openapi/` (с `/` в конце) | Указать конкретный файл, не директорию |
