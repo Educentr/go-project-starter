@@ -1,0 +1,65 @@
+main:
+  name: basicauthtest
+  logger: zerolog
+  registry_type: github
+  dev_stand: true
+
+post_generate:
+  - git_install
+  - call_generate
+  - go_mod_tidy
+
+git:
+  repo: git@github.com:test/basicauthtest.git
+  module_path: github.com/test/basicauthtest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  # HTTP Basic client, created once at startup.
+  - name: billing
+    path:
+      - ./billing.swagger.yml
+    version: "v1"
+    generator_type: ogen_client
+    auth_params:
+      transport: header
+      type: basic
+  # Same auth type with a per-call client — both instantiation modes must
+  # hand the generated SecuritySource to ogen's NewClient.
+  - name: audit
+    path:
+      - ./audit.swagger.yml
+    version: "v1"
+    generator_type: ogen_client
+    instantiation: dynamic
+    auth_params:
+      transport: header
+      type: basic
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: billing
+      - name: audit
+      - name: sys
