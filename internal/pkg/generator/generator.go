@@ -76,7 +76,14 @@ type ExecCmd struct {
 	Msg string
 }
 
-var errUnknownTransport = errors.New("unknown transport")
+// errRelPathFmt wraps a failure to make a generator-written path
+// project-relative for the manifest.
+const errRelPathFmt = "error resolve relative path of %s: %w"
+
+var (
+	errUnknownTransport = errors.New("unknown transport")
+	errSpecNotFound     = errors.New("spec file not found")
+)
 
 func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
 	g := Generator{
@@ -973,7 +980,7 @@ func (g *Generator) CopySpecs() ([]string, error) {
 		for _, transport := range app.Transports {
 			for specNum, spec := range transport.SpecPath {
 				if _, err := os.Stat(spec); err != nil {
-					return nil, fmt.Errorf("spec file not found: %s", spec)
+					return nil, fmt.Errorf("%w: %s", errSpecNotFound, spec)
 				}
 
 				source := spec
@@ -1250,7 +1257,7 @@ func (g *Generator) Generate() error {
 
 		rel, err := meta.RelPath(targetPath, file.DestName)
 		if err != nil {
-			return fmt.Errorf("error resolve relative path of %s: %w", file.DestName, err)
+			return fmt.Errorf(errRelPathFmt, file.DestName, err)
 		}
 
 		if !templater.IsUserOwned(rel, ignorePaths...) {
@@ -1454,7 +1461,7 @@ func copiedFileRecords(targetPath string, paths []string) (meta.Manifest, error)
 
 		rel, err := meta.RelPath(targetPath, path)
 		if err != nil {
-			return nil, fmt.Errorf("error resolve relative path of %s: %w", path, err)
+			return nil, fmt.Errorf(errRelPathFmt, path, err)
 		}
 
 		records = append(records, meta.FileRecord{Path: rel, Kind: meta.KindCopied, Hash: meta.HashContent(content)})

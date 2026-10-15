@@ -13,6 +13,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// FileRecord describes a single file the generator wrote during the last run.
+//
+// Path is always project-relative and slash-separated, so the manifest stays
+// valid regardless of where the project is checked out.
+type FileRecord struct {
+	Path string `yaml:"path"`
+	Kind string `yaml:"kind"`
+	Hash string `yaml:"hash"`
+}
+
+// Manifest is the list of files written by the last generator run. It is the
+// authoritative answer to "did the generator write this file?" — orphan
+// detection is the previous manifest minus the current output set, so files the
+// generator never wrote are not read, diffed or deleted.
+type Manifest []FileRecord
+
+type Meta struct {
+	Path     string   `yaml:"-"`
+	Version  int      `yaml:"version"`
+	Manifest Manifest `yaml:"manifest,omitempty"`
+}
+
 const curVer = 5
 
 // Kinds of files recorded in the manifest.
@@ -25,16 +47,6 @@ const (
 	// JSON schemas). Its hash covers the whole file.
 	KindCopied = "copied"
 )
-
-// FileRecord describes a single file the generator wrote during the last run.
-//
-// Path is always project-relative and slash-separated, so the manifest stays
-// valid regardless of where the project is checked out.
-type FileRecord struct {
-	Path string `yaml:"path"`
-	Kind string `yaml:"kind"`
-	Hash string `yaml:"hash"`
-}
 
 // MarshalYAML renders a record as a single-line flow mapping. One record per
 // line keeps meta.yaml diffs and merge conflicts line-local: meta.yaml changes
@@ -55,12 +67,6 @@ func (r FileRecord) MarshalYAML() (any, error) {
 
 	return node, nil
 }
-
-// Manifest is the list of files written by the last generator run. It is the
-// authoritative answer to "did the generator write this file?" — orphan
-// detection is the previous manifest minus the current output set, so files the
-// generator never wrote are not read, diffed or deleted.
-type Manifest []FileRecord
 
 // Index maps project-relative path to its record.
 func (m Manifest) Index() map[string]FileRecord {
@@ -108,12 +114,6 @@ func RelPath(baseDir, path string) (string, error) {
 	}
 
 	return filepath.ToSlash(rel), nil
-}
-
-type Meta struct {
-	Path     string   `yaml:"-"`
-	Version  int      `yaml:"version"`
-	Manifest Manifest `yaml:"manifest,omitempty"`
 }
 
 func GetDefaultMeta(path string) Meta {
