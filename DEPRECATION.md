@@ -35,6 +35,13 @@ the problem rather than fixing it.
 not change that value. After raising it, the project's build/CI environment
 must provide the new toolchain.
 
+**Impact on this repository's own tests:** the generator test configs target
+the new version, so the configs with `post_generate: go_mod_tidy` need a Go
+1.27 toolchain. With the default `GOTOOLCHAIN=auto` Go downloads it on first
+use; with `GOTOOLCHAIN=local` on an older host, `go mod tidy` in the generated
+project fails with `go.mod requires go >= 1.27`. The integration-test CI job
+installs 1.27.2 explicitly.
+
 ## Removed Deprecations
 
 | Feature | Deprecated In | Removed In | Migration |
