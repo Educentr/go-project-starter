@@ -81,6 +81,18 @@ func TestGenerateFromExample(t *testing.T) {
 		}
 	}
 
+	// GOPRIVATE is a builder-stage ENV rather than a `go env -w` inside one RUN,
+	// so it applies to both the module download and the build RUN.
+	// example/project.yaml sets git.private_repos, so it must be rendered here.
+	dockerContent, err := os.ReadFile(filepath.Join(tmpDir, "Dockerfile-publicApi"))
+	if err != nil {
+		t.Fatalf("Error reading Dockerfile: %v", err)
+	}
+
+	if !strings.Contains(string(dockerContent), `ENV GOPRIVATE="github.com/myorg/*"`) {
+		t.Error("Dockerfile should export GOPRIVATE as a builder-stage ENV so both RUNs see it")
+	}
+
 	// Verify REST client uses type aliases to runtime (regression: Middleware type mismatch)
 	clientFile := filepath.Join(tmpDir, "pkg", "app", "rest", "psg_client_gen.go")
 	clientContent, err := os.ReadFile(clientFile)
@@ -378,6 +390,89 @@ func TestGenerateStaticTransport(t *testing.T) {
 	for _, want := range []string{"ADD static /static", "COPY --from=builder /static /static"} {
 		if !strings.Contains(docker, want) {
 			t.Errorf("Dockerfile should contain %q", want)
+		}
+	}
+}
+
+// TestGenerateDockerfileBuildCache verifies that the generated Dockerfile keeps
+// module download in its own layer and uses BuildKit cache mounts, so a change
+// that does not touch go.mod/go.sum neither re-downloads modules nor recompiles
+// the whole dependency tree.
+//
+// The builder stage is above the disclaimer marker, so a consumer cannot keep
+// these layers by hand-editing the generated file — regeneration would drop the
+// edit. That is what makes this a template-level guarantee worth asserting.
+func TestGenerateDockerfileBuildCache(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "static")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for Dockerfile cache check ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	dockerContent, err := os.ReadFile(filepath.Join(tmpDir, "Dockerfile-web"))
+	if err != nil {
+		t.Fatalf("Error reading Dockerfile: %v", err)
+	}
+
+	docker := string(dockerContent)
+
+	// Dependencies are resolved from go.mod/go.sum alone, before the sources are
+	// copied in. Both offsets must exist, otherwise the ordering check below
+	// compares against -1 and passes by accident.
+	depCopy := strings.Index(docker, "COPY go.mod go.sum ./")
+	if depCopy < 0 {
+		t.Fatal("Dockerfile should copy go.mod/go.sum into a dedicated layer before the sources")
+	}
+
+	download := strings.Index(docker, "go mod download")
+	if download < 0 {
+		t.Fatal("Dockerfile should run `go mod download` in the dependency layer")
+	}
+
+	srcCopy := strings.Index(docker, "COPY . .")
+	if srcCopy < 0 {
+		t.Fatal("Dockerfile should copy the sources after the dependency layer")
+	}
+
+	if !(depCopy < download && download < srcCopy) {
+		t.Errorf("Dockerfile layer order should be `COPY go.mod go.sum` -> `go mod download` -> `COPY . .`, got offsets %d, %d, %d", depCopy, download, srcCopy)
+	}
+
+	// The module cache has to be mounted in both RUNs: the build RUN still
+	// resolves modules whenever the dependency layer comes from the layer cache
+	// with an empty cache mount.
+	if n := strings.Count(docker, "--mount=type=cache,target=/go/pkg/mod"); n != 2 {
+		t.Errorf("Dockerfile should mount the module cache in both the download and the build RUN, got %d mounts", n)
+	}
+
+	// Incremental compilation only survives builds if the build cache is mounted.
+	if !strings.Contains(docker, "--mount=type=cache,target=/root/.cache/go-build") {
+		t.Error("Dockerfile should mount the Go build cache in the build RUN")
+	}
+
+	// Each RUN sets up git credentials for private modules and drops them before
+	// the layer is committed, so a CI token never lands in a cached layer.
+	if n := strings.Count(docker, "rm -f ~/.gitconfig"); n != 2 {
+		t.Errorf("Dockerfile should drop the git credentials at the end of both RUNs, got %d", n)
+	}
+
+	// apk add --no-cache already fetches a fresh index, and upgrading base
+	// packages in a stage that never reaches the runtime image buys nothing.
+	for _, unwanted := range []string{"apk update", "apk upgrade"} {
+		if strings.Contains(docker, unwanted) {
+			t.Errorf("Dockerfile builder stage should not run %q", unwanted)
 		}
 	}
 }
