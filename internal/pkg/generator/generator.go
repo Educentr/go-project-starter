@@ -69,6 +69,12 @@ type Generator struct {
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
+	// SourceRefs overrides the git ref of the spec sources in project.yaml
+	// that did not pin one explicitly ("@<ref>" in the URI) — per repository
+	// or for all of them at once. Comes from the --sourceRef flag /
+	// GPS_SOURCE_REF env, never from the config file. Nil means every source
+	// keeps the ref written in the config.
+	SourceRefs *specsource.SourceRefs
 }
 
 type ExecCmd struct {
@@ -86,7 +92,18 @@ var (
 	errSpecNotFound     = errors.New("spec file not found")
 )
 
-func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
+// New builds a Generator from the loaded config. sourceRefs, when non-nil,
+// overrides the git ref of the non-pinned spec sources it names (see
+// Generator.SourceRefs); build it with specsource.ParseSourceRefs, which
+// validates every ref in it.
+//
+// The first parameter is the generator's own version string. It is accepted
+// but unused, as it has been so far — storing it in Generator.AppInfo would
+// rewrite the disclaimer header of every generated file in every project,
+// which is a change of its own and not part of this one.
+func New(
+	_ string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRefs *specsource.SourceRefs,
+) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
@@ -97,6 +114,9 @@ func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Ge
 		Kafka:        make(ds.KafkaConfigs),
 		DryRun:       dryrun,
 		Meta:         genMeta,
+		// Set before processConfig: the inline spec resolve for queue workers
+		// and CLI commands happens inside it and needs the override.
+		SourceRefs: sourceRefs,
 	}
 
 	if err := g.processConfig(config); err != nil {
@@ -233,7 +253,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		// (local paths join with BasePath, remote URIs resolve into a
 		// scratch staging dir that is wiped right after the parse).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0])
+			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0], g.SourceRefs)
 			if err != nil {
 				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
 			}
@@ -615,7 +635,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			// (git+ssh://, git+https://, https://) materialize into a
 			// scratch staging dir that is wiped right after the parse.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0])
+				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0], g.SourceRefs)
 				if err != nil {
 					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
 				}
@@ -816,7 +836,15 @@ func (g *Generator) GetTmplRunnerParams(worker ds.Worker) templater.GeneratorRun
 //
 // LocalSource short-circuits: returns filepath.Join(basePath, raw) without
 // touching the filesystem, so existing local-only flows incur zero cost.
-func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath string, cleanup func(), err error) {
+//
+// sourceRefs is the ref override set for non-pinned git sources; it must be
+// the same set the resolve pre-pass uses — the very same pointer, so that
+// selector usage accumulates across both paths — otherwise the inline
+// channels (queue, CLI) would be built from a different state of the
+// contracts than the REST/gRPC/JSON Schema ones.
+func resolveInlineSpec(
+	ctx context.Context, basePath, raw string, sourceRefs *specsource.SourceRefs,
+) (specPath string, cleanup func(), err error) {
 	src, perr := specsource.ParseSpecSource(raw)
 	if perr != nil {
 		return "", func() {}, perr
@@ -831,7 +859,9 @@ func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath stri
 	}
 	cleanupStaging := func() { _ = os.RemoveAll(stagingDir) }
 
-	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{})
+	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{
+		SourceRefs: sourceRefs,
+	})
 	if rerr != nil {
 		cleanupStaging()
 		return "", func() {}, rerr
@@ -869,6 +899,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 
 	resolver, err := specsource.NewResolver(g.BasePath, stagingDir, specsource.ResolverOptions{
 		SkipGitCheck: skipGit,
+		SourceRefs:   g.SourceRefs,
 	})
 	if err != nil {
 		_ = os.RemoveAll(stagingDir)
@@ -1312,6 +1343,13 @@ func (g *Generator) Generate() error {
 		}()
 	}
 	if err != nil {
+		return errors.Wrap(err, "Error resolve specs")
+	}
+
+	// Every channel has been resolved by now (inline queue/CLI specs during
+	// processConfig, the rest in the pre-pass above), so a repository-scoped
+	// --sourceRef that matched nothing is a typo and must not pass silently.
+	if err = g.SourceRefs.CheckUsed(); err != nil {
 		return errors.Wrap(err, "Error resolve specs")
 	}
 

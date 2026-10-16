@@ -109,9 +109,18 @@ GOLANGCI_BIN:=$(shell which golangci-lint)
 endif
 endif
 
+# Ref for the spec sources in project.yaml that do not pin one themselves
+# ("@<ref>" written in the path is a pin and is never overridden).
+# Every repository at once:
+#   make regenerate SOURCE_REF=release/2026.10
+# Per repository (space- or comma-separated, repositories may differ in host):
+#   make regenerate SOURCE_REF="github.com/org/specs:release/2026.10 github.com/org/proto:main"
+# Equivalent: export GPS_SOURCE_REF=release/2026.10
+SOURCE_REF ?=
+
 .PHONY: regenerate
 regenerate:
-	go-project-starter --target ${PWD}
+	go-project-starter --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
 
 ##################### End of golang-ci checks #####################
 # Initialize git repository (does not require remote to exist)
