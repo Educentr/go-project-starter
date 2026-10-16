@@ -29,6 +29,11 @@ type ResolverOptions struct {
 	// SkipGitCheck disables the up-front `git --version` probe. Used by tests
 	// that don't exercise GitSource.
 	SkipGitCheck bool
+	// SourceRefs overrides the ref of GitSources whose URI did not pin one
+	// explicitly (see GitSource.RefPinned), per repository or for all of them
+	// at once. Nil means "no override": each source keeps the ref it was
+	// parsed with. Build it with ParseSourceRefs, which validates every ref.
+	SourceRefs *SourceRefs
 }
 
 // Resolver materializes SpecSources into local files under a per-run staging
@@ -42,13 +47,15 @@ type Resolver struct {
 	envLookup  func(string) string
 	httpClient *http.Client
 	logStderr  io.Writer
+	sourceRefs *SourceRefs
 }
 
 // NewResolver constructs a Resolver. basePath is the directory of project.yaml
 // (used to resolve LocalSource). stagingDir must already exist and be
 // writable; the caller is responsible for creating it (typically via
 // os.MkdirTemp). The Resolver verifies that `git` is installed unless
-// opts.SkipGitCheck is set.
+// opts.SkipGitCheck is set. Refs in opts.SourceRefs are validated where they
+// enter the process (ParseSourceRefs), not here.
 func NewResolver(basePath, stagingDir string, opts ResolverOptions) (*Resolver, error) {
 	if !opts.SkipGitCheck {
 		if _, err := exec.LookPath("git"); err != nil {
@@ -63,6 +70,7 @@ func NewResolver(basePath, stagingDir string, opts ResolverOptions) (*Resolver, 
 		envLookup:  opts.EnvLookup,
 		httpClient: opts.HTTPClient,
 		logStderr:  opts.LogStderr,
+		sourceRefs: opts.SourceRefs,
 	}
 
 	if r.envLookup == nil {
@@ -132,6 +140,11 @@ func (r *Resolver) resolveHTTP(ctx context.Context, s HTTPSource) (ResolvedSpec,
 }
 
 func (r *Resolver) resolveGit(ctx context.Context, s GitSource) (ResolvedSpec, error) {
+	// From here on s carries the effective ref, so the clone cache key, the
+	// clone itself and every error message speak about the ref we actually
+	// fetched — not the one written in project.yaml.
+	s = r.sourceRefs.apply(s)
+
 	cloneDir, err := r.cache.getOrClone(s, func() (string, error) {
 		target := filepath.Join(r.stagingDir, "git", cacheKey(s))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

@@ -166,6 +166,14 @@ CLI и queue-worker spec'и (которые парсятся inline во вре�
 
 Известные ограничения v1: subpath = только файл (не директория), токен в `git clone` светится в `ps`.
 
+### Переопределение ref (`--sourceRef`)
+
+Повторяемый флаг `--sourceRef` (env `GPS_SOURCE_REF`) задаёт ref git-источников, у которых ref **не** указан в строке. Две формы: `<ref>` — на все репозитории (допустима одна на запуск), `<репозиторий>:<ref>` — адресно (контракты лежат в нескольких репозиториях, в релиз идёт своя ветка каждого). Запись с явным `@<ref>` в `project.yaml` — пин, не перекрывается ни одной формой. Действует на все каналы (`rest`, `grpc`, `jsonschema`, queue worker, CLI), иначе дерево собралось бы из двух состояний контрактов. Поля в `project.yaml` для дефолтного ref нет осознанно — ref задаёт тот, кто запускает сборку.
+
+Реализация: `internal/pkg/specsource/sourceref.go` — тип `SourceRefs` (разбор, матчинг, учёт использования); единственный конструктор `ParseSourceRefs` (он же валидирует каждый ref через `ValidateRef`, `nil` = нет переопределения). Селектор отделяется по **последнему** `:` — `ValidateRef` запрещает `:` внутри ref. Матчинг по канонической форме `host/owner/repo` (`canonicalRepo`: без схемы, userinfo, порта, `.git`, в нижнем регистре), совпадение по границе сегмента, выигрывает самый длинный селектор. Признак пина — `GitSource.RefPinned` (выставляется в `parseGitURL`), применение — `SourceRefs.apply` → `GitSource.applySourceRef` в начале `Resolver.resolveGit`, поэтому эффективный ref попадает и в `cloneKey`, и в текст ошибок.
+
+Прокидка: `resolveSourceRefs(pflag.CommandLine, os.Getenv)` в `cmd/go-project-starter/main.go` (есть флаги → env игнорируется целиком) → `generator.New(..., sourceRefs)` → `Generator.SourceRefs` → `ResolverOptions.SourceRefs` в **обоих** путях резолва (`resolveAllSources` и `resolveInlineSpec`), один и тот же указатель — по нему накапливается учёт совпадений. Адресный селектор, не совпавший ни с одним источником, — ошибка (`SourceRefs.CheckUsed()` в `Generate()` сразу после `resolveAllSources`): опечатка в имени репозитория не должна молча оставить его на дефолтной ветке. Общая форма «неиспользованной» не считается. В сгенерированном проекте: `make regenerate SOURCE_REF=<ref>` или `SOURCE_REF="<repo>:<ref> <repo>:<ref>"` (`main/Makefile.tmpl`, `$(foreach …)`). Документация: [docs/configuration/remote-specs.md](docs/configuration/remote-specs.md#переопределение-ref-sourceref).
+
 ## Rewrite Refs
 
 Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `project.yaml`. После `CopySpecs`/`CopySchemas` стартер сканирует target-директорию (`api/rest/<svc>/<ver>/` или `api/schema/<name>/`) и переписывает кросс-директорные `$ref` (`../common/foo.yaml#/X`) в локальные (`./foo.yaml#/X`) — при условии, что sibling-файл с этим basename уже скопирован рядом и входит в whitelist `SpecTargetFiles`/`SchemaTargetFiles`.
