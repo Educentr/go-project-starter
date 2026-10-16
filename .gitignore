@@ -71,3 +71,4 @@ check
 test/docker-integration/.image-params
 .vt/
 .pi/
+.claude/
