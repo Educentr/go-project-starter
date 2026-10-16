@@ -639,6 +639,7 @@ type (
 		Artifacts      []ArtifactType      `mapstructure:"artifacts"`
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
+		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc

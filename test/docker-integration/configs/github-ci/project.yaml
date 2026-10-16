@@ -1,0 +1,48 @@
+main:
+  name: github-ci-test
+  logger: zerolog
+  registry_type: digitalocean
+
+git:
+  repo: git@github.com:test/github-ci-test.git
+  module_path: github.com/test/github-ci-test
+
+tools:
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+  goat_version: v0.5.0
+  goat_services_version: v0.2.2
+
+github_ci:
+  runs_on:
+    group: my-runners
+    labels: [linux, x64]
+  job_timeout_minutes: 30
+  doctl_version: 1.170.0
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    goat_tests_config:
+      enabled: true
+      binary_path: /tmp/api
+    transport:
+      - name: api
+      - name: sys

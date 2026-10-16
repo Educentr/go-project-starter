@@ -62,6 +62,9 @@ type GeneratorParams struct {
 	Grafana       grafana.Config
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
+	// GithubCI carries the runner, job timeout and doctl version applied to
+	// every job of the generated GitHub Actions workflows.
+	GithubCI ds.GithubCIConfig
 }
 
 // type GeneratorParamDriver struct {
