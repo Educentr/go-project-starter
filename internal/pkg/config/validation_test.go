@@ -1071,6 +1071,249 @@ func TestGrafana_IsValid(t *testing.T) {
 	}
 }
 
+func TestGrafanaAnnotation_IsValid(t *testing.T) {
+	tests := []struct {
+		name    string
+		ann     GrafanaAnnotation
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name:   "minimal annotation",
+			ann:    GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}},
+			wantOK: true,
+		},
+		{
+			name: "every field spelled out",
+			ann: GrafanaAnnotation{
+				Name:       "Deploys / Restarts / Crashes",
+				IconColor:  "rgba(0, 211, 255, 1)",
+				Datasource: "grafana",
+				Tags:       []string{"deploy", "restart", "crash"},
+				MatchAny:   true,
+				Hide:       true,
+				Limit:      50,
+				Enable:     boolPtr(false),
+			},
+			wantOK: true,
+		},
+		{
+			name: "comma-separated tags arrive with spaces viper does not trim",
+			ann:  GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy", " restart", " crash"}},
+
+			wantOK: true,
+		},
+		{
+			name:    "empty name",
+			ann:     GrafanaAnnotation{Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Empty annotation name",
+		},
+		{
+			name:    "name of the built-in entry is reserved",
+			ann:     GrafanaAnnotation{Name: "Annotations & Alerts", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Annotation name Annotations & Alerts is reserved for the built-in entry",
+		},
+		{
+			name:    "no tags",
+			ann:     GrafanaAnnotation{Name: "Deploys"},
+			wantOK:  false,
+			wantMsg: "No tags for annotation Deploys",
+		},
+		{
+			name:    "tags that are blank after trimming count as none",
+			ann:     GrafanaAnnotation{Name: "Deploys", Tags: []string{"  ", ""}},
+			wantOK:  false,
+			wantMsg: "No tags for annotation Deploys",
+		},
+		{
+			name:    "unsupported datasource",
+			ann:     GrafanaAnnotation{Name: "Deploys", Datasource: "prometheus", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Invalid annotation datasource: prometheus for Deploys (supported: grafana)",
+		},
+		{
+			name:    "negative limit",
+			ann:     GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}, Limit: -1},
+			wantOK:  false,
+			wantMsg: "Negative limit for annotation Deploys: -1",
+		},
+		{
+			name:    "control character in name would break the dashboard JSON",
+			ann:     GrafanaAnnotation{Name: "Dep\nloys", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Control character in name of annotation Dep\nloys",
+		},
+		{
+			name:    "control character in icon_color would break the dashboard JSON",
+			ann:     GrafanaAnnotation{Name: "Deploys", IconColor: "yel\tlow", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Control character in icon_color of annotation Deploys",
+		},
+		{
+			name:    "control character in a tag would break the dashboard JSON",
+			ann:     GrafanaAnnotation{Name: "Deploys", Tags: []string{"dep\rloy"}},
+			wantOK:  false,
+			wantMsg: "Control character in tag of annotation Deploys",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.ann.IsValid()
+
+			if gotOK != tt.wantOK {
+				t.Errorf("GrafanaAnnotation.IsValid() ok = %v, want %v (msg %q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("GrafanaAnnotation.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+// TestGrafanaAnnotation_Resolved covers the defaults applied between
+// project.yaml and the dashboard: an omitted field must not render as an empty
+// colour or a zero limit, both of which Grafana treats as "draw nothing".
+func TestGrafanaAnnotation_Resolved(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		ann := GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}}
+
+		if got := ann.ResolvedIconColor(); got != "yellow" {
+			t.Errorf("ResolvedIconColor() = %q, want %q", got, "yellow")
+		}
+
+		if got := ann.ResolvedLimit(); got != 100 {
+			t.Errorf("ResolvedLimit() = %d, want 100", got)
+		}
+
+		if !ann.ResolvedEnable() {
+			t.Error("ResolvedEnable() = false, want true for an omitted enable")
+		}
+	})
+
+	t.Run("explicit values win", func(t *testing.T) {
+		ann := GrafanaAnnotation{
+			Name:      "Deploys",
+			IconColor: "red",
+			Limit:     7,
+			Enable:    boolPtr(false),
+			Tags:      []string{"deploy"},
+		}
+
+		if got := ann.ResolvedIconColor(); got != "red" {
+			t.Errorf("ResolvedIconColor() = %q, want %q", got, "red")
+		}
+
+		if got := ann.ResolvedLimit(); got != 7 {
+			t.Errorf("ResolvedLimit() = %d, want 7", got)
+		}
+
+		if ann.ResolvedEnable() {
+			t.Error("ResolvedEnable() = true, want false for an explicit enable: false")
+		}
+	})
+
+	// Viper splits a comma-separated scalar on "," and leaves the spaces in
+	// place; untrimmed, " restart" would match no event at all.
+	t.Run("tags are trimmed and blanks dropped", func(t *testing.T) {
+		ann := GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy", " restart", "", "  crash  ", "   "}}
+
+		want := []string{"deploy", "restart", "crash"}
+		got := ann.ResolvedTags()
+
+		if len(got) != len(want) {
+			t.Fatalf("ResolvedTags() = %q, want %q", got, want)
+		}
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("ResolvedTags()[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+}
+
+func TestGrafana_IsValid_Annotations(t *testing.T) {
+	datasources := []GrafanaDatasource{
+		{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+	}
+
+	tests := []struct {
+		name    string
+		grafana Grafana
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name: "annotations alongside a datasource",
+			grafana: Grafana{
+				Datasources: datasources,
+				Annotations: []GrafanaAnnotation{
+					{Name: "Deploys", Tags: []string{"deploy"}},
+					{Name: "Migrations", Tags: []string{"migration"}},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name: "duplicate annotation name",
+			grafana: Grafana{
+				Datasources: datasources,
+				Annotations: []GrafanaAnnotation{
+					{Name: "Deploys", Tags: []string{"deploy"}},
+					{Name: "Deploys", Tags: []string{"restart"}},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate annotation name: Deploys",
+		},
+		{
+			name: "invalid annotation is reported from the annotation check",
+			grafana: Grafana{
+				Datasources: datasources,
+				Annotations: []GrafanaAnnotation{{Name: "Deploys"}},
+			},
+			wantOK:  false,
+			wantMsg: "No tags for annotation Deploys",
+		},
+		{
+			// No datasource means no dashboard is generated, so the
+			// annotations would be dropped without a word — the exact silent
+			// failure this section exists to remove.
+			name: "annotations without a datasource have nowhere to go",
+			grafana: Grafana{
+				Annotations: []GrafanaAnnotation{{Name: "Deploys", Tags: []string{"deploy"}}},
+			},
+			wantOK:  false,
+			wantMsg: "Annotations declared without any datasource: no dashboard is generated to hold them",
+		},
+		{
+			name:    "no datasources and no annotations stays valid",
+			grafana: Grafana{},
+			wantOK:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.grafana.IsValid()
+
+			if gotOK != tt.wantOK {
+				t.Errorf("Grafana.IsValid() ok = %v, want %v (msg %q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("Grafana.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
 func TestPackageUploadConfig_IsValid(t *testing.T) {
 	tests := []struct {
 		name    string

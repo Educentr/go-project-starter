@@ -353,7 +353,7 @@ applications:
 
 ## Секция `grafana`
 
-Глобальные настройки Grafana datasources.
+Глобальные настройки Grafana: datasources и записи аннотаций.
 
 ```yaml
 grafana:
@@ -365,10 +365,23 @@ grafana:
       uid: string               # [optional] uid datasource (default: ds-<lowercase name>)
       isDefault: bool           # [optional] Default datasource
       editable: bool            # [optional] Редактируемый в UI
+
+  annotations:
+    - name: string              # [required] Уникальное имя (подпись тумблера на доске)
+      tags: [string]            # [required] Теги событий; список или строка через запятую
+      icon_color: string        # [optional] Цвет маркера (default: yellow)
+      datasource: string        # [optional] Только grafana — встроенное хранилище (default)
+      match_any: bool           # [optional] OR по тегам вместо AND (default: false)
+      hide: bool                # [optional] Скрыть тумблер в шапке доски (default: false)
+      enable: bool              # [optional] Начальное состояние тумблера (default: true)
+      limit: int                # [optional] Лимит событий на запрос (default: 100)
 ```
 
 `uid` — до 40 символов из `a-z A-Z 0-9 - _`; итоговые uid (явные и вычисленные)
 должны быть уникальны. Подробнее — [инфраструктура](../configuration/infrastructure.md#поля-datasource).
+
+`annotations` эмитятся в `.annotations.list[]` каждого сгенерированного дашборда рядом
+со стоковой записью builtIn. Подробнее — [инфраструктура](../configuration/infrastructure.md#аннотации).
 
 ---
 

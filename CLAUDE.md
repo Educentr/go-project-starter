@@ -200,6 +200,20 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## Grafana Annotations
+
+Секция `grafana.annotations[]` в `project.yaml` объявляет записи-запросы, которые эмитятся в `.annotations.list[]` **каждого** сгенерированного дашборда рядом со стоковой записью builtIn. Сами события (деплой, рестарт, краш) постит сервис в рантайме через `POST /api/annotations`; без записи-запроса они складываются в Grafana, но ни на одном графике не рисуются.
+
+Аннотации объявляются на сервис целиком — приложение **не** ссылается на них по имени, как на datasources (`$.Grafana.Annotations` в шаблоне, не `.Application.Grafana`). Запись — чистые данные, маппинг в JSON один к одному.
+
+Поддерживается только теговый запрос к встроенному хранилищу (`datasource: grafana`, uid `-- Grafana --`): у запроса выражением к prometheus/loki принципиально другая форма `target`, это не ещё одно значение того же поля.
+
+Дефолты применяются на границе config → шаблон (`ResolvedIconColor`/`ResolvedLimit`/`ResolvedEnable`/`ResolvedTags`), потому что пустой `iconColor` или `limit: 0` Grafana трактует как «не рисовать». `tags` принимает и список YAML, и строку через запятую — viper режет скаляр по `,` без trim, поэтому `ResolvedTags` обрезает пробелы, иначе тег ` restart` не совпал бы ни с одним событием. `enable` — указатель: явный `false` (объявлена, но по умолчанию выключена) надо отличать от отсутствующего поля.
+
+Валидация (`config.GrafanaAnnotation.IsValid`, `Grafana.validateAnnotations`) отвергает: пустое имя, имя стоковой записи `Annotations & Alerts`, дубли имён, запрос без тегов, неподдерживаемый `datasource`, отрицательный `limit`, control-символы в `name`/`icon_color`/тегах (шаблонный `escapeJSON` их не экранирует → сломанный JSON доски). Объявленные аннотации при полном отсутствии datasources — тоже ошибка: дашборд генерируется только для приложений со ссылкой на datasource, записям было бы некуда попасть.
+
+Реализация: `internal/pkg/grafana/config.go` (тип `Annotation`, константы встроенного хранилища и дефолтов), `internal/pkg/config/structs.go` (`GrafanaAnnotation`, валидация, резолверы), маппинг в `Generator.processConfig()`, вывод — `internal/pkg/templater/embedded/templates/grafana/dashboards/dashboard.json.tmpl`. Полная документация: [docs/configuration/infrastructure.md](docs/configuration/infrastructure.md#аннотации).
+
 ## Regeneration Behavior
 
 ### Disclaimer Marker (env-файлы и другие файлы с ручными правками)
