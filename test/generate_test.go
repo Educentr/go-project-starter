@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -1654,6 +1655,130 @@ func TestGenerateGrafanaDatasourceUIDDefault(t *testing.T) {
 		if !strings.Contains(string(dashboard), exp) {
 			t.Errorf("dashboard without explicit uid should contain %q", exp)
 		}
+	}
+}
+
+// TestGenerateGrafanaAnnotations — grafana.annotations[] объявляет записи-запросы в
+// .annotations.list[] дашборда. Без них события, которые сервис постит в
+// /api/annotations (деплой, рестарт, краш), складываются в Grafana, но ни на одном
+// графике не рисуются: блок был литералом шаблона с единственной стоковой записью
+// builtIn, а дописанная руками запись стиралась следующим `make regenerate`.
+//
+// Отказ при этом тихий — JSON остаётся валидным, дашборд открывается, панели работают,
+// поэтому тест разбирает файл как JSON и проверяет сами записи, а не вхождение строк.
+//
+// Фикстура configs/grafana покрывает обе формы одной генерацией: у первой записи теги
+// заданы строкой через запятую и все опциональные поля проставлены, у второй — списком
+// YAML и всё опциональное оставлено на дефолтах.
+func TestGenerateGrafanaAnnotations(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project with annotations ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	const dashboardFile = "configs/grafana/dashboards/api.json"
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, dashboardFile))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", dashboardFile, err)
+	}
+
+	// Весь дашборд обязан остаться валидным JSON: записи вставляются в литерал
+	// шаблона, и лишняя/пропущенная запятая ломает файл целиком.
+	var dashboard struct {
+		Annotations struct {
+			List []struct {
+				BuiltIn    int    `json:"builtIn"`
+				Name       string `json:"name"`
+				IconColor  string `json:"iconColor"`
+				Enable     bool   `json:"enable"`
+				Hide       bool   `json:"hide"`
+				Type       string `json:"type"`
+				Datasource struct {
+					Type string `json:"type"`
+					UID  string `json:"uid"`
+				} `json:"datasource"`
+				Target struct {
+					Limit    int      `json:"limit"`
+					MatchAny bool     `json:"matchAny"`
+					Tags     []string `json:"tags"`
+					Type     string   `json:"type"`
+				} `json:"target"`
+			} `json:"list"`
+		} `json:"annotations"`
+	}
+
+	if err := json.Unmarshal(content, &dashboard); err != nil {
+		t.Fatalf("%s is not valid JSON: %v", dashboardFile, err)
+	}
+
+	list := dashboard.Annotations.List
+	if len(list) != 3 {
+		t.Fatalf("%s should hold the builtIn entry plus 2 declared annotations, got %d", dashboardFile, len(list))
+	}
+
+	// Стоковая запись builtIn остаётся на месте: объявленные добавляются рядом с ней,
+	// а не вместо неё.
+	if list[0].BuiltIn != 1 || list[0].Name != "Annotations & Alerts" {
+		t.Errorf("%s: first entry should stay the builtIn one, got %+v", dashboardFile, list[0])
+	}
+
+	deploys, migrations := list[1], list[2]
+
+	if deploys.Name != "Deploys / Restarts / Crashes" {
+		t.Errorf("declared annotation name = %q, want %q", deploys.Name, "Deploys / Restarts / Crashes")
+	}
+
+	// Теги из строки `deploy, restart, crash` должны приехать без пробелов: с ними
+	// Grafana не нашла бы ни одного события.
+	wantTags := []string{"deploy", "restart", "crash"}
+	if strings.Join(deploys.Target.Tags, ",") != strings.Join(wantTags, ",") {
+		t.Errorf("declared annotation tags = %q, want %q", deploys.Target.Tags, wantTags)
+	}
+
+	if deploys.Target.Limit != 50 || !deploys.Target.MatchAny {
+		t.Errorf("declared annotation target = %+v, want limit 50 and matchAny true", deploys.Target)
+	}
+
+	if deploys.IconColor != "yellow" || !deploys.Enable || deploys.Hide {
+		t.Errorf("declared annotation = %+v, want iconColor yellow, enable true, hide false", deploys)
+	}
+
+	// Запрос должен быть тегового типа и адресован встроенному хранилищу аннотаций —
+	// иначе Grafana ничего не вытянет.
+	if deploys.Type != "tags" || deploys.Target.Type != "tags" {
+		t.Errorf("declared annotation types = (%q, %q), want both %q", deploys.Type, deploys.Target.Type, "tags")
+	}
+
+	if deploys.Datasource.Type != "grafana" || deploys.Datasource.UID != "-- Grafana --" {
+		t.Errorf("declared annotation datasource = %+v, want the built-in grafana store", deploys.Datasource)
+	}
+
+	// Вторая запись проверяет дефолты: ни один опциональный knob не задан, но пустой
+	// цвет или limit 0 Grafana трактует как «не рисовать».
+	if migrations.Name != "Migrations" {
+		t.Errorf("second declared annotation name = %q, want %q", migrations.Name, "Migrations")
+	}
+
+	if migrations.IconColor != "yellow" || migrations.Target.Limit != 100 {
+		t.Errorf("second declared annotation = %+v, want default iconColor yellow and limit 100", migrations)
+	}
+
+	if !migrations.Enable || migrations.Target.MatchAny {
+		t.Errorf("second declared annotation = %+v, want default enable true and matchAny false", migrations)
 	}
 }
 
