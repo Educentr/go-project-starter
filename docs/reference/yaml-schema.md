@@ -79,6 +79,8 @@ tools:
   runtime_version: string          # [auto] Версия go-project-starter-runtime
   goat_version: string             # [auto] Версия GOAT test framework
   goat_services_version: string    # [auto] Версия GOAT services
+  starter_version: string          # [auto] Версия go-project-starter (пин в Makefile; читается
+                                   #        только если бинарь не знает своей версии)
 ```
 
 ---

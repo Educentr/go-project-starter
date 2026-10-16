@@ -28,6 +28,13 @@ const MinRuntimeVersion = "v0.15.0"
 // Go modules when git.private_repos_token_secret is not set in project.yaml.
 const DefaultPrivateReposTokenSecret = "GH_PAT"
 
+// DefaultStarterVersion is the generator pin written into a project when the
+// running binary cannot name its own version and the config does not pin one
+// either (a local build from an untagged tree). "latest" keeps `make
+// regenerate` working; it is deliberately not a version number, because an
+// invented pin would claim a provenance the tree does not have.
+const DefaultStarterVersion = "latest"
+
 type GeneratorParams struct {
 	AppInfo         string
 	Logger          ds.Logger
@@ -57,10 +64,13 @@ type GeneratorParams struct {
 	GoJSONSchemaVersion     string
 	GoatVersion             string
 	GoatServicesVersion     string
-	Drivers                 ds.Drivers
-	Workers                 ds.Workers
-	JSONSchemas             ds.JSONSchemas
-	Kafka                   ds.KafkaConfigs
+	// StarterVersion is the go-project-starter version this tree was generated
+	// with; the Makefile calls exactly it to regenerate.
+	StarterVersion string
+	Drivers        ds.Drivers
+	Workers        ds.Workers
+	JSONSchemas    ds.JSONSchemas
+	Kafka          ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
