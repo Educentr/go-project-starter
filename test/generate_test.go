@@ -291,6 +291,70 @@ func TestLintTargetsFlags(t *testing.T) {
 	}
 }
 
+// TestMakefilePinsGeneratorVersion verifies that the generated Makefile calls
+// the generator the same way it calls every other generator it drives — by a
+// pinned version it fetches itself — instead of a bare `go-project-starter`
+// that has to be pre-installed in the environment (issue #49).
+func TestMakefilePinsGeneratorVersion(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for starter pin test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefileContent, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	pkg := "GPSPKG = github.com/Educentr/go-project-starter/cmd/go-project-starter"
+	if !strings.Contains(makefile, pkg) {
+		t.Errorf("generated Makefile must declare %q", pkg)
+	}
+
+	// This generator ran as `go run main.go`, i.e. from no published version,
+	// and the config pins none — so the pin degrades to the documented
+	// default rather than to something unresolvable like "dev".
+	pin := "GPSVERSION = " + templater.DefaultStarterVersion
+	if !strings.Contains(makefile, pin) {
+		t.Errorf("generated Makefile must pin the generator as %q", pin)
+	}
+
+	regenerate := "go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}"
+	if !strings.Contains(makefile, regenerate) {
+		t.Errorf("regenerate target must fetch the pinned generator: %q", regenerate)
+	}
+
+	if strings.Contains(makefile, "\tgo-project-starter --target") {
+		t.Error("regenerate target must not call a pre-installed go-project-starter binary (issue #49)")
+	}
+
+	// Without a way out, the pin is a trap: the only path to regeneration is
+	// fixed on the recorded version, which writes itself back on every run.
+	update := "go run $(GPSPKG)@$(STARTER_VERSION) --target ${PWD}"
+	if !strings.Contains(makefile, update) {
+		t.Errorf("update-starter target must run the requested version: %q", update)
+	}
+
+	if !strings.Contains(makefile, "update-starter:") {
+		t.Error("generated Makefile must expose an update-starter target")
+	}
+}
+
 // buildFakeGolangciLint builds a binary at dst that mimics the `--version`
 // output of golangci-lint v2 for the given version. It has to be a real Go
 // binary, because the generated Makefile also probes the Go toolchain the

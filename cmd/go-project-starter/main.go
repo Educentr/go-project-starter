@@ -14,6 +14,7 @@ import (
 	projinit "github.com/Educentr/go-project-starter/internal/pkg/init"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/migrate"
+	"github.com/Educentr/go-project-starter/internal/pkg/selfversion"
 	"github.com/Educentr/go-project-starter/internal/pkg/setup"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
@@ -275,8 +276,9 @@ func runGenerator() {
 		cfg.SetTargetDir(targetDir)
 	}
 
-	appInfo := fmt.Sprintf("go-project-starter-%s", version)
-	if gen, err = generator.New(appInfo, cfg, genMeta, dryRun, sourceRefs); err != nil {
+	// The version of this binary is pinned into the generated project, so the
+	// tree records which generator produced it (see selfversion).
+	if gen, err = generator.New(selfversion.Resolve(version), cfg, genMeta, dryRun, sourceRefs); err != nil {
 		log.Fatalf(layoutFailedToCreateGenerator, err)
 	}
 
