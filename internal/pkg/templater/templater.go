@@ -46,21 +46,23 @@ type GeneratorParams struct {
 	PrivateRepos    string
 	// Read via PrivateReposTokenSecretName, which applies the default.
 	PrivateReposTokenSecret string
-	DockerImagePrefix       string
-	SkipServiceInit         bool
-	GoLangVersion           string
-	OgenVersion             string
-	ArgenVersion            string
-	GolangciVersion         string
-	LintExcludePaths        []string
-	RuntimeVersion          string
-	GoJSONSchemaVersion     string
-	GoatVersion             string
-	GoatServicesVersion     string
-	Drivers                 ds.Drivers
-	Workers                 ds.Workers
-	JSONSchemas             ds.JSONSchemas
-	Kafka                   ds.KafkaConfigs
+	// Docker carries the docker section of project.yaml: the image prefix plus
+	// the build args and labels of the generated Dockerfile and Makefile.
+	Docker              ds.DockerConfig
+	SkipServiceInit     bool
+	GoLangVersion       string
+	OgenVersion         string
+	ArgenVersion        string
+	GolangciVersion     string
+	LintExcludePaths    []string
+	RuntimeVersion      string
+	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
+	Drivers             ds.Drivers
+	Workers             ds.Workers
+	JSONSchemas         ds.JSONSchemas
+	Kafka               ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???

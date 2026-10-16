@@ -1,0 +1,56 @@
+main:
+  name: dockerargstest
+  logger: zerolog
+  registry_type: github
+  dev_stand: true
+
+# dev_stand requires git_install; the rest of the post-generate chain
+# (call_generate, go_mod_tidy) is not needed to inspect the generated recipes.
+post_generate:
+  - git_install
+
+git:
+  repo: git@github.com:test/dockerargstest.git
+  module_path: github.com/test/dockerargstest
+
+tools:
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+docker:
+  image_prefix: registry.example/org
+  build_args:
+    # Short form: name only, no Makefile default.
+    - IMAGE_VERSION
+    # Full form: Makefile default and an explicit stage list.
+    - name: IMAGE_REVISION
+      default: $(shell git rev-parse HEAD)
+      stages: [builder, final]
+  labels:
+    org.opencontainers.image.version: ${IMAGE_VERSION}
+    org.opencontainers.image.revision: ${IMAGE_REVISION}
+    org.opencontainers.image.vendor: Educentr
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys

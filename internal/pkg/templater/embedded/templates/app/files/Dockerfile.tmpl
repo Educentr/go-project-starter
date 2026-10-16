@@ -1,6 +1,9 @@
 FROM golang:{{ .GoLangVersion }}-alpine AS builder
 ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
+{{- range $_, $arg := .Docker.BuilderArgs }}
+ARG {{ $arg.Name }}
+{{- end }}
 
 RUN set -xe  && \
     apk add --no-cache make git openssh-client
@@ -75,4 +78,18 @@ CMD ["/service"]
 {{- range $_, $t := .Applications.GetRestTransport }}
 # {{ $t.Name }}/{{ $t.Type }}
 EXPOSE {{ $t.Port }}
+{{- end }}
+{{- if .Docker.FinalArgs }}
+
+# Build arguments of the runtime stage, declared in the docker section of
+# project.yaml. They are last in the stage on purpose: an ARG invalidates the
+# build cache of the layers below it, and values like a version or a revision
+# change on every commit.
+{{- range $_, $arg := .Docker.FinalArgs }}
+ARG {{ $arg.Name }}
+{{- end }}
+{{- end }}
+{{- with .Docker.LabelDirective }}
+
+{{ . }}
 {{- end }}
