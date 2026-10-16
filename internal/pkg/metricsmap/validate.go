@@ -147,6 +147,14 @@ func (m Metric) problems() []string {
 		// package would not compile.
 		problems = append(problems, fmt.Sprintf(
 			"name %q leaves no Go identifier once '_' and ':' are folded away; it needs at least one letter or digit", m.Name))
+	case !startsWithLetter(m.VarName()):
+		// Prometheus allows a leading '_' or ':' before a digit, Go does not
+		// allow an identifier to start with one. Folding the separators away
+		// promotes the digit to the front, so the generated
+		// `var <VarName> = prometheus.New…` would not compile.
+		problems = append(problems, fmt.Sprintf(
+			"name %q generates the Go variable %s, which starts with a digit; "+
+				"the first character after any leading '_' or ':' must be a letter", m.Name, m.VarName()))
 	}
 
 	if m.Help == "" {

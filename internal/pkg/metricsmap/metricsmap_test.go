@@ -162,6 +162,20 @@ func TestValidate_Problems(t *testing.T) {
 			wantMsg: "leaves no Go identifier",
 		},
 		{
+			// Prometheus accepts a leading '_' before a digit; folding the
+			// separator away promotes the digit to the front, and Go has no
+			// identifier starting with a digit. Caught here rather than by the
+			// Go compiler on `var 123Total = prometheus.NewCounter(`.
+			name:    "name whose identifier would start with a digit",
+			yaml:    "metrics:\n  - name: _123_total\n    type: Counter\n    help: Leading separator then digits.",
+			wantMsg: "which starts with a digit",
+		},
+		{
+			name:    "colon-prefixed name whose identifier would start with a digit",
+			yaml:    "metrics:\n  - name: \":9x\"\n    type: Counter\n    help: Leading colon then a digit.",
+			wantMsg: "which starts with a digit",
+		},
+		{
 			name:    "empty file",
 			yaml:    "   \n\n",
 			wantMsg: "the file is empty",

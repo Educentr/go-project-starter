@@ -41,14 +41,22 @@ func (m Metric) VarName() string {
 		b.WriteRune(r)
 	}
 
-	name := b.String()
-	if name == "" {
-		return ""
-	}
+	// The result can still be unusable as an identifier: a name built only from
+	// '_' and ':' folds away to nothing, and a leading '_' or ':' before a digit
+	// promotes that digit to the front. Both are rejected by Validate rather
+	// than mangled here, so the error names the offending declaration instead of
+	// surfacing as a syntax error in the generated package.
+	return b.String()
+}
 
-	// A declared name may legally start with '_' or a digit-free letter only,
-	// so the first rune is always a letter here; nothing else to guard.
-	return name
+// startsWithLetter reports whether the Go identifier derived from a declared
+// name may open a `var` declaration. Callers pass a non-empty VarName, which
+// holds only ASCII letters and digits: the declared name has already been
+// matched against metricNameRx and the separators folded away.
+func startsWithLetter(varName string) bool {
+	c := varName[0]
+
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // Constructor returns the client_golang constructor call for the metric, e.g.

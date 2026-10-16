@@ -328,6 +328,70 @@ func TestGenerateMetricsMapDashboard(t *testing.T) {
 	}
 }
 
+// TestGenerateRejectsNameThatIsNoGoIdentifier pins that a declared name which
+// cannot become a Go identifier stops generation with a message naming the
+// declaration. The name below is legal under the Prometheus grammar, so nothing
+// upstream rejects it; folding the leading '_' away promotes the digit to the
+// front and the collector package would be `var 123Total = …`. Letting that
+// through means the failure surfaces as a syntax error at `go build` of the
+// generated project, far from the map where the real problem is.
+func TestGenerateRejectsNameThatIsNoGoIdentifier(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	fixture := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "metrics-map")
+	configDir := t.TempDir()
+
+	// Reuse the working fixture, swapping in a map with the one bad name, so
+	// that the only difference from the passing case is the name itself.
+	for _, name := range []string{"project.yaml", "api.swagger.yml"} {
+		data, rerr := os.ReadFile(filepath.Join(fixture, name))
+		if rerr != nil {
+			t.Fatalf("Error reading fixture %s: %v", name, rerr)
+		}
+
+		if werr := os.WriteFile(filepath.Join(configDir, name), data, 0o600); werr != nil {
+			t.Fatalf("Error writing %s: %v", name, werr)
+		}
+	}
+
+	badMap := "metrics:\n" +
+		"  - name: _123_total\n" +
+		"    type: Counter\n" +
+		"    help: Legal in Prometheus, no Go identifier.\n"
+
+	if werr := os.WriteFile(filepath.Join(configDir, "metrics-map.yaml"), []byte(badMap), 0o600); werr != nil {
+		t.Fatalf("Error writing metrics map: %v", werr)
+	}
+
+	targetDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", targetDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with a metric name that is no Go identifier")
+
+	if err == nil {
+		t.Fatalf("generation succeeded on a name that cannot become a Go identifier; "+
+			"the generated package would not compile\n%s", out)
+	}
+
+	// The message has to point at the declaration, not at the generated file.
+	for _, want := range []string{"_123_total", "starts with a digit"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generator error should mention %q, got:\n%s", want, out)
+		}
+	}
+
+	if _, serr := os.Stat(filepath.Join(targetDir, "internal", "pkg", "metrics", "psg_metrics_gen.go")); serr == nil {
+		t.Error("a rejected map must not leave a collector package behind")
+	}
+}
+
 // TestGenerateWithoutMetricsMap pins §2.3 of the request: no map means nothing
 // is switched on. A half-on transitional mode would leave traces in generated
 // code that nobody cleans up later.

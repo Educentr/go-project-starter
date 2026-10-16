@@ -1,6 +1,7 @@
 package metricsmap_test
 
 import (
+	"go/token"
 	"testing"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
@@ -21,11 +22,51 @@ func TestVarName(t *testing.T) {
 		// folds the same way '_' does.
 		{"job:latency:p99", "JobLatencyP99"},
 		{"_leading_underscore", "LeadingUnderscore"},
+		// A leading separator before a digit promotes that digit to the front.
+		// VarName reports it as-is; rejecting it is Validate's job, so that the
+		// error names the declaration rather than the generated file. See
+		// TestValidate_AcceptedNamesAreDeclarableInGo.
+		{"_123_total", "123Total"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.metricName, func(t *testing.T) {
 			assert.Equal(t, tt.want, metricsmap.Metric{Name: tt.metricName}.VarName())
+		})
+	}
+}
+
+// TestValidate_AcceptedNamesAreDeclarableInGo pins the invariant the generated
+// collector package rests on: every name Validate accepts must be usable as
+// `var <VarName> = prometheus.New…`. It asserts the property over awkward names
+// rather than a list of known-bad ones on purpose — the digit-start case got
+// through a guard that only rejected names folding away to nothing, and the next
+// such name would get through a guard that only rejects this one.
+func TestValidate_AcceptedNamesAreDeclarableInGo(t *testing.T) {
+	// Every name here is legal under the Prometheus grammar
+	// (^[a-zA-Z_:][a-zA-Z0-9_:]*$), so each one reaches the identifier checks.
+	names := []string{
+		"spawn_errors_total", "queue_depth", "job:latency:p99",
+		"_leading_underscore", "_a_total", "A", "_",
+		"::", "_:_", "_123_total", "::9x", "__0_seconds",
+		"_1", ":2:", "go_gc_duration_seconds",
+	}
+
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			metric := metricsmap.Metric{Name: name, Type: "Counter", Help: "Awkward but legal name."}
+
+			err := (&metricsmap.Map{Metrics: []metricsmap.Metric{metric}}).Validate()
+			if err != nil {
+				// Rejected — nothing is generated from it, invariant holds.
+				assert.ErrorIs(t, err, metricsmap.ErrInvalidMap)
+
+				return
+			}
+
+			assert.True(t, token.IsIdentifier(metric.VarName()),
+				"Validate accepted %q, but it generates %q which is not a Go identifier",
+				name, metric.VarName())
 		})
 	}
 }
