@@ -6,46 +6,57 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Metrics holds Prometheus metrics for the Kafka producer
+{{- $total := .ProducerMetrics.PublishTotal }}
+{{- $errors := .ProducerMetrics.PublishErrors }}
+{{- $duration := .ProducerMetrics.PublishDuration }}
+{{- $producerLabel := .ProducerLabel }}
+
+// Metrics holds the Kafka producer's Prometheus collectors.
+//
+// Names, help texts and label sets come from go-project-starter's internal
+// metrics map — the same declaration that reserves these names against the
+// service's own metrics map and drives their dashboard panels. They are
+// constructed here rather than in the generated collector package because the
+// producer name is a ConstLabel, so each producer needs its own collectors.
 type Metrics struct {
-	publishDuration *prometheus.HistogramVec
-	publishTotal    *prometheus.CounterVec
-	publishErrors   *prometheus.CounterVec
+	publishDuration {{ $duration.GoType }}
+	publishTotal    {{ $total.GoType }}
+	publishErrors   {{ $errors.GoType }}
 }
 
 // NewMetrics creates new Prometheus metrics for the Kafka producer
 func NewMetrics(registry *prometheus.Registry, producerName string) *Metrics {
 	m := &Metrics{
-		publishDuration: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "kafka_producer_publish_duration_seconds",
-				Help:    "Duration of Kafka publish operations",
-				Buckets: prometheus.DefBuckets,
+		publishDuration: {{ $duration.Constructor }}(
+			{{ $duration.OptsType }}{
+				Name:    "{{ $duration.Name }}",
+				Help:    {{ $duration.Help | GoQuote }},
+				Buckets: {{ $duration.BucketsLiteral }},
 				ConstLabels: prometheus.Labels{
-					"producer": producerName,
+					"{{ $producerLabel }}": producerName,
 				},
 			},
-			[]string{"topic"},
+			{{ $duration.LabelsLiteral }},
 		),
-		publishTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "kafka_producer_publish_total",
-				Help: "Total number of messages published to Kafka",
+		publishTotal: {{ $total.Constructor }}(
+			{{ $total.OptsType }}{
+				Name: "{{ $total.Name }}",
+				Help: {{ $total.Help | GoQuote }},
 				ConstLabels: prometheus.Labels{
-					"producer": producerName,
+					"{{ $producerLabel }}": producerName,
 				},
 			},
-			[]string{"topic"},
+			{{ $total.LabelsLiteral }},
 		),
-		publishErrors: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "kafka_producer_publish_errors_total",
-				Help: "Total number of Kafka publish errors",
+		publishErrors: {{ $errors.Constructor }}(
+			{{ $errors.OptsType }}{
+				Name: "{{ $errors.Name }}",
+				Help: {{ $errors.Help | GoQuote }},
 				ConstLabels: prometheus.Labels{
-					"producer": producerName,
+					"{{ $producerLabel }}": producerName,
 				},
 			},
-			[]string{"topic", "error_type"},
+			{{ $errors.LabelsLiteral }},
 		),
 	}
 

@@ -1,0 +1,74 @@
+main:
+  name: metricstest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/metricstest.git
+  module_path: github.com/test/metricstest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+metrics:
+  path: ./metrics-map.yaml
+
+grafana:
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: false
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+# A Kafka producer is present on purpose: its metrics are declared in the
+# generator's internal map, which exercises the merge of the two namespaces and
+# keeps the producer's collectors out of the shared collector package.
+kafka:
+  - name: events_producer
+    type: producer
+    driver: segmentio
+    client: main_kafka
+    events:
+      - name: user_events
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys
+    kafka:
+      - events_producer
+    grafana:
+      datasources:
+        - Prometheus
+
+  # A second application WITHOUT a sys transport, i.e. without a /metrics
+  # endpoint. It must get neither the collector-package import nor the
+  # registration call — an import it never uses would not compile.
+  - name: worker
+    transport:
+      - name: api

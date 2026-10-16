@@ -68,6 +68,7 @@ type GeneratorParams struct {
 	Grafana       grafana.Config
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
+	Metrics       ds.MetricsConfig
 	// GithubCI carries the runner, job timeout and doctl version applied to
 	// every job of the generated GitHub Actions workflows.
 	GithubCI ds.GithubCIConfig
@@ -121,6 +122,12 @@ type GeneratorRunnerParams struct {
 type GeneratorKafkaParams struct {
 	GeneratorParams
 	Kafka ds.KafkaConfig
+	// ProducerMetrics carries the producer's metric declarations, so that the
+	// driver template renders names, help texts and label sets from the
+	// generator's internal metrics map instead of repeating them as literals.
+	ProducerMetrics ds.KafkaProducerMetrics
+	// ProducerLabel is the ConstLabel naming the producer instance.
+	ProducerLabel string
 }
 
 // GeneratorStaticDirParams holds parameters for generating the static-files
@@ -785,6 +792,24 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			return "*" + varName
 		},
 		"printf": fmt.Sprintf,
+		// GoQuote renders a string as a Go double-quoted literal. Used for
+		// values that come from a contract file rather than from the config —
+		// metric help texts in particular, which are free-form prose and may
+		// legitimately contain quotes, backslashes or newlines.
+		"GoQuote": strconv.Quote,
+		// GoComment renders a possibly multi-line string as the body of a
+		// line comment, continuing every line after the first with "// ".
+		// Needed wherever contract prose lands in a doc comment: a help text
+		// written as a YAML literal block keeps its newlines, and the second
+		// line would otherwise escape the comment and not compile.
+		"GoComment": func(s string) string {
+			lines := strings.Split(strings.TrimRight(s, "\r\n"), "\n")
+			for i := range lines {
+				lines[i] = strings.TrimRight(lines[i], "\r")
+			}
+
+			return strings.Join(lines, "\n// ")
+		},
 		// Queue serialization template helpers
 		"serializeField": func(field ds.QueueField) string {
 			switch field.Type {

@@ -12,6 +12,7 @@
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 - [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
+- [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 
 ## Базовая структура
 
@@ -116,3 +117,4 @@ applications:
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 - [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
+- [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор

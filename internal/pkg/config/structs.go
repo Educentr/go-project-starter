@@ -399,6 +399,26 @@ type (
 		RewriteRefs bool `mapstructure:"rewrite_refs"`
 	}
 
+	// Metrics points at the service's metrics map — the declaration of every
+	// Prometheus metric the service is allowed to emit. The map is a contract
+	// artifact, so `path` takes the same URI forms as `rest[].path`: a local
+	// path, an https URL, or a git+ssh/git+https URI.
+	//
+	// YAML example:
+	//
+	//	metrics:
+	//	  path: "git+https://github.com/org/contracts.git@v1#common/metrics-map.yaml"
+	//
+	// Omitting the section keeps the previous behavior: no collector package,
+	// no metrics validator, no metric panels on the dashboard.
+	//
+	// See docs/configuration/metrics-map.md for full documentation.
+	Metrics struct {
+		// Path is the URI of the metrics map. Required when the section is
+		// present.
+		Path string `mapstructure:"path"`
+	}
+
 	// KafkaEvent represents a Kafka event with typed messages.
 	// Event name is used for Go method generation and as default topic name.
 	// Topic can be overridden per environment via OnlineConf.
@@ -672,6 +692,7 @@ type (
 		Artifacts      []ArtifactType      `mapstructure:"artifacts"`
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
+		Metrics        Metrics             `mapstructure:"metrics"`
 		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
 
 		RestMap              map[string]Rest
@@ -1409,6 +1430,29 @@ func (d DocumentationConfig) IsValid() (bool, string) {
 
 	if len(d.Headers) > 0 && d.Type != DocumentationMinio {
 		return false, "documentation.headers is only supported for type 'minio'"
+	}
+
+	return true, ""
+}
+
+// IsEnabled reports whether a metrics map is configured. When it is not, the
+// whole feature stays off: no collector package, no validator, no metric
+// panels (see §2.3 of the request — a transitional half-on mode would leave
+// traces in generated code that nobody cleans up later).
+func (m Metrics) IsEnabled() bool {
+	return m.Path != ""
+}
+
+// IsValid validates the metrics section. The map itself is parsed and
+// validated later, at generation time, because a remote map has to be fetched
+// first; here only the reference is checked.
+func (m Metrics) IsValid(baseConfigDir string) (bool, string) {
+	if !m.IsEnabled() {
+		return true, ""
+	}
+
+	if ok, msg := validateSpecPath(baseConfigDir, m.Path); !ok {
+		return false, "metrics.path: " + msg
 	}
 
 	return true, ""

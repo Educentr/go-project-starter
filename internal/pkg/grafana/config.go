@@ -3,6 +3,8 @@ package grafana
 import (
 	"regexp"
 	"strings"
+
+	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
 )
 
 // TransportInfo contains transport information for dashboard generation.
@@ -87,8 +89,13 @@ func (g Config) HasLoki() bool {
 	return g.HasDatasourceType(DatasourceLoki)
 }
 
-// GetDashboardRows returns all dashboard rows based on configured datasources and transports.
-func (g Config) GetDashboardRows(appName string, transports []TransportInfo) []Row {
+// GetDashboardRows returns all dashboard rows based on configured datasources,
+// transports, and the metrics the service declared.
+//
+// The declared metrics come last, in their own row: the rows above are
+// hand-built and know more about their metrics than a canonical shape derived
+// from a type can.
+func (g Config) GetDashboardRows(appName string, transports []TransportInfo, declared []metricsmap.Metric) []Row {
 	var rows []Row
 
 	// 1. Logs row (if Loki datasource exists)
@@ -128,6 +135,11 @@ func (g Config) GetDashboardRows(appName string, transports []TransportInfo) []R
 					Panels:    DefaultHTTPClientPanels(t.Name),
 				})
 			}
+		}
+
+		// 5. Service metrics row, from the declarations in the metrics map.
+		if row, ok := DeclaredMetricsRow(declared); ok {
+			rows = append(rows, row)
 		}
 	}
 
