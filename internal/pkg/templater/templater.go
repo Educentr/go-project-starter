@@ -270,6 +270,12 @@ var (
 		"etc/onlineconf/.keep": {},
 		"public/.keep":         {}, // ToDo ignore all keep files
 	}
+
+	// ErrNonRegularTarget is returned when a path the generator is about to write
+	// is occupied by a non-regular entry (symlink, socket, device, fifo). Writing
+	// there would follow the entry instead of replacing it — possibly to a target
+	// outside the project tree — so generation stops instead.
+	ErrNonRegularTarget = errors.New("non-regular entry, generator won't overwrite")
 )
 
 func isFileIgnore(path string) bool {
@@ -315,6 +321,13 @@ func hasAnyPrefix(path string, prefixes []string) bool {
 // extraIgnore holds additional project-relative path prefixes (e.g. "static/")
 // whose existing contents must never be read, diffed, or deleted — used for
 // user-provided static assets.
+//
+// Non-regular entries (symlinks, sockets, devices, fifos) are never generator
+// artefacts. A path from the generated file set occupied by one fails the diff
+// with ErrNonRegularTarget — writing there would follow the entry instead of
+// replacing it. In the fallback tree walk the remaining non-regular entries are
+// recorded in OtherFiles and their contents are not read; with a manifest they
+// are not visited at all unless they are part of the output set.
 func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest, extraIgnore ...string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
@@ -328,8 +341,14 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest
 		DriftFiles:     make(map[string]string),
 	}
 
+	// genFiles mirrors the initial NewFiles set and is never mutated: NewFiles
+	// loses entries as the walk matches them, but the collision check below has
+	// to know every path the generator is going to write.
+	genFiles := make(map[string]struct{}, len(files))
+
 	for _, file := range files {
 		filesDiff.NewFiles[file.DestName] = struct{}{}
+		genFiles[file.DestName] = struct{}{}
 		dir := file.DestName
 
 		for {
@@ -355,7 +374,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest
 		return filesDiff, nil
 	}
 
-	if err := scanTargetTree(&filesDiff, targetDir, extraIgnore); err != nil {
+	if err := scanTargetTree(&filesDiff, targetDir, genFiles, extraIgnore); err != nil {
 		return ds.FilesDiff{}, err
 	}
 
@@ -441,7 +460,12 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		return nil
 	}
 
-	st, err := os.Stat(srcPath)
+	// Lstat, not Stat: the check below is about the entry sitting on the path,
+	// not about what it points at. A symlink to a regular file passes a Stat
+	// check and the generator then writes through the link — possibly outside
+	// the project tree. The fallback walk sees the same thing via
+	// fs.DirEntry.Type(), which is lstat-based too.
+	st, err := os.Lstat(srcPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Brand new file — stays in NewFiles.
@@ -451,8 +475,11 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		return errors.Wrap(err, "error stat file "+srcPath)
 	}
 
+	// Same situation as in the fallback walk: a generated path is occupied by a
+	// symlink/socket/device, so writing there would follow the entry instead of
+	// replacing it. Both paths report it with the same sentinel.
 	if !st.Mode().IsRegular() {
-		return errors.New("target path is not a regular file: " + srcPath)
+		return errors.Wrap(ErrNonRegularTarget, srcPath)
 	}
 
 	delete(filesDiff.NewFiles, file.DestName)
@@ -565,7 +592,11 @@ func regularFileExists(path string) bool {
 // and infers what used to be generated from the disclaimer string in the file
 // content. Used for projects whose meta.yaml carries no manifest yet; the run
 // writes one, so the next run takes the exact path.
-func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []string) error {
+//
+// genFiles is the full set of paths the generator is about to write; unlike
+// filesDiff.NewFiles it is not drained by the walk, so the non-regular check
+// below can still tell an occupied generated path from a foreign entry.
+func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, genFiles map[string]struct{}, extraIgnore []string) error {
 	foundDirs := make(map[string]struct{})
 
 	err := fs.WalkDir(os.DirFS(targetDir), ".", func(relPath string, d fs.DirEntry, err error) error {
@@ -598,6 +629,20 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []str
 			return nil
 		}
 
+		// Symlinks and other non-regular entries are reported by fs.WalkDir with
+		// IsDir() == false, so without this branch they would reach os.ReadFile
+		// below: a symlink to a directory fails there ("is a directory") and kills
+		// the whole walk with an error that points nowhere near the cause.
+		if !d.Type().IsRegular() {
+			if _, ex := genFiles[newFile]; ex {
+				return errors.Wrap(ErrNonRegularTarget, path)
+			}
+
+			filesDiff.OtherFiles[path] = struct{}{}
+
+			return nil
+		}
+
 		if _, ex := filesDiff.NewFiles[newFile]; ex {
 			delete(filesDiff.NewFiles, newFile)
 
@@ -610,7 +655,7 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []str
 
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error read generated file "+path)
 			}
 
 			_, userData, err := splitDisclaimer(string(fileContent))
@@ -633,7 +678,7 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []str
 
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error read existing file "+path)
 			}
 
 			_, userData, err := splitDisclaimer(string(fileContent))
