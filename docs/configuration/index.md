@@ -27,6 +27,7 @@ git:
   repo: string              # URL Git репозитория
   module_path: string       # Go module path
   private_repos: []         # Приватные Go модули
+  private_repos_token_secret: string  # Имя секрета с токеном (default: GH_PAT)
 
 rest:
   - name: string            # Имя транспорта

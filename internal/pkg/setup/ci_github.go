@@ -180,8 +180,9 @@ func (s *Setup) generateGitHubSecrets() []SecretInfo {
 		})
 	}
 
-	// Note: GH_PAT for private Go modules is not asked here.
-	// If build fails due to private deps, user can add it manually.
+	// Note: the private Go modules token is not asked here. If build fails due
+	// to private deps, user can add the secret manually — named GH_PAT by
+	// default, or whatever git.private_repos_token_secret sets.
 
 	// Notifications
 	if s.SetupConfig.Notifications.Telegram.Enabled {
