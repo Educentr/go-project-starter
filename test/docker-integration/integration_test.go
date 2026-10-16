@@ -147,7 +147,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	configDirs := []string{
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
-		"rest-shared-spec-rewrite-refs",
+		"rest-shared-spec-rewrite-refs", "rest-client-basic-auth",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -731,6 +731,70 @@ func TestIntegrationRESTRemoteSpecGit(t *testing.T) {
 		t.Helper()
 		assertSpecDownloaded(ctx, t, container, outputDir, "example.swagger.yml")
 	})
+}
+
+// TestIntegrationRESTClientBasicAuth covers auth_params {transport: header,
+// type: basic} on ogen_client: a spec that declares HTTP Basic the standard
+// way (a scheme named BasicAuth) must yield a wrapper implementing ogen's
+// SecuritySource.BasicAuth, in both instantiation modes, that compiles with
+// no post-generation patching.
+//
+// The assertion hook inspects the wrapper the generator writes; the generic
+// stage-1 pipeline (make generate + go mod tidy + go build) is what proves
+// the result actually compiles against the ogen-generated SecuritySource
+// interface. No Docker stage: starting the binary would only re-check boot,
+// not the credentials path.
+func TestIntegrationRESTClientBasicAuth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-client-basic-auth", "rest-client-basic-auth",
+		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+			t.Helper()
+
+			for _, client := range []string{"billing", "audit"} {
+				authFile := fmt.Sprintf("%s/internal/app/transport/rest/%s/v1/psg_auth_gen.go", outputDir, client)
+
+				grepMethod := fmt.Sprintf("grep -F 'func (s *SecuritySource) BasicAuth(' %s", authFile)
+				code, _, err := container.Exec(ctx, []string{"sh", "-c", grepMethod})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected a BasicAuth SecuritySource method in %s", authFile)
+
+				// Credentials come from OnlineConf, one node each, under the
+				// client's auth_params subtree.
+				for _, leaf := range []string{"username", "password"} {
+					grepLeaf := fmt.Sprintf(`grep -F '"auth_params", "%s"' %s`, leaf, authFile)
+					code, _, err = container.Exec(ctx, []string{"sh", "-c", grepLeaf})
+					require.NoError(t, err)
+					require.Equal(t, 0, code, "expected %s to be read from auth_params/%s", authFile, leaf)
+				}
+
+				// The wrapper lives in this very package — importing it here
+				// is a self-import and breaks the build with an import cycle.
+				grepSelfImport := fmt.Sprintf("grep -F '/internal/app/transport/rest/%s/v1\"' %s", client, authFile)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", grepSelfImport})
+				require.NoError(t, err)
+				require.NotEqual(t, 0, code, "%s must not import its own package", authFile)
+
+				// Both static and dynamic clients must pass the wrapper to ogen.
+				clientFile := fmt.Sprintf("%s/internal/app/transport/rest/%s/v1/psg_client_gen.go", outputDir, client)
+				grepSource := fmt.Sprintf("grep -F '&SecuritySource{},' %s", clientFile)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", grepSource})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected &SecuritySource{} to be passed to NewClient in %s", clientFile)
+			}
+
+			// dev_stand seeds the OnlineConf nodes the wrapper reads: a basic
+			// auth client needs username/password, not the apikey node.
+			devSQL := fmt.Sprintf("%s/etc/onlineconf/dev/init-config.sql", outputDir)
+			for _, leaf := range []string{"username", "password"} {
+				grepSeed := fmt.Sprintf("grep -F \"VALUES ('%s', @rest_client_billing_v1_auth_id\" %s", leaf, devSQL)
+				code, _, err := container.Exec(ctx, []string{"sh", "-c", grepSeed})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected dev-stand config to seed auth_params/%s for billing", leaf)
+			}
+		})
 }
 
 // runTestWithExtraAssertions is runTest with an extra assertion hook fired

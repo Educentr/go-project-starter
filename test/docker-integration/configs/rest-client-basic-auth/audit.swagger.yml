@@ -1,0 +1,64 @@
+openapi: 3.0.2
+servers:
+  - url: http://audit.invalid/v1
+    description: External audit log
+info:
+  version: 1.0.0
+  title: Audit API
+tags:
+  - name: audit
+    description: Audit log endpoints
+security:
+  - BasicAuth: []
+paths:
+  /events:
+    post:
+      tags:
+        - audit
+      summary: Append an audit event
+      operationId: appendEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Event'
+      responses:
+        '201':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic
+  schemas:
+    Event:
+      required:
+        - action
+      properties:
+        action:
+          type: string
+        actor:
+          type: string
+      type: object
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
