@@ -237,6 +237,114 @@ jobs:
           overwrite: true
 {{ end }}
 
+{{- if .GithubCI.Checks.Enabled }}
+
+  checks:
+    {{ $.GithubCI.JobHeader }}
+    needs:
+      - prepare-env
+    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_CHECKS != 'true'
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      # fail-fast: false lets one push report every violation instead of the first.
+      fail-fast: {{ .GithubCI.Checks.FailFast }}
+      matrix:
+        include:
+{{- range $_, $c := .GithubCI.Checks.Checks }}
+          - name: {{ $c.Name | YAMLQuote }}
+            run: {{ $c.Run | YAMLQuote }}
+{{- if $.GithubCI.Checks.HasRegistryLogin }}
+            registry_login: {{ $c.RegistryLogin }}
+{{- end }}
+{{- end }}
+    name: checks (${{"{{"}} matrix.name {{"}}"}})
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          # Full history: `make lint` diffs against origin/main.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '{{ .GoLangVersion }}'
+          cache: true
+{{- if .GithubCI.Checks.HasRegistryLogin }}
+{{- if eq .RegistryType "github" }}
+
+      - name: Log in to GitHub Container Registry
+        if: ${{"{{"}} matrix.registry_login {{"}}"}}
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
+          password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
+{{- else if eq .RegistryType "digitalocean" }}
+
+      - name: Install doctl
+        if: ${{"{{"}} matrix.registry_login {{"}}"}}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
+
+      - name: Log in to DO Container Registry
+        if: ${{"{{"}} matrix.registry_login {{"}}"}}
+        run: doctl registry login
+{{- else if eq .RegistryType "aws" }}
+
+      - name: Configure AWS credentials
+        if: ${{"{{"}} matrix.registry_login {{"}}"}}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{"{{"}} secrets.AWS_ACCESS_KEY_ID {{"}}"}}
+          aws-secret-access-key: ${{"{{"}} secrets.AWS_SECRET_ACCESS_KEY {{"}}"}}
+          aws-region: ${{"{{"}} secrets.AWS_REGION {{"}}"}}
+
+      - name: Log in to Amazon ECR
+        if: ${{"{{"}} matrix.registry_login {{"}}"}}
+        uses: aws-actions/amazon-ecr-login@v2
+{{- else if eq .RegistryType "selfhosted" }}
+
+      - name: Log in to Docker Registry
+        if: ${{"{{"}} matrix.registry_login {{"}}"}}
+        uses: docker/login-action@v2
+        with:
+          registry: ${{"{{"}} secrets.REGISTRY_URL {{"}}"}}
+          username: ${{"{{"}} secrets.REGISTRY_USERNAME {{"}}"}}
+          password: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- end }}
+{{- end }}
+
+      - name: Configure Git for private repos
+        env:
+          GH_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set GOPRIVATE
+        run: |
+          go env -w GOPRIVATE="github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}"
+
+      - name: Run check ${{"{{"}} matrix.name {{"}}"}}
+        run: ${{"{{"}} matrix.run {{"}}"}}
+
+      - name: Report checks status
+        uses: act10ns/slack@v2
+        if: failure()
+        with:
+          status: ${{"{{"}} job.status {{"}}"}}
+          steps: ${{"{{"}} toJson(steps) {{"}}"}}
+          matrix: ${{"{{"}} toJson(matrix) {{"}}"}}
+        env:
+          SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}
+{{- end }}
+
 {{ if .Artifacts.HasDocker }}
   create_env_files:
     {{ $.GithubCI.JobHeader }}
@@ -374,14 +482,16 @@ jobs:
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
-{{ end }}{{ end }}    strategy:
+{{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }}      - checks
+{{ end }}    strategy:
       matrix:
         containers: ${{"{{"}} fromJSON(needs.prepare-env.outputs.CONTAINERS) {{"}}"}}
     if: |
       always() &&
       needs.prepare-env.outputs.ENABLE_BUILD == 'true' &&
       needs.prepare-env.result == 'success'{{ range $_, $a := .Applications }}{{ if $a.GoatTests }} &&
-      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}
+      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }} &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped'){{ end }}
 
     steps:
       - name: Checkout repository
@@ -457,11 +567,13 @@ jobs:
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
-{{ end }}{{ end }}    if: |
+{{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }}      - checks
+{{ end }}    if: |
       always() &&
       needs.prepare-env.outputs.ENABLE_BUILD == 'true' &&
       needs.prepare-env.result == 'success'{{ range $_, $a := .Applications }}{{ if $a.GoatTests }} &&
-      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}
+      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }} &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped'){{ end }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3

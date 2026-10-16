@@ -1,0 +1,60 @@
+main:
+  name: checkstest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/checkstest.git
+  module_path: github.com/test/checkstest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+github_ci:
+  # The runner settings must reach the checks job like any other job.
+  runs_on: self-hosted
+  job_timeout_minutes: 25
+
+  # Declared CI checks: the generated workflow runs them in one matrix job and
+  # gates build/build-packages on the aggregated result.
+  checks:
+    - name: lint
+      run: make lint
+    - name: unit-tests
+      run: make unit-tests
+    - name: guards
+      run: make lint-guards
+      registry_login: true
+
+  checks_config:
+    fail_fast: false
+
+artifacts:
+  - docker
+  - deb
+
+packaging:
+  maintainer: "Test <test@example.com>"
+  description: "Checks test"
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+
+applications:
+  - name: api
+    transport:
+      - name: api

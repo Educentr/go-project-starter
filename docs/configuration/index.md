@@ -11,7 +11,7 @@
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
-- [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
+- [GitHub CI](github-ci.md) — раннер, timeout, версия doctl и проверки, гейтящие `build`
 
 ## Базовая структура
 
@@ -114,4 +114,4 @@ applications:
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
-- [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
+- [GitHub CI](github-ci.md) — раннер, timeout, версия doctl и проверки, гейтящие `build`
