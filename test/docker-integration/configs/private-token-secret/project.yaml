@@ -1,0 +1,50 @@
+main:
+  name: privtoken
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/privtoken.git
+  module_path: github.com/test/privtoken
+  private_repos: "github.com/myorg/*"
+  private_repos_token_secret: GO_MODULES_TOKEN
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+  goat_version: v0.5.0
+  goat_services_version: v0.2.2
+
+# docker + deb cover both the build and the build-packages jobs, so every
+# place the workflow references the private-modules token gets rendered.
+artifacts:
+  - docker
+  - deb
+
+packaging:
+  maintainer: Test <test@example.com>
+  description: Private modules token secret fixture
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+
+applications:
+  - name: api
+    goat_tests_config:
+      enabled: true
+      binary_path: /tmp/api
+    transport:
+      - name: api

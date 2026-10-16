@@ -57,6 +57,7 @@ git:
   repo: string              # [required] URL Git репозитория
   module_path: string       # [required] Go module path
   private_repos: string     # [optional] Приватные модули для GOPRIVATE (через запятую)
+  private_repos_token_secret: string  # [optional] Имя GitHub-секрета с токеном для приватных модулей. Default: GH_PAT
 ```
 
 ---
