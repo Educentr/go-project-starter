@@ -1,13 +1,13 @@
 package refrewrite
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -25,6 +25,7 @@ type caseSpec struct {
 	expectedRefs  int    // RefsRewritten
 	expectedSkip  int    // RefsSkipped
 	expectModif   bool   // whether `target` should change on disk
+	expectedFiles int    // Report.FilesModified (counts rewrites even under DryRun)
 	expectedWarns int    // expected number of warnings
 	whitelist     []string
 	dryRun        bool
@@ -53,8 +54,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"    Foo:\n" +
 				"      allOf:\n" +
 				"        - $ref: ./common.yaml#/components/schemas/Shared\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "external_subdir_yaml",
@@ -73,8 +75,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"  schemas:\n" +
 				"    Wrap:\n" +
 				"      $ref: ./shared.yaml#/components/schemas/X\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "external_dot_slash_yaml",
@@ -170,8 +173,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 			},
 			target: "api.yaml",
 			// We only assert that comments survive; expected is loosely compared below.
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "multiple_refs_one_file_yaml",
@@ -201,6 +205,7 @@ func TestRewriteLocalRefs(t *testing.T) {
 			expectedRefs:  1,
 			expectedSkip:  1,
 			expectModif:   true,
+			expectedFiles: 1,
 			expectedWarns: 1,
 		},
 		{
@@ -244,8 +249,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"    \"Foo\": { \"$ref\": \"./common.json#/$defs/X\" }\n" +
 				"  }\n" +
 				"}\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "json_no_match",
@@ -287,9 +293,10 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"  schemas:\n" +
 				"    Foo:\n" +
 				"      $ref: '../common/common.yaml#/components/schemas/Shared'\n",
-			dryRun:       true,
-			expectedRefs: 1,
-			expectModif:  false,
+			dryRun:        true,
+			expectedRefs:  1,
+			expectModif:   false,
+			expectedFiles: 1,
 		},
 		{
 			name: "invalid_yaml",
@@ -316,13 +323,15 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Snapshot the bytes on disk: comparing content before/after is the
+			// only portable way to tell whether the rewriter wrote the file.
+			// mtime is unusable here — its granularity is filesystem-specific
+			// (on overlayfs two writes microseconds apart share one timestamp),
+			// which made this check fail deterministically in containers.
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
-
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +377,15 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			if modified := !bytes.Equal(beforeBytes, gotBytes); modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
+			}
+
+			// Report.FilesModified is the signal the generator logs, so pin it
+			// too: it counts rewrites even under DryRun, where the bytes on
+			// disk deliberately stay put.
+			if report.FilesModified != tc.expectedFiles {
+				t.Errorf("FilesModified = %d, want %d", report.FilesModified, tc.expectedFiles)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
