@@ -2,15 +2,15 @@ package {{ .CLI.Name }}
 
 import (
 	"context"
+{{ $hasFlags := false }}{{ $hasDuration := false }}{{ range .CLI.Commands }}{{ if .IsLeaf }}{{ range .Flags }}{{ $hasFlags = true }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ else }}{{ range .Subcommands }}{{ range .Flags }}{{ $hasFlags = true }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}{{ if $hasFlags }}	"errors"
 	"flag"
-	"fmt"
+{{ end }}	"fmt"
 	"io"
 	"os"
 	"sort"
 	"strings"
-{{ if .CLI.Commands }}{{ $hasDuration := false }}{{ range .CLI.Commands }}{{ if .IsLeaf }}{{ range .Flags }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ else }}{{ range .Subcommands }}{{ range .Flags }}{{ if eq .FlagType "Duration" }}{{ $hasDuration = true }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}{{ if $hasDuration }}
-	"time"
-{{ end }}{{ end }}
+{{ if $hasDuration }}	"time"
+{{ end }}
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 )
 {{ if .CLI.Commands }}
@@ -31,19 +31,31 @@ type {{ $sub.ParamsName }} struct {
 type UnimplementedCLI struct{}
 {{ range $cmd := .CLI.Commands }}{{ if $cmd.IsLeaf }}
 func (UnimplementedCLI) {{ $cmd.MethodName }}(ctx context.Context{{ if $cmd.HasFlags }}, params {{ $cmd.ParamsName }}{{ end }}) error {
-	return fmt.Errorf("command '{{ $cmd.Name }}' is not implemented")
+	return fmt.Errorf({{ goQuote (printf "command '%s' is not implemented" $cmd.Name) }})
 }
 {{ else }}{{ range $sub := $cmd.Subcommands }}
 func (UnimplementedCLI) {{ $sub.MethodName }}(ctx context.Context{{ if $sub.HasFlags }}, params {{ $sub.ParamsName }}{{ end }}) error {
-	return fmt.Errorf("command '{{ $cmd.Name }} {{ $sub.Name }}' is not implemented")
+	return fmt.Errorf({{ goQuote (printf "command '%s %s' is not implemented" $cmd.Name $sub.Name) }})
 }
 {{ end }}{{ end }}{{ end }}
 {{ end }}
+// FlagInfo describes a single flag of a command for help output.
+// It mirrors the flag declared on the command's flag.FlagSet, so that detailed
+// help can list flags without parsing anything.
+type FlagInfo struct {
+	Name        string
+	Type        string
+	Default     string
+	Description string
+	Required    bool
+}
+
 // Command represents a top-level CLI command
 type Command struct {
 	Name        string
 	Description string
 	Usage       string
+	Flags       []FlagInfo
 	Run         func(ctx context.Context, args []string) error
 {{ if .CLI.Commands }}	Subcommands map[string]*Subcommand
 {{ end }}}
@@ -52,6 +64,8 @@ type Command struct {
 type Subcommand struct {
 	Name        string
 	Description string
+	Usage       string
+	Flags       []FlagInfo
 	Run         func(ctx context.Context, args []string) error
 }
 {{ end }}
@@ -61,6 +75,7 @@ type Subcommand struct {
 type Handler struct {
 {{ if .CLI.Commands }}	UnimplementedCLI
 {{ end }}	srv      ds.IService
+	out      io.Writer
 	commands map[string]*Command
 }
 
@@ -68,6 +83,7 @@ type Handler struct {
 func NewHandler(srv ds.IService) *Handler {
 	h := &Handler{
 		srv:      srv,
+		out:      os.Stdout,
 		commands: make(map[string]*Command),
 	}
 
@@ -80,18 +96,32 @@ func NewHandler(srv ds.IService) *Handler {
 	return h
 }
 
+// SetOutput redirects the handler's help and version output to w.
+// Defaults to os.Stdout.
+func (h *Handler) SetOutput(w io.Writer) {
+	h.out = w
+}
+
 // registerBuiltinCommands registers help and version commands
 func (h *Handler) registerBuiltinCommands() {
 	h.Register(&Command{
 		Name:        "help",
 		Description: "Show help information",
-		Usage:       "help [command]",
-		Run: func(ctx context.Context, args []string) error {
-			if len(args) > 0 {
-				return h.showCommandHelp(args[0])
-			}
-			h.PrintHelp(os.Stdout)
-			return nil
+{{ if .CLI.Commands }}		Usage:       "help [command [subcommand]]",
+{{ else }}		Usage:       "help [command]",
+{{ end }}		Run: func(ctx context.Context, args []string) error {
+			switch {
+			case len(args) == 0:
+				h.PrintHelp(h.out)
+
+				return nil
+{{ if .CLI.Commands }}			case len(args) == 1:
+				return h.PrintCommandHelp(h.out, args[0])
+			default:
+				return h.PrintSubcommandHelp(h.out, args[0], args[1])
+{{ else }}			default:
+				return h.PrintCommandHelp(h.out, args[0])
+{{ end }}			}
 		},
 	})
 
@@ -100,7 +130,8 @@ func (h *Handler) registerBuiltinCommands() {
 		Description: "Show version information",
 		Usage:       "version",
 		Run: func(ctx context.Context, args []string) error {
-			fmt.Println("{{ .ProjectName }} CLI")
+			fmt.Fprintln(h.out, "{{ .ProjectName }} CLI")
+
 			return nil
 		},
 	})
@@ -109,19 +140,28 @@ func (h *Handler) registerBuiltinCommands() {
 // registerCommands registers commands generated from CLI spec
 func (h *Handler) registerCommands() {
 {{ range $cmd := .CLI.Commands }}{{ if $cmd.IsLeaf }}	h.Register(&Command{
-		Name:        "{{ $cmd.Name }}",
-		Description: "{{ $cmd.Description }}",
-{{ if $cmd.HasFlags }}		Usage:       "{{ $cmd.Name }} [flags]",
-{{ else }}		Usage:       "{{ $cmd.Name }}",
+		Name:        {{ goQuote $cmd.Name }},
+		Description: {{ goQuote $cmd.Description }},
+{{ if $cmd.HasFlags }}		Usage:       {{ goQuote (printf "%s [flags]" $cmd.Name) }},
+		Flags: []FlagInfo{
+{{ range $cmd.Flags }}			{Name: {{ goQuote .Name }}, Type: {{ goQuote (ToLower .FlagType) }}, Default: {{ goQuote .Default }}, Description: {{ goQuote .Description }}, Required: {{ .Required }}},
+{{ end }}		},
+{{ else }}		Usage:       {{ goQuote $cmd.Name }},
 {{ end }}		Run: func(ctx context.Context, args []string) error {
-{{ if $cmd.HasFlags }}			fs := flag.NewFlagSet("{{ $cmd.Name }}", flag.ContinueOnError)
-{{ range $cmd.Flags }}			p{{ .GoName }} := fs.{{ .FlagType }}("{{ .Name }}", {{ flagDefault .Type .Default }}, "{{ .Description }}")
+{{ if $cmd.HasFlags }}			fs := flag.NewFlagSet({{ goQuote $cmd.Name }}, flag.ContinueOnError)
+			// Usage output is owned by PrintCommandHelp, not by the flag package.
+			fs.SetOutput(io.Discard)
+{{ range $cmd.Flags }}			p{{ .GoName }} := fs.{{ .FlagType }}({{ goQuote .Name }}, {{ flagDefault .Type .Default }}, {{ goQuote .Description }})
 {{ end }}			if err := fs.Parse(args); err != nil {
+				if errors.Is(err, flag.ErrHelp) {
+					return h.PrintCommandHelp(h.out, {{ goQuote $cmd.Name }})
+				}
+
 				return err
 			}
 {{ range $cmd.Flags }}{{ if .Required }}
 			if {{ flagZeroCheck .Type (printf "p%s" .GoName) }} {
-				return fmt.Errorf("flag --{{ .Name }} is required")
+				return fmt.Errorf({{ goQuote (printf "flag --%s is required" .Name) }})
 			}
 {{ end }}{{ end }}
 			return h.{{ $cmd.MethodName }}(ctx, {{ $cmd.ParamsName }}{
@@ -132,22 +172,33 @@ func (h *Handler) registerCommands() {
 	})
 
 {{ else }}	h.Register(&Command{
-		Name:        "{{ $cmd.Name }}",
-		Description: "{{ $cmd.Description }}",
-		Usage:       "{{ $cmd.Name }} <subcommand> [flags]",
+		Name:        {{ goQuote $cmd.Name }},
+		Description: {{ goQuote $cmd.Description }},
+		Usage:       {{ goQuote (printf "%s <subcommand> [flags]" $cmd.Name) }},
 		Subcommands: map[string]*Subcommand{
-{{ range $sub := $cmd.Subcommands }}			"{{ $sub.Name }}": {
-				Name:        "{{ $sub.Name }}",
-				Description: "{{ $sub.Description }}",
-				Run: func(ctx context.Context, args []string) error {
-{{ if $sub.HasFlags }}					fs := flag.NewFlagSet("{{ $cmd.Name }} {{ $sub.Name }}", flag.ContinueOnError)
-{{ range $sub.Flags }}					p{{ .GoName }} := fs.{{ .FlagType }}("{{ .Name }}", {{ flagDefault .Type .Default }}, "{{ .Description }}")
+{{ range $sub := $cmd.Subcommands }}			{{ goQuote $sub.Name }}: {
+				Name:        {{ goQuote $sub.Name }},
+				Description: {{ goQuote $sub.Description }},
+{{ if $sub.HasFlags }}				Usage:       {{ goQuote (printf "%s %s [flags]" $cmd.Name $sub.Name) }},
+				Flags: []FlagInfo{
+{{ range $sub.Flags }}					{Name: {{ goQuote .Name }}, Type: {{ goQuote (ToLower .FlagType) }}, Default: {{ goQuote .Default }}, Description: {{ goQuote .Description }}, Required: {{ .Required }}},
+{{ end }}				},
+{{ else }}				Usage:       {{ goQuote (printf "%s %s" $cmd.Name $sub.Name) }},
+{{ end }}				Run: func(ctx context.Context, args []string) error {
+{{ if $sub.HasFlags }}					fs := flag.NewFlagSet({{ goQuote (printf "%s %s" $cmd.Name $sub.Name) }}, flag.ContinueOnError)
+					// Usage output is owned by PrintSubcommandHelp, not by the flag package.
+					fs.SetOutput(io.Discard)
+{{ range $sub.Flags }}					p{{ .GoName }} := fs.{{ .FlagType }}({{ goQuote .Name }}, {{ flagDefault .Type .Default }}, {{ goQuote .Description }})
 {{ end }}					if err := fs.Parse(args); err != nil {
+						if errors.Is(err, flag.ErrHelp) {
+							return h.PrintSubcommandHelp(h.out, {{ goQuote $cmd.Name }}, {{ goQuote $sub.Name }})
+						}
+
 						return err
 					}
 {{ range $sub.Flags }}{{ if .Required }}
 					if {{ flagZeroCheck .Type (printf "p%s" .GoName) }} {
-						return fmt.Errorf("flag --{{ .Name }} is required")
+						return fmt.Errorf({{ goQuote (printf "flag --%s is required" .Name) }})
 					}
 {{ end }}{{ end }}
 					return h.{{ $sub.MethodName }}(ctx, {{ $sub.ParamsName }}{
@@ -180,108 +231,201 @@ func (h *Handler) Register(cmd *Command) {
 	h.commands[cmd.Name] = cmd
 }
 
-// Execute runs the specified command with arguments
+// isHelpArg reports whether arg asks for help instead of command execution.
+func isHelpArg(arg string) bool {
+	switch arg {
+	case "-h", "-help", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
+// Execute runs the specified command with arguments.
+// A leading --help/-h (after the command, or after the subcommand) prints the
+// detailed help for that command instead of running it.
 func (h *Handler) Execute(ctx context.Context, command string, args []string) error {
 	cmd, exists := h.commands[command]
 	if !exists {
 		return fmt.Errorf("unknown command: %s\nRun 'help' to see available commands", command)
 	}
+
+	if len(args) > 0 && isHelpArg(args[0]) {
+		return h.PrintCommandHelp(h.out, command)
+	}
 {{ if .CLI.Commands }}
 	if cmd.Subcommands != nil {
 		if len(args) == 0 {
-			var subs []string
-			for name := range cmd.Subcommands {
-				subs = append(subs, name)
-			}
-			sort.Strings(subs)
-			return fmt.Errorf("command '%s' requires a subcommand: %s", command, strings.Join(subs, ", "))
+			return fmt.Errorf("command '%s' requires a subcommand: %s", command, strings.Join(subcommandNames(cmd), ", "))
 		}
+
 		sub, exists := cmd.Subcommands[args[0]]
 		if !exists {
-			var subs []string
-			for name := range cmd.Subcommands {
-				subs = append(subs, name)
-			}
-			sort.Strings(subs)
-			return fmt.Errorf("unknown subcommand '%s %s'\nAvailable: %s", command, args[0], strings.Join(subs, ", "))
+			return fmt.Errorf("unknown subcommand '%s %s'\nAvailable: %s", command, args[0], strings.Join(subcommandNames(cmd), ", "))
 		}
+
+		if len(args) > 1 && isHelpArg(args[1]) {
+			return h.PrintSubcommandHelp(h.out, command, sub.Name)
+		}
+
 		return sub.Run(ctx, args[1:])
 	}
 {{ end }}
 	return cmd.Run(ctx, args)
 }
+{{ if .CLI.Commands }}
+// subcommandNames returns the command's subcommand names in stable order.
+func subcommandNames(cmd *Command) []string {
+	names := make([]string, 0, len(cmd.Subcommands))
+	for name := range cmd.Subcommands {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+{{ end }}
+// maxSummaryLen is the width budget for a description in the aligned command
+// list. Longer summaries are truncated on a word boundary.
+const maxSummaryLen = 70
 
 // helpSummary returns a single-line summary of a command description, for use
 // in the aligned command list where a full multi-line or long description
 // would break the layout. Multi-line descriptions are cut at the first
-// newline; long single-line descriptions are cut at the first sentence.
-// The full description remains available via 'help <command>'.
+// newline; a remaining line longer than maxSummaryLen is truncated on a word
+// boundary and marked with an ellipsis.
+// The full description stays available via 'help <command>' and '<command> --help'.
 func helpSummary(desc string) string {
 	if idx := strings.IndexByte(desc, '\n'); idx >= 0 {
 		desc = desc[:idx]
 	}
 
-	if idx := strings.Index(desc, ". "); idx >= 0 {
-		desc = desc[:idx+1]
+	desc = strings.TrimSpace(desc)
+
+	if len(desc) <= maxSummaryLen {
+		return desc
 	}
 
-	return strings.TrimSpace(desc)
+	cut := desc[:maxSummaryLen]
+	if idx := strings.LastIndexByte(cut, ' '); idx > 0 {
+		cut = cut[:idx]
+	}
+
+	return strings.TrimRight(cut, " ,.;:") + "…"
 }
 
-// PrintHelp prints help information for all commands
+// PrintHelp prints the list of available commands with a one-line summary each.
 func (h *Handler) PrintHelp(w io.Writer) {
 	names := make([]string, 0, len(h.commands))
 	for name := range h.commands {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	fmt.Fprintln(w, "Available commands:")
+
 	for _, name := range names {
 		cmd := h.commands[name]
 		fmt.Fprintf(w, "  %-15s %s\n", name, helpSummary(cmd.Description))
 {{ if .CLI.Commands }}		if cmd.Subcommands != nil {
-			subNames := make([]string, 0, len(cmd.Subcommands))
-			for sn := range cmd.Subcommands {
-				subNames = append(subNames, sn)
-			}
-			sort.Strings(subNames)
-			for _, sn := range subNames {
+			for _, sn := range subcommandNames(cmd) {
 				fmt.Fprintf(w, "    %-13s %s\n", sn, helpSummary(cmd.Subcommands[sn].Description))
 			}
 		}
 {{ end }}	}
+
 	fmt.Fprintln(w, "\nRun '<command> --help' for more information about a command.")
 }
 
-// showCommandHelp prints help for a specific command
-func (h *Handler) showCommandHelp(cmdName string) error {
+// printFlags prints the flag reference block of a command, if it has flags.
+func printFlags(w io.Writer, flags []FlagInfo) {
+	if len(flags) == 0 {
+		return
+	}
+
+	fmt.Fprintln(w, "\nFlags:")
+
+	for _, f := range flags {
+		fmt.Fprintf(w, "  %-24s %s", "--"+f.Name+" "+f.Type, f.Description)
+
+		switch {
+		case f.Required:
+			fmt.Fprint(w, " (required)")
+		case f.Default != "":
+			fmt.Fprintf(w, " (default %s)", f.Default)
+		}
+
+		fmt.Fprintln(w)
+	}
+}
+
+// PrintCommandHelp prints the detailed help of a single command: its full
+// description, usage and flags{{ if .CLI.Commands }}, plus the list of its subcommands{{ end }}.
+func (h *Handler) PrintCommandHelp(w io.Writer, cmdName string) error {
 	cmd, exists := h.commands[cmdName]
 	if !exists {
 		return fmt.Errorf("unknown command: %s", cmdName)
 	}
 
-	fmt.Printf("Command: %s\n", cmd.Name)
-	fmt.Printf("Description: %s\n", cmd.Description)
-	if cmd.Usage != "" {
-		fmt.Printf("Usage: %s\n", cmd.Usage)
+	fmt.Fprintf(w, "Command: %s\n", cmd.Name)
+
+	if cmd.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", cmd.Description)
 	}
+
+	if cmd.Usage != "" {
+		fmt.Fprintf(w, "Usage: %s\n", cmd.Usage)
+	}
+
+	printFlags(w, cmd.Flags)
 {{ if .CLI.Commands }}
 	if cmd.Subcommands != nil {
-		fmt.Println("\nSubcommands:")
-		subNames := make([]string, 0, len(cmd.Subcommands))
-		for sn := range cmd.Subcommands {
-			subNames = append(subNames, sn)
+		fmt.Fprintln(w, "\nSubcommands:")
+
+		for _, sn := range subcommandNames(cmd) {
+			fmt.Fprintf(w, "  %-15s %s\n", sn, helpSummary(cmd.Subcommands[sn].Description))
 		}
-		sort.Strings(subNames)
-		for _, sn := range subNames {
-			fmt.Printf("  %-15s %s\n", sn, helpSummary(cmd.Subcommands[sn].Description))
-		}
+
+		fmt.Fprintf(w, "\nRun '%s <subcommand> --help' for the full subcommand description.\n", cmd.Name)
 	}
 {{ end }}
 	return nil
 }
+{{ if .CLI.Commands }}
+// PrintSubcommandHelp prints the detailed help of a subcommand: its full
+// description, usage and flags.
+func (h *Handler) PrintSubcommandHelp(w io.Writer, cmdName, subName string) error {
+	cmd, exists := h.commands[cmdName]
+	if !exists {
+		return fmt.Errorf("unknown command: %s", cmdName)
+	}
 
+	if cmd.Subcommands == nil {
+		return fmt.Errorf("command '%s' has no subcommands", cmdName)
+	}
+
+	sub, exists := cmd.Subcommands[subName]
+	if !exists {
+		return fmt.Errorf("unknown subcommand '%s %s'\nAvailable: %s", cmdName, subName, strings.Join(subcommandNames(cmd), ", "))
+	}
+
+	fmt.Fprintf(w, "Command: %s %s\n", cmd.Name, sub.Name)
+
+	if sub.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", sub.Description)
+	}
+
+	if sub.Usage != "" {
+		fmt.Fprintf(w, "Usage: %s\n", sub.Usage)
+	}
+
+	printFlags(w, sub.Flags)
+
+	return nil
+}
+{{ end }}
 // GetService returns the service instance for use in command handlers
 func (h *Handler) GetService() ds.IService {
 	return h.srv

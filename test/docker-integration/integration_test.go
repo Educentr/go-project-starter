@@ -147,7 +147,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	configDirs := []string{
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
-		"rest-shared-spec-rewrite-refs",
+		"rest-shared-spec-rewrite-refs", "cli-only",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -580,6 +580,96 @@ func TestIntegrationRESTLogrus(t *testing.T) {
 	}
 
 	runTest(t, "rest-logrus", "rest-logrus")
+}
+
+// TestIntegrationCLIOnly tests CLI-only project generation and then exercises the
+// built binary: the CLI scaffold's help output is only verifiable by running it.
+func TestIntegrationCLIOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "cli-only", "cli-only")
+	assertCLIHelpBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
+}
+
+// runCLI builds the generated CLI binary (once per call is cheap — the build
+// cache is warm after runTest) and runs it with args, returning combined output.
+func runCLI(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir, args string) string {
+	t.Helper()
+
+	cmd := fmt.Sprintf("cd %s && go build -o ./bin/admin-cli ./cmd/admin-cli && ./bin/admin-cli %s", outputDir, args)
+	_, outputReader, err := container.Exec(ctx, []string{"sh", "-c", cmd})
+	require.NoError(t, err, "failed to run CLI with args %q", args)
+
+	out := readOutput(outputReader)
+	t.Logf("$ admin-cli %s\n%s", args, out)
+
+	return out
+}
+
+// assertCLIHelpBehavior checks the generated CLI's usage output by running the
+// binary (TOOLS-2 / issue #28). These are behavioral assertions on purpose:
+// the duplicated "Available commands:" header lived in main.go while PrintHelp
+// always printed it exactly once, so a unit test of PrintHelp — or a grep over
+// the templates — passes both before and after the fix.
+func assertCLIHelpBehavior(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	// Text that only ever appears in the second paragraph of the 'seed'
+	// description in the cli-only fixture.
+	const fullDescTail = "must not leak into the command list"
+
+	t.Log("Checking no-args usage output...")
+
+	noArgs := runCLI(ctx, t, container, outputDir, "")
+
+	require.Equal(t, 1, strings.Count(noArgs, "Available commands:"),
+		"no-args usage must print the command-list header exactly once:\n%s", noArgs)
+	require.Contains(t, noArgs, "Seed the database with \"fixtures\".",
+		"command list must show the first line of a multi-line description:\n%s", noArgs)
+	require.NotContains(t, noArgs, fullDescTail,
+		"command list must not contain the full multi-line description:\n%s", noArgs)
+
+	// Every listed command must occupy exactly one line.
+	for _, line := range strings.Split(noArgs, "\n") {
+		if strings.HasPrefix(line, "  ") && strings.Contains(line, "  ") {
+			require.LessOrEqual(t, len(line), 100, "command list line is too long to stay readable: %q", line)
+		}
+	}
+
+	t.Log("Checking '<command> --help' (advertised by the usage footer)...")
+
+	require.Contains(t, noArgs, "Run '<command> --help' for more information about a command.",
+		"usage footer missing:\n%s", noArgs)
+
+	seedHelp := runCLI(ctx, t, container, outputDir, "seed --help")
+	require.Contains(t, seedHelp, "Command: seed", "seed --help must print detailed help:\n%s", seedHelp)
+	require.Contains(t, seedHelp, fullDescTail,
+		"detailed help must print the FULL description:\n%s", seedHelp)
+	require.Contains(t, seedHelp, "--file", "detailed help must list flags:\n%s", seedHelp)
+
+	// A --help that reaches flag.Parse must print help, not fail the command.
+	seedFlagHelp := runCLI(ctx, t, container, outputDir, "seed --file x --help")
+	require.Contains(t, seedFlagHelp, "Command: seed",
+		"--help after a flag must print help, not report a command failure:\n%s", seedFlagHelp)
+	require.NotContains(t, seedFlagHelp, "CLI command failed",
+		"--help after a flag must not be reported as an error:\n%s", seedFlagHelp)
+
+	// A command with no flags must not *execute* on --help.
+	pingHelp := runCLI(ctx, t, container, outputDir, "ping --help")
+	require.Contains(t, pingHelp, "Command: ping", "ping --help must print help:\n%s", pingHelp)
+	require.NotContains(t, pingHelp, "is not implemented",
+		"ping --help must not execute the command:\n%s", pingHelp)
+
+	t.Log("Checking subcommand help reachability...")
+
+	for _, args := range []string{"user create --help", "help user create"} {
+		out := runCLI(ctx, t, container, outputDir, args)
+		require.Contains(t, out, "Command: user create", "%q must print subcommand help:\n%s", args, out)
+		require.Contains(t, out, "Requires --email",
+			"%q must print the FULL subcommand description:\n%s", args, out)
+	}
 }
 
 // assertSpecDownloaded verifies that the named OpenAPI spec was materialised

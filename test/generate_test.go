@@ -2,6 +2,9 @@ package test
 
 import (
 	"fmt"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -11,6 +14,11 @@ import (
 	"strings"
 	"testing"
 )
+
+// minSupportedGoMinor is the lowest Go 1.x minor the generator may target in
+// generated projects. Go supports the two latest minor releases, so generating
+// on anything older only defers the next dependency-drift breakage.
+const minSupportedGoMinor = 26
 
 func ExecCommand(targetPath, command string, args []string, msg string) (string, error) {
 	cmd := exec.Command(command, args...)
@@ -785,17 +793,91 @@ func TestGenerateCLIOnly(t *testing.T) {
 		t.Errorf("%s should NOT print \"Available commands:\" — PrintHelp already owns that header", mainFile)
 	}
 
-	// helpSummary must exist and be used to keep the aligned command list
-	// readable when descriptions are multi-line or long.
+	// Regression TOOLS-2 review, defect 1: descriptions from the spec land in Go
+	// string literals. The cli-only fixture has a multi-line description with
+	// quotes and a backslash, which used to be interpolated verbatim and produce
+	// source that does not compile. Parsing every generated file is the check
+	// that catches it — a grep for template text would not.
+	assertGeneratedGoParses(t, tmpDir)
+
+	// ...and the escaped literal must still carry the original text, i.e. the
+	// escaping fixed the syntax without mangling the description.
+	assertFileContains(t, handlerFile, []string{
+		`Description: "Seed the database with \"fixtures\".\nSecond paragraph documents the C:\\data layout` +
+			` and must not leak into the command list.\n"`,
+		`pFile := fs.String("file", "fixtures \"default\".json", "Path to the \"fixtures\" file")`,
+		// A "5s" spec default must become a time.Duration, not the bare token 5s.
+		`pWait := fs.Duration("wait", time.Duration(5000000000), "How long to wait between batches")`,
+	})
+
+	// The command list is summarized (one line per command), while the full
+	// description stays reachable through detailed help: PrintCommandHelp and
+	// PrintSubcommandHelp print cmd.Description / sub.Description verbatim.
 	assertFileContains(t, handlerFile, []string{
 		"func helpSummary(desc string) string",
 		"helpSummary(cmd.Description)",
 		"helpSummary(cmd.Subcommands[sn].Description)",
+		"func (h *Handler) PrintCommandHelp(w io.Writer, cmdName string) error",
+		"func (h *Handler) PrintSubcommandHelp(w io.Writer, cmdName, subName string) error",
+		`fmt.Fprintf(w, "Description: %s\n", cmd.Description)`,
+		`fmt.Fprintf(w, "Description: %s\n", sub.Description)`,
 	})
 
-	// Regeneration must produce a matching unit test file for help formatting.
-	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); os.IsNotExist(err) {
-		t.Error("Expected generated handler test file not found: internal/app/transport/cli/admin/psg_handler_test.go")
+	// Defect 3: PrintHelp advertises '<command> --help', so Execute must honor
+	// it for commands and subcommands instead of running them, and a --help that
+	// reaches flag.Parse must not surface as a command failure.
+	assertFileContains(t, handlerFile, []string{
+		"func isHelpArg(arg string) bool",
+		"if len(args) > 0 && isHelpArg(args[0]) {",
+		"if len(args) > 1 && isHelpArg(args[1]) {",
+		"if errors.Is(err, flag.ErrHelp) {",
+	})
+
+	// Defect 6: generator self-tests must not be shipped into user projects.
+	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); err == nil {
+		t.Error("generated project must not contain psg_handler_test.go — " +
+			"help formatting is covered by this repo's tests, not by tests shipped to users")
+	}
+}
+
+// assertGeneratedGoParses parses every .go file under dir. It is the cheap
+// stand-in for "the generated project compiles": a full build needs the module
+// cache and network, but a parse already catches generator bugs that emit
+// syntactically invalid source — unterminated string literals above all.
+func assertGeneratedGoParses(t *testing.T, dir string) {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	parsed := 0
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		parsed++
+
+		if _, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution); err != nil {
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				rel = path
+			}
+
+			t.Errorf("generated file %s is not valid Go: %v", rel, err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Error walking generated project: %v", err)
+	}
+
+	if parsed == 0 {
+		t.Fatalf("no generated .go files found under %s", dir)
 	}
 }
 
@@ -966,12 +1048,18 @@ func TestGenerateDaemonWorker(t *testing.T) {
 }
 
 // TestGenerateTelegramWorkerGoVersion tests that a project with a telegram worker is
-// generated on Go >= 1.25 and carries no workaround pin of github.com/gofrs/uuid/v5.
+// generated on a supported Go version and carries no workaround pin of
+// github.com/gofrs/uuid/v5.
 //
 // The telegram driver templates import gofrs/uuid/v5 directly. Its v5.5.0+ releases
 // declare `go 1.25`, which used to break `go mod tidy` in projects generated on Go 1.24
 // (TOOLS-4). The fix is the Go version bump, not freezing the dependency on v5.4.0, so
 // go.mod must resolve uuid itself instead of carrying a hardcoded require line.
+//
+// The floor is deliberately a *supported* release (Go supports the two latest minors):
+// generating on an EOL version only defers the next dependency-drift break, which is
+// why the first attempt at this fix (Go 1.25 + goimports pinned to v0.49.0) was
+// rejected on review.
 func TestGenerateTelegramWorkerGoVersion(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
@@ -1003,14 +1091,26 @@ func TestGenerateTelegramWorkerGoVersion(t *testing.T) {
 		t.Fatalf("Error parsing go directive: %v\n%s", err, s)
 	}
 
-	// gofrs/uuid/v5 v5.5.0+ requires go >= 1.25.
-	if major != 1 || minor < 25 {
-		t.Errorf("go.mod should declare go >= 1.25, got %d.%d", major, minor)
+	if major != 1 || minor < minSupportedGoMinor {
+		t.Errorf("go.mod should declare go >= 1.%d (a supported release), got %d.%d",
+			minSupportedGoMinor, major, minor)
 	}
 
 	if strings.Contains(s, "github.com/gofrs/uuid/v5 v") {
 		t.Errorf("go.mod should not pin github.com/gofrs/uuid/v5 — the Go version bump "+
 			"removed the need for it, got:\n%s", s)
+	}
+
+	// The same rule applies to the toolchain the generated Makefile installs:
+	// pinning goimports to an old release to stay installable on an old Go is
+	// the workaround this bump replaces.
+	makefile, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	if !strings.Contains(string(makefile), "goimports@latest") {
+		t.Errorf("generated Makefile should install goimports@latest, not a pinned release")
 	}
 }
 
