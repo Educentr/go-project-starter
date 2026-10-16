@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
@@ -83,6 +84,84 @@ func (c ChecksConfig) HasRegistryLogin() bool {
 	}
 
 	return false
+}
+
+// RunsOnSpec is the normalized `runs-on:` selector for the jobs of the
+// generated GitHub Actions workflows: either a set of runner labels or a
+// runner group (optionally narrowed by labels). The zero value means
+// "not configured" and renders as DefaultRunsOn.
+type RunsOnSpec struct {
+	Group  string
+	Labels []string
+}
+
+// GithubCIConfig holds settings applied to every job of the generated GitHub
+// Actions workflows (.github/workflows/ci_cd.yml, go-version-check.yml).
+type GithubCIConfig struct {
+	// RunsOn selects the runner for all generated jobs.
+	RunsOn RunsOnSpec
+	// JobTimeoutMinutes is the `timeout-minutes:` value for every generated
+	// job. Zero means the key is not emitted.
+	JobTimeoutMinutes int
+	// DoctlVersion pins the doctl version installed by
+	// digitalocean/action-doctl. Empty means the action installs the latest
+	// release.
+	DoctlVersion string
+	// Checks carries the declared checks and their shared settings. The zero
+	// value disables the checks job, leaving the CI graph as it was.
+	Checks ChecksConfig
+}
+
+// DefaultRunsOn is the runner used by the generated workflows when
+// github_ci.runs_on is not configured.
+const DefaultRunsOn = "ubuntu-latest"
+
+// jobKeyIndent is the indentation of job-level keys under `jobs.<name>:` in
+// the generated workflows.
+const jobKeyIndent = "    "
+
+// YAML renders the value of the GitHub Actions `runs-on:` key in flow style:
+// a bare label, a flow sequence of labels or a flow mapping carrying the
+// runner group. Returns DefaultRunsOn for the zero value.
+//
+// Labels and group names are validated on config load (see
+// config.GithubCIConfig.ParseRunsOn), so they are safe to emit as plain YAML
+// scalars without quoting.
+func (r RunsOnSpec) YAML() string {
+	if r.Group != "" {
+		if len(r.Labels) > 0 {
+			return fmt.Sprintf("{group: %s, labels: [%s]}", r.Group, strings.Join(r.Labels, ", "))
+		}
+
+		return fmt.Sprintf("{group: %s}", r.Group)
+	}
+
+	switch len(r.Labels) {
+	case 0:
+		return DefaultRunsOn
+	case 1:
+		return r.Labels[0]
+	default:
+		return "[" + strings.Join(r.Labels, ", ") + "]"
+	}
+}
+
+// JobHeader renders the job-level keys shared by every generated GitHub
+// Actions job: `runs-on:` and, when a job timeout is configured,
+// `timeout-minutes:`. Continuation lines carry the indentation of job-level
+// keys, so a template substitutes the whole block right after the indent:
+//
+//	my-job:
+//	  {{ $.GithubCI.JobHeader }}
+//	  steps:
+func (c GithubCIConfig) JobHeader() string {
+	header := "runs-on: " + c.RunsOn.YAML()
+
+	if c.JobTimeoutMinutes > 0 {
+		header += "\n" + jobKeyIndent + "timeout-minutes: " + strconv.Itoa(c.JobTimeoutMinutes)
+	}
+
+	return header
 }
 
 // DocsDeployType represents documentation deployment type
@@ -1049,6 +1128,11 @@ type FilesDiff struct {
 	OtherDirectory map[string]struct{}
 	UserContent    map[string][]byte
 	RenameFiles    map[string]string
+	// DriftFiles maps a path whose generated region no longer matches the hash
+	// recorded in the manifest to a human-readable reason. Populated only in
+	// manifest mode: a mismatch means the generated region was edited by hand
+	// after the generator wrote it.
+	DriftFiles map[string]string
 }
 
 // GetTargetSpecDir returns the directory where schema files should be placed

@@ -1,10 +1,7 @@
 package config
 
 import (
-	"strings"
 	"testing"
-
-	"github.com/pkg/errors"
 )
 
 func TestCheck_IsValid(t *testing.T) {
@@ -28,13 +25,13 @@ func TestCheck_IsValid(t *testing.T) {
 			name:    "empty name",
 			check:   Check{Run: "make lint"},
 			wantOK:  false,
-			wantMsg: "Empty name",
+			wantMsg: "github_ci.checks: empty name",
 		},
 		{
 			name:    "empty run command",
 			check:   Check{Name: "lint"},
 			wantOK:  false,
-			wantMsg: "Empty run command in check 'lint'",
+			wantMsg: "github_ci.checks: empty run command in check 'lint'",
 		},
 	}
 
@@ -53,15 +50,19 @@ func TestCheck_IsValid(t *testing.T) {
 	}
 }
 
-func TestValidateChecks(t *testing.T) {
+// TestGithubCIConfig_ValidateChecks covers the checks part of the github_ci
+// section through the exported entry point used on config load.
+func TestGithubCIConfig_ValidateChecks(t *testing.T) {
 	tests := []struct {
 		name    string
 		checks  CheckList
-		wantErr string
+		wantOK  bool
+		wantMsg string
 	}{
 		{
 			name:   "no checks declared",
 			checks: nil,
+			wantOK: true,
 		},
 		{
 			name: "several distinct checks",
@@ -70,6 +71,7 @@ func TestValidateChecks(t *testing.T) {
 				{Name: "unit-tests", Run: "make unit-tests"},
 				{Name: "guards", Run: "make lint-guards", RegistryLogin: true},
 			},
+			wantOK: true,
 		},
 		{
 			name: "duplicate name",
@@ -77,42 +79,33 @@ func TestValidateChecks(t *testing.T) {
 				{Name: "lint", Run: "make lint"},
 				{Name: "lint", Run: "make lint-full"},
 			},
-			wantErr: "duplicate check name: lint",
+			wantOK:  false,
+			wantMsg: "github_ci.checks: duplicate check name: lint",
 		},
 		{
 			name:    "missing run command",
 			checks:  CheckList{{Name: "lint"}},
-			wantErr: "Empty run command in check 'lint'",
+			wantOK:  false,
+			wantMsg: "github_ci.checks: empty run command in check 'lint'",
 		},
 		{
 			name:    "missing name",
 			checks:  CheckList{{Run: "make lint"}},
-			wantErr: "Empty name",
+			wantOK:  false,
+			wantMsg: "github_ci.checks: empty name",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateChecks(tt.checks)
+			gotOK, gotMsg := GithubCIConfig{Checks: tt.checks}.IsValid()
 
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("validateChecks() unexpected error: %v", err)
-				}
-
-				return
+			if gotOK != tt.wantOK {
+				t.Errorf("GithubCIConfig.IsValid() ok = %v, want %v (msg: %q)", gotOK, tt.wantOK, gotMsg)
 			}
 
-			if err == nil {
-				t.Fatalf("validateChecks() expected error containing %q, got nil", tt.wantErr)
-			}
-
-			if !errors.Is(err, ErrInvalidConfig) {
-				t.Errorf("validateChecks() error should wrap ErrInvalidConfig, got %v", err)
-			}
-
-			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("validateChecks() error = %q, want it to contain %q", err.Error(), tt.wantErr)
+			if gotMsg != tt.wantMsg {
+				t.Errorf("GithubCIConfig.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
 			}
 		})
 	}

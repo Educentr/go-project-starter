@@ -3,27 +3,55 @@ ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
 
 RUN set -xe  && \
-    apk update && apk upgrade  && \
     apk add --no-cache make git openssh-client
 ENV CGO_ENABLED=0
-COPY . /go/src/app
+{{- if .PrivateRepos }}
+ENV GOPRIVATE="{{ .PrivateRepos }}"
+{{- end }}
 WORKDIR /go/src/app
 
-# Build with SSH (local dev) or GitHub token (CI)
+# Module download is a separate layer so it is reused until go.mod/go.sum change.
+# The module and build caches are BuildKit cache mounts: they survive between
+# builds on the same builder, so nothing is re-downloaded or recompiled from
+# scratch when only sources change.
+#
+# Both RUNs fetch modules, so both need the git credentials. The credential
+# setup is per-layer, not per-image, and does not carry over from the RUN above,
+# hence the repetition. It is also removed before the layer is committed, so the
+# token never ends up in a cached layer.
+#
+# Credentials come from SSH (local dev) or a GitHub token (CI)
 # - Local: docker-compose build (uses ssh agent)
 # - CI: docker build --secret id=github_token (uses token)
+COPY go.mod go.sum ./
 RUN --mount=type=ssh --mount=type=secret,id=github_token \
+    --mount=type=cache,target=/go/pkg/mod \
     if [ -f /run/secrets/github_token ]; then \
         export GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
         git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
     else \
         mkdir -p -m 0700 ~/.ssh && \
-        ssh-keyscan github.com >> ~/.ssh/known_hosts && \
+        ssh-keyscan github.com > ~/.ssh/known_hosts && \
         git config --global url."git@github.com:".insteadOf "https://github.com/"; \
-    fi{{- if .PrivateRepos }} && \
-    go env -w GOPRIVATE="{{ .PrivateRepos }}"{{- end }} && \
+    fi && \
+    go mod download && \
+    rm -f ~/.gitconfig
+
+COPY . .
+RUN --mount=type=ssh --mount=type=secret,id=github_token \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    if [ -f /run/secrets/github_token ]; then \
+        export GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+        git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    else \
+        mkdir -p -m 0700 ~/.ssh && \
+        ssh-keyscan github.com > ~/.ssh/known_hosts && \
+        git config --global url."git@github.com:".insteadOf "https://github.com/"; \
+    fi && \
     make build_in_docker-{{ .Application.Name }} && \
-    cp ${binary} /service
+    cp ${binary} /service && \
+    rm -f ~/.gitconfig
 
 RUN mkdir -p /public
 ADD public /public

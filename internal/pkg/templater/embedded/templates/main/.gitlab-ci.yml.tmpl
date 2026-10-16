@@ -39,48 +39,6 @@ prepare-env:
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
 
-{{- if .Checks.Enabled }}
-
-# Declared project checks (lint, unit tests, project guards)
-checks:
-  stage: test
-  image: golang:{{ .GoLangVersion }}
-  needs:
-    - prepare-env
-  variables:
-    # Full history: `make lint` diffs against origin/main.
-    GIT_DEPTH: 0
-  parallel:
-    matrix:
-{{- range $_, $c := .Checks.Checks }}
-      - CHECK_NAME: [{{ $c.Name | YAMLQuote }}]
-        CHECK_RUN: [{{ $c.Run | YAMLQuote }}]
-{{- end }}
-  before_script:
-{{- if .Checks.HasRegistryLogin }}
-{{- if eq .RegistryType "github" }}
-    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-{{- else if eq .RegistryType "digitalocean" }}
-    - apt-get update && apt-get install -y snapd
-    - snap install doctl
-    - doctl registry login -t "$REGISTRY_PASSWORD"
-{{- else if eq .RegistryType "aws" }}
-    - apt-get update && apt-get install -y awscli
-    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
-{{- else if eq .RegistryType "selfhosted" }}
-    - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
-{{- end }}
-{{- end }}
-    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
-{{- if .PrivateRepos }}
-    - go env -w GOPRIVATE="gitlab.com,{{ .PrivateRepos }}"
-{{- end }}
-  script:
-    - eval "$CHECK_RUN"
-  rules:
-    - if: ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging") && $SKIP_CHECKS != "true"
-{{- end }}
-
 {{ if .Artifacts.HasDocker }}
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
 # GOAT tests for {{ $a.Name }}
@@ -119,9 +77,7 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
     - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}    - job: goat-tests-{{ $a.Name | ReplaceDash }}
       optional: true
-{{ end }}{{ end }}{{ if .Checks.Enabled }}    - job: checks
-      optional: true
-{{ end }}
+{{ end }}{{ end }}
   before_script:
     {{ if eq .RegistryType "github" -}}
     - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
@@ -158,9 +114,7 @@ build-packages:
     - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}    - job: goat-tests-{{ $a.Name | ReplaceDash }}
       optional: true
-{{ end }}{{ end }}{{ if .Checks.Enabled }}    - job: checks
-      optional: true
-{{ end }}  before_script:
+{{ end }}{{ end }}  before_script:
     - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
   script:
     - make packages

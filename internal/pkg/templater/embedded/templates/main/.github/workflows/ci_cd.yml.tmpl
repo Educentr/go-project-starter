@@ -8,7 +8,7 @@ on:
 
 jobs:
   prepare-env:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     outputs:
       ENABLE_BUILD: ${{"{{"}} steps.vars_enabled.outputs.ENABLE_BUILD {{"}}"}}
       RELEASE: ${{"{{"}} steps.vers_and_containers.outputs.RELEASE {{"}}"}}
@@ -237,10 +237,10 @@ jobs:
           overwrite: true
 {{ end }}
 
-{{- if .Checks.Enabled }}
+{{- if .GithubCI.Checks.Enabled }}
 
   checks:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_CHECKS != 'true'
@@ -249,13 +249,13 @@ jobs:
       packages: read
     strategy:
       # fail-fast: false lets one push report every violation instead of the first.
-      fail-fast: {{ .Checks.FailFast }}
+      fail-fast: {{ .GithubCI.Checks.FailFast }}
       matrix:
         include:
-{{- range $_, $c := .Checks.Checks }}
+{{- range $_, $c := .GithubCI.Checks.Checks }}
           - name: {{ $c.Name | YAMLQuote }}
             run: {{ $c.Run | YAMLQuote }}
-{{- if $.Checks.HasRegistryLogin }}
+{{- if $.GithubCI.Checks.HasRegistryLogin }}
             registry_login: {{ $c.RegistryLogin }}
 {{- end }}
 {{- end }}
@@ -272,7 +272,7 @@ jobs:
         with:
           go-version: '{{ .GoLangVersion }}'
           cache: true
-{{- if .Checks.HasRegistryLogin }}
+{{- if .GithubCI.Checks.HasRegistryLogin }}
 {{- if eq .RegistryType "github" }}
 
       - name: Log in to GitHub Container Registry
@@ -289,6 +289,9 @@ jobs:
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         if: ${{"{{"}} matrix.registry_login {{"}}"}}
@@ -344,7 +347,7 @@ jobs:
 
 {{ if .Artifacts.HasDocker }}
   create_env_files:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     strategy:
       matrix:
         envs: ${{"{{"}} fromJSON(needs.prepare-env.outputs.DEPLOY_ENVS) {{"}}"}}
@@ -396,7 +399,7 @@ jobs:
 
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
   run-goat-tests-{{ $a.Name | ReplaceDash }}:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_GOAT_TESTS != 'true'
@@ -425,6 +428,9 @@ jobs:
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         run: doctl registry login
@@ -472,11 +478,11 @@ jobs:
 {{ end }}{{ end }}
 
   build:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
-{{ end }}{{ end }}{{ if .Checks.Enabled }}      - checks
+{{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }}      - checks
 {{ end }}    strategy:
       matrix:
         containers: ${{"{{"}} fromJSON(needs.prepare-env.outputs.CONTAINERS) {{"}}"}}
@@ -484,7 +490,7 @@ jobs:
       always() &&
       needs.prepare-env.outputs.ENABLE_BUILD == 'true' &&
       needs.prepare-env.result == 'success'{{ range $_, $a := .Applications }}{{ if $a.GoatTests }} &&
-      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}{{ if .Checks.Enabled }} &&
+      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }} &&
       (needs.checks.result == 'success' || needs.checks.result == 'skipped'){{ end }}
 
     steps:
@@ -496,6 +502,9 @@ jobs:
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         run: doctl registry login
@@ -554,16 +563,16 @@ jobs:
 
 {{ if .Artifacts.HasPackaging }}
   build-packages:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
-{{ end }}{{ end }}{{ if .Checks.Enabled }}      - checks
+{{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }}      - checks
 {{ end }}    if: |
       always() &&
       needs.prepare-env.outputs.ENABLE_BUILD == 'true' &&
       needs.prepare-env.result == 'success'{{ range $_, $a := .Applications }}{{ if $a.GoatTests }} &&
-      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}{{ if .Checks.Enabled }} &&
+      (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}{{ if .GithubCI.Checks.Enabled }} &&
       (needs.checks.result == 'success' || needs.checks.result == 'skipped'){{ end }}
     steps:
       - name: Checkout repository
@@ -626,7 +635,7 @@ jobs:
   #   vars.UPLOAD_PATH - Remote path for packages
   {{- end }}
   upload-packages:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - build-packages
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
@@ -689,7 +698,7 @@ jobs:
 
 {{ if .Documentation.IsEnabled }}
   deploy-docs:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && github.ref == 'refs/heads/main'
@@ -747,7 +756,7 @@ jobs:
 
 {{ if .Artifacts.HasDocker }}
   deploy:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     strategy:
       matrix:
         ips: ${{"{{"}} fromJSON(needs.prepare-env.outputs.SSH_HOST_MATRIX) {{"}}"}}
@@ -802,7 +811,7 @@ jobs:
 {{ end }}
 
   artifact_version:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{- if .Artifacts.HasDocker }}

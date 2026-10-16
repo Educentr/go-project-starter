@@ -9,9 +9,9 @@
 - [Workers](workers.md) — Telegram, Daemon
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
-- [CI checks](checks.md) — объявление проверок и гейт `build`/`build-packages` на них
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
+- [GitHub CI](github-ci.md) — раннер, timeout, версия doctl и проверки, гейтящие `build`
 
 ## Базовая структура
 
@@ -112,6 +112,6 @@ applications:
 - [Workers](workers.md) — Telegram, Daemon
 - [Applications](applications.md) — Applications, drivers
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
-- [CI checks](checks.md) — объявление проверок и гейт `build`/`build-packages` на них
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
+- [GitHub CI](github-ci.md) — раннер, timeout, версия doctl и проверки, гейтящие `build`

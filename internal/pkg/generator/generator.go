@@ -65,7 +65,7 @@ type Generator struct {
 	Grafana             grafana.Config
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
-	Checks              ds.ChecksConfig
+	GithubCI            ds.GithubCIConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -77,7 +77,14 @@ type ExecCmd struct {
 	Msg string
 }
 
-var errUnknownTransport = errors.New("unknown transport")
+// errRelPathFmt wraps a failure to make a generator-written path
+// project-relative for the manifest.
+const errRelPathFmt = "error resolve relative path of %s: %w"
+
+var (
+	errUnknownTransport = errors.New("unknown transport")
+	errSpecNotFound     = errors.New("spec file not found")
+)
 
 func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
 	g := Generator{
@@ -446,12 +453,26 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 	}
 
-	// Process CI checks. No checks declared — no checks job, CI graph unchanged.
-	g.Checks.FailFast = config.ChecksConfig.FailFast
-	g.Checks.Checks = make([]ds.Check, 0, len(config.Checks))
+	// Process GitHub CI configuration. Config validation already rejected
+	// malformed runs_on values, so this only normalizes them.
+	runsOn, err := config.GithubCI.ParseRunsOn()
+	if err != nil {
+		return errors.Wrap(err, "invalid github_ci configuration")
+	}
 
-	for _, check := range config.Checks {
-		g.Checks.Checks = append(g.Checks.Checks, ds.Check{
+	g.GithubCI = ds.GithubCIConfig{
+		RunsOn:            runsOn,
+		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
+		DoctlVersion:      config.GithubCI.DoctlVersion,
+		Checks: ds.ChecksConfig{
+			// No checks declared — no checks job, CI graph unchanged.
+			Checks:   make([]ds.Check, 0, len(config.GithubCI.Checks)),
+			FailFast: config.GithubCI.ChecksConfig.FailFast,
+		},
+	}
+
+	for _, check := range config.GithubCI.Checks {
+		g.GithubCI.Checks.Checks = append(g.GithubCI.Checks.Checks, ds.Check{
 			Name:          check.Name,
 			Run:           check.Run,
 			RegistryLogin: check.RegistryLogin,
@@ -771,7 +792,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Grafana:             g.Grafana,
 		Artifacts:           g.Artifacts,
 		Documentation:       g.Documentation,
-		Checks:              g.Checks,
+		GithubCI:            g.GithubCI,
 	}
 }
 
@@ -978,12 +999,16 @@ func resolveOne(ctx context.Context, r *specsource.Resolver, raw string) (string
 	return res.LocalPath, src.TargetFilename(), nil
 }
 
-func (g *Generator) CopySpecs() error {
+// CopySpecs copies every transport spec into the project and returns the paths
+// it wrote, so they can be recorded in the manifest.
+func (g *Generator) CopySpecs() ([]string, error) {
+	written := []string{}
+
 	for _, app := range g.Applications {
 		for _, transport := range app.Transports {
 			for specNum, spec := range transport.SpecPath {
 				if _, err := os.Stat(spec); err != nil {
-					return fmt.Errorf("spec file not found: %s", spec)
+					return nil, fmt.Errorf("%w: %s", errSpecNotFound, spec)
 				}
 
 				source := spec
@@ -996,22 +1021,28 @@ func (g *Generator) CopySpecs() error {
 				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
 
 				if err := tools.CopyFile(source, dest); err != nil {
-					return err
+					return nil, err
 				}
+
+				written = append(written, dest)
 			}
 		}
 	}
 
-	return nil
+	return written, nil
 }
 
-func (g *Generator) CopySchemas() error {
+// CopySchemas copies every JSON schema into the project and returns the paths
+// it wrote, so they can be recorded in the manifest.
+func (g *Generator) CopySchemas() ([]string, error) {
+	written := []string{}
+
 	for _, schema := range g.JSONSchemas {
 		targetDir := schema.GetTargetSpecDir(g.TargetDir)
 
 		// Ensure target directory exists
 		if err := os.MkdirAll(targetDir, tools.DefaultDirPerm); err != nil {
-			return fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
+			return nil, fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
 		}
 
 		// Collect paths from both legacy Path[] and new Schemas[]
@@ -1026,7 +1057,7 @@ func (g *Generator) CopySchemas() error {
 
 		for i, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
-				return errors.Wrapf(err, "schema file not found: %s", schemaPath)
+				return nil, errors.Wrapf(err, "schema file not found: %s", schemaPath)
 			}
 
 			fileName := filepath.Base(schemaPath)
@@ -1038,12 +1069,14 @@ func (g *Generator) CopySchemas() error {
 			log.Printf("copy schema: `%s` to `%s`\n", schemaPath, dest)
 
 			if err := tools.CopyFile(schemaPath, dest); err != nil {
-				return err
+				return nil, err
 			}
+
+			written = append(written, dest)
 		}
 	}
 
-	return nil
+	return written, nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -1155,9 +1188,13 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error collect files")
 	}
 
-	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.staticIgnorePaths()...)
+	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.Manifest, g.staticIgnorePaths()...)
 	if err != nil {
 		return errors.Wrap(err, "Error get user code")
+	}
+
+	for file, reason := range filesDiff.DriftFiles {
+		log.Printf("warning: %s: %s", file, reason)
 	}
 
 	for i := range files {
@@ -1205,6 +1242,10 @@ func (g *Generator) Generate() error {
 			fmt.Printf("Remove obsolete file: %s\n", file)
 		}
 
+		for file, reason := range filesDiff.DriftFiles {
+			fmt.Printf("Changed generated file: %s (%s)\n", file, reason)
+		}
+
 		return nil
 	}
 
@@ -1232,9 +1273,29 @@ func (g *Generator) Generate() error {
 		}
 	}
 
+	// Manifest of the current run: every file we write, so that the next run
+	// knows exactly which files are ours instead of guessing from content.
+	manifest := make(meta.Manifest, 0, len(files))
+	ignorePaths := g.staticIgnorePaths()
+
 	for _, file := range files {
 		if _, ex := filesDiff.IgnoreFiles[file.DestName]; ex {
 			continue
+		}
+
+		rel, err := meta.RelPath(targetPath, file.DestName)
+		if err != nil {
+			return fmt.Errorf(errRelPathFmt, file.DestName, err)
+		}
+
+		if !templater.IsUserOwned(rel, ignorePaths...) {
+			// Hash before WriteTo: it drains the buffer.
+			hash, err := templater.GeneratedRegionHash(file.DestName, file.Code.Bytes())
+			if err != nil {
+				return fmt.Errorf("error hash generated file %s: %w", file.DestName, err)
+			}
+
+			manifest = append(manifest, meta.FileRecord{Path: rel, Kind: meta.KindGenerated, Hash: hash})
 		}
 
 		dstFile, err := os.Create(file.DestName)
@@ -1267,7 +1328,8 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error resolve specs")
 	}
 
-	if err = g.CopySpecs(); err != nil {
+	copiedSpecs, err := g.CopySpecs()
+	if err != nil {
 		return errors.Wrap(err, "Error copy spec")
 	}
 
@@ -1275,13 +1337,22 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error rewrite spec refs")
 	}
 
-	if err = g.CopySchemas(); err != nil {
+	copiedSchemas, err := g.CopySchemas()
+	if err != nil {
 		return errors.Wrap(err, "Error copy schemas")
 	}
 
 	if err = g.rewriteRefsForSchemas(); err != nil {
 		return errors.Wrap(err, "Error rewrite schema refs")
 	}
+
+	// Refs are rewritten in place, so the copied files are hashed only now.
+	copiedRecords, err := copiedFileRecords(targetPath, append(copiedSpecs, copiedSchemas...))
+	if err != nil {
+		return err
+	}
+
+	g.Meta.SetManifest(append(manifest, copiedRecords...))
 
 	// Create .project-config directory in target for meta.yaml and config
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
@@ -1331,6 +1402,15 @@ func (g *Generator) Generate() error {
 
 		if len(out) > 0 {
 			log.Printf("result: %s\n", out)
+		}
+	}
+
+	// Post-generate steps (goimports, go mod tidy, make generate) rewrite the
+	// files we have just written, so the manifest hashes are refreshed from
+	// disk — otherwise the next run would report drift for every file.
+	if len(g.PostGenerate) > 0 && g.refreshManifestHashes(targetPath) {
+		if err = g.Meta.Save(); err != nil {
+			return fmt.Errorf("error save meta: %w", err)
 		}
 	}
 
@@ -1393,6 +1473,63 @@ func (g *Generator) Generate() error {
 	}
 
 	return nil
+}
+
+// copiedFileRecords builds manifest records for files copied into the project
+// as-is (API specs, JSON schemas). Those carry no disclaimer marker, so the
+// whole file is hashed.
+func copiedFileRecords(targetPath string, paths []string) (meta.Manifest, error) {
+	records := make(meta.Manifest, 0, len(paths))
+
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("error read copied file %s: %w", path, err)
+		}
+
+		rel, err := meta.RelPath(targetPath, path)
+		if err != nil {
+			return nil, fmt.Errorf(errRelPathFmt, path, err)
+		}
+
+		records = append(records, meta.FileRecord{Path: rel, Kind: meta.KindCopied, Hash: meta.HashContent(content)})
+	}
+
+	return records, nil
+}
+
+// refreshManifestHashes re-reads the manifest files from disk and updates their
+// hashes, reporting whether anything changed. Records whose file disappeared
+// are left untouched — the next run treats a missing file as nothing to do.
+func (g *Generator) refreshManifestHashes(targetPath string) bool {
+	changed := false
+
+	for i, rec := range g.Meta.Manifest {
+		path := filepath.Join(targetPath, filepath.FromSlash(rec.Path))
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		hash := meta.HashContent(content)
+
+		if rec.Kind == meta.KindGenerated {
+			hash, err = templater.GeneratedRegionHash(path, content)
+			if err != nil {
+				log.Printf("warning: %s: disclaimer marker lost after post-generate steps: %v", path, err)
+
+				continue
+			}
+		}
+
+		if hash != rec.Hash {
+			g.Meta.Manifest[i].Hash = hash
+			changed = true
+		}
+	}
+
+	return changed
 }
 
 // staticIgnorePaths returns project-relative directory prefixes (e.g. "static/")

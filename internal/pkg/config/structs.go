@@ -533,21 +533,23 @@ type (
 	// are enough, so a project keeps its own guards while the CI graph stays in
 	// one generated file.
 	//
-	// Checks are project-level: lint and unit tests belong to the module, not to
-	// a particular application.
+	// Checks live in the github_ci section, next to the other settings of the
+	// generated GitHub workflows, and apply to the whole project: lint and unit
+	// tests belong to the module, not to a particular application.
 	//
 	// YAML example:
 	//
-	//	checks:
-	//	  - name: lint
-	//	    run: make lint
-	//	  - name: unit-tests
-	//	    run: make unit-tests
-	//	  - name: guards
-	//	    run: make lint-guards
-	//	    registry_login: true   # default false — a linter needs no registry
+	//	github_ci:
+	//	  checks:
+	//	    - name: lint
+	//	      run: make lint
+	//	    - name: unit-tests
+	//	      run: make unit-tests
+	//	    - name: guards
+	//	      run: make lint-guards
+	//	      registry_login: true   # default false — a linter needs no registry
 	//
-	// See docs/configuration/checks.md for full documentation.
+	// See docs/configuration/github-ci.md for full documentation.
 	Check struct {
 		// Name is the check name, unique within the project. Required.
 		Name string `mapstructure:"name"`
@@ -561,8 +563,9 @@ type (
 	//
 	// YAML example:
 	//
-	//	checks_config:
-	//	  fail_fast: false
+	//	github_ci:
+	//	  checks_config:
+	//	    fail_fast: false
 	ChecksConfig struct {
 		// FailFast cancels the remaining checks once one of them fails.
 		// Default false: one push reports every violation, not just the first.
@@ -682,8 +685,7 @@ type (
 		Artifacts      []ArtifactType      `mapstructure:"artifacts"`
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
-		Checks         CheckList           `mapstructure:"checks"`
-		ChecksConfig   ChecksConfig        `mapstructure:"checks_config"`
+		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc
@@ -1153,11 +1155,11 @@ func (c CLI) IsValid() (bool, string) {
 // IsValid validates a single CI check declaration.
 func (c Check) IsValid() (bool, string) {
 	if len(c.Name) == 0 {
-		return false, "Empty name"
+		return false, "github_ci.checks: empty name"
 	}
 
 	if len(c.Run) == 0 {
-		return false, "Empty run command in check '" + c.Name + "'"
+		return false, "github_ci.checks: empty run command in check '" + c.Name + "'"
 	}
 
 	return true, ""
