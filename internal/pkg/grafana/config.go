@@ -1,6 +1,7 @@
 package grafana
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
@@ -20,7 +21,7 @@ type Datasource struct {
 	URL       string
 	IsDefault bool
 	Editable  bool
-	UID       string // generated: "ds-" + lowercase(name)
+	UID       string // resolved: explicit uid from config, or "ds-" + lowercase(name)
 }
 
 // Config holds resolved Grafana configuration.
@@ -33,6 +34,12 @@ const (
 	DatasourcePrometheus = "prometheus"
 	DatasourceLoki       = "loki"
 )
+
+// MaxDatasourceUIDLen is the longest datasource uid Grafana accepts.
+const MaxDatasourceUIDLen = 40
+
+// datasourceUIDRe mirrors Grafana's uid charset: latin letters, digits, "-" and "_".
+var datasourceUIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // HasDatasourceType checks if config has a datasource of the given type.
 func (g Config) HasDatasourceType(dsType string) bool {
@@ -142,4 +149,26 @@ func (g Config) GetDashboardRows(appName string, transports []TransportInfo, dec
 // GenerateDatasourceUID generates a deterministic UID from datasource name.
 func GenerateDatasourceUID(name string) string {
 	return "ds-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+}
+
+// ResolveDatasourceUID returns the uid a datasource is provisioned with: the
+// explicit uid when set, otherwise the one derived from the name. This is the
+// single source of truth for the uid that lands both in the provisioning file
+// and in every dashboard panel, so an explicit uid cannot drift between them.
+func ResolveDatasourceUID(uid, name string) string {
+	if uid != "" {
+		return uid
+	}
+
+	return GenerateDatasourceUID(name)
+}
+
+// ValidateDatasourceUID reports whether uid is accepted by Grafana: 1 to
+// MaxDatasourceUIDLen characters of latin letters, digits, "-" and "_".
+func ValidateDatasourceUID(uid string) bool {
+	if uid == "" || len(uid) > MaxDatasourceUIDLen {
+		return false
+	}
+
+	return datasourceUIDRe.MatchString(uid)
 }

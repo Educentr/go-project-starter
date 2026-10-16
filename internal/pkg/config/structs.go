@@ -2,9 +2,11 @@ package config
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
@@ -137,10 +139,15 @@ type (
 
 	// GrafanaDatasource represents a single Grafana datasource configuration
 	GrafanaDatasource struct {
-		Name      string `mapstructure:"name"`
-		Type      string `mapstructure:"type"`   // prometheus, loki
-		Access    string `mapstructure:"access"` // proxy, direct
-		URL       string `mapstructure:"url"`
+		Name   string `mapstructure:"name"`
+		Type   string `mapstructure:"type"`   // prometheus, loki
+		Access string `mapstructure:"access"` // proxy, direct
+		URL    string `mapstructure:"url"`
+		// UID overrides the uid the datasource is provisioned with. Empty means
+		// "ds-" + lowercase(name). Set it when the generated dashboard is served
+		// by a shared Grafana where the datasource is provisioned centrally
+		// under its own uid.
+		UID       string `mapstructure:"uid"`
 		IsDefault bool   `mapstructure:"isDefault"`
 		Editable  bool   `mapstructure:"editable"`
 	}
@@ -660,6 +667,7 @@ type (
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
 		Metrics        Metrics             `mapstructure:"metrics"`
+		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc
@@ -1299,7 +1307,18 @@ func (d GrafanaDatasource) IsValid() (bool, string) {
 		return false, "Empty URL for datasource " + d.Name
 	}
 
+	if d.UID != "" && !grafana.ValidateDatasourceUID(d.UID) {
+		return false, "Invalid uid for datasource " + d.Name + ": " + d.UID +
+			" (expected 1-" + strconv.Itoa(grafana.MaxDatasourceUIDLen) + " characters of a-z, A-Z, 0-9, '-', '_')"
+	}
+
 	return true, ""
+}
+
+// ResolvedUID returns the uid this datasource is provisioned with: the explicit
+// uid from project.yaml, or the one derived from the name when uid is omitted.
+func (d GrafanaDatasource) ResolvedUID() string {
+	return grafana.ResolveDatasourceUID(d.UID, d.Name)
 }
 
 // IsValid validates Grafana configuration
@@ -1309,6 +1328,9 @@ func (g Grafana) IsValid() (bool, string) {
 	}
 
 	seenNames := make(map[string]struct{})
+	// Keyed by resolved uid so an explicit uid colliding with another
+	// datasource's generated uid is caught too.
+	seenUIDs := make(map[string]string)
 	hasDefault := false
 
 	for _, ds := range g.Datasources {
@@ -1320,6 +1342,14 @@ func (g Grafana) IsValid() (bool, string) {
 			return false, "Duplicate datasource name: " + ds.Name
 		}
 		seenNames[ds.Name] = struct{}{}
+
+		uid := ds.ResolvedUID()
+
+		if owner, exists := seenUIDs[uid]; exists {
+			return false, "Duplicate datasource uid " + uid + ": used by " + owner + " and " + ds.Name
+		}
+
+		seenUIDs[uid] = ds.Name
 
 		if ds.IsDefault {
 			if hasDefault {

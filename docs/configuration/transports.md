@@ -110,15 +110,39 @@ rest:
     generator_type: ogen_client
     auth_params:
       transport: header    # Способ передачи (пока только header)
-      type: apikey         # Тип аутентификации: apikey или bearer
+      type: apikey         # Тип аутентификации: apikey, bearer или basic
 ```
 
 **Типы аутентификации:**
 
-| Тип | OnlineConf путь | Описание |
-|-----|-----------------|----------|
-| `apikey` | `{service_name}/transport/rest/{rest_name}/auth_params/apikey` | API key в заголовке |
-| `bearer` | `{service_name}/transport/rest/{rest_name}/auth_params/token` | Bearer token в заголовке Authorization |
+| Тип | Имя схемы в спеке | OnlineConf путь(и) | Описание |
+|-----|-------------------|--------------------|----------|
+| `apikey` | `AuthHeader` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/apikey` | API key в заголовке |
+| `bearer` | `BearerAuth` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/token` | Bearer token в заголовке Authorization |
+| `basic` | `BasicAuth` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/username` и `.../password` | HTTP Basic (`Authorization: Basic …`) |
+
+**Имя схемы безопасности в спеке обязательно.** Стартер генерирует обёртку под конкретный
+метод интерфейса `SecuritySource`, который ogen выводит из имени схемы в
+`components.securitySchemes`. Поэтому схема должна называться ровно так, как в колонке
+«Имя схемы в спеке» — иначе сгенерированная обёртка не реализует интерфейс ogen и проект
+не соберётся.
+
+Для `type: basic` спека описывает HTTP Basic стандартным образом:
+
+```yaml
+# api/external.yaml
+security:
+  - BasicAuth: []
+components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic
+```
+
+Логин читается из `auth_params/username`, пароль — из `auth_params/password` (оба узла
+должны существовать в OnlineConf; при `dev_stand: true` они создаются пустыми). Пустой
+`username` — ошибка, пустой `password` допустим: часть API носит секрет в логине.
 
 ### Динамический режим инстанцирования (ogen_client)
 

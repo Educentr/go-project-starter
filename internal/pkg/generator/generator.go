@@ -67,9 +67,16 @@ type Generator struct {
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
 	Metrics             ds.MetricsConfig
+	GithubCI            ds.GithubCIConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
+	// SourceRefs overrides the git ref of the spec sources in project.yaml
+	// that did not pin one explicitly ("@<ref>" in the URI) — per repository
+	// or for all of them at once. Comes from the --sourceRef flag /
+	// GPS_SOURCE_REF env, never from the config file. Nil means every source
+	// keeps the ref written in the config.
+	SourceRefs *specsource.SourceRefs
 }
 
 type ExecCmd struct {
@@ -85,11 +92,29 @@ const (
 
 	// errMetricsMapCtx prefixes failures of the metrics map merge.
 	errMetricsMapCtx = "metrics map"
+
+	// errRelPathFmt wraps a failure to make a generator-written path
+	// project-relative for the manifest.
+	errRelPathFmt = "error resolve relative path of %s: %w"
 )
 
-var errUnknownTransport = errors.New("unknown transport")
+var (
+	errUnknownTransport = errors.New("unknown transport")
+	errSpecNotFound     = errors.New("spec file not found")
+)
 
-func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Generator, error) {
+// New builds a Generator from the loaded config. sourceRefs, when non-nil,
+// overrides the git ref of the non-pinned spec sources it names (see
+// Generator.SourceRefs); build it with specsource.ParseSourceRefs, which
+// validates every ref in it.
+//
+// The first parameter is the generator's own version string. It is accepted
+// but unused, as it has been so far — storing it in Generator.AppInfo would
+// rewrite the disclaimer header of every generated file in every project,
+// which is a change of its own and not part of this one.
+func New(
+	_ string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRefs *specsource.SourceRefs,
+) (*Generator, error) {
 	g := Generator{
 		Applications: make(ds.Apps, 0, len(config.Applications)),
 		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
@@ -100,6 +125,9 @@ func New(AppInfo string, config cfg.Config, genMeta meta.Meta, dryrun bool) (*Ge
 		Kafka:        make(ds.KafkaConfigs),
 		DryRun:       dryrun,
 		Meta:         genMeta,
+		// Set before processConfig: the inline spec resolve for queue workers
+		// and CLI commands happens inside it and needs the override.
+		SourceRefs: sourceRefs,
 	}
 
 	if err := g.processConfig(config); err != nil {
@@ -196,10 +224,12 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 
 		if rest.GeneratorType == "ogen_client" {
+			wrapperImport := fmt.Sprintf(`"%s/internal/app/transport/rest/%s/%s"`, g.ProjectPath, rest.Name, rest.Version)
 			transport.Import = []string{
 				fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version),
-				fmt.Sprintf(`"%s/internal/app/transport/rest/%s/%s"`, g.ProjectPath, rest.Name, rest.Version),
+				wrapperImport,
 			}
+			transport.WrapperImport = wrapperImport
 			transport.Name = rest.Name
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)
@@ -240,7 +270,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		// (local paths join with BasePath, remote URIs resolve into a
 		// scratch staging dir that is wiped right after the parse).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0])
+			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0], g.SourceRefs)
 			if err != nil {
 				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
 			}
@@ -315,7 +345,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			URL:       cfgDs.URL,
 			IsDefault: cfgDs.IsDefault,
 			Editable:  cfgDs.Editable,
-			UID:       grafana.GenerateDatasourceUID(cfgDs.Name),
+			UID:       cfgDs.ResolvedUID(),
 		})
 	}
 
@@ -458,6 +488,19 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		if g.Documentation.SiteName == "" {
 			g.Documentation.SiteName = g.ProjectName
 		}
+	}
+
+	// Process GitHub CI configuration. Config validation already rejected
+	// malformed runs_on values, so this only normalizes them.
+	runsOn, err := config.GithubCI.ParseRunsOn()
+	if err != nil {
+		return errors.Wrap(err, "invalid github_ci configuration")
+	}
+
+	g.GithubCI = ds.GithubCIConfig{
+		RunsOn:            runsOn,
+		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
+		DoctlVersion:      config.GithubCI.DoctlVersion,
 	}
 
 	for _, app := range config.Applications {
@@ -609,7 +652,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			// (git+ssh://, git+https://, https://) materialize into a
 			// scratch staging dir that is wiped right after the parse.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0])
+				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0], g.SourceRefs)
 				if err != nil {
 					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
 				}
@@ -774,6 +817,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Artifacts:           g.Artifacts,
 		Documentation:       g.Documentation,
 		Metrics:             g.Metrics,
+		GithubCI:            g.GithubCI,
 	}
 }
 
@@ -833,6 +877,8 @@ func projectCapabilities(config cfg.Config) map[string]bool {
 // before the resolveAllSources pre-pass. Nothing downstream reads the map file
 // itself — the generated collector package is the artifact — so the staged
 // copy is dropped right after the parse and no copy lands in the project.
+// Like every other spec channel it honors the --sourceRef ref override, so a
+// remote map is fetched from the same state of the contracts as the rest.
 //
 // Without `metrics.path` the generator still merges its own declarations so
 // that internal names keep a single home, but Metrics stays disabled and no
@@ -841,7 +887,9 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	var serviceMap *metricsmap.Map
 
 	if config.Metrics.IsEnabled() {
-		mapPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, config.Metrics.Path)
+		mapPath, cleanup, err := resolveInlineSpec(
+			context.Background(), config.BasePath, config.Metrics.Path, g.SourceRefs,
+		)
 		if err != nil {
 			return errors.Wrapf(err, "metrics.path: resolve %s", config.Metrics.Path)
 		}
@@ -881,7 +929,15 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 //
 // LocalSource short-circuits: returns filepath.Join(basePath, raw) without
 // touching the filesystem, so existing local-only flows incur zero cost.
-func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath string, cleanup func(), err error) {
+//
+// sourceRefs is the ref override set for non-pinned git sources; it must be
+// the same set the resolve pre-pass uses — the very same pointer, so that
+// selector usage accumulates across both paths — otherwise the inline
+// channels (queue, CLI) would be built from a different state of the
+// contracts than the REST/gRPC/JSON Schema ones.
+func resolveInlineSpec(
+	ctx context.Context, basePath, raw string, sourceRefs *specsource.SourceRefs,
+) (specPath string, cleanup func(), err error) {
 	src, perr := specsource.ParseSpecSource(raw)
 	if perr != nil {
 		return "", func() {}, perr
@@ -896,7 +952,9 @@ func resolveInlineSpec(ctx context.Context, basePath, raw string) (specPath stri
 	}
 	cleanupStaging := func() { _ = os.RemoveAll(stagingDir) }
 
-	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{})
+	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{
+		SourceRefs: sourceRefs,
+	})
 	if rerr != nil {
 		cleanupStaging()
 		return "", func() {}, rerr
@@ -934,6 +992,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 
 	resolver, err := specsource.NewResolver(g.BasePath, stagingDir, specsource.ResolverOptions{
 		SkipGitCheck: skipGit,
+		SourceRefs:   g.SourceRefs,
 	})
 	if err != nil {
 		_ = os.RemoveAll(stagingDir)
@@ -1051,12 +1110,16 @@ func resolveOne(ctx context.Context, r *specsource.Resolver, raw string) (string
 	return res.LocalPath, src.TargetFilename(), nil
 }
 
-func (g *Generator) CopySpecs() error {
+// CopySpecs copies every transport spec into the project and returns the paths
+// it wrote, so they can be recorded in the manifest.
+func (g *Generator) CopySpecs() ([]string, error) {
+	written := []string{}
+
 	for _, app := range g.Applications {
 		for _, transport := range app.Transports {
 			for specNum, spec := range transport.SpecPath {
 				if _, err := os.Stat(spec); err != nil {
-					return fmt.Errorf("spec file not found: %s", spec)
+					return nil, fmt.Errorf("%w: %s", errSpecNotFound, spec)
 				}
 
 				source := spec
@@ -1069,22 +1132,28 @@ func (g *Generator) CopySpecs() error {
 				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
 
 				if err := tools.CopyFile(source, dest); err != nil {
-					return err
+					return nil, err
 				}
+
+				written = append(written, dest)
 			}
 		}
 	}
 
-	return nil
+	return written, nil
 }
 
-func (g *Generator) CopySchemas() error {
+// CopySchemas copies every JSON schema into the project and returns the paths
+// it wrote, so they can be recorded in the manifest.
+func (g *Generator) CopySchemas() ([]string, error) {
+	written := []string{}
+
 	for _, schema := range g.JSONSchemas {
 		targetDir := schema.GetTargetSpecDir(g.TargetDir)
 
 		// Ensure target directory exists
 		if err := os.MkdirAll(targetDir, tools.DefaultDirPerm); err != nil {
-			return fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
+			return nil, fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
 		}
 
 		// Collect paths from both legacy Path[] and new Schemas[]
@@ -1099,7 +1168,7 @@ func (g *Generator) CopySchemas() error {
 
 		for i, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
-				return errors.Wrapf(err, "schema file not found: %s", schemaPath)
+				return nil, errors.Wrapf(err, "schema file not found: %s", schemaPath)
 			}
 
 			fileName := filepath.Base(schemaPath)
@@ -1111,12 +1180,14 @@ func (g *Generator) CopySchemas() error {
 			log.Printf("copy schema: `%s` to `%s`\n", schemaPath, dest)
 
 			if err := tools.CopyFile(schemaPath, dest); err != nil {
-				return err
+				return nil, err
 			}
+
+			written = append(written, dest)
 		}
 	}
 
-	return nil
+	return written, nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -1228,9 +1299,13 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error collect files")
 	}
 
-	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.staticIgnorePaths()...)
+	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.Manifest, g.staticIgnorePaths()...)
 	if err != nil {
 		return errors.Wrap(err, "Error get user code")
+	}
+
+	for file, reason := range filesDiff.DriftFiles {
+		log.Printf("warning: %s: %s", file, reason)
 	}
 
 	for i := range files {
@@ -1278,6 +1353,10 @@ func (g *Generator) Generate() error {
 			fmt.Printf("Remove obsolete file: %s\n", file)
 		}
 
+		for file, reason := range filesDiff.DriftFiles {
+			fmt.Printf("Changed generated file: %s (%s)\n", file, reason)
+		}
+
 		return nil
 	}
 
@@ -1305,9 +1384,29 @@ func (g *Generator) Generate() error {
 		}
 	}
 
+	// Manifest of the current run: every file we write, so that the next run
+	// knows exactly which files are ours instead of guessing from content.
+	manifest := make(meta.Manifest, 0, len(files))
+	ignorePaths := g.staticIgnorePaths()
+
 	for _, file := range files {
 		if _, ex := filesDiff.IgnoreFiles[file.DestName]; ex {
 			continue
+		}
+
+		rel, err := meta.RelPath(targetPath, file.DestName)
+		if err != nil {
+			return fmt.Errorf(errRelPathFmt, file.DestName, err)
+		}
+
+		if !templater.IsUserOwned(rel, ignorePaths...) {
+			// Hash before WriteTo: it drains the buffer.
+			hash, err := templater.GeneratedRegionHash(file.DestName, file.Code.Bytes())
+			if err != nil {
+				return fmt.Errorf("error hash generated file %s: %w", file.DestName, err)
+			}
+
+			manifest = append(manifest, meta.FileRecord{Path: rel, Kind: meta.KindGenerated, Hash: hash})
 		}
 
 		dstFile, err := os.Create(file.DestName)
@@ -1340,7 +1439,15 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error resolve specs")
 	}
 
-	if err = g.CopySpecs(); err != nil {
+	// Every channel has been resolved by now (inline queue/CLI specs during
+	// processConfig, the rest in the pre-pass above), so a repository-scoped
+	// --sourceRef that matched nothing is a typo and must not pass silently.
+	if err = g.SourceRefs.CheckUsed(); err != nil {
+		return errors.Wrap(err, "Error resolve specs")
+	}
+
+	copiedSpecs, err := g.CopySpecs()
+	if err != nil {
 		return errors.Wrap(err, "Error copy spec")
 	}
 
@@ -1348,13 +1455,22 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error rewrite spec refs")
 	}
 
-	if err = g.CopySchemas(); err != nil {
+	copiedSchemas, err := g.CopySchemas()
+	if err != nil {
 		return errors.Wrap(err, "Error copy schemas")
 	}
 
 	if err = g.rewriteRefsForSchemas(); err != nil {
 		return errors.Wrap(err, "Error rewrite schema refs")
 	}
+
+	// Refs are rewritten in place, so the copied files are hashed only now.
+	copiedRecords, err := copiedFileRecords(targetPath, append(copiedSpecs, copiedSchemas...))
+	if err != nil {
+		return err
+	}
+
+	g.Meta.SetManifest(append(manifest, copiedRecords...))
 
 	// Create .project-config directory in target for meta.yaml and config
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
@@ -1404,6 +1520,15 @@ func (g *Generator) Generate() error {
 
 		if len(out) > 0 {
 			log.Printf("result: %s\n", out)
+		}
+	}
+
+	// Post-generate steps (goimports, go mod tidy, make generate) rewrite the
+	// files we have just written, so the manifest hashes are refreshed from
+	// disk — otherwise the next run would report drift for every file.
+	if len(g.PostGenerate) > 0 && g.refreshManifestHashes(targetPath) {
+		if err = g.Meta.Save(); err != nil {
+			return fmt.Errorf("error save meta: %w", err)
 		}
 	}
 
@@ -1466,6 +1591,63 @@ func (g *Generator) Generate() error {
 	}
 
 	return nil
+}
+
+// copiedFileRecords builds manifest records for files copied into the project
+// as-is (API specs, JSON schemas). Those carry no disclaimer marker, so the
+// whole file is hashed.
+func copiedFileRecords(targetPath string, paths []string) (meta.Manifest, error) {
+	records := make(meta.Manifest, 0, len(paths))
+
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("error read copied file %s: %w", path, err)
+		}
+
+		rel, err := meta.RelPath(targetPath, path)
+		if err != nil {
+			return nil, fmt.Errorf(errRelPathFmt, path, err)
+		}
+
+		records = append(records, meta.FileRecord{Path: rel, Kind: meta.KindCopied, Hash: meta.HashContent(content)})
+	}
+
+	return records, nil
+}
+
+// refreshManifestHashes re-reads the manifest files from disk and updates their
+// hashes, reporting whether anything changed. Records whose file disappeared
+// are left untouched — the next run treats a missing file as nothing to do.
+func (g *Generator) refreshManifestHashes(targetPath string) bool {
+	changed := false
+
+	for i, rec := range g.Meta.Manifest {
+		path := filepath.Join(targetPath, filepath.FromSlash(rec.Path))
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		hash := meta.HashContent(content)
+
+		if rec.Kind == meta.KindGenerated {
+			hash, err = templater.GeneratedRegionHash(path, content)
+			if err != nil {
+				log.Printf("warning: %s: disclaimer marker lost after post-generate steps: %v", path, err)
+
+				continue
+			}
+		}
+
+		if hash != rec.Hash {
+			g.Meta.Manifest[i].Hash = hash
+			changed = true
+		}
+	}
+
+	return changed
 }
 
 // staticIgnorePaths returns project-relative directory prefixes (e.g. "static/")

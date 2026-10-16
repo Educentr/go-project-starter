@@ -8,7 +8,7 @@ on:
 
 jobs:
   prepare-env:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     outputs:
       ENABLE_BUILD: ${{"{{"}} steps.vars_enabled.outputs.ENABLE_BUILD {{"}}"}}
       RELEASE: ${{"{{"}} steps.vers_and_containers.outputs.RELEASE {{"}}"}}
@@ -239,7 +239,7 @@ jobs:
 
 {{ if .Artifacts.HasDocker }}
   create_env_files:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     strategy:
       matrix:
         envs: ${{"{{"}} fromJSON(needs.prepare-env.outputs.DEPLOY_ENVS) {{"}}"}}
@@ -291,7 +291,7 @@ jobs:
 
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
   run-goat-tests-{{ $a.Name | ReplaceDash }}:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_GOAT_TESTS != 'true'
@@ -320,6 +320,9 @@ jobs:
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         run: doctl registry login
@@ -367,7 +370,7 @@ jobs:
 {{ end }}{{ end }}
 
   build:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
@@ -389,6 +392,9 @@ jobs:
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         run: doctl registry login
@@ -447,7 +453,7 @@ jobs:
 
 {{ if .Artifacts.HasPackaging }}
   build-packages:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
@@ -517,7 +523,7 @@ jobs:
   #   vars.UPLOAD_PATH - Remote path for packages
   {{- end }}
   upload-packages:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - build-packages
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
@@ -580,7 +586,7 @@ jobs:
 
 {{ if .Documentation.IsEnabled }}
   deploy-docs:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && github.ref == 'refs/heads/main'
@@ -638,7 +644,7 @@ jobs:
 
 {{ if .Artifacts.HasDocker }}
   deploy:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     strategy:
       matrix:
         ips: ${{"{{"}} fromJSON(needs.prepare-env.outputs.SSH_HOST_MATRIX) {{"}}"}}
@@ -693,7 +699,7 @@ jobs:
 {{ end }}
 
   artifact_version:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{- if .Artifacts.HasDocker }}

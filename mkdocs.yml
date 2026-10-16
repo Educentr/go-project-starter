@@ -81,6 +81,7 @@ nav:
     - Applications: configuration/applications.md
     - Инфраструктура: configuration/infrastructure.md
     - Rewrite refs: configuration/rewrite-refs.md
+    - GitHub CI: configuration/github-ci.md
     - Карта метрик: configuration/metrics-map.md
   - Рабочий процесс:
     - workflow/index.md

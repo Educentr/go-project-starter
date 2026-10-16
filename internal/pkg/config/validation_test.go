@@ -863,6 +863,49 @@ func TestGrafanaDatasource_IsValid(t *testing.T) {
 			wantOK:  false,
 			wantMsg: "Empty URL for datasource prometheus",
 		},
+		{
+			name: "valid explicit uid",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://victoriametrics:8428",
+				UID:  "victoriametrics",
+			},
+			wantOK: true,
+		},
+		{
+			name: "uid with dash and underscore",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://prometheus:9090",
+				UID:  "shared_metrics-1",
+			},
+			wantOK: true,
+		},
+		{
+			name: "uid with forbidden character",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://prometheus:9090",
+				UID:  "victoria.metrics",
+			},
+			wantOK:  false,
+			wantMsg: "Invalid uid for datasource Prometheus: victoria.metrics (expected 1-40 characters of a-z, A-Z, 0-9, '-', '_')",
+		},
+		{
+			name: "uid longer than 40 characters",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://prometheus:9090",
+				UID:  "01234567890123456789012345678901234567890",
+			},
+			wantOK: false,
+			wantMsg: "Invalid uid for datasource Prometheus: 01234567890123456789012345678901234567890 " +
+				"(expected 1-40 characters of a-z, A-Z, 0-9, '-', '_')",
+		},
 	}
 
 	for _, tt := range tests {
@@ -952,6 +995,63 @@ func TestGrafana_IsValid(t *testing.T) {
 			},
 			wantOK:  false,
 			wantMsg: "Only one datasource can be default",
+		},
+		{
+			name: "explicit uid alongside a generated one",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://victoriametrics:8428", UID: "victoriametrics"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100"},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name: "duplicate explicit uids",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090", UID: "shared"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100", UID: "shared"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid shared: used by Prometheus and Loki",
+		},
+		{
+			// The collision that only shows up after resolution: Loki's explicit
+			// uid is exactly what Prometheus' name generates.
+			name: "explicit uid collides with another datasource's generated uid",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100", UID: "ds-prometheus"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid ds-prometheus: used by Prometheus and Loki",
+		},
+		{
+			// Mirror of the case above with the explicit uid declared first, to
+			// pin that detection does not depend on declaration order.
+			name: "generated uid collides with an earlier explicit uid",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100", UID: "ds-prometheus"},
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid ds-prometheus: used by Loki and Prometheus",
+		},
+		{
+			name: "invalid uid is reported from the datasource check",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090", UID: "bad uid"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Invalid uid for datasource Prometheus: bad uid (expected 1-40 characters of a-z, A-Z, 0-9, '-', '_')",
 		},
 	}
 

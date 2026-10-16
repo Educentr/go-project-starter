@@ -107,7 +107,8 @@ rest:
     instantiation: string       # [optional] static (default) или dynamic
     auth_params:                # [optional] Параметры аутентификации
       transport: header         # Тип транспорта (только header)
-      type: apikey              # Тип аутентификации: apikey или bearer
+      type: apikey              # Тип аутентификации: apikey|bearer|basic
+                                # Имя схемы в спеке: AuthHeader|BearerAuth|BasicAuth
 ```
 
 ### Типы генераторов REST
@@ -124,6 +125,18 @@ rest:
 |-------|----------|
 | `static` | Один экземпляр клиента на всё приложение (default) |
 | `dynamic` | Новый экземпляр для каждого запроса |
+
+### Типы `auth_params.type` (ogen_client)
+
+| Тип | Имя схемы в спеке | Узлы OnlineConf под `auth_params` |
+|-----|-------------------|-----------------------------------|
+| `apikey` | `AuthHeader` | `apikey` |
+| `bearer` | `BearerAuth` | `token` |
+| `basic` | `BasicAuth` | `username`, `password` |
+
+Имя схемы в `components.securitySchemes` обязано совпадать с колонкой «Имя схемы в
+спеке» — из него ogen выводит метод `SecuritySource`, который реализует сгенерированная
+обёртка. Подробнее — [Транспорты](../configuration/transports.md#параметры-аутентификации).
 
 ---
 
@@ -348,9 +361,13 @@ grafana:
       type: string              # [required] Тип: prometheus|loki
       access: string            # [optional] Режим: proxy (default)|direct
       url: string               # [required] URL datasource
+      uid: string               # [optional] uid datasource (default: ds-<lowercase name>)
       isDefault: bool           # [optional] Default datasource
       editable: bool            # [optional] Редактируемый в UI
 ```
+
+`uid` — до 40 символов из `a-z A-Z 0-9 - _`; итоговые uid (явные и вычисленные)
+должны быть уникальны. Подробнее — [инфраструктура](../configuration/infrastructure.md#поля-datasource).
 
 ---
 
