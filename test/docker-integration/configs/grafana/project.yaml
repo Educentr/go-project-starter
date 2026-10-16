@@ -17,7 +17,11 @@ tools:
 
 grafana:
   datasources:
+    # Explicit uid: this dashboard is meant for a shared Grafana where the
+    # metrics datasource is provisioned centrally as "victoriametrics".
+    # Loki below has no uid and keeps the generated default (ds-loki).
     - name: Prometheus
+      uid: victoriametrics
       type: prometheus
       access: proxy
       url: http://prometheus:9090
