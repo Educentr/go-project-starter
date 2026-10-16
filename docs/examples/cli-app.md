@@ -17,7 +17,7 @@ git:
   module_path: github.com/myorg/myctl
 
 tools:
-  golang_version: "1.24"
+  golang_version: "1.27"
 
 cli:
   - name: admin
@@ -88,7 +88,40 @@ internal/app/transport/cli/admin/
 - **Handler** — struct с embedding `UnimplementedCLI` и ссылкой на `Service`
 - **registerCommands()** — регистрация команд с flag parsing
 - **Execute()** — диспетчеризация команд и подкоманд
-- **PrintHelp()** — вывод справки
+- **PrintHelp()** — список команд с кратким описанием
+- **PrintCommandHelp() / PrintSubcommandHelp()** — детальная справка (полное
+  описание + флаги)
+
+## Справка (help)
+
+Два уровня вывода:
+
+| Что | Где | Что печатается |
+|-----|-----|----------------|
+| Список команд | запуск без аргументов, `help` | по одной строке на команду — **первая строка** описания (длинная обрезается по границе слова) |
+| Детальная справка | `<command> --help`, `<command> <subcommand> --help`, `help <command>`, `help <command> <subcommand>` | **полное** описание (включая многострочное), usage и список флагов |
+
+```bash
+./myctl                        # usage + список команд
+./myctl user --help            # описание + список подкоманд
+./myctl user create --help     # полное описание подкоманды + её флаги
+./myctl help user create       # то же самое
+```
+
+Поддерживаются `--help`, `-help` и `-h`. Справка пишется в writer хендлера
+(по умолчанию `os.Stdout`, меняется через `Handler.SetOutput`), что позволяет
+проверять её в тестах.
+
+### Описания — свободный текст, имена — нет
+
+- `description` (команд, подкоманд, флагов) — свободный текст: кавычки,
+  обратные слэши и многострочные блоки (`description: |`) допустимы, генератор
+  экранирует их при вставке в Go-литерал.
+- `name` (команд, подкоманд, флагов) — только `[a-zA-Z][a-zA-Z0-9_-]*`: имя
+  становится частью Go-идентификатора (`RunUserCreate`, `UserCreateParams`).
+  Невалидное имя — ошибка на этапе загрузки конфига, а не сломанная генерация.
+- `default` проверяется по типу флага (`int`, `bool`, `float64`, `duration`),
+  для `duration` принимается формат Go (`5s`, `1m30s`).
 
 ### Пользовательский код
 
@@ -138,6 +171,7 @@ go build -o myctl ./cmd/admin-cli
 
 # Команды
 ./myctl help
+./myctl user create --help
 ./myctl user create --email admin@example.com --name "Admin"
 ./myctl user list --limit 50
 ./myctl ping

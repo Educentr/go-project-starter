@@ -105,8 +105,8 @@ func run() int {
 
 	// Parse command and arguments (shell-like: first word is command, rest are args)
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <command> [arguments...]\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\nAvailable commands:\n")
+		// PrintHelp already prints its own command-list header — don't duplicate it here.
+		fmt.Fprintf(os.Stderr, "Usage: %s <command> [arguments...]\n\n", os.Args[0])
 		cliHandler.PrintHelp(os.Stderr)
 		return ExitCodeErrorRun
 	}
