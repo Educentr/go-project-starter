@@ -1016,6 +1016,11 @@ type FilesDiff struct {
 	OtherDirectory map[string]struct{}
 	UserContent    map[string][]byte
 	RenameFiles    map[string]string
+	// DriftFiles maps a path whose generated region no longer matches the hash
+	// recorded in the manifest to a human-readable reason. Populated only in
+	// manifest mode: a mismatch means the generated region was edited by hand
+	// after the generator wrote it.
+	DriftFiles map[string]string
 }
 
 // GetTargetSpecDir returns the directory where schema files should be placed
