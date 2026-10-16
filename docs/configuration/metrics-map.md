@@ -41,7 +41,12 @@ metrics:
 
 В `name` пишется **то имя, которое увидит Prometheus**, целиком. Разбиения на `namespace` / `subsystem` / `name` (как в `prometheus.CounterOpts`) здесь нет, и это осознанно: имя, собираемое в рантайме, — это имя, которого нет в исходниках, поэтому его не находит ни поиск по коду, ни ревью, ни дашборд, ни алерт. Карта обязана нести имя, по которому метрику реально ищут.
 
-Допустимы символы Prometheus: `[a-zA-Z_:][a-zA-Z0-9_:]*`. Дополнительно требуется, чтобы в имени была хотя бы одна буква или цифра: `_` и `:` сворачиваются при построении Go-идентификатора, и из имени вида `"_"` переменной не получится.
+Допустимы символы Prometheus: `[a-zA-Z_:][a-zA-Z0-9_:]*`. Дополнительно имя должно давать корректный Go-идентификатор, потому что из него строится переменная коллектора (`var SpawnErrorsTotal = …`). `_` и `:` при этом сворачиваются, поэтому требуется, чтобы **первый символ после ведущих `_` и `:` был буквой**:
+
+- `"_"` или `"::"` — после сворачивания не остаётся идентификатора;
+- `"_123_total"` — Prometheus такое имя примет, но идентификатор получился бы `123Total`, а Go не разрешает начинать его с цифры.
+
+Оба случая — ошибка генерации с указанием объявления, а не синтаксическая ошибка в сгенерированном пакете.
 
 ### `type` — конструктор
 
@@ -331,6 +336,7 @@ metrics:
 | `invalid metrics map: the file is empty` | карта пустая (или в ней только пробелы) |
 | `invalid metrics map: metrics[2]: name "has-a-dash" is not a valid Prometheus metric name` | дефис в имени метрики |
 | `invalid metrics map: metrics[0]: name "_" leaves no Go identifier once '_' and ':' are folded away` | имя из одних разделителей: Prometheus такое примет, а Go-идентификатора не остаётся |
+| `invalid metrics map: metrics[0]: name "_123_total" generates the Go variable 123Total, which starts with a digit` | ведущий `_` или `:` перед цифрой: после сворачивания идентификатор начинается с цифры |
 | `invalid metrics map: metrics[1]: type CounterVec requires labels; use Counter for a metric without labels` | `Vec`-тип без `labels` |
 | `invalid metrics map: metrics[0]: buckets are only valid for Histogram/HistogramVec, not Counter` | `buckets` не у гистограммы |
 | `invalid metrics map: metrics[4]: help is required` | нет `help` |
