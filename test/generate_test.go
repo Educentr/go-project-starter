@@ -291,6 +291,178 @@ func TestLintTargetsFlags(t *testing.T) {
 	}
 }
 
+// buildFakeGolangciLint builds a binary at dst that mimics the `--version`
+// output of golangci-lint v2 for the given version. It has to be a real Go
+// binary, because the generated Makefile also probes the Go toolchain the
+// binary was built with via `go version -m`.
+func buildFakeGolangciLint(t *testing.T, dst, version string) {
+	t.Helper()
+
+	srcDir := t.TempDir()
+	src := fmt.Sprintf(`package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("golangci-lint has version %s built with go1.26.0 from (unknown, modified: ?, mono repo: ?) on (unknown)")
+}
+`, version)
+
+	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte(src), 0o600); err != nil {
+		t.Fatalf("Error writing fake golangci-lint source: %v", err)
+	}
+
+	if out, err := ExecCommand(srcDir, "go", []string{"mod", "init", "fakelint"}, "init fake golangci-lint module"); err != nil {
+		t.Fatalf("Error running go mod init: %s\n%s", err, out)
+	}
+
+	if out, err := ExecCommand(srcDir, "go", []string{"build", "-o", dst, "."}, "build fake golangci-lint"); err != nil {
+		t.Fatalf("Error building fake golangci-lint: %s\n%s", err, out)
+	}
+}
+
+// TestGolangciLintInstallToolchain verifies the lint-install logic of the
+// generated Makefile (TOOLS-13 / issue #29):
+//   - install-lint builds golangci-lint with the Go version the project targets,
+//     not with the base toolchain (a binary built by an older toolchain refuses
+//     to load a config targeting a newer Go);
+//   - version detection understands the golangci-lint v2 `--version` format, so
+//     an up-to-date binary is not rebuilt on every run, while an outdated one
+//     (by version or by build toolchain) still is.
+func TestGolangciLintInstallToolchain(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for golangci-lint toolchain test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefilePath := filepath.Join(tmpDir, "Makefile")
+
+	makefileContent, err := os.ReadFile(makefilePath)
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	// install-lint must pin the build toolchain to the project's Go version
+	if !strings.Contains(makefile, "go mod edit -go=$(GOLANGCI_BUILD_GO_VERSION)") {
+		t.Error("install-lint must set the temp module go directive to the project's Go version, " +
+			"otherwise golangci-lint is built with the base toolchain (issue #29, bug A)")
+	}
+
+	// The legacy detection regex only matched the golangci-lint v1 format
+	if strings.Contains(makefile, "built from .* on .*") {
+		t.Error("version detection must not rely on the v1-only 'built from ... on ...' format (issue #29, bug B)")
+	}
+
+	// `go get -d` is a no-op since Go 1.22
+	if strings.Contains(makefile, "go get -d github.com/golangci/golangci-lint") {
+		t.Error("install-lint should not use the obsolete 'go get -d' flag")
+	}
+
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not available, skipping behavioral checks")
+	}
+
+	tagMatch := regexp.MustCompile(`(?m)^GOLANGCI_TAG:=(\S+)$`).FindStringSubmatch(makefile)
+	if tagMatch == nil {
+		t.Fatal("GOLANGCI_TAG not found in generated Makefile")
+	}
+
+	tag := tagMatch[1]
+	binPath := filepath.Join(tmpDir, "bin", "golangci-lint")
+	goModPath := filepath.Join(tmpDir, "go.mod")
+
+	if err := os.MkdirAll(filepath.Dir(binPath), 0o750); err != nil {
+		t.Fatalf("Error creating bin directory: %v", err)
+	}
+
+	// GOLANGCI_GLOBAL_BIN is cleared so the result does not depend on a
+	// golangci-lint that happens to be installed on the machine running tests.
+	dryRunInstall := func(t *testing.T) string {
+		t.Helper()
+
+		out, err := ExecCommand(tmpDir, "make", []string{"-n", "install-lint", "GOLANGCI_GLOBAL_BIN="}, "make -n install-lint")
+		if err != nil {
+			t.Fatalf("Error running make -n install-lint: %s\n%s", err, out)
+		}
+
+		return out
+	}
+
+	const rebuildMarker = "Downloading golangci-lint"
+
+	t.Run("binary matching the pinned tag is kept", func(t *testing.T) {
+		buildFakeGolangciLint(t, binPath, tag)
+
+		if out := dryRunInstall(t); strings.Contains(out, rebuildMarker) {
+			t.Errorf("golangci-lint v%s must not be rebuilt, make output:\n%s", tag, out)
+		}
+	})
+
+	t.Run("binary built with an older toolchain is rebuilt", func(t *testing.T) {
+		goMod, err := os.ReadFile(goModPath)
+		if err != nil {
+			t.Fatalf("Error reading go.mod: %v", err)
+		}
+
+		// Target a Go version no toolchain in existence was built with, so the
+		// fake binary is guaranteed to look stale.
+		patched := regexp.MustCompile(`(?m)^go .*$`).ReplaceAllString(string(goMod), "go 1.99.0")
+		if err := os.WriteFile(goModPath, []byte(patched), 0o600); err != nil {
+			t.Fatalf("Error patching go.mod: %v", err)
+		}
+
+		defer func() {
+			if err := os.WriteFile(goModPath, goMod, 0o600); err != nil {
+				t.Fatalf("Error restoring go.mod: %v", err)
+			}
+		}()
+
+		buildFakeGolangciLint(t, binPath, tag)
+
+		out := dryRunInstall(t)
+		if !strings.Contains(out, rebuildMarker) {
+			t.Errorf("golangci-lint built with a toolchain older than go.mod must be rebuilt, make output:\n%s", out)
+		}
+
+		if !strings.Contains(out, "go mod edit -go=1.99.0") {
+			t.Errorf("rebuild must target the Go version from go.mod, make output:\n%s", out)
+		}
+	})
+
+	t.Run("binary older than the pinned tag is rebuilt", func(t *testing.T) {
+		buildFakeGolangciLint(t, binPath, "1.0.0")
+
+		if out := dryRunInstall(t); !strings.Contains(out, rebuildMarker) {
+			t.Errorf("golangci-lint older than v%s must be rebuilt, make output:\n%s", tag, out)
+		}
+	})
+
+	t.Run("missing binary is built", func(t *testing.T) {
+		if err := os.Remove(binPath); err != nil {
+			t.Fatalf("Error removing fake golangci-lint: %v", err)
+		}
+
+		if out := dryRunInstall(t); !strings.Contains(out, rebuildMarker) {
+			t.Errorf("missing golangci-lint must be built, make output:\n%s", out)
+		}
+	})
+}
+
 // TestGenerateRESTLogrus tests that REST project with logrus logger generates correctly.
 func TestGenerateRESTLogrus(t *testing.T) {
 	curDir, err := os.Getwd()
