@@ -189,10 +189,12 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 
 		if rest.GeneratorType == "ogen_client" {
+			wrapperImport := fmt.Sprintf(`"%s/internal/app/transport/rest/%s/%s"`, g.ProjectPath, rest.Name, rest.Version)
 			transport.Import = []string{
 				fmt.Sprintf(`%s_%s "%s/pkg/rest/%s/%s"`, rest.Name, rest.Version, g.ProjectPath, rest.Name, rest.Version),
-				fmt.Sprintf(`"%s/internal/app/transport/rest/%s/%s"`, g.ProjectPath, rest.Name, rest.Version),
+				wrapperImport,
 			}
+			transport.WrapperImport = wrapperImport
 			transport.Name = rest.Name
 			transport.ApiVersion = rest.Version
 			transport.Port = strconv.FormatUint(uint64(rest.Port), 10)

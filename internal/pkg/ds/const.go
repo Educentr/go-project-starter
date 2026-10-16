@@ -662,6 +662,20 @@ type Driver struct {
 	Optional         bool   // true = optional dependency for this app
 }
 
+// Supported auth_params.transport values for ogen_client.
+const (
+	AuthTransportHeader = "header"
+)
+
+// Supported auth_params.type values for ogen_client. Each one has a
+// corresponding branch in transport/rest/ogen_client/files/auth.go.tmpl that
+// implements the matching ogen SecuritySource method.
+const (
+	AuthTypeAPIKey = "apikey" // ogen scheme name: AuthHeader
+	AuthTypeBearer = "bearer" // ogen scheme name: BearerAuth
+	AuthTypeBasic  = "basic"  // ogen scheme name: BasicAuth
+)
+
 type AuthParams struct {
 	Transport string
 	Type      string
@@ -678,9 +692,15 @@ type Transport struct {
 	Type              TransportType
 	GeneratorType     string
 	GeneratorTemplate string
-	AuthParams        AuthParams
-	GeneratorParams   map[string]string
-	SpecPath          []string
+	// WrapperImport is the import line for the generated client wrapper
+	// package (internal/app/transport/...). Set for ogen_client, whose
+	// Import holds two entries (the ogen package alias plus the wrapper)
+	// because the service layer needs both. Templates that only construct
+	// the wrapper use this one to avoid emitting an unused ogen alias.
+	WrapperImport   string
+	AuthParams      AuthParams
+	GeneratorParams map[string]string
+	SpecPath        []string
 	// SpecTargetFiles, when non-empty, holds the basename under which each
 	// SpecPath[i] should be saved into api/. Populated when sources are
 	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
@@ -705,6 +725,24 @@ func (t Transport) IsDynamic() bool {
 // HasAuthParams returns true if transport has authentication parameters configured
 func (t Transport) HasAuthParams() bool {
 	return t.AuthParams.Type != ""
+}
+
+// UsesSecuritySource reports whether the ogen_client wrapper emits a
+// SecuritySource implementation for this transport. Only the auth_params
+// shapes that auth.go.tmpl knows how to render qualify; for any other value
+// no SecuritySource type exists, so it must not be passed to ogen's
+// NewClient (the client templates branch on this).
+func (t Transport) UsesSecuritySource() bool {
+	if t.AuthParams.Transport != AuthTransportHeader {
+		return false
+	}
+
+	switch t.AuthParams.Type {
+	case AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic:
+		return true
+	default:
+		return false
+	}
 }
 
 // QueueField represents a single field in a queue definition
