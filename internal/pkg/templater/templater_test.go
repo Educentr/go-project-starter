@@ -1462,3 +1462,46 @@ func TestOgenClientPassesSecuritySource(t *testing.T) {
 		}
 	})
 }
+
+func TestPrivateReposTokenSecretName(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{
+			name:       "unset falls back to the historical default",
+			configured: "",
+			want:       DefaultPrivateReposTokenSecret,
+		},
+		{
+			name:       "configured value wins",
+			configured: "GO_MODULES_TOKEN",
+			want:       "GO_MODULES_TOKEN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := GeneratorParams{PrivateReposTokenSecret: tt.configured}
+
+			if got := params.PrivateReposTokenSecretName(); got != tt.want {
+				t.Errorf("PrivateReposTokenSecretName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	// The fallback is what keeps already-generated workflows unchanged, so the
+	// constant itself is pinned: changing it silently rewrites every project
+	// that never configured the field.
+	if DefaultPrivateReposTokenSecret != "GH_PAT" {
+		t.Errorf("DefaultPrivateReposTokenSecret = %q, want %q", DefaultPrivateReposTokenSecret, "GH_PAT")
+	}
+
+	// Params structs embed GeneratorParams; templates rendered with them must
+	// resolve the method through the embedded value.
+	appParams := GeneratorAppParams{GeneratorParams: GeneratorParams{PrivateReposTokenSecret: "GO_MODULES_TOKEN"}}
+	if got := appParams.PrivateReposTokenSecretName(); got != "GO_MODULES_TOKEN" {
+		t.Errorf("GeneratorAppParams.PrivateReposTokenSecretName() = %q, want %q", got, "GO_MODULES_TOKEN")
+	}
+}

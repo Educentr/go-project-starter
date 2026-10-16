@@ -132,6 +132,7 @@ git:
   private_repos:
     - github.com/myorg/internal-pkg
     - gitlab.com/company/*
+  private_repos_token_secret: GO_MODULES_TOKEN
 ```
 
 ### Поля
@@ -141,6 +142,7 @@ git:
 | `repo` | Да | URL Git репозитория |
 | `module_path` | Да | Go module path |
 | `private_repos` | Нет | Список приватных модулей для GOPRIVATE |
+| `private_repos_token_secret` | Нет | Имя GitHub-секрета с токеном для приватных модулей. По умолчанию `GH_PAT` |
 
 ### Приватные Go модули
 
@@ -160,6 +162,39 @@ git:
 ```bash
 GOPRIVATE=github.com/myorg/internal-pkg,gitlab.com/company/*
 ```
+
+### Имя секрета с токеном
+
+Сгенерированный workflow GitHub Actions (`.github/workflows/ci_cd.yml`) читает токен
+для скачивания приватных модулей из секрета `GH_PAT`. Если токены разделены по классу
+привилегии — например, узкий read-only токен на модули отдельно от токенов с правом
+записи — имя секрета задаётся явно:
+
+```yaml
+git:
+  repo: github.com/myorg/service
+  module_path: github.com/myorg/service
+  private_repos: github.com/myorg/internal-pkg
+  private_repos_token_secret: GO_MODULES_TOKEN
+```
+
+Имя подставляется во все места workflow, где используется этот токен
+(`insteadOf` для `go mod download` и build-секрет для `docker build`):
+
+```yaml
+GH_TOKEN: ${{ secrets.GO_MODULES_TOKEN }}
+```
+
+Детали:
+
+- Значение должно быть корректным именем секрета: `[A-Za-z_][A-Za-z0-9_]*`.
+  Иначе генерация падает с ошибкой валидации конфига.
+- Если поле не задано, используется `GH_PAT` — вывод у существующих проектов
+  не меняется.
+- Меняется только имя секрета GitHub Actions. Id build-секрета (`github_token`)
+  и имена переменных окружения внутри шагов остаются прежними, поэтому
+  `Dockerfile` и `Makefile` править не нужно.
+- В `.gitlab-ci.yml` поле не используется: там токен приходит из переменных GitLab CI.
 
 ## Секция `tools`
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,26 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
 )
+
+// secretNameRe matches names accepted by CI secret stores (GitHub Actions
+// among them): a leading letter or underscore, then letters, digits and
+// underscores.
+var secretNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// validateSecretName checks that name is usable as a CI secret identifier.
+// An empty name is accepted — callers treat it as "not configured" and fall
+// back to their own default.
+func validateSecretName(field, name string) (bool, string) {
+	if name == "" {
+		return true, ""
+	}
+
+	if !secretNameRe.MatchString(name) {
+		return false, field + " must match [A-Za-z_][A-Za-z0-9_]*, got: " + name
+	}
+
+	return true, ""
+}
 
 // validateSpecPath checks that p is a syntactically valid spec source. For
 // local sources it also verifies that the referenced file exists on disk
@@ -174,6 +195,7 @@ type (
 	//	  repo: https://github.com/org/repo
 	//	  module_path: github.com/org/repo
 	//	  private_repos: github.com/myorg/*
+	//	  private_repos_token_secret: GO_MODULES_TOKEN
 	//
 	// See docs/configuration/main.md for full documentation.
 	Git struct {
@@ -183,6 +205,10 @@ type (
 		ModulePath string `mapstructure:"module_path"`
 		// PrivateRepos is a comma-separated list of private modules for GOPRIVATE.
 		PrivateRepos string `mapstructure:"private_repos"`
+		// PrivateReposTokenSecret is the name of the CI secret holding the token
+		// used to fetch private Go modules. Empty means the generator default
+		// (GH_PAT). Must be a valid secret name: [A-Za-z_][A-Za-z0-9_]*.
+		PrivateReposTokenSecret string `mapstructure:"private_repos_token_secret"`
 	}
 
 	// Tools contains version settings for tools used during generation and build.
