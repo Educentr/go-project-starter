@@ -235,6 +235,62 @@ func TestGolangciLintV2Consistency(t *testing.T) {
 	}
 }
 
+// TestLintTargetsFlags verifies that the generated lint targets do not pass
+// bogus flags: --path-prefix='config/' (distorts paths in the output, there is
+// no Go code under config/) and --build-tags=$(SERVICE_NAME) (no generated file
+// carries a build tag equal to the service name). Extra flags are passed via
+// the overridable LINT_ARGS variable instead (issue #46).
+func TestLintTargetsFlags(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for lint targets test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefileContent, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	for _, flag := range []string{"--path-prefix", "--build-tags=$(SERVICE_NAME)"} {
+		if strings.Contains(makefile, flag) {
+			t.Errorf("generated Makefile must NOT contain %q (issue #46)", flag)
+		}
+	}
+
+	if !strings.Contains(makefile, "LINT_ARGS ?=") {
+		t.Error("generated Makefile must declare the overridable LINT_ARGS variable")
+	}
+
+	// All three lint targets must forward LINT_ARGS, otherwise lint and
+	// lint-fix would look at a different set of files.
+	expectedCommands := []string{
+		`$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main $(LINT_ARGS)`,
+		`$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... $(LINT_ARGS)`,
+		`$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... $(LINT_ARGS)`,
+	}
+
+	for _, cmd := range expectedCommands {
+		if !strings.Contains(makefile, cmd) {
+			t.Errorf("generated Makefile must contain lint invocation %q", cmd)
+		}
+	}
+}
+
 // TestGenerateRESTLogrus tests that REST project with logrus logger generates correctly.
 func TestGenerateRESTLogrus(t *testing.T) {
 	curDir, err := os.Getwd()

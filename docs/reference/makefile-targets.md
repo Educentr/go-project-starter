@@ -33,6 +33,13 @@
 | `make lint-fix` | Автоисправление lint ошибок |
 | `make install-lint` | Установка golangci-lint |
 
+Дополнительные флаги golangci-lint передаются через переменную `LINT_ARGS` (по умолчанию пусто),
+она подставляется во все три цели:
+
+```bash
+make lint LINT_ARGS='--build-tags=integration'
+```
+
 ## Docker
 
 | Цель | Описание |
