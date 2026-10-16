@@ -1,6 +1,7 @@
 package templater
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -973,6 +974,130 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 			t.Errorf("file in template set should NOT be in ObsoleteFiles")
 		}
 	})
+
+	t.Run("symlink to a directory outside the tree goes to OtherFiles", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		// The link target lives outside the walked tree, as a build/tool cache would
+		outsideDir := filepath.Join(baseDir, "outside", "cache")
+		if err := os.MkdirAll(outsideDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		link := filepath.Join(tmpDir, "cache")
+		if err := os.Symlink(outsideDir, link); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.OtherFiles[link]; !ok {
+			t.Errorf("expected %s in OtherFiles, got OtherFiles=%v, OtherDirectory=%v",
+				link, filesDiff.OtherFiles, filesDiff.OtherDirectory)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[link]; ok {
+			t.Errorf("symlink should NOT be in ObsoleteFiles")
+		}
+	})
+
+	t.Run("symlink to a regular file goes to OtherFiles and is not read", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// A link to a generated-looking file: before the fix its content was read and
+		// the disclaimer made it a deletion candidate
+		target := filepath.Join(tmpDir, "real.go")
+		content := "package main\n\n" + disclaimerLine + "\n"
+		if err := os.WriteFile(target, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		link := filepath.Join(tmpDir, "psg_link_gen.go")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.OtherFiles[link]; !ok {
+			t.Errorf("expected %s in OtherFiles, got OtherFiles=%v", link, filesDiff.OtherFiles)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[link]; ok {
+			t.Errorf("symlink should NOT be in ObsoleteFiles — removing it is not the generator's business")
+		}
+	})
+
+	t.Run("symlink on a generated path returns ErrNonRegularTarget", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		outsideFile := filepath.Join(baseDir, "outside.go")
+		if err := os.WriteFile(outsideFile, []byte("package main\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		destName := filepath.Join(tmpDir, "psg_handler_gen.go")
+		if err := os.Symlink(outsideFile, destName); err != nil {
+			t.Fatal(err)
+		}
+
+		files := []ds.Files{
+			{DestName: destName, OldDestName: destName},
+		}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, nil)
+		if err == nil {
+			t.Fatal("expected error for symlink on a generated path, got nil")
+		}
+
+		if !errors.Is(err, ErrNonRegularTarget) {
+			t.Errorf("error should be ErrNonRegularTarget, got: %v", err)
+		}
+
+		if !strings.Contains(err.Error(), destName) {
+			t.Errorf("error should mention the offending path %s, got: %v", destName, err)
+		}
+	})
+
+	t.Run("ignored non-regular entry stays ignored", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// .gitignore is in ignoreIfExistsFiles: the ignore branch runs before the
+		// non-regular check, so a link there is neither read nor an error
+		link := filepath.Join(tmpDir, ".gitignore")
+		if err := os.Symlink(filepath.Join(tmpDir, "missing-target"), link); err != nil {
+			t.Fatal(err)
+		}
+
+		files := []ds.Files{
+			{DestName: link, OldDestName: link},
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.IgnoreFiles[link]; !ok {
+			t.Errorf("expected %s in IgnoreFiles, got IgnoreFiles=%v", link, filesDiff.IgnoreFiles)
+		}
+	})
 }
 
 // writeFile creates path with content, making parent directories as needed.
@@ -1230,6 +1355,41 @@ func TestGetUserCodeFromFilesWithManifest(t *testing.T) {
 
 		if _, err := GetUserCodeFromFiles(tmpDir, files, prev); err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("symlink on a generated path returns ErrNonRegularTarget", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		outsideFile := filepath.Join(baseDir, "outside.go")
+		writeFile(t, outsideFile, "package main\n")
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Same invariant as in the fallback walk: the generator must not write
+		// through a link, so the manifest path reports the same sentinel.
+		destName := filepath.Join(tmpDir, "psg_handler_gen.go")
+		if err := os.Symlink(outsideFile, destName); err != nil {
+			t.Fatal(err)
+		}
+
+		files := []ds.Files{{DestName: destName, OldDestName: destName}}
+		prev := meta.Manifest{genRecord(t, "psg_handler_gen.go", "package main\n\n"+disclaimerLine+"\n")}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err == nil {
+			t.Fatal("expected error for symlink on a generated path, got nil")
+		}
+
+		if !errors.Is(err, ErrNonRegularTarget) {
+			t.Errorf("error should be ErrNonRegularTarget, got: %v", err)
+		}
+
+		if !strings.Contains(err.Error(), destName) {
+			t.Errorf("error should mention the offending path %s, got: %v", destName, err)
 		}
 	})
 }
