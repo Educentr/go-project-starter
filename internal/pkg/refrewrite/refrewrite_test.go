@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -24,7 +23,8 @@ type caseSpec struct {
 	expected      string // expected content of `target` after rewrite
 	expectedRefs  int    // RefsRewritten
 	expectedSkip  int    // RefsSkipped
-	expectModif   bool   // whether `target` should change on disk
+	expectModif   bool   // whether `target`'s bytes on disk should change
+	expectedFiles int    // Report.FilesModified (counts intent, so 1 even under DryRun)
 	expectedWarns int    // expected number of warnings
 	whitelist     []string
 	dryRun        bool
@@ -53,8 +53,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"    Foo:\n" +
 				"      allOf:\n" +
 				"        - $ref: ./common.yaml#/components/schemas/Shared\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "external_subdir_yaml",
@@ -73,8 +74,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"  schemas:\n" +
 				"    Wrap:\n" +
 				"      $ref: ./shared.yaml#/components/schemas/X\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "external_dot_slash_yaml",
@@ -170,8 +172,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 			},
 			target: "api.yaml",
 			// We only assert that comments survive; expected is loosely compared below.
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "multiple_refs_one_file_yaml",
@@ -201,6 +204,7 @@ func TestRewriteLocalRefs(t *testing.T) {
 			expectedRefs:  1,
 			expectedSkip:  1,
 			expectModif:   true,
+			expectedFiles: 1,
 			expectedWarns: 1,
 		},
 		{
@@ -244,8 +248,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"    \"Foo\": { \"$ref\": \"./common.json#/$defs/X\" }\n" +
 				"  }\n" +
 				"}\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:  1,
+			expectModif:   true,
+			expectedFiles: 1,
 		},
 		{
 			name: "json_no_match",
@@ -289,7 +294,10 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"      $ref: '../common/common.yaml#/components/schemas/Shared'\n",
 			dryRun:       true,
 			expectedRefs: 1,
-			expectModif:  false,
+			// The report still counts the file as modified (that is what a dry
+			// run reports), but nothing is written to disk.
+			expectedFiles: 1,
+			expectModif:   false,
 		},
 		{
 			name: "invalid_yaml",
@@ -316,13 +324,14 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Snapshot the bytes, not the mtime: file timestamps are only as
+			// granular as a kernel tick (4ms at CONFIG_HZ=250), so a write can
+			// legitimately share an mtime with the preceding stat. Comparing
+			// content is both deterministic and a stronger assertion.
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
-
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -340,6 +349,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 			}
 			if report.RefsSkipped != tc.expectedSkip {
 				t.Errorf("RefsSkipped = %d, want %d (warnings=%v)", report.RefsSkipped, tc.expectedSkip, report.Warnings)
+			}
+			if report.FilesModified != tc.expectedFiles {
+				t.Errorf("FilesModified = %d, want %d (warnings=%v)", report.FilesModified, tc.expectedFiles, report.Warnings)
 			}
 			if len(report.Warnings) != tc.expectedWarns {
 				t.Errorf("Warnings count = %d, want %d: %v", len(report.Warnings), tc.expectedWarns, report.Warnings)
@@ -368,11 +380,8 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			if modified := got != string(beforeBytes); modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
