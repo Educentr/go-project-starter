@@ -186,6 +186,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
 	}
 
+	// Validate docker build args and labels
+	if ok, msg := config.Docker.IsValid(); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config docker section: "+msg)
+	}
+
 	for i := range config.Applications {
 		// Normalize transport list (supports both old string[] and new object[] format)
 		if err := config.Applications[i].NormalizeTransports(); err != nil {
