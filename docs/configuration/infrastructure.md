@@ -38,8 +38,38 @@ applications:
 | `type` | Тип: `prometheus`, `loki` |
 | `access` | Режим доступа: `proxy`, `direct` |
 | `url` | URL datasource |
+| `uid` | [optional] uid datasource. По умолчанию `ds-<name в lowercase>` |
 | `isDefault` | Установить как default |
 | `editable` | Разрешить редактирование в UI |
+
+### Явный `uid` datasource
+
+uid попадает и в `configs/grafana/provisioning/datasources/datasources.yaml`, и в каждую
+панель сгенерированного дашборда `configs/grafana/dashboards/<app>.json`. Пока доска живёт
+в локальной compose-Grafana проекта, вычисленного `ds-<name>` достаточно.
+
+Если же доску забирают в **общую** Grafana, где datasource провижинится централизованно под
+своим uid, панели ссылаются на несуществующий datasource («Datasource ... was not found»).
+Для этого случая uid задаётся явно:
+
+```yaml
+grafana:
+  datasources:
+    - name: Prometheus
+      uid: victoriametrics      # uid datasource в общей Grafana
+      type: prometheus
+      url: http://victoriametrics:8428
+      isDefault: true
+```
+
+- `uid` задан → используется как есть в provisioning и во всех панелях;
+- не задан → прежнее поведение `ds-<name в lowercase>` (пробелы заменяются на `-`),
+  существующие проекты не меняются;
+- формат: от 1 до 40 символов из набора `a-z`, `A-Z`, `0-9`, `-`, `_` (правила Grafana).
+  Явный uid, в отличие от вычисленного, не приводится к lowercase — Grafana различает регистр;
+- **итоговые** uid проверяются на уникальность: явный uid одного datasource не может совпасть
+  с вычисленным uid другого (например `uid: ds-prometheus` при наличии datasource с
+  `name: Prometheus`).
 
 ### Генерируемые панели
 

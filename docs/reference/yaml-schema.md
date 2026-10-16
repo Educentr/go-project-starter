@@ -362,9 +362,13 @@ grafana:
       type: string              # [required] Тип: prometheus|loki
       access: string            # [optional] Режим: proxy (default)|direct
       url: string               # [required] URL datasource
+      uid: string               # [optional] uid datasource (default: ds-<lowercase name>)
       isDefault: bool           # [optional] Default datasource
       editable: bool            # [optional] Редактируемый в UI
 ```
+
+`uid` — до 40 символов из `a-z A-Z 0-9 - _`; итоговые uid (явные и вычисленные)
+должны быть уникальны. Подробнее — [инфраструктура](../configuration/infrastructure.md#поля-datasource).
 
 ---
 
