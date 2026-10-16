@@ -321,7 +321,7 @@ go-project-starter --config=config.yaml
 Убедитесь, что версии совместимы:
 
 ```bash
-go version          # Должен быть 1.25+
+go version          # Должен быть 1.27+
 docker --version    # Должен быть 20.10+
 ```
 

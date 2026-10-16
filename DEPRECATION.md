@@ -13,6 +13,28 @@ This document describes the deprecation policy for go-project-starter configurat
 
 No active deprecations.
 
+## Go version policy
+
+Generated projects target a **supported** Go release. Go upstream supports the
+two latest minor releases, so the generator default (`tools.golang_version`,
+and `MIN_GO_VERSION` in the generated Makefile) tracks them instead of staying
+on an older version.
+
+| Change | Release | Note |
+|--------|---------|------|
+| Generated projects: Go 1.24 → **1.27** | unreleased | `tools.golang_version` default, `MIN_GO_VERSION`, integration image and CI; `goimports` installed from `@latest` again |
+
+**Why a policy and not a one-off bump:** staying on an EOL release only defers
+the next breakage. A dependency that raises its own `go` directive (e.g.
+`gofrs/uuid/v5` → `go 1.25`, TOOLS-4) breaks `go mod tidy` for everyone on an
+older toolchain, and pinning the tool that broke (`goimports@v0.49.0`) moves
+the problem rather than fixing it.
+
+**Impact on existing projects:** a project generated earlier keeps the
+`tools.golang_version` written in its own `project.yaml` — regeneration does
+not change that value. After raising it, the project's build/CI environment
+must provide the new toolchain.
+
 ## Removed Deprecations
 
 | Feature | Deprecated In | Removed In | Migration |

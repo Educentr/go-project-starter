@@ -15,7 +15,7 @@ git:
 
 tools:
   protobuf_version: 1.7.0
-  golang_version: "1.25"
+  golang_version: "1.27"
   ogen_version: v1.18.0
   golangci_version: 2.1.6
 

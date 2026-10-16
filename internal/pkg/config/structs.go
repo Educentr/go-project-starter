@@ -183,7 +183,7 @@ type (
 	// YAML example:
 	//
 	//	tools:
-	//	  golang_version: "1.25"
+	//	  golang_version: "1.27"
 	//	  ogen_version: "v0.78.0"
 	//	  argen_version: "v1.0.0"
 	//	  golangci_version: "2.1.6"
@@ -194,7 +194,7 @@ type (
 	Tools struct {
 		// ProtobufVersion is the protoc-gen-go version. Default: 1.7.0
 		ProtobufVersion string `mapstructure:"protobuf_version"`
-		// GolangVersion is the Go version. Default: 1.25
+		// GolangVersion is the Go version. Default: 1.27
 		GolangVersion string `mapstructure:"golang_version"`
 		// OgenVersion is the ogen version. Default: v1.20.1
 		OgenVersion string `mapstructure:"ogen_version"`
@@ -658,7 +658,7 @@ type (
 )
 
 const (
-	defaultGolangVersion       = "1.25"
+	defaultGolangVersion       = "1.27"
 	defaultProtobufVersion     = "1.7.0"
 	defaultGolangciVersion     = "2.1.6"
 	defaultOgenVersion         = "v1.20.1"
