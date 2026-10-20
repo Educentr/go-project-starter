@@ -1161,15 +1161,7 @@ func (g *Generator) CopySchemas() ([]string, error) {
 			return nil, fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
 		}
 
-		// Collect paths from both legacy Path[] and new Schemas[]
-		var paths []string
-		if len(schema.Schemas) > 0 {
-			for _, item := range schema.Schemas {
-				paths = append(paths, item.Path)
-			}
-		} else {
-			paths = schema.Path
-		}
+		paths := schemaSourcePaths(schema)
 
 		for i, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
@@ -1193,6 +1185,87 @@ func (g *Generator) CopySchemas() ([]string, error) {
 	}
 
 	return written, nil
+}
+
+// schemaSourcePaths returns the schema source paths of one jsonschema entry,
+// preferring the Schemas[] form over the legacy Path[] one.
+func schemaSourcePaths(schema ds.JSONSchema) []string {
+	if len(schema.Schemas) == 0 {
+		return schema.Path
+	}
+
+	paths := make([]string, 0, len(schema.Schemas))
+	for _, item := range schema.Schemas {
+		paths = append(paths, item.Path)
+	}
+
+	return paths
+}
+
+// copiedSpecTargets lists every file CopySpecs/CopySchemas will write into the
+// project, paired with the source it comes from. targetPath must be absolute.
+//
+// It MUST be called before resolveAllSources: afterwards SpecPath points into
+// the per-run staging directory, and a staging path in a drift message tells
+// the reader nothing about where to actually fix the contract. Destination
+// names are derived exactly the way the resolve pre-pass derives
+// SpecTargetFiles (SpecSource.TargetFilename), so they match the files
+// CopySpecs/CopySchemas go on to write.
+func (g *Generator) copiedSpecTargets(targetPath string) ([]meta.CopiedFile, error) {
+	targets := []meta.CopiedFile{}
+	seen := map[string]struct{}{}
+
+	add := func(dir, raw string) error {
+		src, err := specsource.ParseSpecSource(raw)
+		if err != nil {
+			// Reporting a malformed source is not this pre-pass's job: the
+			// resolve pass fails on it anyway, with the transport or schema
+			// name and the entry index attached.
+			return nil
+		}
+
+		dest := filepath.Join(dir, src.TargetFilename())
+
+		rel, err := meta.RelPath(targetPath, dest)
+		if err != nil {
+			return fmt.Errorf(errRelPathFmt, dest, err)
+		}
+
+		// A transport is snapshotted into every application that serves it, so
+		// the same destination is reached more than once.
+		if _, dup := seen[rel]; dup {
+			return nil
+		}
+
+		seen[rel] = struct{}{}
+		targets = append(targets, meta.CopiedFile{Path: rel, Source: src.Describe()})
+
+		return nil
+	}
+
+	for _, app := range g.Applications {
+		for _, transport := range app.Transports {
+			dir := transport.GetTargetSpecDir(targetPath)
+
+			for _, raw := range transport.SpecPath {
+				if err := add(dir, raw); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	for _, schema := range g.JSONSchemas {
+		dir := schema.GetTargetSpecDir(targetPath)
+
+		for _, raw := range schemaSourcePaths(schema) {
+			if err := add(dir, raw); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return targets, nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -1297,6 +1370,25 @@ func (g *Generator) Generate() error {
 	targetPath, err := filepath.Abs(g.TargetDir)
 	if err != nil {
 		return errors.Wrap(err, "Error target path")
+	}
+
+	// Specs are copied into the project from their contract source, so a hand
+	// edit here is a change the next run overwrites — a lost change, not a
+	// customization point. Unlike drift above a disclaimer marker (a warning:
+	// the marker gives the author a place to move the code to), there is no
+	// such place in a copied file, so this aborts the run.
+	//
+	// Checked here for two reasons: nothing has been written yet, so a drifted
+	// tree is left exactly as it was; and SpecPath still holds the `path`
+	// values from project.yaml, which is what the message has to name.
+	copiedTargets, err := g.copiedSpecTargets(targetPath)
+	if err != nil {
+		return errors.Wrap(err, "Error collect copied specs")
+	}
+
+	// Dry-run is checked too: it previews a real run, and a real run stops here.
+	if err = g.Meta.Manifest.CheckCopiedDrift(targetPath, copiedTargets); err != nil {
+		return err
 	}
 
 	dirs, files, err := g.collectFiles(targetPath)
