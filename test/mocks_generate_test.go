@@ -94,11 +94,18 @@ func TestGenerateIncludesMocks(t *testing.T) {
 // `generate`, and the standalone target must not point `go generate` at a
 // directory that was never generated — that fails the whole run.
 func TestGenerateSkipsMocksWithoutScaffolding(t *testing.T) {
-	// rest-envs-goat has goat_tests but no ogen_client transport.
-	tmpDir := generateProject(t, "rest-envs-goat")
+	// private-token-secret has goat tests but no ogen_client transport — the
+	// near-miss case. The other goat fixtures run go_mod_tidy in post_generate,
+	// which a project pinned to Go 1.24 cannot complete (goat's transitive
+	// otlptrace imports resolve to a release wanting a newer toolchain), so
+	// picking one of those would make this test fail on the pinned toolchain
+	// for a reason that has nothing to do with mocks.
+	const fixture = "private-token-secret"
+
+	tmpDir := generateProject(t, fixture)
 
 	if _, err := os.Stat(filepath.Join(tmpDir, "tests", "api", "mocks")); err == nil {
-		t.Fatal("fixture rest-envs-goat unexpectedly produced mock scaffolding")
+		t.Fatalf("fixture %s unexpectedly produced mock scaffolding", fixture)
 	}
 
 	makefile := readGenerated(t, tmpDir, "Makefile")
