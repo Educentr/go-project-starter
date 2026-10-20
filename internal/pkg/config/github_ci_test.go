@@ -123,10 +123,11 @@ func TestGithubCIConfig_ParseRunsOn(t *testing.T) {
 
 func TestGithubCIConfig_IsValid(t *testing.T) {
 	tests := []struct {
-		name    string
-		cfg     GithubCIConfig
-		wantOK  bool
-		wantMsg string
+		name         string
+		cfg          GithubCIConfig
+		registryType string
+		wantOK       bool
+		wantMsg      string
 	}{
 		{
 			name:   "omitted section is valid",
@@ -141,6 +142,44 @@ func TestGithubCIConfig_IsValid(t *testing.T) {
 				DoctlVersion:      "1.170.0",
 			},
 			wantOK: true,
+		},
+		{
+			name:         "explicit install mode is valid",
+			cfg:          GithubCIConfig{Doctl: "install", DoctlVersion: "1.170.0"},
+			registryType: "digitalocean",
+			wantOK:       true,
+		},
+		{
+			name:         "image mode with a digitalocean registry is valid",
+			cfg:          GithubCIConfig{Doctl: "image"},
+			registryType: "digitalocean",
+			wantOK:       true,
+		},
+		{
+			name:         "image mode together with doctl_version is rejected",
+			cfg:          GithubCIConfig{Doctl: "image", DoctlVersion: "1.170.0"},
+			registryType: "digitalocean",
+			wantMsg:      `github_ci.doctl: "image" takes doctl from the runner image, so github_ci.doctl_version (1.170.0) cannot be applied`,
+		},
+		{
+			name:         "image mode outside the digitalocean registry is rejected",
+			cfg:          GithubCIConfig{Doctl: "image"},
+			registryType: "github",
+			wantMsg:      `github_ci.doctl: "image" only applies to main.registry_type: digitalocean, got: github`,
+		},
+		{
+			name:         "unknown doctl mode is rejected",
+			cfg:          GithubCIConfig{Doctl: "skip"},
+			registryType: "digitalocean",
+			wantMsg:      `github_ci.doctl must be "install" or "image", got: skip`,
+		},
+		{
+			// The install mode is the default, so it stays valid for every
+			// registry type: the doctl steps simply are not generated.
+			name:         "install mode outside the digitalocean registry is valid",
+			cfg:          GithubCIConfig{Doctl: "install"},
+			registryType: "github",
+			wantOK:       true,
 		},
 		{
 			name:    "zero timeout is rejected",
@@ -166,7 +205,7 @@ func TestGithubCIConfig_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, msg := tt.cfg.IsValid()
+			ok, msg := tt.cfg.IsValid(tt.registryType)
 
 			if ok != tt.wantOK {
 				t.Fatalf("IsValid() ok = %v, want %v (msg: %s)", ok, tt.wantOK, msg)
@@ -186,6 +225,45 @@ func TestGithubCIConfig_JobTimeout(t *testing.T) {
 
 	if got := (GithubCIConfig{JobTimeoutMinutes: intPtr(15)}).JobTimeout(); got != 15 {
 		t.Errorf("JobTimeout() = %d, want 15", got)
+	}
+}
+
+// TestGithubCIConfig_DoctlMode checks the normalization the templates branch
+// on: an omitted key must keep the install mode, i.e. the historical output.
+func TestGithubCIConfig_DoctlMode(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  GithubCIConfig
+		want ds.DoctlMode
+	}{
+		{
+			name: "omitted key means install",
+			cfg:  GithubCIConfig{},
+			want: ds.DoctlModeInstall,
+		},
+		{
+			name: "explicit install",
+			cfg:  GithubCIConfig{Doctl: "install"},
+			want: ds.DoctlModeInstall,
+		},
+		{
+			name: "image",
+			cfg:  GithubCIConfig{Doctl: "image"},
+			want: ds.DoctlModeImage,
+		},
+		{
+			name: "an unknown value is passed through for IsValid to report",
+			cfg:  GithubCIConfig{Doctl: "skip"},
+			want: ds.DoctlMode("skip"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.DoctlMode(); got != tt.want {
+				t.Errorf("DoctlMode() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

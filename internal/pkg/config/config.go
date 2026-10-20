@@ -182,7 +182,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	}
 
 	// Validate GitHub CI configuration
-	if ok, msg := config.GithubCI.IsValid(); !ok {
+	if ok, msg := config.GithubCI.IsValid(config.Main.RegistryType); !ok {
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
 	}
 
