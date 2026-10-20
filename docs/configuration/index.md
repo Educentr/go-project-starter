@@ -13,6 +13,7 @@
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 - [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
+- [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор
 
 ## Базовая структура
 
@@ -118,3 +119,4 @@ applications:
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 - [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
+- [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор

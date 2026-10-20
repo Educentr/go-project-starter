@@ -200,6 +200,53 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## OnlineConf Key Map
+
+Секция `onlineconf.path` в `project.yaml` — ссылка на **карту ключей OnlineConf**, объявление всех
+ключей, которые сервису разрешено читать. Это второй вход тому же механизму, что `metrics.path`:
+форма ссылки та же (local / https / git+ssh / git+https), карта читается во время генерации и в
+проект **не копируется** (артефакт — сгенерированный пакет), `--sourceRef` действует.
+
+Карта не указана — ничего не включается (ни пакета, ни валидатора, ни проверки на старте).
+
+Указана — генерируется:
+
+- `internal/pkg/occonf/psg_occonf_gen.go` — константа пути и типизированный аксессор на запись,
+  плюс `Paths()`, `Subscribe(ctx, paths, cb)` и `CheckRequired(ctx)`. Пакет назван `occonf`, не
+  `onlineconf`: он оборачивает библиотеку с таким именем. Чтение идёт через `*IfExists`-формы —
+  форма с дефолтом (`GetString(ctx, path, d...)`) при ошибке обращается к `d[0]` и паникует без
+  дефолта. Вызов `occonf.CheckRequired(mainCtx)` проставляется в `psg_main_gen.go` сразу после
+  `onlineconf.StartWatcher` (CLI-мейн не трогается);
+- `configs/golangci-onlineconf.yml` + цель `make onlineconf-validate` — валидатор: `forbidigo`
+  запрещает **любое** обращение к пакету `onlineconf` (`^onlineconf\.`) вне сгенерированного
+  пакета и вне `psg_*_gen.go`. Запрет только `Get*` оставил бы `MakePath` свободным собирать путь,
+  запрет только `MakePath` — строковый литерал. Те же правила дублируются в
+  `configs/golangci-lint.yml`, но **гейт — `onlineconf-validate`**.
+
+**Сигнатуру аксессора задаёт объявление**, а не место вызова: `required` → `(T, error)` с
+`ErrKeyNotSet`; `default` → `(T, error)` с дефолтом; ни того, ни другого → `(T, bool, error)`.
+Поэтому обязательный ключ нельзя принять за отсутствующий, а опциональный — за присутствующий.
+
+Схема карты **строгая** (как у карты метрик): поля `path`, `type`, `required`, `default`, `name`,
+`description`; неизвестное поле — отказ генерации. Процессные поля (`consumer`, `seeded_by`,
+`declared_in`, `status`, `service_tree`) в карту не входят. `path` — **полный** путь ключа; все
+записи лежат в одном дереве (карта одна на сервис); шаблоны со списковым сегментом (`…/<i>/…`) не
+принимаются — обхода поддерева в OnlineConf нет, список объявляется одним ключом со структурным
+значением (`type: struct`). Типы: `string`, `int` (int64), `bool`, `duration`, `strings`,
+`struct`. `required` возможен только у скалярных типов: для `strings`/`struct` go-onlineconf не
+сообщает наличие, и обещание было бы невыполнимым.
+
+Собственные ключи генератора (`restconfig`, логгер, `service`, Kafka) защищены **резервированием
+поддеревьев** — `transport`, `security`, `kafka`, `log`, `logger`, `devstand` под корнем дерева
+карта сервиса объявлять не может. Пути генератора параметризованы именами транспортов и
+приложений, поэтому перечислить их записями (как во внутренней карте метрик) нельзя, а
+зарезервировать поддерево — можно, и гарантия получается строже.
+
+Реализация: `internal/pkg/ockeymap/` (парсинг, валидация, хелперы кодогенерации),
+`internal/pkg/ds/onlineconf.go` (параметры шаблонов, правила валидатора),
+`Generator.processOnlineConfMap()`. Полная документация:
+[docs/configuration/onlineconf-keys.md](docs/configuration/onlineconf-keys.md).
+
 ## Regeneration Behavior
 
 ### Disclaimer Marker (env-файлы и другие файлы с ручными правками)

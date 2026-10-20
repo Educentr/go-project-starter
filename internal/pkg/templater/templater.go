@@ -69,6 +69,7 @@ type GeneratorParams struct {
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
+	OnlineConf    ds.OnlineConfConfig
 	// GithubCI carries the runner, job timeout and doctl version applied to
 	// every job of the generated GitHub Actions workflows.
 	GithubCI ds.GithubCIConfig

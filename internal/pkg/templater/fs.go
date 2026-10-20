@@ -28,6 +28,10 @@ const (
 	// generated only when a metrics map is configured.
 	metricsLintConfigPath = "configs/golangci-metrics.yml"
 
+	// onlineConfLintConfigPath is the standalone OnlineConf-validator lint
+	// config, generated only when an OnlineConf key map is configured.
+	onlineConfLintConfigPath = "configs/golangci-onlineconf.yml"
+
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
 	embedTransportPrefix = "embedded/templates/transport"
 	embedWorkerPrefix    = "embedded/templates/worker"
@@ -168,20 +172,23 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 		files = filteredFiles
 	}
 
-	// The metrics validator config only makes sense alongside a metrics map.
-	if !params.Metrics.IsEnabled() {
-		filteredFiles := make([]ds.Files, 0, len(files))
+	// A validator config only makes sense alongside the map it enforces.
+	skipLintConfigs := map[string]bool{
+		metricsLintConfigPath:    !params.Metrics.IsEnabled(),
+		onlineConfLintConfigPath: !params.OnlineConf.IsEnabled(),
+	}
 
-		for _, f := range files {
-			if f.DestName == metricsLintConfigPath {
-				continue
-			}
+	filteredLintFiles := make([]ds.Files, 0, len(files))
 
-			filteredFiles = append(filteredFiles, f)
+	for _, f := range files {
+		if skipLintConfigs[f.DestName] {
+			continue
 		}
 
-		files = filteredFiles
+		filteredLintFiles = append(filteredLintFiles, f)
 	}
+
+	files = filteredLintFiles
 
 	// Filter out LLMS.md if generate_llms_md is false; rename if generating CLAUDE.md
 	if !params.GenerateLlmsMd {
@@ -585,6 +592,33 @@ func GetMetricsTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Fi
 
 	for i := range files {
 		files[i].DestName = filepath.Join(metricsPath, files[i].DestName)
+	}
+
+	return
+}
+
+// GetOnlineConfTemplates returns the generated accessor package built from the
+// service's OnlineConf key map. Returns nothing when no map is configured.
+func GetOnlineConfTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	if !params.OnlineConf.IsEnabled() || !params.OnlineConf.HasKeys() {
+		return nil, nil, nil
+	}
+
+	dirs, files, err = GetTemplates(templates, "embedded/templates/occonf", params)
+	if err != nil {
+		err = errors.Wrap(err, "error while get onlineconf templates")
+
+		return
+	}
+
+	occonfPath := params.OnlineConf.GetPackagePath()
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(occonfPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(occonfPath, files[i].DestName)
 	}
 
 	return

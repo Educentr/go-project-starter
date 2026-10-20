@@ -17,6 +17,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
+	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 	"github.com/Educentr/go-project-starter/internal/pkg/refrewrite"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
@@ -70,6 +71,7 @@ type Generator struct {
 	Artifacts               ds.ArtifactsConfig
 	Documentation           ds.DocsConfig
 	Metrics                 ds.MetricsConfig
+	OnlineConf              ds.OnlineConfConfig
 	GithubCI                ds.GithubCIConfig
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
@@ -194,6 +196,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	}
 
 	if err := g.processMetricsMap(config); err != nil {
+		return err
+	}
+
+	if err := g.processOnlineConfMap(config); err != nil {
 		return err
 	}
 
@@ -822,6 +828,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Artifacts:               g.Artifacts,
 		Documentation:           g.Documentation,
 		Metrics:                 g.Metrics,
+		OnlineConf:              g.OnlineConf,
 		GithubCI:                g.GithubCI,
 	}
 }
@@ -920,6 +927,48 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	g.Metrics = ds.MetricsConfig{
 		Enabled: config.Metrics.IsEnabled(),
 		Metrics: merged,
+	}
+
+	return nil
+}
+
+// processOnlineConfMap resolves and parses the service's OnlineConf key map.
+//
+// Like the metrics map it is materialized inline (same mechanism as the CLI and
+// queue-worker contracts) because the declarations are needed by collectFiles,
+// which runs before the resolveAllSources pre-pass. Nothing downstream reads
+// the map file itself — the generated accessor package is the artifact — so the
+// staged copy is dropped right after the parse and no copy lands in the
+// project. The --sourceRef ref override applies here too, so a remote map comes
+// from the same state of the contracts as the rest.
+//
+// Without `onlineconf.path` nothing is switched on and no generated artifact
+// changes.
+func (g *Generator) processOnlineConfMap(config cfg.Config) error {
+	if !config.OnlineConf.IsEnabled() {
+		g.OnlineConf = ds.OnlineConfConfig{}
+
+		return nil
+	}
+
+	mapPath, cleanup, err := resolveInlineSpec(
+		context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
+	)
+	if err != nil {
+		return errors.Wrapf(err, "onlineconf.path: resolve %s", config.OnlineConf.Path)
+	}
+
+	keyMap, err := ockeymap.Load(mapPath)
+
+	cleanup()
+
+	if err != nil {
+		return errors.Wrap(err, "onlineconf.path")
+	}
+
+	g.OnlineConf = ds.OnlineConfConfig{
+		Enabled: true,
+		Keys:    keyMap.Keys,
 	}
 
 	return nil
@@ -1820,6 +1869,15 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 	dirs = append(dirs, dirsM...)
 	files = append(files, filesM...)
+
+	// Generated OnlineConf accessors — only when a key map is configured.
+	dirsOC, filesOC, err := templater.GetOnlineConfTemplates(g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get onlineconf templates: %w", err)
+	}
+
+	dirs = append(dirs, dirsOC...)
+	files = append(files, filesOC...)
 
 	// Generate Kafka driver templates for segmentio drivers
 	for _, kafka := range g.Kafka {

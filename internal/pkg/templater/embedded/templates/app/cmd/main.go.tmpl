@@ -47,6 +47,9 @@ import (
 {{- if and .Application.HasSysTransport .Metrics.IsEnabled .Metrics.HasGenerated }}
 	"{{ .ProjectPath }}/{{ .Metrics.GetPackagePath }}"
 {{- end }}
+{{- if and .OnlineConf.IsEnabled .OnlineConf.HasKeys }}
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
+{{- end }}
 	"github.com/Educentr/go-project-starter-runtime/pkg/app"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 {{ if ne (.Logger.FilesToGenerate) "logrus" }}	runtimelogger "github.com/Educentr/go-project-starter-runtime/pkg/logger"
@@ -121,6 +124,18 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't start watcher" }}
 		os.Exit(ExitCodeErrorConfig)
     }
+{{- if and .OnlineConf.IsEnabled .OnlineConf.HasKeys }}
+
+	// Every key the OnlineConf key map declares `required` has to be in the
+	// tree before anything reads it. A missing one is a misconfiguration of
+	// this installation, and the place to find out is process start — not the
+	// first request that happens to need it.
+	err = {{ .OnlineConf.GetPackageName }}.CheckRequired(mainCtx)
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "required onlineconf keys are missing" }}
+		os.Exit(ExitCodeErrorConfig)
+	}
+{{- end }}
 
 	application, err := app.New(mainCtx, constant.ServiceName, "{{ .Application.Name }}", getAppInfo())
 	if err != nil {

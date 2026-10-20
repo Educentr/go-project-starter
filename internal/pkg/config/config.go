@@ -181,6 +181,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config metrics section: "+msg)
 	}
 
+	// Same for the OnlineConf key map reference.
+	if ok, msg := config.OnlineConf.IsValid(baseDir); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config onlineconf section: "+msg)
+	}
+
 	// Validate GitHub CI configuration
 	if ok, msg := config.GithubCI.IsValid(); !ok {
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
