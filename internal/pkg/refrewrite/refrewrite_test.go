@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -316,13 +316,20 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
-			}
+			// Snapshot every fixture: the fact of a rewrite is asserted by
+			// comparing content, never by mtime. A write can land in the same
+			// mtime tick as the fixture setup on filesystems with coarse
+			// timestamp granularity, which made the old check flaky.
+			before := make(map[string]string, len(tc.files))
 
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
+			for _, f := range tc.files {
+				data, err := os.ReadFile(filepath.Join(dir, f.name))
+				if err != nil {
+					t.Fatalf("read fixture %s: %v", f.name, err)
+				}
+
+				before[f.name] = string(data)
+			}
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +375,36 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
+			// Collect the files whose content differs from the fixture — the
+			// observable result of the rewrite, independent of mtime.
+			var changedOnDisk []string
+
+			for _, f := range tc.files {
+				data, err := os.ReadFile(filepath.Join(dir, f.name))
+				if err != nil {
+					t.Fatalf("read %s after rewrite: %v", f.name, err)
 				}
+
+				if string(data) != before[f.name] {
+					changedOnDisk = append(changedOnDisk, f.name)
+				}
+			}
+
+			modified := slices.Contains(changedOnDisk, tc.target)
+			if modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v (changed on disk: %v)", modified, tc.expectModif, changedOnDisk)
+			}
+
+			// FilesModified counts rewritten files even in dry-run mode, where
+			// nothing reaches the disk — so it mirrors the on-disk diff only
+			// for real runs.
+			if tc.dryRun {
+				if len(changedOnDisk) != 0 {
+					t.Errorf("dry run changed files on disk: %v", changedOnDisk)
+				}
+			} else if report.FilesModified != len(changedOnDisk) {
+				t.Errorf("FilesModified = %d, want %d (changed on disk: %v)",
+					report.FilesModified, len(changedOnDisk), changedOnDisk)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
