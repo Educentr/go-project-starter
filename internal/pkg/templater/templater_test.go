@@ -4,12 +4,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 )
+
+// makefileTmplPath is the embedded template backing the generated Makefile,
+// read directly by the prerequisite-list tests at the bottom of this file.
+const makefileTmplPath = "embedded/templates/main/Makefile.tmpl"
 
 func TestIsFileIgnored(t *testing.T) {
 	tests := []struct {
@@ -1663,5 +1670,134 @@ func TestPrivateReposTokenSecretName(t *testing.T) {
 	appParams := GeneratorAppParams{GeneratorParams: GeneratorParams{PrivateReposTokenSecret: "GO_MODULES_TOKEN"}}
 	if got := appParams.PrivateReposTokenSecretName(); got != "GO_MODULES_TOKEN" {
 		t.Errorf("GeneratorAppParams.PrivateReposTokenSecretName() = %q, want %q", got, "GO_MODULES_TOKEN")
+	}
+}
+
+func makefileTmplSource(t *testing.T) string {
+	t.Helper()
+
+	src, err := templates.ReadFile(makefileTmplPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", makefileTmplPath, err)
+	}
+
+	return string(src)
+}
+
+// makefileTmplLine returns the single template line declaring the given make
+// target, so a test can exercise one prerequisite list without rendering the
+// whole Makefile.
+func makefileTmplLine(t *testing.T, target string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(makefileTmplSource(t), "\n") {
+		if strings.HasPrefix(line, target+":") {
+			return line
+		}
+	}
+
+	t.Fatalf("no %q target line in %s", target, makefileTmplPath)
+
+	return ""
+}
+
+// TestMakefileGenerateAggregatorSeparatesPrereqs renders the `generate:`
+// aggregator with every optional generator switched on and checks that each
+// one lands as its own prerequisite.
+//
+// The sqlc switch ($pg/$sqlc) is still a literal false in the template
+// ("ToDo work with databases"), so no project config can turn it on and a
+// full-generation test cannot reach the sqlc + ActiveRecord combination.
+// Rendering the line standalone with the switches forced on is what exercises
+// it: before TOOLS-49 the sqlc group carried no trailing separator and the two
+// prerequisites fused into `sqlcgenerate-argen`, a target that does not exist.
+func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
+	// The line itself only reads $ogen, $sqlc and $jsonschema; $proto is
+	// already a plain literal prerequisite.
+	src := "{{- $ogen := true }}{{- $sqlc := true }}{{- $jsonschema := true }}" +
+		makefileTmplLine(t, "generate")
+
+	tmpl, err := template.New("generate").Parse(src)
+	if err != nil {
+		t.Fatalf("parse generate line: %v", err)
+	}
+
+	var rendered strings.Builder
+	if err := tmpl.Execute(&rendered, struct{ UseActiveRecord bool }{UseActiveRecord: true}); err != nil {
+		t.Fatalf("render generate line: %v", err)
+	}
+
+	prereqs := strings.Fields(strings.TrimPrefix(rendered.String(), "generate:"))
+
+	for _, want := range []string{"proto", "generate-ogen", "sqlc", "generate-argen", "generate-jsonschema"} {
+		if !slices.Contains(prereqs, want) {
+			t.Errorf("generate: prerequisites %q must contain %q as a separate target", prereqs, want)
+		}
+	}
+}
+
+// TestMakefilePrereqConditionalsEndWithSeparator guards the whole class of the
+// TOOLS-49 bug instead of the one line that happened to be broken: a make
+// prerequisite list is whitespace-separated, so every conditional group on
+// such a line has to carry its own trailing separator. Without it the group's
+// last target fuses with the next group's first one, and `make` fails with
+// "No rule to make target". These chains keep growing, so the invariant is
+// checked on every target line in the template.
+func TestMakefilePrereqConditionalsEndWithSeparator(t *testing.T) {
+	// A target line, as opposed to a variable assignment (`FOO:=bar`) or a
+	// recipe line (tab-indented).
+	targetLine := regexp.MustCompile(`^[A-Za-z0-9_.-]+:[^=]`)
+	action := regexp.MustCompile(`\{\{-?\s*(.*?)\s*-?\}\}`)
+
+	type token struct {
+		isAction bool
+		text     string
+	}
+
+	for i, line := range strings.Split(makefileTmplSource(t), "\n") {
+		if !targetLine.MatchString(line) || !strings.Contains(line, "{{") {
+			continue
+		}
+
+		var (
+			tokens []token
+			pos    int
+		)
+
+		for _, m := range action.FindAllStringSubmatchIndex(line, -1) {
+			if m[0] > pos {
+				tokens = append(tokens, token{text: line[pos:m[0]]})
+			}
+
+			tokens = append(tokens, token{isAction: true, text: line[m[2]:m[3]]})
+			pos = m[1]
+		}
+
+		if pos < len(line) {
+			tokens = append(tokens, token{text: line[pos:]})
+		}
+
+		for j, tok := range tokens {
+			if !tok.isAction || tok.text != "end" {
+				continue
+			}
+
+			// A group may legitimately end with a nested group, which has
+			// already supplied the separator itself.
+			if j > 0 {
+				prev := tokens[j-1]
+				if prev.isAction && prev.text == "end" {
+					continue
+				}
+
+				if !prev.isAction && strings.TrimRight(prev.text, " \t") != prev.text {
+					continue
+				}
+			}
+
+			t.Errorf("%s:%d: conditional group in a prerequisite list does not end with a separator "+
+				"before {{ end }}; its last target will fuse with the next group's first target:\n\t%s",
+				makefileTmplPath, i+1, line)
+		}
 	}
 }
