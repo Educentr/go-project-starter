@@ -245,7 +245,7 @@ manifest:
   `.gitignore`, `README.md`, `LICENSE.txt`, `CLAUDE.md`, `static/**`), в манифест **не**
   попадают.
 
-Манифест даёт две вещи:
+Манифест даёт три вещи:
 
 1. **Точную orphan-детекцию.** Удаляются только файлы, которые есть в предыдущем манифесте и
    выпали из текущего вывода. Посторонние файлы в дереве (`*_gen.go.orig` от merge-конфликта,
@@ -254,14 +254,34 @@ manifest:
 2. **Детекцию ручных правок выше маркера.** Если хеш на диске не совпадает с манифестом,
    генератор печатает `warning: <путь>: generated part was changed …`. Это предупреждение, а не
    ошибка: правки выше маркера перезаписываются (force-режим — отдельная задача).
+3. **Отказ перезаписать чужой файл (конфликт).** Файл из текущего вывода, который лежит на диске,
+   но **записи в предыдущем манифесте не имеет**, генератор не писал — значит он пользовательский.
+   Прогон падает **до записи чего-либо**, перечисляя все такие пути сразу:
+
+   ```text
+   conflict: 2 files exist and were not written by the generator — rename or remove them:
+     - internal/app/constant/psg_constant_gen.go
+     - api/rest/example/v1/example.swagger.yml
+   ```
+
+   Проверка покрывает все типы: с disclaimer-маркером (раньше молча перезаписывалось всё выше
+   маркера), без него (раньше — невнятное `error split disclaimer in file …`) и `isFileIgnored`
+   (`.json`, `.keep`, `*.mod` — раньше файл терялся целиком), а также `kind: copied` (спеки
+   REST/gRPC, JSON Schema). Исключения: user-owned пути (`go.mod`, `.gitignore`, `README.md`,
+   `static/**` — `templater.IsUserOwned`), pending rename (ищется по `OldDestName`, как записал
+   предыдущий прогон) и проект без манифеста. Запись с пустым `hash` считается «нашей».
+   Сентинел — `templater.ErrTargetConflict` (конкретный тип `*templater.TargetConflictError`
+   со списком путей); `--dry-run` сообщает о конфликте так же.
 
 Хеши обновляются по диску после `post_generate` (goimports, `go mod tidy`, `make generate`
 переписывают только что сгенерированные файлы) — иначе каждый следующий прогон сообщал бы о
 дрейфе для всех файлов.
 
 Проект, сгенерированный до `version: 5`, манифеста не имеет: первый прогон работает по-старому
-(обход дерева + поиск disclaimer в содержимом) и записывает манифест, со второго — точный путь.
-Реализация: `internal/pkg/meta/meta.go`, `templater.GetUserCodeFromFiles()`.
+(обход дерева + поиск disclaimer в содержимом, конфликты не детектируются) и записывает манифест,
+со второго — точный путь.
+Реализация: `internal/pkg/meta/meta.go`, `templater.GetUserCodeFromFiles()`,
+`internal/pkg/templater/conflict.go`, `generator.checkCopyTargetConflicts()`.
 
 ## Test Files
 
