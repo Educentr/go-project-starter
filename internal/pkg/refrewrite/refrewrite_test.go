@@ -1,13 +1,13 @@
 package refrewrite
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -316,13 +316,15 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Snapshot the target before the rewrite: the "was the file
+			// written?" assertion below compares content, not mtime. The
+			// mtime a write produces comes from a coarse kernel timer whose
+			// granularity is a scheduler tick, so no sleep makes
+			// ModTime().After() a reliable criterion.
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
-
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +370,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			modified := !bytes.Equal(beforeBytes, gotBytes)
+			if modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
