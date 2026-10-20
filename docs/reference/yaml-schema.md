@@ -20,6 +20,8 @@ driver:                    # Драйверы интеграций
 applications:              # Приложения (deployment units)
 grafana:                   # Grafana datasources
 jsonschema:                # JSON Schema для типизации
+generator:                 # Свои генераторы проекта (install/cmd/lint)
+contract:                  # Спеки для своих генераторов
 artifacts:                 # Типы артефактов сборки
 packaging:                 # Конфигурация системных пакетов
 docker:                    # Docker настройки
@@ -394,6 +396,31 @@ jsonschema:
 
 ---
 
+## Секции `generator` и `contract`
+
+Генераторы, которые приносит сам проект, и спеки, которые стартер для них забирает.
+Подробно — [Свои генераторы](../configuration/custom-generators.md).
+
+```yaml
+generator:
+  - name: string              # [required] ^[a-z0-9_-]+$, не встроенная make-цель
+    install: string           # [optional] команда установки, без переменных
+    cmd: string               # [required] команда генерации; {{ .Spec }}, {{ .Target }}
+    lint: string              # [optional] линтер генератора; {{ .Spec }}, {{ .Target }}
+
+contract:
+  - path: string              # [required] источник спеки, грамматика rest[].path
+    copy: string              # [required] куда положить, путь от корня проекта
+    target: string            # [optional] путь вывода генератора ({{ .Target }})
+    generator_name: string    # [required] ссылка на запись generator
+```
+
+Make-цели: `install-<name>` → в `install-tools`, `generate-<name>` → в `generate`,
+`lint-<name>` → в `lint`. Одна цель на генератор, `cmd`/`lint` вызываются по разу на каждую
+его спеку.
+
+---
+
 ## Секция `artifacts`
 
 Типы артефактов для сборки.
@@ -504,6 +531,10 @@ post_generate:
 | `kafka.driver: custom` | Требуются `driver_import`, `driver_package`, `driver_obj` |
 | `rest.generator_type: template` | Требуется `generator_template` |
 | `rest.instantiation` | Только для `ogen_client` |
+| запись `contract` | Требуется `generator_name`, существующий в `generator` |
+| `cmd`/`lint` ссылается на `{{ .Target }}` | Запись `contract` обязана задать `target` |
+| `generator.name` | `^[a-z0-9_-]+$`, без коллизии со встроенной make-целью |
+| `contract.copy` / `contract.target` | Относительный очищенный путь внутри проекта |
 
 ---
 
