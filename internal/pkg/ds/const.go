@@ -865,6 +865,26 @@ func (a App) HasOgenClients() bool {
 	return false
 }
 
+// HasMocks returns true if the generator writes mock scaffolding
+// (tests/{app}/mocks/{transport}/) for this application. The scaffolding carries
+// the //go:generate mockgen directive, so this is also the condition under which
+// `go generate ./tests/{app}/mocks/...` has anything to run — a target pointing at
+// a missing directory fails the whole run.
+func (a App) HasMocks() bool {
+	return a.GoatTests && !a.IsCLI() && a.HasOgenClients()
+}
+
+// HasMocks returns true if at least one application gets mock scaffolding.
+func (a Apps) HasMocks() bool {
+	for _, app := range a {
+		if app.HasMocks() {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetOgenClients returns all ogen_client transports sorted by name
 func (a App) GetOgenClients() []Transport {
 	clients := make([]Transport, 0)
