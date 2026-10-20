@@ -205,12 +205,14 @@ tools:
   protobuf_version: "1.7.0"
   golang_version: "1.24"
   ogen_version: "v0.78.0"
-  golangci_version: "1.55.2"
+  golangci_version: "2.1.6"
   argen_version: "v1.0.0"
   runtime_version: "v0.5.0"
   go_jsonschema_version: "v0.16.0"
   goat_version: "v0.3.1"
   goat_services_version: "v0.1.0"
+  lint_config:
+    overrides: "./configs/golangci-overrides.yml"
 ```
 
 ### Поля
@@ -220,13 +222,18 @@ tools:
 | `protobuf_version` | Версия protoc-gen-go | 1.7.0 |
 | `golang_version` | Версия Go для сгенерированного проекта | 1.24 |
 | `ogen_version` | Версия ogen | v0.78.0 |
-| `golangci_version` | Версия golangci-lint | 1.55.2 |
+| `golangci_version` | Версия golangci-lint | 2.1.6 |
 | `lint_exclude_paths` | Пути, которые golangci-lint пропускает (регэкспы, в оба блока `exclusions.paths`); например вендорная копия или сабмодуль | `[]` |
+| `lint_config.own` | Проект сам держит `configs/golangci-lint.yml`: генератор его не пишет, не читает и не удаляет | `false` |
+| `lint_config.overrides` | Документ переопределений, который генератор вливает в свой шаблон линтера при генерации. URI — как у `rest[].path` | — |
 | `argen_version` | Версия argen (ActiveRecord) | v1.0.0 |
 | `runtime_version` | Версия go-project-starter-runtime | авто |
 | `go_jsonschema_version` | Версия go-jsonschema | v0.16.0 |
 | `goat_version` | Версия GOAT тест-фреймворка | авто |
 | `goat_services_version` | Версия GOAT services | авто |
+
+`lint_config.own` и `lint_config.overrides` взаимоисключающие. Правила слияния, формы URI
+и поведение при регенерации — [Конфиг линтера](lint-config.md).
 
 ## Секция `post_generate`
 

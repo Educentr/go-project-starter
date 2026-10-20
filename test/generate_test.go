@@ -7,11 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
+	"gopkg.in/yaml.v3"
 )
 
 // fakeGenFileContent is a minimal generated file: disclaimer marker, no user
@@ -1495,6 +1497,189 @@ func TestGenerateLintExcludePaths(t *testing.T) {
 
 	if got := strings.Count(string(cfg), "- etc/vendored"); got != 2 {
 		t.Errorf("tools.lint_exclude_paths should appear in both exclusions.paths blocks: got %d occurrences", got)
+	}
+}
+
+// TestGenerateLintConfigOwn — tools.lint_config.own отдаёт
+// configs/golangci-lint.yml проекту: генератор его не пишет. Правила линтера
+// формируют вердикт merge-гейта и принадлежат проекту, а раньше файл
+// перезаписывался на каждом make regenerate и ручная правка не выживала.
+//
+// Фикстура включает и карту метрик: гейт метрик — отдельный
+// configs/golangci-metrics.yml плюс цель make metrics-validate, и он должен
+// генерироваться независимо от того, кто владеет основным конфигом линтера.
+func TestGenerateLintConfigOwn(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "lint-config-own")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with lint_config.own ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "golangci-lint.yml")); !os.IsNotExist(err) {
+		t.Errorf("configs/golangci-lint.yml must not be generated when the project owns it (stat err: %v)", err)
+	}
+
+	// The file is user-owned, so it is not tracked in the manifest either —
+	// otherwise the next run would diff or delete a file it does not write.
+	metaRaw, err := os.ReadFile(filepath.Join(tmpDir, ".project-config", "meta.yaml"))
+	if err != nil {
+		t.Fatalf("Error reading .project-config/meta.yaml: %v", err)
+	}
+
+	if strings.Contains(string(metaRaw), "configs/golangci-lint.yml") {
+		t.Error("configs/golangci-lint.yml must not appear in the run manifest when the project owns it")
+	}
+
+	// The TOOLS-8 metrics gate is a separate file and survives.
+	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "golangci-metrics.yml")); err != nil {
+		t.Errorf("configs/golangci-metrics.yml must still be generated: %v", err)
+	}
+
+	makefile, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	if !strings.Contains(string(makefile), "metrics-validate:") {
+		t.Error("make metrics-validate must still be generated")
+	}
+
+	// The lint targets keep pointing at the canonical path, so a project file
+	// dropped there works with no further changes.
+	if !strings.Contains(string(makefile), "--config=./configs/golangci-lint.yml") {
+		t.Error("make lint targets must keep using ./configs/golangci-lint.yml")
+	}
+}
+
+// TestGenerateLintConfigOverrides — tools.lint_config.overrides сливает
+// объявленное проектом с шаблоном генератора во время генерации: сам файл
+// остаётся сгенерированным, проект владеет только слоем переопределений.
+//
+// Проверяются все четыре правила слияния на одном прогоне: глубокий мерж
+// настроек (misspell.ignore-rules рядом с locale генератора), замена скаляра
+// (lll.line-length), удаление по null (блок wsl) и операции над множеством
+// линтеров (dupl вычитается из enable, errcheck — дефолт golangci, поэтому
+// уезжает в настоящий disable, gochecknoinits добавляется).
+func TestGenerateLintConfigOverrides(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "lint-config-overrides")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with lint_config.overrides ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(tmpDir, "configs", "golangci-lint.yml"))
+	if err != nil {
+		t.Fatalf("Error reading configs/golangci-lint.yml: %v", err)
+	}
+
+	cfg := string(raw)
+
+	// The disclaimer blocks have to survive the merge: the bottom marker is
+	// what the next regeneration looks for to preserve manual additions.
+	if !strings.Contains(cfg, "DO NOT EDIT.") ||
+		!strings.Contains(cfg, "If you need you can add your code after this message") {
+		t.Error("both disclaimer blocks must survive the merge")
+	}
+
+	// The override document is consumed during generation, not copied in.
+	if _, err := os.Stat(filepath.Join(tmpDir, "golangci-overrides.yml")); !os.IsNotExist(err) {
+		t.Errorf("the override document must not be copied into the project (stat err: %v)", err)
+	}
+
+	var parsed struct {
+		Linters struct {
+			Enable   []string `yaml:"enable"`
+			Disable  []string `yaml:"disable"`
+			Settings struct {
+				Misspell struct {
+					Locale      string   `yaml:"locale"`
+					IgnoreRules []string `yaml:"ignore-rules"`
+				} `yaml:"misspell"`
+				LLL struct {
+					LineLength int `yaml:"line-length"`
+					TabWidth   int `yaml:"tab-width"`
+				} `yaml:"lll"`
+				WSL map[string]any `yaml:"wsl"`
+			} `yaml:"settings"`
+		} `yaml:"linters"`
+	}
+
+	if err := yaml.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("merged config is not valid YAML: %v\n%s", err, cfg)
+	}
+
+	linters := parsed.Linters
+
+	// Rule 1 — deep merge. This is the case the request is about.
+	if linters.Settings.Misspell.Locale != "US" {
+		t.Errorf("misspell.locale = %q, want the generator's US to survive", linters.Settings.Misspell.Locale)
+	}
+
+	if len(linters.Settings.Misspell.IgnoreRules) != 1 {
+		t.Errorf("misspell.ignore-rules = %v, want the project's single entry", linters.Settings.Misspell.IgnoreRules)
+	}
+
+	// Rule 2 — scalar replaced, sibling key kept.
+	if linters.Settings.LLL.LineLength != 200 {
+		t.Errorf("lll.line-length = %d, want the project's 200", linters.Settings.LLL.LineLength)
+	}
+
+	if linters.Settings.LLL.TabWidth != 8 {
+		t.Errorf("lll.tab-width = %d, want the generator's 8", linters.Settings.LLL.TabWidth)
+	}
+
+	// Rule 3 — explicit null dropped the block.
+	if linters.Settings.WSL != nil {
+		t.Errorf("wsl settings = %v, want them dropped by the null override", linters.Settings.WSL)
+	}
+
+	// Rule 4 — set operations on the linter lists.
+	if slices.Contains(linters.Enable, "dupl") {
+		t.Errorf("linters.enable = %v, want dupl subtracted", linters.Enable)
+	}
+
+	if !slices.Contains(linters.Enable, "gochecknoinits") {
+		t.Errorf("linters.enable = %v, want gochecknoinits added", linters.Enable)
+	}
+
+	if !slices.Contains(linters.Enable, "misspell") {
+		t.Errorf("linters.enable = %v, want the untouched generator linters kept", linters.Enable)
+	}
+
+	// errcheck is a golangci-lint default the generator never names, so the
+	// only way to switch it off is a real disable entry. dupl, which the
+	// generator does name, must NOT be there — golangci-lint rejects a config
+	// that both enables and disables a linter.
+	if !slices.Contains(linters.Disable, "errcheck") {
+		t.Errorf("linters.disable = %v, want errcheck passed through", linters.Disable)
+	}
+
+	if slices.Contains(linters.Disable, "dupl") {
+		t.Errorf("linters.disable = %v, want dupl absent (it was subtracted from enable instead)", linters.Disable)
 	}
 }
 

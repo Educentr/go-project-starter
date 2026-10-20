@@ -1,0 +1,47 @@
+main:
+  name: lintown
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/lintown.git
+  module_path: github.com/test/lintown
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+  # The project maintains configs/golangci-lint.yml itself; the generator must
+  # not write it. The metrics map below must still produce its own validator
+  # config and `make metrics-validate` target.
+  lint_config:
+    own: true
+
+metrics:
+  path: ./metrics-map.yaml
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys

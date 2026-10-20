@@ -200,6 +200,19 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## Lint Config
+
+Секция `tools.lint_config` в `project.yaml` решает, кто владеет `configs/golangci-lint.yml` — файлом, чьи правила формируют вердикт merge-гейта. Два взаимоисключающих ключа (оба сразу — ошибка конфига), по умолчанию ни одного и поведение прежнее (генератор пишет файл целиком):
+
+- `own: true` — файл принадлежит проекту. Генератор его **не пишет, не читает, не диффит и не удаляет**: путь уходит в `Generator.userOwnedPaths()`, то есть в тот же класс, что `go.mod`/`.gitignore`, и выпадает из манифеста. Включение в существующем проекте файл с диска не трогает — ровно поэтому `diffOrphans` проверяет `IsUserOwned` перед тем, как считать выпавший из вывода файл сиротой.
+- `overrides: <URI>` — слой переопределений. Мерж идёт **во время генерации**: генератор рендерит шаблон, вливает документ проекта и пишет результат. Итоговый файл по-прежнему сгенерированный (правки выше disclaimer-маркера перезаписываются), в манифест попадает как `generated`; документ переопределений — проектный, в проект не копируется. URI — те же формы, что у `rest[].path`, с учётом `--sourceRef`.
+
+Правила слияния: мапы сливаются рекурсивно, скаляры и списки заменяются, явный `null` удаляет ключ. Исключение — списки имён линтеров (`linters.enable/disable`, `formatters.enable/disable`): это операции над множеством, `enable` добавляет, `disable` убирает. `disable` разрешается на этапе генерации: линтер, который генератор включает явно, вычитается из `enable` (golangci-lint отвергает конфиг, где линтер одновременно в `enable` и `disable`), а имя, которого в `enable` нет, — это дефолт golangci-lint и оно уезжает в итоговый `disable`, иначе выключить дефолт нечем.
+
+Без обоих ключей мерж не запускается вовсе и вывод побайтно совпадает с прежним. `configs/golangci-metrics.yml` и `make metrics-validate` (гейт карты метрик) генерируются независимо от секции. `tools.lint_exclude_paths` при `own: true` ни на что не влияет — генерация печатает warning, ключ остаётся валидным.
+
+Реализация: `internal/pkg/lintconfig/` (правила слияния, `ConfigPath`), `Generator.processLintConfig()` / `lintBodyTransform()` / `userOwnedPaths()`, фильтр own-режима в `templater.GetMainTemplates()`, хук `templater.GenerateByTmplWithTransform()` (отдаёт трансформу тело шаблона без disclaimer-блоков — мерж парсит YAML, а блоки это комментарии вокруг него). Полная документация: [docs/configuration/lint-config.md](docs/configuration/lint-config.md).
+
 ## Regeneration Behavior
 
 ### Disclaimer Marker (env-файлы и другие файлы с ручными правками)
