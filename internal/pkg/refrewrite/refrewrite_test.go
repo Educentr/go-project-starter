@@ -30,6 +30,11 @@ type caseSpec struct {
 	dryRun        bool
 }
 
+// backdatedTime is the mtime stamped on fixtures before a rewrite run, so that
+// "was this file written?" can be answered without depending on the clock's
+// tick granularity.
+var backdatedTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func TestRewriteLocalRefs(t *testing.T) {
 	t.Parallel()
 
@@ -309,20 +314,29 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			dir := t.TempDir()
 			for _, f := range tc.files {
-				if err := os.WriteFile(filepath.Join(dir, f.name), []byte(f.content), 0o644); err != nil {
+				path := filepath.Join(dir, f.name)
+				if err := os.WriteFile(path, []byte(f.content), 0o644); err != nil {
 					t.Fatalf("write fixture %s: %v", f.name, err)
+				}
+				// Stamp every fixture with an mtime far in the past. Comparing a
+				// mtime snapshot taken just before the run against the one taken
+				// after races with the clock's tick granularity (4ms on the
+				// build container, and it varies by environment): a rewrite
+				// landing in the same tick as the snapshot reads as "never
+				// written". Against a backdated stamp any real write is newer
+				// whatever the tick size, and it stays detectable even if the
+				// rewrite happens to reproduce the original bytes.
+				if err := os.Chtimes(path, backdatedTime, backdatedTime); err != nil {
+					t.Fatalf("backdate fixture %s: %v", f.name, err)
 				}
 			}
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
-
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +382,22 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			info, err := os.Stat(targetPath)
+			if err != nil {
+				t.Fatalf("stat target after rewrite: %v", err)
+			}
+
+			// Primary signal: the file was written at all, i.e. its mtime moved
+			// off the backdated stamp.
+			if written := info.ModTime().After(backdatedTime); written != tc.expectModif {
+				t.Errorf("file written=%v, want %v", written, tc.expectModif)
+			}
+
+			// Corroborating signal: a rewrite must change the bytes on disk, and
+			// a no-op run must leave them byte-identical.
+			if changed := got != string(beforeBytes); changed != tc.expectModif {
+				t.Errorf("file content changed=%v, want %v.\nBefore:\n%s\nAfter:\n%s",
+					changed, tc.expectModif, beforeBytes, got)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
