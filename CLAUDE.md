@@ -66,10 +66,11 @@ go-project-starter --config=example/config.yaml
 make test                # Run tests with coverage
 make race                # Run tests with race detector
 
-# Linting (requires golangci-lint v1.52.2)
-make install-lint        # Install golangci-lint
-make lint                # Check diffs with origin/main
-make lint-full           # Full code lint
+# Linting
+make install-lint        # Install golangci-lint (version pinned by GOLANGCI_TAG in Makefile)
+make lint                # Check diffs with origin/main — this is the CI gate (lint.yml)
+make lint-config-verify  # Check configs/golangci.yml against the pinned version's schema
+make lint-full           # Full code lint — currently red on main (~600 pre-existing issues)
 make lint-fix            # Auto-fix linting issues
 
 # Coverage report
