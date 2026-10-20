@@ -1,6 +1,9 @@
 package generator
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,6 +237,60 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 
 		if err := g.processLintConfig(config); err == nil {
 			t.Fatal("processLintConfig() error = nil, want a read failure")
+		}
+	})
+
+	// A lint policy shared across repositories is as much a contract artifact
+	// as a spec, so the documented URI forms have to actually work — not just
+	// the local path. The staged copy is dropped right after the read, the same
+	// way the metrics map is handled, so nothing lands in the project.
+	t.Run("remote override document is fetched over https", func(t *testing.T) {
+		doc := "linters:\n  disable:\n    - dupl\n"
+
+		var requested string
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requested = r.URL.Path
+
+			if _, err := io.WriteString(w, doc); err != nil {
+				t.Errorf("serving the override document: %v", err)
+			}
+		}))
+		defer srv.Close()
+
+		var g Generator
+
+		config := cfg.Config{BasePath: t.TempDir()}
+		config.Tools.LintConfig.Overrides = srv.URL + "/lint/golangci-overrides.yml"
+
+		if err := g.processLintConfig(config); err != nil {
+			t.Fatalf("processLintConfig() error = %v", err)
+		}
+
+		if requested != "/lint/golangci-overrides.yml" {
+			t.Errorf("requested path = %q, want the URI's path", requested)
+		}
+
+		if string(g.LintOverrides) != doc {
+			t.Errorf("LintOverrides = %q, want %q", g.LintOverrides, doc)
+		}
+	})
+
+	t.Run("malformed remote override document fails", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if _, err := io.WriteString(w, "- dupl\n"); err != nil {
+				t.Errorf("serving the override document: %v", err)
+			}
+		}))
+		defer srv.Close()
+
+		var g Generator
+
+		config := cfg.Config{BasePath: t.TempDir()}
+		config.Tools.LintConfig.Overrides = srv.URL + "/golangci-overrides.yml"
+
+		if err := g.processLintConfig(config); err == nil {
+			t.Fatal("processLintConfig() error = nil, want a shape failure")
 		}
 	})
 }
