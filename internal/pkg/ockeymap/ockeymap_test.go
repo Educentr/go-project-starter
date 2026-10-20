@@ -135,6 +135,15 @@ func TestParseErrors(t *testing.T) {
 			wantMsg:  `unknown field "consumer"`,
 		},
 		{
+			// `service_tree` is one of the process fields a key registry
+			// carries. The map is one per service, so the tree comes from the
+			// paths — and the schema is closed at the top level too.
+			name:     "unknown top-level field",
+			yaml:     "keys:\n  - path: /svc/a\n    type: string\nservice_tree: svc\n",
+			sentinel: ockeymap.ErrMalformedMap,
+			wantMsg:  "field service_tree not found",
+		},
+		{
 			name:     "typo in field name",
 			yaml:     "keys:\n  - path: /svc/a\n    type: string\n    requred: true\n",
 			sentinel: ockeymap.ErrMalformedMap,
