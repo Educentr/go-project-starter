@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -24,7 +23,7 @@ type caseSpec struct {
 	expected      string // expected content of `target` after rewrite
 	expectedRefs  int    // RefsRewritten
 	expectedSkip  int    // RefsSkipped
-	expectModif   bool   // whether `target` should change on disk
+	expectModif   bool   // whether the on-disk content of `target` should change
 	expectedWarns int    // expected number of warnings
 	whitelist     []string
 	dryRun        bool
@@ -316,13 +315,17 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Snapshot the content, not the mtime: Linux stamps mtime from the
+			// coarse clock with one-jiffy granularity (4ms at CONFIG_HZ=250),
+			// so a rewrite can land in the same tick as the fixture write and
+			// leave mtime untouched. Comparing bytes is exact and independent
+			// of the host's clock resolution.
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
 
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
+			before := string(beforeBytes)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +371,8 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			if modified := got != before; modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v.\nBefore:\n%s\nAfter:\n%s", modified, tc.expectModif, before, got)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
