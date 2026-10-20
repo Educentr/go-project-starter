@@ -25,13 +25,3 @@ jobs:
       # in its own job (integration-test.yml).
       - name: Run unit tests
         run: make race
-
-      # TEMPORARY (TOOLS-27): measure the TOOLS-23 mtime flake on this runner.
-      # Removed in the next commit, before review.
-      - name: Probe mtime flake
-        continue-on-error: true
-        run: |
-          echo "CONFIG_HZ / clocksource:"
-          zcat /proc/config.gz 2>/dev/null | grep -E '^CONFIG_HZ=' || echo "(no /proc/config.gz)"
-          stat -f -c 'tmpfs type: %T' /tmp
-          go test ./internal/pkg/refrewrite/ -race -count=50 -run TestRewriteLocalRefs 2>&1 | tail -5
