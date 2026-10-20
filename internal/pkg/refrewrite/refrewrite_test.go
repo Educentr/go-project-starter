@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -18,16 +17,20 @@ type fixtureFile struct {
 
 // caseSpec describes a single rewrite scenario.
 type caseSpec struct {
-	name          string
-	files         []fixtureFile
-	target        string // file that gets passed through the rewriter (others are siblings)
-	expected      string // expected content of `target` after rewrite
-	expectedRefs  int    // RefsRewritten
-	expectedSkip  int    // RefsSkipped
-	expectModif   bool   // whether `target` should change on disk
-	expectedWarns int    // expected number of warnings
-	whitelist     []string
-	dryRun        bool
+	name         string
+	files        []fixtureFile
+	target       string // file that gets passed through the rewriter (others are siblings)
+	expected     string // expected content of `target` after rewrite
+	expectedRefs int    // RefsRewritten
+	expectedSkip int    // RefsSkipped
+	expectModif  bool   // whether `target` content should change on disk
+	// expectedFilesMod is Report.FilesModified, which counts files the rewriter
+	// changed — including under DryRun, where nothing is written to disk. It
+	// therefore differs from expectModif exactly in the dry-run case.
+	expectedFilesMod int
+	expectedWarns    int // expected number of warnings
+	whitelist        []string
+	dryRun           bool
 }
 
 func TestRewriteLocalRefs(t *testing.T) {
@@ -53,8 +56,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"    Foo:\n" +
 				"      allOf:\n" +
 				"        - $ref: ./common.yaml#/components/schemas/Shared\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:     1,
+			expectModif:      true,
+			expectedFilesMod: 1,
 		},
 		{
 			name: "external_subdir_yaml",
@@ -73,8 +77,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"  schemas:\n" +
 				"    Wrap:\n" +
 				"      $ref: ./shared.yaml#/components/schemas/X\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:     1,
+			expectModif:      true,
+			expectedFilesMod: 1,
 		},
 		{
 			name: "external_dot_slash_yaml",
@@ -170,8 +175,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 			},
 			target: "api.yaml",
 			// We only assert that comments survive; expected is loosely compared below.
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:     1,
+			expectModif:      true,
+			expectedFilesMod: 1,
 		},
 		{
 			name: "multiple_refs_one_file_yaml",
@@ -198,10 +204,11 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"      $ref: '../missing/zzz.yaml#/X'\n" +
 				"    C:\n" +
 				"      $ref: '#/components/schemas/A'\n",
-			expectedRefs:  1,
-			expectedSkip:  1,
-			expectModif:   true,
-			expectedWarns: 1,
+			expectedRefs:     1,
+			expectedSkip:     1,
+			expectModif:      true,
+			expectedFilesMod: 1,
+			expectedWarns:    1,
 		},
 		{
 			name: "whitelist_blocks_unknown_match_yaml",
@@ -244,8 +251,9 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"    \"Foo\": { \"$ref\": \"./common.json#/$defs/X\" }\n" +
 				"  }\n" +
 				"}\n",
-			expectedRefs: 1,
-			expectModif:  true,
+			expectedRefs:     1,
+			expectModif:      true,
+			expectedFilesMod: 1,
 		},
 		{
 			name: "json_no_match",
@@ -289,7 +297,10 @@ func TestRewriteLocalRefs(t *testing.T) {
 				"      $ref: '../common/common.yaml#/components/schemas/Shared'\n",
 			dryRun:       true,
 			expectedRefs: 1,
-			expectModif:  false,
+			// Nothing is written to disk, but the rewriter did change the file's
+			// contents in memory — the report counts it.
+			expectModif:      false,
+			expectedFilesMod: 1,
 		},
 		{
 			name: "invalid_yaml",
@@ -316,13 +327,13 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Snapshot the contents rather than the mtime: filesystems make no
+			// guarantee about mtime granularity, so an mtime comparison cannot
+			// tell "not rewritten" from "rewritten within the same tick".
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
-
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +379,12 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			if modified := got != string(beforeBytes); modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
+			}
+
+			if report.FilesModified != tc.expectedFilesMod {
+				t.Errorf("FilesModified = %d, want %d", report.FilesModified, tc.expectedFilesMod)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
