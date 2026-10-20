@@ -78,6 +78,13 @@ type (
 		GeneratorName string `mapstructure:"generator_name"`
 	}
 
+	// generatorCommand pairs a templated command with the config field it
+	// came from, so a validation failure can name it.
+	generatorCommand struct {
+		field string
+		text  string
+	}
+
 	CustomGeneratorList []CustomGenerator
 	ContractList        []Contract
 )
@@ -186,17 +193,28 @@ func (g CustomGenerator) IsValid() (bool, string) {
 		return false, "generator '" + g.Name + "': install takes no template variables"
 	}
 
-	for field, cmd := range map[string]string{"cmd": g.Cmd, "lint": g.Lint} {
-		if cmd == "" {
-			continue
-		}
-
-		if _, err := generatorCommandVars(cmd); err != nil {
-			return false, "generator '" + g.Name + "': " + field + ": " + err.Error()
+	for _, c := range g.commands() {
+		if _, err := generatorCommandVars(c.text); err != nil {
+			return false, "generator '" + g.Name + "': " + c.field + ": " + err.Error()
 		}
 	}
 
 	return true, ""
+}
+
+// commands returns the non-empty templated commands in a fixed order. Fixed,
+// not map iteration: a config error message that names a different field on
+// every run is a message nobody can act on.
+func (g CustomGenerator) commands() []generatorCommand {
+	var out []generatorCommand
+
+	for _, c := range []generatorCommand{{field: "cmd", text: g.Cmd}, {field: "lint", text: g.Lint}} {
+		if c.text != "" {
+			out = append(out, c)
+		}
+	}
+
+	return out
 }
 
 // IsValid validates a single contract entry. baseConfigDir resolves local
@@ -282,20 +300,16 @@ func validateContractVars(gen CustomGenerator, c Contract) (bool, string) {
 		return true, ""
 	}
 
-	for field, cmd := range map[string]string{"cmd": gen.Cmd, "lint": gen.Lint} {
-		if cmd == "" {
-			continue
-		}
-
-		vars, err := generatorCommandVars(cmd)
+	for _, cmd := range gen.commands() {
+		vars, err := generatorCommandVars(cmd.text)
 		if err != nil {
 			// Already reported by CustomGenerator.IsValid.
-			return false, "generator '" + gen.Name + "': " + field + ": " + err.Error()
+			return false, "generator '" + gen.Name + "': " + cmd.field + ": " + err.Error()
 		}
 
 		if vars[GeneratorVarTarget] {
 			return false, "contract '" + c.Path + "': generator '" + gen.Name + "' references ." +
-				GeneratorVarTarget + " in " + field + ", so the contract must set 'target'"
+				GeneratorVarTarget + " in " + cmd.field + ", so the contract must set 'target'"
 		}
 	}
 
