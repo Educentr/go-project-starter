@@ -1050,3 +1050,71 @@ func TestWorkers_GetUniqueTypes(t *testing.T) {
 		t.Errorf("GetUniqueTypes() should have 2 template workers, got %d", len(got["template"]))
 	}
 }
+
+func TestApp_HasMocks(t *testing.T) {
+	ogenClient := Transports{
+		"billing": Transport{Name: "billing", GeneratorType: "ogen_client"},
+	}
+	serverOnly := Transports{
+		"api": Transport{Name: "api", GeneratorType: "ogen"},
+	}
+
+	tests := []struct {
+		name string
+		app  App
+		want bool
+	}{
+		{
+			name: "goat tests with ogen client",
+			app:  App{Name: "api", GoatTests: true, Transports: ogenClient},
+			want: true,
+		},
+		{
+			name: "ogen client without goat tests",
+			app:  App{Name: "api", Transports: ogenClient},
+			want: false,
+		},
+		{
+			name: "goat tests without ogen client",
+			app:  App{Name: "api", GoatTests: true, Transports: serverOnly},
+			want: false,
+		},
+		{
+			name: "CLI app never gets test scaffolding",
+			app:  App{Name: "cli", GoatTests: true, Transports: ogenClient, CLI: &CLIApp{Name: "cli"}},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.app.HasMocks(); got != tt.want {
+				t.Errorf("App.HasMocks() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApps_HasMocks(t *testing.T) {
+	withMocks := App{
+		Name:      "api",
+		GoatTests: true,
+		Transports: Transports{
+			"billing": Transport{Name: "billing", GeneratorType: "ogen_client"},
+		},
+	}
+	withoutMocks := App{
+		Name: "worker",
+		Transports: Transports{
+			"api": Transport{Name: "api", GeneratorType: "ogen"},
+		},
+	}
+
+	if got := (Apps{withoutMocks}).HasMocks(); got {
+		t.Error("Apps.HasMocks() = true, want false when no application gets mock scaffolding")
+	}
+
+	if got := (Apps{withoutMocks, withMocks}).HasMocks(); !got {
+		t.Error("Apps.HasMocks() = false, want true when any application gets mock scaffolding")
+	}
+}
