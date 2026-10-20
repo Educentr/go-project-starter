@@ -281,7 +281,7 @@ type JSONSchema struct {
 	// indices align with Schemas.
 	SchemaTargetFiles []string
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
-	// target schema directory after CopySchemas.
+	// target schema directory after the schemas are copied.
 	RewriteRefs bool
 }
 
@@ -713,7 +713,7 @@ type Transport struct {
 	Instantiation   string // "static" (default) or "dynamic" - only for ogen_client
 	Optional        bool   // true = optional dependency for this app
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
-	// target spec directory after CopySpecs.
+	// target spec directory after the specs are copied.
 	RewriteRefs bool
 }
 
