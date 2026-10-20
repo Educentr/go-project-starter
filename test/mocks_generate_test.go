@@ -80,9 +80,12 @@ func TestGenerateIncludesMocks(t *testing.T) {
 	}
 
 	// mockgen loads the ogen package through the module graph, so the imports
-	// the preceding generators introduced have to be resolvable first.
-	if !strings.Contains(recipe, "go mod tidy") {
-		t.Errorf("generate-mocks must resolve the module before running mockgen, got recipe:\n%s", recipe)
+	// the preceding generators introduced have to be resolvable first. -e is
+	// required: a goat project pinned to Go 1.24 cannot resolve goat's own
+	// transitive otlptrace imports, and a bare tidy would fail the whole
+	// generate over packages the mocks do not care about.
+	if !strings.Contains(recipe, "go mod tidy -e") {
+		t.Errorf("generate-mocks must resolve the module with `go mod tidy -e` before running mockgen, got recipe:\n%s", recipe)
 	}
 }
 

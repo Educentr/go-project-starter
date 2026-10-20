@@ -641,7 +641,14 @@ generate-mocks:
 	@# the preceding generators just introduced have to be resolvable. On a
 	@# tidy module this is a no-op; right after the first generation it is what
 	@# puts the fresh ogen dependencies into go.mod.
-	@GOPRIVATE=$(GOPRIVATE) go mod tidy
+	@#
+	@# -e: keep going when some package of the graph cannot be resolved. A goat
+	@# project pinned to Go 1.24 cannot resolve goat's own transitive otlptrace
+	@# imports (nothing in go.mod provides them, so tidy picks a release that
+	@# wants a newer toolchain) — unrelated to the mocks, and without -e it would
+	@# fail the whole generate. Nothing is masked: if the ogen imports really are
+	@# unresolvable, mockgen below fails on them anyway.
+	@GOPRIVATE=$(GOPRIVATE) go mod tidy -e
 {{- range $_, $a := .Applications }}{{ if $a.HasMocks }}
 	@go generate ./tests/{{ $a.Name }}/mocks/...
 {{- end }}{{ end }}
