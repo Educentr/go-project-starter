@@ -72,7 +72,7 @@ test:
 
 .PHONY: build
 build:
-	go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" $(PWD)
+	go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" ./cmd/go-project-starter
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
@@ -92,7 +92,7 @@ lint-fix: lint
 # Install config to your home directory.
 .PHONY: install-config
 install-config:
-	@cp .golangci.yml $(HOME)/.golangci.yaml
+	@cp ./configs/golangci.yml $(HOME)/.golangci.yaml
 	@echo "Golangci config installed to $(HOME)/.golangci.yaml"
 
 # Create test coverage report
@@ -169,4 +169,4 @@ integration-test-grafana: buildfortest build-test-image
 # Run documentation server locally
 .PHONY: docs
 docs:
-	docker run --rm -p 8000:8000 -v $(PWD):/docs squidfunk/mkdocs-material serve --dev-addr=0.0.0.0:8000 --watch-theme
+	docker run --rm -p 8000:8000 -v $(CURDIR):/docs squidfunk/mkdocs-material serve --dev-addr=0.0.0.0:8000 --watch-theme
