@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fixtureFile describes a file written to the test working directory.
@@ -316,13 +315,16 @@ func TestRewriteLocalRefs(t *testing.T) {
 
 			targetPath := filepath.Join(dir, tc.target)
 
-			var beforeMTime time.Time
-			if info, err := os.Stat(targetPath); err == nil {
-				beforeMTime = info.ModTime()
+			// Snapshot the target's bytes so the "changed on disk" assertion
+			// below can compare content directly. Deliberately not mtime: on
+			// Linux mtime comes from a coarse timer whose granularity equals
+			// the scheduler tick (up to 10ms at CONFIG_HZ=100), so a write
+			// landing in the same tick as the pre-read is indistinguishable
+			// and the assertion would measure clock resolution, not behaviour.
+			beforeBytes, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatalf("read target before rewrite: %v", err)
 			}
-
-			// Sleep a millisecond so any write would produce a different mtime.
-			time.Sleep(2 * time.Millisecond)
 
 			var logged []string
 			report, err := RewriteLocalRefs(dir, tc.whitelist, Options{
@@ -368,11 +370,22 @@ func TestRewriteLocalRefs(t *testing.T) {
 				}
 			}
 
-			if info, err := os.Stat(targetPath); err == nil {
-				modified := info.ModTime().After(beforeMTime)
-				if modified != tc.expectModif {
-					t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
-				}
+			if modified := got != string(beforeBytes); modified != tc.expectModif {
+				t.Errorf("file modified=%v, want %v", modified, tc.expectModif)
+			}
+
+			// FilesModified counts files the rewriter changed, and is
+			// incremented even under DryRun (where the write is skipped) —
+			// hence it is asserted separately from the on-disk check above.
+			// Every case in the table puts rewritable refs in `target` only,
+			// so the sibling fixtures never contribute to the count.
+			wantFilesModified := 0
+			if tc.expectedRefs > 0 {
+				wantFilesModified = 1
+			}
+
+			if report.FilesModified != wantFilesModified {
+				t.Errorf("FilesModified = %d, want %d", report.FilesModified, wantFilesModified)
 			}
 
 			// FilesScanned should be at least 1 for every test (we always
