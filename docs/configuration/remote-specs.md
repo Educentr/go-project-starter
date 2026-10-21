@@ -182,7 +182,7 @@ rest:
 | `subpath not found in repository: openapi/foo.yaml (similar: api/foo.yaml)` | Опечатка в subpath | Использовать предложенный путь или поправить YAML |
 | `HTTP request returned non-2xx status: 404 ...` | Неверный URL или ref | Проверить URL в браузере / `curl -I` |
 | `directory subpaths are not supported yet` | `#openapi/` (с `/` в конце) | Указать конкретный файл, не директорию |
-| `a file copied by the generator was edited inside the project tree` | Спеку поправили в `api/` вместо источника | Перенести правку в источник (`source:` в сообщении), файл в проекте вернуть из git. Подробнее — [regeneration.md](../workflow/regeneration.md#спеки-правятся-в-контрактном-репозитории-не-в-проекте) |
+| `a file copied by the generator was edited inside the project tree` | Спеку поправили в `api/` вместо источника | Перенести правку в ветку контрактного репо (`source:` в сообщении), файл в проекте вернуть из git (или удалить) и перегенерировать с `SOURCE_REF="<repo>:<ветка>"`. Подробнее — [regeneration.md](../workflow/regeneration.md#спеки-правятся-в-контрактном-репозитории-не-в-проекте) |
 
 ## Поддерживаемые источники
 
