@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
@@ -11,7 +12,35 @@ import (
 
 const (
 	onlineconfLevelPath = "log_level"
+	// onlineconfLevelDefaultNode — узел с базовым уровнем логирования внутри
+	// поддерева владельца логгера.
+	onlineconfLevelDefaultNode = "default"
 )
+
+// logLevelPath собирает абсолютный путь OnlineConf до узла с уровнем логирования.
+//
+// Инвариант префикса: ocPrefix — уже абсолютный путь поддерева, которому принадлежит
+// логгер (транспорт, воркер), и он уже содержит имя сервиса, поэтому имя сервиса
+// здесь не приписывается. Пустой ocPrefix означает процессный логгер — его уровень
+// живёт в корне сервиса, поэтому префиксом становится serviceName.
+//
+// Компоненты, пустые после обрезки слэшей, выбрасываются: onlineconf.MakePath их не
+// отбрасывает и вернул бы путь с "//", которого в дереве быть не может.
+func logLevelPath(serviceName, ocPrefix, node string) string {
+	if strings.Trim(ocPrefix, "/") == "" {
+		ocPrefix = serviceName
+	}
+
+	parts := make([]string, 0, 3)
+
+	for _, part := range []string{ocPrefix, node, onlineconfLevelPath} {
+		if strings.Trim(part, "/") != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	return onlineconf.MakePath(parts...)
+}
 
 func InitLogrus(ctx context.Context, serviceName string) context.Context {
 	applog := logger.InitAppLogrus(func(onlineconfPrefix, ocPath string) *logrus.Entry {
@@ -35,7 +64,7 @@ func InitLogrus(ctx context.Context, serviceName string) context.Context {
 
 		levelCfg, err := onlineconf.GetString(
 			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, "default", onlineconfLevelPath),
+			logLevelPath(serviceName, onlineconfPrefix, onlineconfLevelDefaultNode),
 			logrus.InfoLevel.String(),
 		)
 		if err == nil {
@@ -46,17 +75,23 @@ func InitLogrus(ctx context.Context, serviceName string) context.Context {
 			}
 		}
 
-		// Уровень логирования переопределённый для данного endpoint-а
-		levelCfgEndpoint, err := onlineconf.GetString(
-			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, ocPath, onlineconfLevelPath),
-			"",
-		)
-		if err == nil {
-			levelEP, err = logrus.ParseLevel(levelCfgEndpoint)
-			// Если не получилось распарсить уровень то выставляем Info
-			if err != nil {
-				levelEP = logrus.InfoLevel
+		// Уровень логирования переопределённый для данного endpoint-а.
+		// Пустой ocPath означает, что переопределять нечего (процессный логгер),
+		// — тогда чтения нет вовсе.
+		var levelCfgEndpoint string
+
+		if strings.Trim(ocPath, "/") != "" {
+			levelCfgEndpoint, err = onlineconf.GetString(
+				ctx,
+				logLevelPath(serviceName, onlineconfPrefix, ocPath),
+				"",
+			)
+			if err == nil {
+				levelEP, err = logrus.ParseLevel(levelCfgEndpoint)
+				// Если не получилось распарсить уровень то выставляем Info
+				if err != nil {
+					levelEP = logrus.InfoLevel
+				}
 			}
 		}
 

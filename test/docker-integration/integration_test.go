@@ -338,10 +338,12 @@ func runDockerTest(ctx context.Context, t *testing.T, container *GolangBuilderCo
 	// Include essential onlineconf values for transport initialization.
 	// REST port envs default to the {api_v1: 8080, sys_v1: 8085} layout; tests
 	// with non-default transport names override via cfg.restPorts.
+	// The process logger reads its level at /{svc}/default/log_level — the
+	// prefix of a process-wide logger is the service root (see TOOLS-65).
 	envFlags := fmt.Sprintf(
 		"-e ONLINECONFIG_FROM_ENV=true "+
 			"-e OC_%s__devstand=1 "+
-			"-e OC_%s__log__default__log_level=debug",
+			"-e OC_%s__default__log_level=debug",
 		cfg.serviceName, cfg.serviceName,
 	)
 
