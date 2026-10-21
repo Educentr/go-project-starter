@@ -626,9 +626,9 @@ func expandPath(raw string, substitution map[string]string) (string, bool) {
 // code already reads.
 //
 // Two ways that happens. An exact path match is a key with two readers and two
-// spellings — the thing the map exists to prevent. And a declaration inside a
-// subtree the generated code reads under a runtime key (the url path of a
-// request, a telegram user id, an action name) is the same collision, only
+// spellings — the thing the map exists to prevent. And a declaration at or
+// inside a subtree the generated code reads under a runtime key (the url path
+// of a request, a telegram user id, an action name) is the same collision, only
 // invisible: there is no single generated path to compare against, so the
 // subtree belongs to the generator as a whole.
 func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
