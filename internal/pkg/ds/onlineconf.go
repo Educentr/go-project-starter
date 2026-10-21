@@ -123,11 +123,10 @@ func (o OnlineConfConfig) ForbiddenCalls() []ForbidRule {
 // check, as a forbidigo `path:` value.
 //
 // Two groups are exempt. The generated accessor package is where OnlineConf IS
-// read. And every generated Go file (psg_*_gen.go) reads the generator's own
-// subtrees — transport, security, kafka, logger, dev-stand — which the service
-// map may not declare at all (see ockeymap.ReservedSegments). Those readers are
-// generated in full from project.yaml; they are not hand-written escape
-// hatches.
+// read. And every generated Go file (psg_*_gen.go) reads the keys the generator
+// declares itself (see the *.ockeys.yaml files next to the templates), which
+// the service map may not declare at all. Those readers are generated in full
+// from project.yaml; they are not hand-written escape hatches.
 func (o OnlineConfConfig) ExemptPathPattern() string {
 	return "(" + strings.Join([]string{
 		o.GetPackagePath() + "/",
@@ -161,6 +160,11 @@ type OnlineConfSurfaceEntry struct {
 	// Accessor is the generated accessor of a service key, empty for a
 	// generated one — those have their generated readers as callers.
 	Accessor string
+	// HasDefault reports that a fallback is applied when the key is absent.
+	// Separate from Default because a declared default can be the empty string
+	// or the empty list, and "no row in the registry" would then read as "no
+	// default", which is a different accessor shape.
+	HasDefault bool
 	// Default is the fallback applied when the key is absent, as prose.
 	Default string
 	// ReadBy lists the templates performing a generated read.
@@ -185,6 +189,7 @@ func (o OnlineConfConfig) Surface() []OnlineConfSurfaceEntry {
 			Type:        key.Type,
 			Required:    key.Required,
 			Accessor:    key.VarName(),
+			HasDefault:  key.HasDefault(),
 			Default:     key.DefaultText(),
 			Description: key.Description,
 		})
@@ -196,9 +201,10 @@ func (o OnlineConfConfig) Surface() []OnlineConfSurfaceEntry {
 			Origin:      OnlineConfOriginGenerated,
 			Type:        key.Type,
 			Dynamic:     key.Dynamic,
+			HasDefault:  key.Default != "",
 			Default:     key.Default,
 			ReadBy:      key.ReadBy,
-			Description: key.Description,
+			Description: key.Description(),
 		})
 	}
 

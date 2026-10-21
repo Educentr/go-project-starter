@@ -1,6 +1,8 @@
 package templater
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -49,7 +51,7 @@ func TestOnlineConfKeyDeclarationsCoverEveryRead(t *testing.T) {
 	// nobody performs, and would keep a path reserved against the service map
 	// for no reason.
 	for _, decl := range decls {
-		if !contains(reading, decl.Owner) {
+		if !slices.Contains(reading, decl.Owner) {
 			t.Errorf("%s%s declares keys, but %s performs no OnlineConf read",
 				decl.Owner, ockeymap.GenDeclSuffix, decl.Owner)
 		}
@@ -109,6 +111,59 @@ func TestOnlineConfDeclarationsParse(t *testing.T) {
 				decls[i-1].Owner, decls[i].Owner)
 		}
 	}
+}
+
+// TestLoggerDeclarationsAgree pins the one declaration pair that is duplicated
+// on purpose: the two logger implementations read the same keys, and a project
+// generates one of them, so both must declare the same set. Nothing else would
+// notice a divergence — the registry of a zerolog project would simply stop
+// listing a key the logrus declaration still claims.
+func TestLoggerDeclarationsAgree(t *testing.T) {
+	decls, err := LoadOnlineConfKeyDecls()
+	if err != nil {
+		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
+	}
+
+	byOwner := make(map[string]*ockeymap.GenDecl, len(decls))
+	for _, decl := range decls {
+		byOwner[decl.Owner] = decl.Decl
+	}
+
+	zlog, okZlog := byOwner["logger/zlog/zlog.go.tmpl"]
+	logrus, okLogrus := byOwner["logger/logrus/logrus.go.tmpl"]
+
+	if !okZlog || !okLogrus {
+		t.Fatal("both logger templates should carry a declaration")
+	}
+
+	zlogKeys := declaredKeySet(zlog)
+	logrusKeys := declaredKeySet(logrus)
+
+	for key := range zlogKeys {
+		if _, ok := logrusKeys[key]; !ok {
+			t.Errorf("zlog declares %s, logrus does not", key)
+		}
+	}
+
+	for key := range logrusKeys {
+		if _, ok := zlogKeys[key]; !ok {
+			t.Errorf("logrus declares %s, zlog does not", key)
+		}
+	}
+}
+
+// declaredKeySet returns "<scope> <path> <type> dynamic=<bool>" per declared
+// key, so that a divergence in any of them is reported.
+func declaredKeySet(decl *ockeymap.GenDecl) map[string]struct{} {
+	out := make(map[string]struct{})
+
+	for _, group := range decl.Groups {
+		for _, key := range group.Keys {
+			out[fmt.Sprintf("%s %s %s dynamic=%t", group.Scope, key.Path, key.Type, key.Dynamic)] = struct{}{}
+		}
+	}
+
+	return out
 }
 
 // TestOnlineConfDeclarationsAreNotCopiedIntoProjects pins that a declaration
@@ -241,14 +296,4 @@ func quotedArgs(source string) []string {
 	}
 
 	return args
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, v := range haystack {
-		if v == needle {
-			return true
-		}
-	}
-
-	return false
 }

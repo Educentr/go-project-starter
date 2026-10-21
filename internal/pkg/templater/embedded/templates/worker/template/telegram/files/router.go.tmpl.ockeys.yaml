@@ -6,8 +6,8 @@ groups:
         type: bool
         default: "false"
         description: >-
-          Whether this installation is a development stand. The router answers
-          with diagnostics it withholds in production.
+          The telegram router then answers with diagnostics it withholds in
+          production.
 
       - path: "{service}/settings/auto_refund_disable"
         type: bool

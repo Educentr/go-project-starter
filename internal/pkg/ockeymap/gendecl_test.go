@@ -177,10 +177,12 @@ func TestExpandRESTServerWithoutApplications(t *testing.T) {
 // logger and by the ogen error responses — so the same path must merge into one
 // entry naming both readers, not into two entries.
 func TestExpandMergesSharedPaths(t *testing.T) {
-	decl := "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/devstand\"\n        type: bool\n        description: d\n"
+	decl := "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/devstand\"\n        type: bool\n        description: console logging.\n"
 
 	first := parseDecl(t, decl)
-	second := parseDecl(t, decl)
+	second := parseDecl(t,
+		"groups:\n  - scope: service\n    keys:\n      - path: \"{service}/devstand\"\n"+
+			"        type: bool\n        description: error detail in responses.\n")
 	second.Owner = "other.go.tmpl"
 
 	keys, err := ockeymap.ExpandGenDecls(
@@ -197,6 +199,39 @@ func TestExpandMergesSharedPaths(t *testing.T) {
 
 	if strings.Join(keys[0].ReadBy, ",") != "other.go.tmpl,test.go.tmpl" {
 		t.Errorf("merged entry should name both readers, sorted, got %v", keys[0].ReadBy)
+	}
+
+	// Several readers of one key mean several reasons it is read. Keeping only
+	// the first would leave the registry naming every reader but explaining one
+	// of them, and which one would depend on the sort order of template paths.
+	got := keys[0].Description()
+
+	for _, want := range []string{"console logging.", "error detail in responses."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("merged description = %q, want it to carry %q", got, want)
+		}
+	}
+}
+
+// The same reason declared by two readers is still one reason: a shared key
+// whose readers copy the prose must not say it twice.
+func TestExpandDeduplicatesIdenticalDescriptions(t *testing.T) {
+	decl := "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/devstand\"\n        type: bool\n        description: same prose.\n"
+
+	first := parseDecl(t, decl)
+	second := parseDecl(t, decl)
+	second.Owner = "other.go.tmpl"
+
+	keys, err := ockeymap.ExpandGenDecls(
+		[]ockeymap.GenDeclFile{first, second},
+		ockeymap.ProjectSurface{Service: "svc"},
+	)
+	if err != nil {
+		t.Fatalf("ExpandGenDecls() error: %v", err)
+	}
+
+	if got := keys[0].Description(); got != "same prose." {
+		t.Errorf("Description() = %q, want it said once", got)
 	}
 }
 
@@ -314,15 +349,15 @@ func TestCheckGeneratorKeys(t *testing.T) {
 	generated := []ockeymap.GeneratorKey{
 		{
 			Path: "/svc/security/csrf/enabled", Type: "bool",
-			ReadBy: []string{"restconfig.go.tmpl"}, Description: "csrf",
+			ReadBy: []string{"restconfig.go.tmpl"}, Descriptions: []string{"csrf"},
 		},
 		{
 			Path: "/svc/settings/enabled", Dynamic: true,
-			ReadBy: []string{"service.go.tmpl"}, Description: "per-action allow lists",
+			ReadBy: []string{"service.go.tmpl"}, Descriptions: []string{"per-action allow lists"},
 		},
 		{
 			Path: "/svc/bot/users", Type: "string", Dynamic: true,
-			ReadBy: []string{"telegram.go.tmpl"}, Description: "user acl",
+			ReadBy: []string{"telegram.go.tmpl"}, Descriptions: []string{"user acl"},
 		},
 	}
 
@@ -346,7 +381,16 @@ func TestCheckGeneratorKeys(t *testing.T) {
 			name:     "inside a dynamic subtree",
 			yaml:     "keys:\n  - path: /svc/settings/enabled/login\n    type: strings\n",
 			wantErr:  true,
-			wantMsgs: []string{"/svc/settings/enabled", "runtime key", "service.go.tmpl"},
+			wantMsgs: []string{"is inside \"/svc/settings/enabled\"", "runtime key", "service.go.tmpl"},
+		},
+		{
+			// The root counts too: otherwise the service declares the node the
+			// generated reader owns, and the registry grows two rows for one
+			// path, one of them saying the path is not declarable.
+			name:     "the root of a dynamic subtree",
+			yaml:     "keys:\n  - path: /svc/settings/enabled\n    type: strings\n",
+			wantErr:  true,
+			wantMsgs: []string{"is the root of a subtree", "service.go.tmpl"},
 		},
 		{
 			name:     "under a path that is both a value and a subtree",

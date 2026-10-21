@@ -42,7 +42,7 @@ keys:
 {{- if $e.Accessor }}
     accessor: {{ $e.Accessor }}
 {{- end }}
-{{- if $e.Default }}
+{{- if $e.HasDefault }}
     default: {{ $e.Default | YAMLString }}
 {{- end }}
 {{- if $e.ReadBy }}

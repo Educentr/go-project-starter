@@ -105,6 +105,10 @@ const (
 	workerTemplateDaemon   = "daemon"
 	workerTemplateTelegram = "telegram"
 
+	// grpcGeneratorBufClient is the only gRPC generator there is today, and the
+	// only one whose generated code reads OnlineConf.
+	grpcGeneratorBufClient = "buf_client"
+
 	// errRelPathFmt wraps a failure to make a generator-written path
 	// project-relative for the manifest.
 	errRelPathFmt = "error resolve relative path of %s: %w"
@@ -226,7 +230,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 		transport := ds.Transport{
 			Name:              rest.Name,
-			PkgName:           fmt.Sprintf("%s_%s", rest.Name, rest.Version),
+			PkgName:           transportPkgName(rest.Name, rest.Version),
 			Type:              ds.RestTransportType,
 			GeneratorType:     rest.GeneratorType,
 			HealthCheckPath:   rest.HealthCheckPath,
@@ -982,6 +986,8 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 		return errors.Wrap(err, "onlineconf.path")
 	}
 
+	warnOnlineConfTreeRoot(keyMap.TreeRoot(), config.Main.Name)
+
 	g.OnlineConf = ds.OnlineConfConfig{
 		Enabled:       true,
 		Keys:          keyMap.Keys,
@@ -989,6 +995,27 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 	}
 
 	return nil
+}
+
+// warnOnlineConfTreeRoot reports a key map that declares its keys in a different
+// tree than the one the generated code reads.
+//
+// The generated readers build their paths from constant.ServiceName, so they
+// always read under /<service name>. A map rooted elsewhere is not an error —
+// a service may legitimately read another subtree of the tree — but it means
+// the service reads two roots, and the two halves of the surface can no longer
+// collide, so the check above has nothing to compare. Saying so beats letting
+// the gate look like it passed.
+func warnOnlineConfTreeRoot(mapRoot, serviceName string) {
+	if mapRoot == "" || mapRoot == serviceName {
+		return
+	}
+
+	log.Printf(
+		"warning: onlineconf.path: the key map declares keys in tree /%s, but the generated code "+
+			"reads /%s — the service then reads two trees, and no declaration of the map can "+
+			"collide with a key the generator reads itself",
+		mapRoot, serviceName)
 }
 
 // generatorOnlineConfKeys returns the concrete OnlineConf paths the generated
@@ -1024,7 +1051,7 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		if rest.GeneratorType == cfg.GeneratorTypeOgenClient {
 			// A client reads its configuration under the package name, which
 			// carries the api version — not under the transport name.
-			surface.RESTClients = append(surface.RESTClients, fmt.Sprintf("%s_%s", rest.Name, rest.Version))
+			surface.RESTClients = append(surface.RESTClients, transportPkgName(rest.Name, rest.Version))
 
 			continue
 		}
@@ -1036,11 +1063,21 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 	}
 
 	for _, grpc := range config.GrpcList {
+		// Only the generated client reads host and port. A server, once there
+		// is one, reads neither — and claiming its keys would keep the service
+		// from declaring paths nothing reads.
+		if grpc.GeneratorType != grpcGeneratorBufClient {
+			continue
+		}
+
 		surface.GRPCClients = append(surface.GRPCClients, grpc.Name)
 	}
 
 	for _, kafka := range config.KafkaList {
-		if kafka.Type != ds.KafkaTypeProducer {
+		// A custom driver is the project's own code: the generator emits no
+		// config.go for it, so it reads none of these keys (see
+		// GetKafkaDriverTemplates).
+		if kafka.Type != ds.KafkaTypeProducer || kafka.Driver == ds.KafkaDriverCustom {
 			continue
 		}
 
@@ -1062,9 +1099,21 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		case workerTemplateTelegram:
 			surface.TelegramWorkers = append(surface.TelegramWorkers, worker.Name)
 		}
+		// A queue worker falls through deliberately: its generated code reads
+		// no OnlineConf key at all, so there is nothing to claim under
+		// /<service>/worker/<name> for it. That is also why the declarations
+		// are scoped per worker template rather than to workers in general.
 	}
 
 	return surface
+}
+
+// transportPkgName is the package name a REST transport's generated code lives
+// under — and, for a client, the segment it reads its configuration under. Kept
+// next to the surface it feeds so that the expanded paths cannot drift from
+// ds.Transport.PkgName, which is built from the same two fields.
+func transportPkgName(name, version string) string {
+	return fmt.Sprintf("%s_%s", name, version)
 }
 
 // appsServingTransport returns the applications a REST transport is wired into.
