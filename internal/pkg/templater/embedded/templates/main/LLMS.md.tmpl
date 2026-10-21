@@ -641,6 +641,10 @@ lifetime, err := {{ .OnlineConf.GetPackageName }}.SupervisorMinLifetime(ctx)
   second way in
 - Subscribing to changes: `{{ .OnlineConf.GetPackageName }}.Subscribe(ctx, []string{...}, cb)`
   with the package's `Path*` constants
+- `configs/onlineconf-tree.yaml` lists the **whole** OnlineConf surface of this service:
+  the declared keys (`origin: service`) plus the paths generated code reads itself
+  (`origin: generated`). A key with `origin: generated` cannot be added to the key map —
+  it already has a reader. Read it before adding a key, and diff it after regenerating
 {{- end }}
 {{- if .DevStand }}
 

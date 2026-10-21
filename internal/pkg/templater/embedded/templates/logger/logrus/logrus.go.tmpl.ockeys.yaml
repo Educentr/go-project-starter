@@ -1,0 +1,72 @@
+# The OnlineConf keys the generated logrus constructor reads.
+#
+# The log level is read under a prefix the caller hands in, and the callers are
+# the generated readers that compose one: the REST middleware (per request path)
+# and the workers (per job). So the levels are declared in the scope of whoever
+# supplies the prefix, not in the service scope.
+#
+# Known defect, tracked as TOOLS-65: the constructor prepends the service name to
+# a prefix that already carries it, so the lookup currently lands one level
+# deeper than declared here. These declarations describe the surface the
+# generated code composes, which is what the fix will restore.
+groups:
+  - scope: service
+    keys:
+      - path: "{service}/devstand"
+        type: bool
+        default: "false"
+        description: >-
+          Whether this installation is a development stand. The logger then
+          writes human-readable console output instead of JSON.
+
+  - scope: rest_server
+    keys:
+      - path: "{service}/transport/rest/{transport}/{app}/handler/default/log_level"
+        type: string
+        default: info
+        description: >-
+          Log level of requests to this application, used for every url path
+          that has no level of its own.
+
+      - path: "{service}/transport/rest/{transport}/{app}/handler"
+        dynamic: true
+        description: >-
+          Per-request-path log level (.../handler/<url path>/log_level). The url
+          path is a runtime key, so the subtree belongs to the generated code.
+
+      - path: "{service}/transport/rest/{transport}/{app}/mw/metrics/default/log_level"
+        type: string
+        default: info
+        description: >-
+          Log level of the request middleware of this application, used for
+          every url path that has no level of its own.
+
+      - path: "{service}/transport/rest/{transport}/{app}/mw/metrics"
+        dynamic: true
+        description: >-
+          Per-request-path log level of the request middleware
+          (.../mw/metrics/<url path>/log_level).
+
+  - scope: worker_daemon
+    keys:
+      - path: "{service}/worker/{worker}/default/log_level"
+        type: string
+        default: info
+        description: Log level of this worker, used when job/log_level is unset.
+
+      - path: "{service}/worker/{worker}/job/log_level"
+        type: string
+        default: "default/log_level"
+        description: Log level of one job run of this worker.
+
+  - scope: worker_telegram
+    keys:
+      - path: "{service}/worker/{worker}/default/log_level"
+        type: string
+        default: info
+        description: Log level of this worker, used when job/log_level is unset.
+
+      - path: "{service}/worker/{worker}/job/log_level"
+        type: string
+        default: "default/log_level"
+        description: Log level of one update being handled by this worker.

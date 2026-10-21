@@ -1,0 +1,15 @@
+# The OnlineConf keys the generated telegram command router reads.
+groups:
+  - scope: worker_telegram
+    keys:
+      - path: "{service}/devstand"
+        type: bool
+        default: "false"
+        description: >-
+          Whether this installation is a development stand. The router answers
+          with diagnostics it withholds in production.
+
+      - path: "{service}/settings/auto_refund_disable"
+        type: bool
+        default: "false"
+        description: Whether a failed payment is refunded automatically.

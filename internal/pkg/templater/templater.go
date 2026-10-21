@@ -848,6 +848,17 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		// Needed wherever contract prose lands in a doc comment: a help text
 		// written as a YAML literal block keeps its newlines, and the second
 		// line would otherwise escape the comment and not compile.
+		// YAMLString renders prose as a one-line double-quoted YAML scalar.
+		// Declarations carry folded multi-line descriptions; re-indenting them
+		// into a block scalar from a template is how a generated yaml file ends
+		// up unparseable, so they are collapsed and quoted instead.
+		"YAMLString": func(s string) string {
+			collapsed := strings.Join(strings.Fields(s), " ")
+			collapsed = strings.ReplaceAll(collapsed, `\`, `\\`)
+			collapsed = strings.ReplaceAll(collapsed, `"`, `\"`)
+
+			return `"` + collapsed + `"`
+		},
 		"GoComment": func(s string) string {
 			lines := strings.Split(strings.TrimRight(s, "\r\n"), "\n")
 			for i := range lines {

@@ -1,0 +1,14 @@
+# The OnlineConf keys a generated REST client reads for its connection.
+groups:
+  - scope: rest_client
+    keys:
+      - path: "{service}/transport/rest/{transport}/host"
+        type: string
+        description: >-
+          Base URL of the upstream service. Startup fails when it is unset:
+          a client with no host has nothing to call.
+
+      - path: "{service}/transport/rest/{transport}/timeout"
+        type: duration
+        default: 2s
+        description: Timeout of one request of this client.

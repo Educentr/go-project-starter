@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 	"github.com/pkg/errors"
 )
 
@@ -31,6 +32,11 @@ const (
 	// onlineConfLintConfigPath is the standalone OnlineConf-validator lint
 	// config, generated only when an OnlineConf key map is configured.
 	onlineConfLintConfigPath = "configs/golangci-onlineconf.yml"
+
+	// onlineConfTreePath is the registry of the whole OnlineConf surface of the
+	// service — its own declarations plus the paths generated code reads.
+	// Generated only when an OnlineConf key map is configured.
+	onlineConfTreePath = "configs/onlineconf-tree.yaml"
 
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
 	embedTransportPrefix = "embedded/templates/transport"
@@ -78,6 +84,14 @@ func GetTemplates(templateFS embed.FS, prefix string, params any) (dirs []ds.Fil
 				ParamsTmpl: params,
 			})
 
+			return nil
+		}
+
+		// An OnlineConf key declaration is generator input, not project output:
+		// it sits next to the template whose generated code performs the reads
+		// (see ockeymap.GenDeclSuffix) so that the two cannot drift, and it is
+		// read at generation time by LoadOnlineConfKeyDecls.
+		if strings.HasSuffix(path, ockeymap.GenDeclSuffix) {
 			return nil
 		}
 
@@ -172,23 +186,25 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 		files = filteredFiles
 	}
 
-	// A validator config only makes sense alongside the map it enforces.
-	skipLintConfigs := map[string]bool{
+	// A validator config only makes sense alongside the map it enforces, and so
+	// does the registry of the surface the map describes.
+	skipMapArtifacts := map[string]bool{
 		metricsLintConfigPath:    !params.Metrics.IsEnabled(),
 		onlineConfLintConfigPath: !params.OnlineConf.IsEnabled(),
+		onlineConfTreePath:       !params.OnlineConf.IsEnabled(),
 	}
 
-	filteredLintFiles := make([]ds.Files, 0, len(files))
+	filteredMapFiles := make([]ds.Files, 0, len(files))
 
 	for _, f := range files {
-		if skipLintConfigs[f.DestName] {
+		if skipMapArtifacts[f.DestName] {
 			continue
 		}
 
-		filteredLintFiles = append(filteredLintFiles, f)
+		filteredMapFiles = append(filteredMapFiles, f)
 	}
 
-	files = filteredLintFiles
+	files = filteredMapFiles
 
 	// Filter out LLMS.md if generate_llms_md is false; rename if generating CLAUDE.md
 	if !params.GenerateLlmsMd {

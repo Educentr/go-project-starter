@@ -2,6 +2,7 @@ package ds
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
@@ -17,6 +18,12 @@ import (
 type OnlineConfConfig struct {
 	Enabled bool
 	Keys    []ockeymap.Key
+	// GeneratedKeys are the paths the generated code reads itself, expanded
+	// against this project. No accessor is generated for them — the generated
+	// readers are their callers — but they are part of the service's tree, so
+	// they go into the generated registry and the service map may not declare
+	// them.
+	GeneratedKeys []ockeymap.GeneratorKey
 }
 
 const (
@@ -126,6 +133,78 @@ func (o OnlineConfConfig) ExemptPathPattern() string {
 		o.GetPackagePath() + "/",
 		`psg_[^/]*_gen\.go$`,
 	}, "|") + ")"
+}
+
+// Origins of a row of the generated OnlineConf registry.
+const (
+	// OnlineConfOriginService marks a key declared by the service's key map,
+	// read through a generated accessor.
+	OnlineConfOriginService = "service"
+	// OnlineConfOriginGenerated marks a key the generated code reads itself.
+	OnlineConfOriginGenerated = "generated"
+)
+
+// OnlineConfSurfaceEntry is one row of the generated OnlineConf registry: one
+// path of the service's tree, whoever reads it.
+type OnlineConfSurfaceEntry struct {
+	// Path is the full OnlineConf path.
+	Path string
+	// Origin is OnlineConfOriginService or OnlineConfOriginGenerated.
+	Origin string
+	// Type is the value type, empty for a subtree read under a runtime key.
+	Type string
+	// Dynamic reports that generated code reads below this path under a key it
+	// computes at runtime.
+	Dynamic bool
+	// Required marks a service key the startup check verifies.
+	Required bool
+	// Accessor is the generated accessor of a service key, empty for a
+	// generated one — those have their generated readers as callers.
+	Accessor string
+	// Default is the fallback applied when the key is absent, as prose.
+	Default string
+	// ReadBy lists the templates performing a generated read.
+	ReadBy []string
+	// Description says what the key does.
+	Description string
+}
+
+// Surface returns every path of the service's OnlineConf tree — the service's
+// own declarations and the paths the generated code reads — sorted by path.
+//
+// This is what the generated registry is built from. Half of the tree used to
+// exist only inside the generator's templates, so the owner of the contract
+// could not see it at all; one list of both is the answer to that.
+func (o OnlineConfConfig) Surface() []OnlineConfSurfaceEntry {
+	out := make([]OnlineConfSurfaceEntry, 0, len(o.Keys)+len(o.GeneratedKeys))
+
+	for _, key := range o.Keys {
+		out = append(out, OnlineConfSurfaceEntry{
+			Path:        key.Path,
+			Origin:      OnlineConfOriginService,
+			Type:        key.Type,
+			Required:    key.Required,
+			Accessor:    key.VarName(),
+			Default:     key.DefaultText(),
+			Description: key.Description,
+		})
+	}
+
+	for _, key := range o.GeneratedKeys {
+		out = append(out, OnlineConfSurfaceEntry{
+			Path:        key.Path,
+			Origin:      OnlineConfOriginGenerated,
+			Type:        key.Type,
+			Dynamic:     key.Dynamic,
+			Default:     key.Default,
+			ReadBy:      key.ReadBy,
+			Description: key.Description,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+
+	return out
 }
 
 // GetTargetGeneratePath returns the directory of the generated accessor

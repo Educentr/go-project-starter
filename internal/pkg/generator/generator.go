@@ -98,6 +98,13 @@ const (
 	// errMetricsMapCtx prefixes failures of the metrics map merge.
 	errMetricsMapCtx = "metrics map"
 
+	// errOnlineConfMapCtx prefixes failures of the OnlineConf key surface.
+	errOnlineConfMapCtx = "onlineconf key map"
+
+	// Worker templates whose generated code reads its own OnlineConf subtree.
+	workerTemplateDaemon   = "daemon"
+	workerTemplateTelegram = "telegram"
+
 	// errRelPathFmt wraps a failure to make a generator-written path
 	// project-relative for the manifest.
 	errRelPathFmt = "error resolve relative path of %s: %w"
@@ -966,12 +973,118 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 		return errors.Wrap(err, "onlineconf.path")
 	}
 
+	generated, err := generatorOnlineConfKeys(config)
+	if err != nil {
+		return err
+	}
+
+	if err := keyMap.CheckGeneratorKeys(generated); err != nil {
+		return errors.Wrap(err, "onlineconf.path")
+	}
+
 	g.OnlineConf = ds.OnlineConfConfig{
-		Enabled: true,
-		Keys:    keyMap.Keys,
+		Enabled:       true,
+		Keys:          keyMap.Keys,
+		GeneratedKeys: generated,
 	}
 
 	return nil
+}
+
+// generatorOnlineConfKeys returns the concrete OnlineConf paths the generated
+// code of this project reads.
+//
+// It is the generator's half of the key surface, and it exists for two reasons.
+// A path generated code already reads must not be declarable by the service —
+// otherwise the key has two readers with two spellings, which is what the map
+// exists to prevent. And the owner of the contract has to be able to see the
+// whole tree, so the expanded list goes into the generated registry next to the
+// service's own declarations.
+func generatorOnlineConfKeys(config cfg.Config) ([]ockeymap.GeneratorKey, error) {
+	decls, err := templater.LoadOnlineConfKeyDecls()
+	if err != nil {
+		return nil, errors.Wrap(err, errOnlineConfMapCtx)
+	}
+
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
+	if err != nil {
+		return nil, errors.Wrap(err, errOnlineConfMapCtx)
+	}
+
+	return generated, nil
+}
+
+// onlineConfSurface describes the project dimensions the generator's own key
+// declarations expand over: which transports, applications, workers and Kafka
+// clients exist, under the names the generated readers actually use.
+func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
+	surface := ockeymap.ProjectSurface{Service: config.Main.Name}
+
+	for _, rest := range config.RestList {
+		if rest.GeneratorType == cfg.GeneratorTypeOgenClient {
+			// A client reads its configuration under the package name, which
+			// carries the api version — not under the transport name.
+			surface.RESTClients = append(surface.RESTClients, fmt.Sprintf("%s_%s", rest.Name, rest.Version))
+
+			continue
+		}
+
+		surface.RESTServers = append(surface.RESTServers, ockeymap.RESTServer{
+			Transport: rest.Name,
+			Apps:      appsServingTransport(config, rest.Name),
+		})
+	}
+
+	for _, grpc := range config.GrpcList {
+		surface.GRPCClients = append(surface.GRPCClients, grpc.Name)
+	}
+
+	for _, kafka := range config.KafkaList {
+		if kafka.Type != ds.KafkaTypeProducer {
+			continue
+		}
+
+		events := make([]string, 0, len(kafka.Events))
+		for _, event := range kafka.Events {
+			events = append(events, event.Name)
+		}
+
+		surface.KafkaProducers = append(surface.KafkaProducers, ockeymap.KafkaProducer{
+			Client: kafka.Client,
+			Events: events,
+		})
+	}
+
+	for _, worker := range config.WorkerList {
+		switch worker.GeneratorTemplate {
+		case workerTemplateDaemon:
+			surface.DaemonWorkers = append(surface.DaemonWorkers, worker.Name)
+		case workerTemplateTelegram:
+			surface.TelegramWorkers = append(surface.TelegramWorkers, worker.Name)
+		}
+	}
+
+	return surface
+}
+
+// appsServingTransport returns the applications a REST transport is wired into.
+// The generated provider reads every key twice — under the application name and
+// without it — so both the transport and its applications are part of the
+// surface.
+func appsServingTransport(config cfg.Config, transportName string) []string {
+	var apps []string
+
+	for _, app := range config.Applications {
+		for _, transport := range app.TransportList {
+			if transport.Name == transportName {
+				apps = append(apps, app.Name)
+
+				break
+			}
+		}
+	}
+
+	return apps
 }
 
 // resolveInlineSpec materializes a spec source into a local file for

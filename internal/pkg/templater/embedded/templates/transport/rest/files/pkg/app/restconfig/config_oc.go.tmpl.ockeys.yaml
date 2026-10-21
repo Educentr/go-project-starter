@@ -1,0 +1,120 @@
+# The OnlineConf keys the generated REST configuration provider reads.
+#
+# Every key is read twice: once under the application name and once without it,
+# which is the two-level fallback the provider implements (app-specific value
+# first, transport-wide value second). Both forms are declared because both are
+# looked up in the tree.
+groups:
+  - scope: rest_server
+    keys:
+      - path: "{service}/transport/rest/{transport}/ip"
+        type: string
+        default: "the runtime's DefaultListenIP"
+        description: Address the HTTP server binds to, for every application serving this transport.
+
+      - path: "{service}/transport/rest/{transport}/{app}/ip"
+        type: string
+        default: "the transport-wide value, then the runtime's DefaultListenIP"
+        description: Address the HTTP server of this application binds to.
+
+      - path: "{service}/transport/rest/{transport}/port"
+        type: string
+        description: >-
+          Port the HTTP server listens on, for every application serving this
+          transport. Startup fails when neither form is set.
+
+      - path: "{service}/transport/rest/{transport}/{app}/port"
+        type: string
+        default: "the transport-wide value"
+        description: Port the HTTP server of this application listens on.
+
+      - path: "{service}/transport/rest/{transport}/server/timeout/read"
+        type: duration
+        default: "the runtime's DefaultHTTPReadTimeout"
+        description: Request read timeout of the HTTP server.
+
+      - path: "{service}/transport/rest/{transport}/{app}/server/timeout/read"
+        type: duration
+        default: "the transport-wide value"
+        description: Request read timeout of this application's HTTP server.
+
+      - path: "{service}/transport/rest/{transport}/server/timeout/write"
+        type: duration
+        default: "the runtime's DefaultHTTPWriteTimeout"
+        description: Response write timeout of the HTTP server.
+
+      - path: "{service}/transport/rest/{transport}/{app}/server/timeout/write"
+        type: duration
+        default: "the transport-wide value"
+        description: Response write timeout of this application's HTTP server.
+
+      - path: "{service}/transport/rest/{transport}/server/timeout/read_header"
+        type: duration
+        default: "server/timeout/read"
+        description: Header read timeout of the HTTP server.
+
+      - path: "{service}/transport/rest/{transport}/{app}/server/timeout/read_header"
+        type: duration
+        default: "the transport-wide value, then server/timeout/read"
+        description: Header read timeout of this application's HTTP server.
+
+      - path: "{service}/transport/rest/{transport}/handler/default/timeout"
+        type: duration
+        default: "0 — no handler timeout"
+        description: Timeout applied to every handler of this transport that has no per-path value.
+
+      - path: "{service}/transport/rest/{transport}/{app}/handler/default/timeout"
+        type: duration
+        default: "the transport-wide value"
+        description: Timeout applied to every handler of this application that has no per-path value.
+
+      - path: "{service}/transport/rest/{transport}/handler"
+        dynamic: true
+        description: >-
+          Per-handler configuration, keyed by the url path of the request
+          (.../handler/<url path>/timeout) — a runtime key, so the subtree as a
+          whole belongs to the generated code.
+
+      - path: "{service}/transport/rest/{transport}/{app}/handler"
+        dynamic: true
+        description: >-
+          Per-handler configuration of this application, keyed by the url path
+          of the request.
+
+      - path: "{service}/transport/rest/{transport}/{app}/mw/metrics"
+        dynamic: true
+        description: >-
+          Prefix the request middleware hands to the logger, which reads the log
+          level below it keyed by the url path of the request.
+
+      - path: "{service}/security/httpAuth/enabled"
+        type: bool
+        default: "true"
+        description: Whether the HTTP authentication middleware is applied.
+
+      - path: "{service}/security/csrf/enabled"
+        type: bool
+        default: "false"
+        description: Whether the CSRF middleware is applied.
+
+      - path: "{service}/security/cors/allow_all"
+        type: bool
+        default: "false"
+        description: >-
+          Permissive CORS for development: any origin, any header. When set, the
+          origins, methods and headers keys are not read.
+
+      - path: "{service}/security/cors/origins"
+        type: strings
+        default: "unset — the restrictive defaults of rs/cors apply"
+        description: Allowed CORS origins.
+
+      - path: "{service}/security/cors/methods"
+        type: strings
+        default: "unset — the restrictive defaults of rs/cors apply"
+        description: Allowed CORS methods.
+
+      - path: "{service}/security/cors/headers"
+        type: strings
+        default: "unset — the restrictive defaults of rs/cors apply"
+        description: Allowed CORS request headers.

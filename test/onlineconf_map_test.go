@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestGenerateOnlineConfMap covers the whole OnlineConf-key-map feature on a
@@ -191,6 +193,124 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tmpDir, "onlineconf-key-map.yaml")); !os.IsNotExist(err) {
 		t.Error("the key map must not be copied into the generated project")
 	}
+
+	assertOnlineConfRegistry(t, tmpDir)
+}
+
+// registryEntry is one row of the generated OnlineConf registry, decoded with a
+// closed schema so that a field added to the template without a thought shows
+// up here.
+type registryEntry struct {
+	Path        string   `yaml:"path"`
+	Origin      string   `yaml:"origin"`
+	Type        string   `yaml:"type"`
+	Dynamic     bool     `yaml:"dynamic"`
+	Required    bool     `yaml:"required"`
+	Accessor    string   `yaml:"accessor"`
+	Default     string   `yaml:"default"`
+	ReadBy      []string `yaml:"read_by"`
+	Description string   `yaml:"description"`
+}
+
+// assertOnlineConfRegistry checks the generated registry of the whole OnlineConf
+// surface.
+//
+// This is the half of the tree that used to exist only inside the generator's
+// templates: the owner of the contract declares the service's own keys and had
+// no way to see the rest at all. One generated list of both is what makes the
+// surface reviewable.
+func assertOnlineConfRegistry(t *testing.T, tmpDir string) {
+	t.Helper()
+
+	raw := readGenerated(t, tmpDir, "configs", "onlineconf-tree.yaml")
+
+	var registry struct {
+		Tree string          `yaml:"tree"`
+		Keys []registryEntry `yaml:"keys"`
+	}
+
+	dec := yaml.NewDecoder(strings.NewReader(raw))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(&registry); err != nil {
+		t.Fatalf("configs/onlineconf-tree.yaml does not parse as yaml: %v", err)
+	}
+
+	if registry.Tree != "/octest" {
+		t.Errorf("registry tree = %q, want /octest", registry.Tree)
+	}
+
+	byPath := make(map[string]registryEntry, len(registry.Keys))
+	for _, entry := range registry.Keys {
+		byPath[entry.Path] = entry
+	}
+
+	// A service key carries its accessor, so a reader of the registry knows how
+	// the service reads it.
+	service, ok := byPath["/octest/db/dsn"]
+	if !ok {
+		t.Fatalf("registry should list every declared key, got %d entries", len(registry.Keys))
+	}
+
+	if service.Origin != "service" || service.Accessor != "DatabaseDSN" || !service.Required {
+		t.Errorf("service key row = %+v, want origin service, accessor DatabaseDSN, required", service)
+	}
+
+	// A generated key carries the template the read comes from, which is what
+	// makes the row actionable: that is the file to change.
+	generated, ok := byPath["/octest/security/csrf/enabled"]
+	if !ok {
+		t.Fatal("registry should list the security toggles the generated restconfig reads")
+	}
+
+	if generated.Origin != "generated" || generated.Type != "bool" {
+		t.Errorf("generated key row = %+v, want origin generated, type bool", generated)
+	}
+
+	if len(generated.ReadBy) == 0 ||
+		!strings.Contains(strings.Join(generated.ReadBy, " "), "restconfig/config_oc.go.tmpl") {
+		t.Errorf("generated key row should name the template it is read by, got %v", generated.ReadBy)
+	}
+
+	// A subtree read under a runtime key cannot be listed path by path, so it is
+	// listed as a subtree — and that is also what the service map is kept out
+	// of.
+	dynamic, ok := byPath["/octest/settings/enabled"]
+	if !ok {
+		t.Fatal("registry should list the per-action allow lists as a subtree")
+	}
+
+	if !dynamic.Dynamic || dynamic.Type != "" {
+		t.Errorf("dynamic row = %+v, want dynamic: true and no type", dynamic)
+	}
+
+	// The transport keys are expanded against this project: the names in them
+	// are the transport and application names of project.yaml, not patterns.
+	for _, want := range []string{
+		"/octest/transport/rest/api/api/port",
+		"/octest/transport/rest/sys/api/server/timeout/read",
+		"/octest/devstand",
+	} {
+		if _, found := byPath[want]; !found {
+			t.Errorf("registry should list %s", want)
+		}
+	}
+
+	for _, unwanted := range []string{"{service}", "{transport}", "{app}", "{worker}", "{client}"} {
+		if strings.Contains(raw, unwanted) {
+			t.Errorf("registry carries the unexpanded placeholder %s", unwanted)
+		}
+	}
+
+	// Nothing from a dimension this project does not have: the project has no
+	// worker, no Kafka client and no telegram bot.
+	for _, unwanted := range []string{"/octest/worker/", "/octest/kafka/", "/octest/bot/"} {
+		for path := range byPath {
+			if strings.HasPrefix(path, unwanted) {
+				t.Errorf("registry lists %s, but this project has no such component", path)
+			}
+		}
+	}
 }
 
 // TestGenerateRejectsListTemplatePath pins the shape a key registry tends to
@@ -214,21 +334,148 @@ func TestGenerateRejectsListTemplatePath(t *testing.T) {
 	}
 }
 
-// TestGenerateRejectsReservedSubtree pins the acceptance criterion that keys
-// the generator reads itself cannot be declared by the service. Those paths are
-// built by generated readers from the transport, application and client names,
-// so a hand-written declaration would either shadow a generated read or drift
-// from it.
-func TestGenerateRejectsReservedSubtree(t *testing.T) {
-	out, _ := generateWithOnlineConfMap(t,
-		"keys:\n"+
-			"  - path: /octest/transport/rest/api/port\n"+
-			"    type: string\n")
+// TestGenerateRejectsKeysTheGeneratorReads pins the acceptance criterion that
+// keys the generated code reads cannot be declared by the service: a second
+// declaration would mean a second reader with a second spelling, which is the
+// thing the map exists to prevent. The check runs against the generator's own
+// declarations expanded over this project, so the error names the template the
+// read comes from.
+func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		keyType  string
+		wantMsgs []string
+	}{
+		{
+			name:    "transport key, exact match",
+			path:    "/octest/transport/rest/api/port",
+			keyType: "string",
+			wantMsgs: []string{
+				"/octest/transport/rest/api/port", "reads itself",
+				"transport/rest/files/pkg/app/restconfig/config_oc.go.tmpl",
+			},
+		},
+		{
+			name:     "security toggle, exact match",
+			path:     "/octest/security/csrf/enabled",
+			keyType:  "bool",
+			wantMsgs: []string{"/octest/security/csrf/enabled", "reads itself"},
+		},
+		{
+			name:     "dev-stand flag, read by the logger",
+			path:     "/octest/devstand",
+			keyType:  "bool",
+			wantMsgs: []string{"/octest/devstand", "logger/zlog/zlog.go.tmpl"},
+		},
+		{
+			name:    "inside the per-action allow lists the service layer reads",
+			path:    "/octest/settings/enabled/login",
+			keyType: "strings",
+			wantMsgs: []string{
+				"/octest/settings/enabled", "runtime key",
+				"main/internal/pkg/service/service.go.tmpl",
+			},
+		},
+		{
+			name:     "inside the per-handler subtree",
+			path:     "/octest/transport/rest/api/api/handler/some_path/timeout",
+			keyType:  "duration",
+			wantMsgs: []string{"/octest/transport/rest/api/api/handler", "runtime key"},
+		},
+	}
 
-	for _, want := range []string{"/octest/transport", "reads itself"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("generator error should mention %q, got:\n%s", want, out)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, _ := generateWithOnlineConfMap(t,
+				"keys:\n  - path: "+tt.path+"\n    type: "+tt.keyType+"\n")
+
+			for _, want := range tt.wantMsgs {
+				if !strings.Contains(out, want) {
+					t.Errorf("generator error should mention %q, got:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+// TestGenerateRejectsWorkerAndBotKeys is the regression test for the gap the
+// reserved-prefix list left behind: the generated code reads
+// /<svc>/worker/<name>/…, /<svc>/settings/… and /<svc>/bot/… too, and none of
+// those subtrees was protected. A service could declare them and get a second
+// reader of the same key — the exact thing this feature is supposed to make
+// impossible.
+func TestGenerateRejectsWorkerAndBotKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		keyMap   string
+		wantMsgs []string
+	}{
+		{
+			name:   "worker timeout the telegram worker reads",
+			keyMap: "keys:\n  - path: /telegramtest/worker/telegrambot/job/timeout\n    type: duration\n",
+			wantMsgs: []string{
+				"/telegramtest/worker/telegrambot/job/timeout", "reads itself",
+				"worker/template/telegram/files/telegram.go.tmpl",
+			},
+		},
+		{
+			name:   "payment toggle the telegram router reads",
+			keyMap: "keys:\n  - path: /telegramtest/settings/auto_refund_disable\n    type: bool\n",
+			wantMsgs: []string{
+				"/telegramtest/settings/auto_refund_disable", "reads itself",
+				"worker/template/telegram/files/router.go.tmpl",
+			},
+		},
+		{
+			name:   "admin ACL the telegram authorization reads",
+			keyMap: "keys:\n  - path: /telegramtest/bot/admins/42\n    type: string\n",
+			wantMsgs: []string{
+				"/telegramtest/bot/admins", "runtime key",
+				"worker/template/telegram/shared/pkg/drivers/telegram/service.go.tmpl",
+			},
+		},
+		{
+			name:   "bot token the telegram driver reads",
+			keyMap: "keys:\n  - path: /telegramtest/security/tg_token\n    type: string\n",
+			wantMsgs: []string{
+				"/telegramtest/security/tg_token", "reads itself",
+				"worker/template/telegram/shared/pkg/drivers/telegram/auth.go.tmpl",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, _ := rejectOnlineConfMap(t, "worker-telegram", tt.keyMap)
+
+			for _, want := range tt.wantMsgs {
+				if !strings.Contains(out, want) {
+					t.Errorf("generator error should mention %q, got:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+// A key of a dimension the project does not have is the service's to declare:
+// nothing in this project reads it, so there is no second reader to protect
+// against. Over-reserving would be the mirror image of the old prefix list,
+// wrong in the other direction.
+func TestGenerateAllowsKeysOfAbsentDimensions(t *testing.T) {
+	_, targetDir, err := generateOnlineConfMap(t, "onlineconf-map",
+		"keys:\n"+
+			"  - path: /octest/worker/nonexistent/batch_size\n    type: int\n"+
+			"  - path: /octest/kafka/nonexistent/brokers\n    type: string\n"+
+			"  - path: /octest/bot/admins\n    type: string\n")
+	if err != nil {
+		t.Fatalf("generation should accept keys no generated code reads: %v", err)
+	}
+
+	occonf := readGenerated(t, targetDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	if !strings.Contains(occonf, "func WorkerNonexistentBatchSize(") {
+		t.Error("a key of an absent project dimension should get an accessor")
 	}
 }
 
@@ -244,6 +491,10 @@ func TestGenerateWithoutOnlineConfMap(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "golangci-onlineconf.yml")); !os.IsNotExist(err) {
 		t.Error("no key map should mean no validator config")
+	}
+
+	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "onlineconf-tree.yaml")); !os.IsNotExist(err) {
+		t.Error("no key map should mean no surface registry")
 	}
 
 	mainLint := readGenerated(t, tmpDir, "configs", "golangci-lint.yml")
@@ -272,26 +523,61 @@ func TestGenerateWithoutOnlineConfMap(t *testing.T) {
 func generateWithOnlineConfMap(t *testing.T, keyMap string) (output, targetDir string) {
 	t.Helper()
 
-	curDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Error getting current directory: %v", err)
+	return rejectOnlineConfMap(t, "onlineconf-map", keyMap)
+}
+
+// rejectOnlineConfMap runs the generator over a fixture with the given key map
+// and fails the test unless generation is rejected.
+func rejectOnlineConfMap(t *testing.T, fixture, keyMap string) (output, targetDir string) {
+	t.Helper()
+
+	out, targetDir, err := generateOnlineConfMap(t, fixture, keyMap)
+	if err == nil {
+		t.Fatalf("generation succeeded on a map that should have been rejected\n%s", out)
 	}
 
-	fixture := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "onlineconf-map")
+	return out, targetDir
+}
+
+// generateOnlineConfMap copies a fixture, points its `onlineconf.path` at the
+// given key map and runs the generator. Every fixture file is copied, so the
+// only difference from the fixture's own run is the key map.
+func generateOnlineConfMap(t *testing.T, fixture, keyMap string) (output, targetDir string, err error) {
+	t.Helper()
+
+	curDir, cerr := os.Getwd()
+	if cerr != nil {
+		t.Fatalf("Error getting current directory: %v", cerr)
+	}
+
+	fixtureDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", fixture)
 	configDir := t.TempDir()
 
-	for _, name := range []string{"project.yaml", "api.swagger.yml"} {
-		data, rerr := os.ReadFile(filepath.Join(fixture, name))
-		if rerr != nil {
-			t.Fatalf("Error reading fixture %s: %v", name, rerr)
+	entries, rerr := os.ReadDir(fixtureDir)
+	if rerr != nil {
+		t.Fatalf("Error reading fixture %s: %v", fixture, rerr)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == onlineConfMapFile {
+			continue
 		}
 
-		if werr := os.WriteFile(filepath.Join(configDir, name), data, 0o600); werr != nil {
-			t.Fatalf("Error writing %s: %v", name, werr)
+		data, derr := os.ReadFile(filepath.Join(fixtureDir, entry.Name()))
+		if derr != nil {
+			t.Fatalf("Error reading fixture %s/%s: %v", fixture, entry.Name(), derr)
+		}
+
+		if entry.Name() == "project.yaml" && !strings.Contains(string(data), "\nonlineconf:") {
+			data = append(data, []byte("\nonlineconf:\n  path: ./"+onlineConfMapFile+"\n")...)
+		}
+
+		if werr := os.WriteFile(filepath.Join(configDir, entry.Name()), data, 0o600); werr != nil {
+			t.Fatalf("Error writing %s: %v", entry.Name(), werr)
 		}
 	}
 
-	if werr := os.WriteFile(filepath.Join(configDir, "onlineconf-key-map.yaml"), []byte(keyMap), 0o600); werr != nil {
+	if werr := os.WriteFile(filepath.Join(configDir, onlineConfMapFile), []byte(keyMap), 0o600); werr != nil {
 		t.Fatalf("Error writing key map: %v", werr)
 	}
 
@@ -302,11 +588,11 @@ func generateWithOnlineConfMap(t *testing.T, keyMap string) (output, targetDir s
 		"--target", targetDir,
 		"--configDir", configDir,
 		"--config", "project.yaml",
-	}, "Generate project with a rejected OnlineConf key map")
+	}, "Generate "+fixture+" with an OnlineConf key map")
 
-	if err == nil {
-		t.Fatalf("generation succeeded on a map that should have been rejected\n%s", out)
-	}
-
-	return out, targetDir
+	return out, targetDir, err
 }
+
+// onlineConfMapFile is the key map file name the fixtures and the generated
+// configs agree on.
+const onlineConfMapFile = "onlineconf-key-map.yaml"

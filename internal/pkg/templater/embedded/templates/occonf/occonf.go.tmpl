@@ -13,7 +13,10 @@
 // "network") — the path exists nowhere as a whole, so no guard, registry or
 // review can see it, and it diverges from the declaration silently.
 //
-// Every declared key lives in the /{{ .OnlineConf.TreeRoot }} tree.
+// Every declared key lives in the /{{ .OnlineConf.TreeRoot }} tree. The keys
+// below are the service's half of it; configs/onlineconf-tree.yaml lists the
+// whole surface, including the paths the generated code reads itself — those
+// have their generated readers as callers and no accessor here.
 package {{ .OnlineConf.GetPackageName }}
 
 import (

@@ -1,0 +1,14 @@
+# The OnlineConf keys a generated telegram worker reads.
+groups:
+  - scope: worker_telegram
+    keys:
+      - path: "{service}/worker/{worker}/default/timeout"
+        type: duration
+        default: "0 — no timeout"
+        description: >-
+          Timeout of one update being handled, used when job/timeout is unset.
+
+      - path: "{service}/worker/{worker}/job/timeout"
+        type: duration
+        default: "default/timeout"
+        description: Timeout of one update being handled.

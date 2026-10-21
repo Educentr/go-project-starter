@@ -1,0 +1,16 @@
+# The OnlineConf keys the generated telegram driver reads for its connection.
+groups:
+  - scope: telegram_driver
+    keys:
+      - path: "{service}/security/buffer_size"
+        type: int
+        default: "the driver's defaultBufferSize"
+        description: >-
+          Size of the update channel of the long poller. Values outside
+          [1, 100] are ignored and the library default is kept.
+
+      - path: "{service}/security/tg_api_endpoint"
+        type: string
+        default: "the endpoint passed as a driver option, then the library default"
+        description: >-
+          Telegram API endpoint. Set it to point a stand at a local mock.

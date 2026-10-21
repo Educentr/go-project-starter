@@ -1,0 +1,11 @@
+# The OnlineConf keys the generated service layer reads.
+groups:
+  - scope: service
+    keys:
+      - path: "{service}/settings/enabled"
+        dynamic: true
+        description: >-
+          Per-action allow lists (.../enabled/<action> and
+          .../enabled/<action>/<telegram id>). Both the action and the user id
+          are runtime keys, so the subtree as a whole belongs to the generated
+          code. An absent action means "enabled for everyone".

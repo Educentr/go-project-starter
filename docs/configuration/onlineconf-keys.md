@@ -263,32 +263,94 @@ v, _ := GetString(ctx, "/svc/undeclared", "")
 Из проверки выведены две группы, и только они:
 
 - `internal/pkg/occonf/` — сгенерированный пакет, где OnlineConf и **должен** читаться;
-- `psg_*_gen.go` — любой сгенерированный Go-файл. Эти файлы читают **собственные поддеревья генератора** (`transport`, `security`, `kafka`, логгер, dev-stand), которые карта сервиса объявлять не может вовсе (см. ниже). Они генерируются целиком из `project.yaml` — это не рукописные лазейки.
+- `psg_*_gen.go` — любой сгенерированный Go-файл. Эти файлы читают **ключи, которые генератор объявляет сам** (см. ниже) и которые карта сервиса объявлять не может. Они генерируются целиком из `project.yaml` — это не рукописные лазейки.
 
 > **Известное ограничение.** Секция ручного кода ниже disclaimer-маркера **внутри** `psg_*_gen.go` выводится из проверки вместе с файлом. Рукописные файлы — хэндлеры, сервисы, воркеры, то есть то место, где живёт код сервиса, — остаются под проверкой. В карте метрик этот выбор сделан иначе (`generated: disable` без исключения по имени файла), потому что там сгенерированные файлы метрик почти не конструируют, а здесь OnlineConf читают почти все.
 
 ## Ключи, которые генератор читает сам
 
-Генератор читает OnlineConf для себя — конфигурацию транспортов, безопасности, Kafka, логгера, dev-stand. Карта сервиса в эти поддеревья **объявлять не может**: пути там строят сгенерированные читатели из имён транспортов, приложений и клиентов, поэтому рукописное объявление либо затеняло бы сгенерированное чтение, либо расходилось бы с ним — а смысл карты в том, что ни один ключ не читается из двух мест двумя написаниями.
+Сгенерированный код тоже читает OnlineConf: таймауты транспортов, тумблеры безопасности, настройки воркеров и Kafka, уровни логирования, dev-stand, ACL телеграм-бота. Поэтому **генератор объявляет свои ключи сам** — по тому же принципу, по которому у карты метрик есть внутренняя карта `internal-metrics.yaml`.
 
-Зарезервированы следующие поддеревья `/<корень>/`:
+Объявление лежит **рядом с чтением**: у каждого шаблона, чей код читает ключ, есть файл `<шаблон>.ockeys.yaml` в том же каталоге. Пути в нём параметризованы, и на генерации раскрываются по фактическому проекту — транспортам, приложениям, воркерам, Kafka-клиентам:
 
-| Сегмент | Что читает генератор |
-|---|---|
-| `transport` | REST- и gRPC-транспорты (`restconfig`, ogen/buf-клиенты) |
-| `security` | `httpAuth`, CSRF, CORS (`restconfig`) |
-| `kafka` | конфигурация Kafka-клиента (драйвер Kafka) |
-| `log`, `logger` | конфигурация логгера (сгенерированный логгер) |
-| `devstand` | тумблер dev-stand (сгенерированный пакет `service`) |
+```yaml
+# internal/pkg/templater/embedded/templates/transport/rest/files/pkg/app/
+#   restconfig/config_oc.go.tmpl.ockeys.yaml
+groups:
+  - scope: rest_server
+    keys:
+      - path: "{service}/transport/rest/{transport}/{app}/server/timeout/read"
+        type: duration
+        default: "the runtime's DefaultHTTPReadTimeout"
+        description: Request read timeout of this application's HTTP server.
 
-```text
-invalid onlineconf key map:
-  keys[0]: reserved onlineconf subtree: path "/myservice/transport/rest/api/port"
-  is under /myservice/transport, which the generator reads itself (REST and gRPC
-  transports (generated restconfig and clients))
+      - path: "{service}/transport/rest/{transport}/{app}/handler"
+        dynamic: true
+        description: >-
+          Per-handler configuration, keyed by the url path of the request.
 ```
 
-Это тот же инвариант, что у внутренней карты метрик («имя занято генератором»), выраженный префиксом: пути генератора параметризованы именами транспортов и приложений, поэтому перечислить их записями нельзя, а зарезервировать поддерево — можно, и гарантия получается строже.
+`scope` называет измерение проекта, по которому запись раскрывается (`service`, `rest_server`, `rest_client`, `grpc_client`, `kafka_producer`, `kafka_producer_event`, `worker_daemon`, `worker_telegram`, `telegram_driver`), и этим же определяет доступные плейсхолдеры. `dynamic: true` — поддерево, которое сгенерированный код читает по ключу, вычисляемому в рантайме (url запроса, telegram id, имя действия): отдельного пути там нет, поэтому поддерево принадлежит генератору целиком.
+
+Раньше вместо объявлений был список зарезервированных префиксов (`transport`, `security`, `kafka`, `log`, `logger`, `devstand`). Он велся руками, с шаблонами ничем не был связан — и поддеревья, которые сгенерированный код реально читает (`worker/<имя>`, `settings`, `bot`), в него просто не попали. Теперь связь проверяется тестом: шаблон, который читает ключ без объявления, роняет `TestOnlineConfKeyDeclarationsCoverEveryRead`, а новый строковый сегмент в уже объявленном шаблоне — `TestOnlineConfDeclarationsCoverPathLiterals`.
+
+### Совпадение с картой сервиса — ошибка генерации
+
+Объявить в карте сервиса ключ, который читает сгенерированный код, нельзя: иначе у ключа два читателя и два написания — то, ради чего карта и существует. Проверяются два случая.
+
+**Точное совпадение пути:**
+
+```text
+onlineconf.path: invalid onlineconf key map: onlineconf key is read by generated code:
+  keys[0]: path "/myservice/transport/rest/api/port" is a key the generator reads itself
+  (generated by transport/rest/files/pkg/app/restconfig/config_oc.go.tmpl): Port the HTTP
+  server listens on, for every application serving this transport.
+```
+
+**Объявление внутри динамического поддерева:**
+
+```text
+onlineconf.path: invalid onlineconf key map: onlineconf key is read by generated code:
+  keys[0]: path "/myservice/settings/enabled/login" is inside "/myservice/settings/enabled",
+  a subtree the generator reads itself under a runtime key (generated by
+  main/internal/pkg/service/service.go.tmpl): Per-action allow lists …
+```
+
+Проверка идёт по **фактическому** проекту, а не по префиксам: ключ измерения, которого в проекте нет (`/myservice/kafka/<клиент>/brokers` без Kafka, `/myservice/worker/<имя>/batch_size` без воркеров), сервис объявить может — его никто не читает, второго читателя не возникает.
+
+### `configs/onlineconf-tree.yaml` — вся поверхность дерева
+
+Карта описывает ключи сервиса, но дерево сервиса больше: половина поверхности — чтения сгенерированного кода. Поэтому генерируется реестр **всей** поверхности, одним списком и с указанием, кто читает:
+
+```yaml
+tree: /myservice
+
+keys:
+  - path: /myservice/confluence/url
+    origin: service
+    type: string
+    required: true
+    accessor: ConfluenceURL
+    description: "Base URL of the Confluence instance the exporter writes to."
+  - path: /myservice/security/csrf/enabled
+    origin: generated
+    type: bool
+    default: "false"
+    read_by: ["transport/rest/files/pkg/app/restconfig/config_oc.go.tmpl"]
+    description: "Whether the CSRF middleware is applied."
+  - path: /myservice/settings/enabled
+    origin: generated
+    dynamic: true
+    read_by: ["main/internal/pkg/service/service.go.tmpl"]
+    description: "Per-action allow lists (.../enabled/<action> …)"
+```
+
+- `origin: service` — объявлено картой, читается через аксессор `accessor`;
+- `origin: generated` — читает сгенерированный код; `read_by` называет шаблон, то есть файл, который нужно править, если чтение пора менять. Перечислены **все** объявившие шаблоны, включая взаимоисключающие альтернативы (оба логгера читают одно и то же, поэтому названы оба).
+
+Файл никем в сервисе не читается — он для чтения человеком и для diff-а: он перегенерируется каждый прогон, поэтому изменение в нём и есть изменение конфигурационной поверхности сервиса. Генерируется только при заданной `onlineconf.path` — без карты в проекте не меняется ничего.
+
+> **Известный дефект.** Уровни логирования (`…/handler/default/log_level`, `…/worker/<имя>/job/log_level`) объявлены по той форме, которую собирает сгенерированный код, но сам логгер приписывает к переданному ему префиксу имя сервиса второй раз, поэтому фактическое чтение сейчас уходит на уровень глубже. Дефект отслеживается отдельной задачей; объявления описывают ту поверхность, к которой приведёт починка.
 
 ## Чего генератор не делает
 
@@ -296,7 +358,7 @@ invalid onlineconf key map:
 
 - **Значения ключей и политика сеяния.** Значение привязано к инсталляции, а решение о нём живёт рядом с решением, а не в генераторе.
 - **OnlineConf admin и доставка дерева.** Это инфраструктура потребителя.
-- **Реестры и отчёты по ключам.** Производные страницы строятся из той же карты, но не генератором.
+- **Отчёты и производные страницы по ключам.** Генерируется только реестр поверхности дерева (`configs/onlineconf-tree.yaml`); остальные производные страницы строятся из той же карты, но не генератором.
 - **Аксессоры поддеревьев.** Обхода поддерева в OnlineConf нет; список — это один ключ со структурным значением.
 
 ## Полный пример
@@ -368,7 +430,9 @@ keys:
 | `keys[0]: path "/svc/a b" has an invalid segment "a b"` | сегмент вне грамматики |
 | `keys[1]: duplicate onlineconf key path: "/svc/a" (first declared at keys[0])` | один ключ объявлен дважды |
 | `keys[1]: onlineconf key map spans several service trees: "/other/b" is in tree "other", keys[0] is in tree "svc"` | карта не одна на сервис |
-| `keys[0]: reserved onlineconf subtree: … which the generator reads itself` | объявление в поддереве генератора |
+| `keys[0]: path "…" is a key the generator reads itself (generated by …)` | ключ уже читает сгенерированный код |
+| `keys[0]: path "…" is inside "…", a subtree the generator reads itself under a runtime key` | объявление внутри динамического поддерева генератора |
+| `generator onlineconf key declaration defect: …` | дефект объявлений самого генератора (не карты сервиса) — баг go-project-starter |
 | `keys[0]: `required` and `default` contradict each other` | и `required`, и `default` |
 | `keys[0]: type strings cannot be `required`: go-onlineconf reports no presence for it` | `required` у типа без признака наличия |
 | `keys[0]: type struct takes no `default`` | `default` у `struct` |

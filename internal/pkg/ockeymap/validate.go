@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -18,9 +17,10 @@ var (
 	// ErrMalformedMap reports YAML that cannot be decoded into a key map at
 	// all — a wrong node kind or an unknown field.
 	ErrMalformedMap = errors.New("malformed onlineconf key map")
-	// ErrReservedPath reports a declaration inside a subtree the generator
-	// reads itself.
-	ErrReservedPath = errors.New("reserved onlineconf subtree")
+	// ErrReservedPath reports a declaration of a key the generated code reads
+	// itself — either the same path, or a path inside a subtree generated code
+	// reads under a runtime key. See CheckGeneratorKeys.
+	ErrReservedPath = errors.New("onlineconf key is read by generated code")
 	// ErrMultipleTrees reports entries sitting in different service trees. The
 	// map is one per service: a key belongs to exactly one tree, and a shared
 	// map would mix the surfaces of several services in one file.
@@ -48,32 +48,6 @@ var knownTypes = map[string]struct{}{
 	TypeDuration: {},
 	TypeStrings:  {},
 	TypeStruct:   {},
-}
-
-// reservedSegments are the subtrees of /<tree>/ the generated code reads
-// itself. The service map may not declare inside them: those paths are built by
-// generated readers from the transport, application, client and logger names,
-// so a hand-written declaration there would either shadow a generated read or
-// drift from it — and the whole point of the map is that no key is read from
-// two places with two spellings.
-//
-// Each entry names where the generator reads it (see the templates under
-// internal/pkg/templater/embedded/templates):
-//
-//	transport — transport/rest/… (restconfig, ogen error responses, ogen and
-//	            buf clients) and transport/grpc/…
-//	security  — security/httpAuth, security/csrf, security/cors (restconfig)
-//	kafka     — kafka/<client>/… (the Kafka driver config)
-//	log       — the logger prefix the runtime hands to the generated zlog and
-//	logger      logrus constructors, both spellings reserved
-//	devstand  — the dev-stand toggle read by the generated service package
-var reservedSegments = map[string]string{
-	"transport": "REST and gRPC transports (generated restconfig and clients)",
-	"security":  "httpAuth, CSRF and CORS (generated restconfig)",
-	"kafka":     "Kafka client configuration (generated Kafka driver)",
-	"log":       "logger configuration (generated logger)",
-	"logger":    "logger configuration (generated logger)",
-	"devstand":  "dev-stand toggle (generated service package)",
 }
 
 // minPathSegments is the shortest usable path: the service tree root plus one
@@ -196,15 +170,6 @@ func (k Key) pathProblems() []string {
 		}
 	}
 
-	if len(problems) > 0 {
-		return problems
-	}
-
-	if reason, reserved := reservedSegments[segments[1]]; reserved {
-		problems = append(problems, fmt.Sprintf("%s: path %q is under /%s/%s, which the generator reads itself (%s)",
-			ErrReservedPath, k.Path, segments[0], segments[1], reason))
-	}
-
 	return problems
 }
 
@@ -291,20 +256,6 @@ func (m *Map) Required() []Key {
 			out = append(out, key)
 		}
 	}
-
-	return out
-}
-
-// ReservedSegments returns the subtree names the generator reads itself,
-// sorted, for documentation and error messages.
-func ReservedSegments() []string {
-	out := make([]string, 0, len(reservedSegments))
-
-	for segment := range reservedSegments {
-		out = append(out, segment)
-	}
-
-	sort.Strings(out)
 
 	return out
 }

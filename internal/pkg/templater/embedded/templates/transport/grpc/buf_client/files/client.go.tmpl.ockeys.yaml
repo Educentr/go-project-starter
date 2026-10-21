@@ -1,0 +1,13 @@
+# The OnlineConf keys a generated gRPC client reads.
+groups:
+  - scope: grpc_client
+    keys:
+      - path: "{service}/transport/grpc/{transport}/host"
+        type: string
+        description: >-
+          Host of the upstream service. Startup fails when it is unset.
+
+      - path: "{service}/transport/grpc/{transport}/port"
+        type: string
+        description: >-
+          Port of the upstream service. Startup fails when it is unset.

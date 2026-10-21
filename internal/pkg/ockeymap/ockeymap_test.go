@@ -199,14 +199,6 @@ func TestParseErrors(t *testing.T) {
 			wantMsg:  "spans several service trees",
 		},
 		{
-			// The subtrees the generated readers own. A declaration here would
-			// either shadow a generated read or drift from it.
-			name:     "reserved subtree",
-			yaml:     "keys:\n  - path: /svc/transport/rest/api/port\n    type: string\n",
-			sentinel: ockeymap.ErrInvalidMap,
-			wantMsg:  "which the generator reads itself",
-		},
-		{
 			name:     "required with default",
 			yaml:     "keys:\n  - path: /svc/a\n    type: int\n    required: true\n    default: 1\n",
 			sentinel: ockeymap.ErrInvalidMap,
@@ -291,14 +283,14 @@ func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 	bad := "keys:\n" +
 		"  - path: /svc/a\n    type: float\n" +
 		"  - path: /svc/b\n    type: int\n    required: true\n    default: 2\n" +
-		"  - path: /svc/transport/rest/api/port\n    type: string\n"
+		"  - path: /svc/c/<i>/name\n    type: string\n"
 
 	_, err := ockeymap.Parse([]byte(bad))
 	if err == nil {
 		t.Fatal("Parse() succeeded, want an error")
 	}
 
-	for _, want := range []string{`type "float" is unknown`, "contradict each other", "reads itself"} {
+	for _, want := range []string{`type "float" is unknown`, "contradict each other", "<i>"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %q, got:\n%s", want, err)
 		}
@@ -308,18 +300,5 @@ func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 func TestLoadMissingFile(t *testing.T) {
 	if _, err := ockeymap.Load("/nonexistent/onlineconf-key-map.yaml"); err == nil {
 		t.Fatal("Load() on a missing file succeeded, want an error")
-	}
-}
-
-func TestReservedSegmentsAreSorted(t *testing.T) {
-	segments := ockeymap.ReservedSegments()
-	if len(segments) == 0 {
-		t.Fatal("ReservedSegments() is empty: the generator does read OnlineConf itself")
-	}
-
-	for i := 1; i < len(segments); i++ {
-		if segments[i-1] > segments[i] {
-			t.Fatalf("ReservedSegments() is not sorted: %v", segments)
-		}
 	}
 }

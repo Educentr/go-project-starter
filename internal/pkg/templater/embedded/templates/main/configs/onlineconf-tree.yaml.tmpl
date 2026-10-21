@@ -1,0 +1,54 @@
+#
+# The complete OnlineConf surface of this service: every path in the
+# /{{ .OnlineConf.TreeRoot }} tree that anything in this project reads.
+#
+# Two origins, and the difference matters when you change something:
+#
+#   origin: service   — declared in the service's OnlineConf key map (the
+#                       contract). Read through the generated accessor named in
+#                       `accessor`. To add, change or remove one, change the map.
+#   origin: generated — read by generated code. Not declarable in the service
+#                       map: a second declaration would mean a second reader
+#                       with a second spelling, which is the thing the map
+#                       exists to prevent. `read_by` names the templates the
+#                       read comes from — all of them, including alternatives of
+#                       which this project generates one (the two loggers read
+#                       the same keys, so both are listed).
+#
+# `dynamic: true` marks a subtree read under a key computed at runtime — the url
+# path of a request, a telegram user id, an action name. There is no single path
+# to list, so the subtree as a whole belongs to the generated code, and the
+# service map may not declare inside it.
+#
+# This file is for reading and diffing: nothing in the service loads it. It is
+# regenerated on every run, so a diff here is a change to the configuration
+# surface of the service, which is exactly the thing worth reviewing.
+#
+tree: /{{ .OnlineConf.TreeRoot }}
+
+keys:
+{{- range $_, $e := .OnlineConf.Surface }}
+  - path: {{ $e.Path }}
+    origin: {{ $e.Origin }}
+{{- if $e.Type }}
+    type: {{ $e.Type }}
+{{- end }}
+{{- if $e.Dynamic }}
+    dynamic: true
+{{- end }}
+{{- if $e.Required }}
+    required: true
+{{- end }}
+{{- if $e.Accessor }}
+    accessor: {{ $e.Accessor }}
+{{- end }}
+{{- if $e.Default }}
+    default: {{ $e.Default | YAMLString }}
+{{- end }}
+{{- if $e.ReadBy }}
+    read_by: [{{ range $i, $t := $e.ReadBy }}{{ if $i }}, {{ end }}{{ $t | YAMLString }}{{ end }}]
+{{- end }}
+{{- if $e.Description }}
+    description: {{ $e.Description | YAMLString }}
+{{- end }}
+{{- end }}
