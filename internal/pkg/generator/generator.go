@@ -1048,16 +1048,19 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 	surface := ockeymap.ProjectSurface{Service: config.Main.Name}
 
 	for _, rest := range config.RestList {
+		// Both a server and a client read their configuration under the package
+		// name, which carries the api version — not under the transport name.
+		// The server name is the one the generated main hands to rest.NewServer
+		// ("api_v1"), and the runtime passes it straight back into the
+		// configuration provider.
 		if rest.GeneratorType == cfg.GeneratorTypeOgenClient {
-			// A client reads its configuration under the package name, which
-			// carries the api version — not under the transport name.
 			surface.RESTClients = append(surface.RESTClients, transportPkgName(rest.Name, rest.Version))
 
 			continue
 		}
 
 		surface.RESTServers = append(surface.RESTServers, ockeymap.RESTServer{
-			Transport: rest.Name,
+			Transport: transportPkgName(rest.Name, rest.Version),
 			Apps:      appsServingTransport(config, rest.Name),
 		})
 	}

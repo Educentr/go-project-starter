@@ -4,6 +4,10 @@
 # which is the two-level fallback the provider implements (app-specific value
 # first, transport-wide value second). Both forms are declared because both are
 # looked up in the tree.
+#
+# {transport} expands to the SERVER name, which carries the api version
+# ("api_v1"): it is the name the generated main hands to rest.NewServer, and the
+# runtime passes it straight back into this provider.
 groups:
   - scope: rest_server
     keys:

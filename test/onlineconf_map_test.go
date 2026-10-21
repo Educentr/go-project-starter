@@ -287,8 +287,8 @@ func assertOnlineConfRegistry(t *testing.T, tmpDir string) {
 	// The transport keys are expanded against this project: the names in them
 	// are the transport and application names of project.yaml, not patterns.
 	for _, want := range []string{
-		"/octest/transport/rest/api/api/port",
-		"/octest/transport/rest/sys/api/server/timeout/read",
+		"/octest/transport/rest/api_v1/api/port",
+		"/octest/transport/rest/sys_v1/api/server/timeout/read",
 		"/octest/devstand",
 	} {
 		if _, found := byPath[want]; !found {
@@ -349,10 +349,10 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 	}{
 		{
 			name:    "transport key, exact match",
-			path:    "/octest/transport/rest/api/port",
+			path:    "/octest/transport/rest/api_v1/port",
 			keyType: "string",
 			wantMsgs: []string{
-				"/octest/transport/rest/api/port", "reads itself",
+				"/octest/transport/rest/api_v1/port", "reads itself",
 				"transport/rest/files/pkg/app/restconfig/config_oc.go.tmpl",
 			},
 		},
@@ -379,9 +379,9 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 		},
 		{
 			name:     "inside the per-handler subtree",
-			path:     "/octest/transport/rest/api/api/handler/some_path/timeout",
+			path:     "/octest/transport/rest/api_v1/api/handler/some_path/timeout",
 			keyType:  "duration",
-			wantMsgs: []string{"/octest/transport/rest/api/api/handler", "runtime key"},
+			wantMsgs: []string{"/octest/transport/rest/api_v1/api/handler", "runtime key"},
 		},
 	}
 

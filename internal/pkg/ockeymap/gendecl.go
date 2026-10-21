@@ -63,8 +63,10 @@ const (
 	// ScopeService covers code every project gets, read once per service.
 	ScopeService = "service"
 	// ScopeRESTServer covers the REST server configuration, read per REST
-	// transport and per application serving it. A path that names no {app}
-	// expands once per transport.
+	// server and per application serving it. A path that names no {app}
+	// expands once per server. {transport} is the server name, which carries
+	// the api version ("api_v1") — the name the generated main hands to
+	// rest.NewServer.
 	ScopeRESTServer = "rest_server"
 	// ScopeRESTClient covers the generated REST clients (ogen_client), read per
 	// client transport.

@@ -61,7 +61,7 @@ func TestOnlineConfSurfaceCoversOnlyGeneratedReaders(t *testing.T) {
 		t.Errorf("Service = %q, want svc", surface.Service)
 	}
 
-	wantServers := map[string]string{"api": "web,admin", "sys": "web"}
+	wantServers := map[string]string{"api_v1": "web,admin", "sys_v1": "web"}
 
 	if len(surface.RESTServers) != len(wantServers) {
 		t.Fatalf("RESTServers = %+v, want %d entries", surface.RESTServers, len(wantServers))
@@ -139,10 +139,10 @@ func TestGeneratorKeysExcludeAbsentReaders(t *testing.T) {
 
 	// And the keys that ARE read are there, expanded against this project.
 	want := map[string]bool{
-		"/svc/transport/rest/api/web/port": false,
-		"/svc/security/csrf/enabled":       false,
-		"/svc/devstand":                    false,
-		"/svc/settings/enabled":            false,
+		"/svc/transport/rest/api_v1/web/port": false,
+		"/svc/security/csrf/enabled":          false,
+		"/svc/devstand":                       false,
+		"/svc/settings/enabled":               false,
 	}
 
 	for _, key := range keys {
