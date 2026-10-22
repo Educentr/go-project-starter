@@ -72,6 +72,11 @@ type Generator struct {
 	Documentation           ds.DocsConfig
 	Metrics                 ds.MetricsConfig
 	GithubCI                ds.GithubCIConfig
+	// CustomGenerators are the project's own generators with their commands
+	// rendered per contract — what the Makefile targets are built from.
+	CustomGenerators ds.CustomGenerators
+	// Contracts are the specs fetched for those generators.
+	Contracts ds.Contracts
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -247,6 +252,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	}
 
 	if err := g.processMetricsMap(config); err != nil {
+		return err
+	}
+
+	if err := g.processGenerators(config); err != nil {
 		return err
 	}
 
@@ -892,6 +901,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Documentation:           g.Documentation,
 		Metrics:                 g.Metrics,
 		GithubCI:                g.GithubCI,
+		CustomGenerators:        g.CustomGenerators,
 	}
 }
 
@@ -1140,6 +1150,10 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		g.JSONSchemas[name] = j
 	}
 
+	if err := g.resolveContracts(ctx, resolver); err != nil {
+		return cleanup, err
+	}
+
 	return cleanup, nil
 }
 
@@ -1167,6 +1181,12 @@ func (g *Generator) hasGitSource() bool {
 			if check(item.Path) {
 				return true
 			}
+		}
+	}
+
+	for _, c := range g.Contracts {
+		if check(c.RawPath) {
+			return true
 		}
 	}
 	return false
@@ -1538,13 +1558,28 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error rewrite schema refs")
 	}
 
+	if err = g.checkContractCollisions(manifest); err != nil {
+		return err
+	}
+
+	// Before copyContracts, which overwrites the file the check looks at.
+	if err = g.checkContractDrift(targetPath); err != nil {
+		return err
+	}
+
+	contractRecords, err := g.copyContracts(targetPath)
+	if err != nil {
+		return errors.Wrap(err, "Error copy contracts")
+	}
+
 	// Refs are rewritten in place, so the copied files are hashed only now.
 	copiedRecords, err := copiedFileRecords(targetPath, append(copiedSpecs, copiedSchemas...))
 	if err != nil {
 		return err
 	}
 
-	g.Meta.SetManifest(append(manifest, copiedRecords...))
+	manifest = append(manifest, copiedRecords...)
+	g.Meta.SetManifest(append(manifest, contractRecords...))
 
 	// Create .project-config directory in target for meta.yaml and config
 	projectConfigDir := filepath.Join(targetPath, ".project-config")

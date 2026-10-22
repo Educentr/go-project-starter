@@ -23,6 +23,10 @@ const (
 	GitTransportHTTPS GitTransport = "https"
 )
 
+// defaultGitRef is the ref a source without an explicit "@<ref>" is fetched
+// at, and the revision gitHeadCommit resolves in the resulting clone.
+const defaultGitRef = "HEAD"
+
 // refForbiddenChars are the characters git itself refuses in a refname
 // (git-check-ref-format(1)). ":" is on that list, which is what lets
 // ParseSourceRefs split a "<repo>:<ref>" override at the last colon.
@@ -192,6 +196,25 @@ func gitFullCloneAndCheckout(ctx context.Context, cloneURL, ref, target, token s
 		return fmt.Errorf("checkout %s: %w", ref, err)
 	}
 	return nil
+}
+
+// gitHeadCommit returns the SHA the clone in dir is checked out at. It is the
+// provenance recorded for a fetched contract spec: a ref says what was asked
+// for, the SHA says what arrived — the two stop agreeing the moment the branch
+// moves.
+func gitHeadCommit(ctx context.Context, dir string, stderrTo io.Writer) (string, error) {
+	var out bytes.Buffer
+
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", defaultGitRef)
+	cmd.Env = os.Environ()
+	cmd.Stdout = &out
+	cmd.Stderr = redactingWriter(stderrTo, "")
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("read HEAD commit of %s: %w", dir, err)
+	}
+
+	return strings.TrimSpace(out.String()), nil
 }
 
 // classifyGitError adds a hint based on common stderr patterns.

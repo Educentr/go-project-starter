@@ -749,6 +749,10 @@ type (
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
 		Metrics        Metrics             `mapstructure:"metrics"`
 		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
+		// GeneratorList declares code generators the project brings itself.
+		GeneratorList CustomGeneratorList `mapstructure:"generator"`
+		// ContractList declares specs fetched for those generators.
+		ContractList ContractList `mapstructure:"contract"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc

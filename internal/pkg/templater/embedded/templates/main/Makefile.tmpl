@@ -207,7 +207,7 @@ check-go-version:
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
-lint: install-lint
+lint: install-lint{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Lints }} lint-{{ $cg.Name }}{{ end }}{{ end }}
 	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main $(LINT_ARGS)
 
 # Run full code lint
@@ -702,15 +702,31 @@ install-goimports:
 install-onlineconf-updater:
 	go install github.com/Nikolo/onlineconf/onlineconf-updater/v3@$(ONLINECONF_UPDATER_VERSION)
 
-# Install dependencies for tools
+{{ range $_, $cg := .CustomGenerators }}# Generator '{{ $cg.Name }}', declared in the `generator` section of
+# .project-config/project.yaml. The commands belong to the project: the
+# starter owns fetching the contract and wiring the targets, not the
+# generation itself.
+{{ if $cg.Install }}.PHONY: install-{{ $cg.Name }}
+install-{{ $cg.Name }}:
+	{{ $cg.Install }}
+
+{{ end }}.PHONY: generate-{{ $cg.Name }}
+generate-{{ $cg.Name }}:
+{{ range $_, $cmd := $cg.Cmds }}	{{ $cmd }}
+{{ end }}
+{{ if $cg.Lints }}.PHONY: lint-{{ $cg.Name }}
+lint-{{ $cg.Name }}:
+{{ range $_, $cmd := $cg.Lints }}	{{ $cmd }}
+{{ end }}
+{{ end }}{{ end }}# Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Install }}install-{{ $cg.Name }} {{ end }}{{ end }}install-goimports
 
 # Generate mock packages
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}
 
 .PHONY: download
 download:

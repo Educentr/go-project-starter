@@ -186,6 +186,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
 	}
 
+	// Validate the custom generators together with the contracts they consume:
+	// a dangling generator_name or a command reading a variable the contract
+	// does not set has to fail here, not halfway through a generation run.
+	if ok, msg := ValidateGenerators(baseDir, config.GeneratorList, config.ContractList); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config generator/contract section: "+msg)
+	}
+
 	for i := range config.Applications {
 		// Normalize transport list (supports both old string[] and new object[] format)
 		if err := config.Applications[i].NormalizeTransports(); err != nil {

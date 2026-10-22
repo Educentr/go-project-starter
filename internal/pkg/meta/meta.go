@@ -17,10 +17,24 @@ import (
 //
 // Path is always project-relative and slash-separated, so the manifest stays
 // valid regardless of where the project is checked out.
+//
+// Source/Ref/Commit record where a fetched file came from. They are written for
+// contract specs (see the `contract` section of project.yaml), whose whole
+// point is that the project declares what it takes and the generator records
+// what it actually took. Ref and Commit only exist for git sources; an https or
+// local source is identified by Source plus Hash alone.
 type FileRecord struct {
 	Path string `yaml:"path"`
 	Kind string `yaml:"kind"`
 	Hash string `yaml:"hash"`
+	// Source is the spec source the file was fetched from, as written in
+	// project.yaml with any token redacted.
+	Source string `yaml:"source,omitempty"`
+	// Ref is the git ref the file was fetched at — the effective one, so a ref
+	// that came from --sourceRef is recorded rather than the config default.
+	Ref string `yaml:"ref,omitempty"`
+	// Commit is the SHA the git source resolved to at fetch time.
+	Commit string `yaml:"commit,omitempty"`
 }
 
 // Manifest is the list of files written by the last generator run. It is the
@@ -54,11 +68,25 @@ const (
 func (r FileRecord) MarshalYAML() (any, error) {
 	node := &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle}
 
-	for _, kv := range [][2]string{
+	kvs := [][2]string{
 		{"path", r.Path},
 		{"kind", r.Kind},
 		{"hash", r.Hash},
+	}
+
+	// Provenance is omitted when absent, so records of files the generator
+	// produced itself keep the exact shape they had before contracts existed.
+	for _, kv := range [][2]string{
+		{"source", r.Source},
+		{"ref", r.Ref},
+		{"commit", r.Commit},
 	} {
+		if kv[1] != "" {
+			kvs = append(kvs, kv)
+		}
+	}
+
+	for _, kv := range kvs {
 		node.Content = append(node.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv[0]},
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv[1]},
