@@ -247,6 +247,13 @@ type (
 		LintExcludePaths []string `mapstructure:"lint_exclude_paths"`
 		// GoatServicesVersion is the GOAT services version. Auto-set.
 		GoatServicesVersion string `mapstructure:"goat_services_version"`
+		// StarterVersion is the go-project-starter version the generated
+		// Makefile calls to regenerate the project. Auto-set: the generator
+		// writes the version of the binary that produced the tree, so the pin
+		// is provenance and not a choice. A value here is read only when that
+		// binary cannot name its own version (a local build from an untagged
+		// tree) — it is the fallback pin for such environments.
+		StarterVersion string `mapstructure:"starter_version"`
 	}
 
 	AuthParams struct {

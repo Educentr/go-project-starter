@@ -55,6 +55,7 @@ type Generator struct {
 	GoJSONSchemaVersion     string
 	GoatVersion             string
 	GoatServicesVersion     string
+	StarterVersion          string
 	TargetDir               string
 	ConfigPath              string // Source config file path for copying to target
 	DockerImagePrefix       string
@@ -111,23 +112,29 @@ var (
 // Generator.SourceRefs); build it with specsource.ParseSourceRefs, which
 // validates every ref in it.
 //
-// The first parameter is the generator's own version string. It is accepted
-// but unused, as it has been so far — storing it in Generator.AppInfo would
-// rewrite the disclaimer header of every generated file in every project,
-// which is a change of its own and not part of this one.
+// starterVersion is the version of the running generator binary, as reported
+// by selfversion.Resolve, or an empty string when that binary cannot name it
+// (a local build from an untagged tree). It is pinned into the generated
+// project so the tree records which generator produced it; see
+// resolveStarterVersion for what an empty value falls back to.
+//
+// It is deliberately not stored in Generator.AppInfo: that would rewrite the
+// disclaimer header of every generated file in every project, which is a
+// change of its own and not part of this one.
 func New(
-	_ string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRefs *specsource.SourceRefs,
+	starterVersion string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRefs *specsource.SourceRefs,
 ) (*Generator, error) {
 	g := Generator{
-		Applications: make(ds.Apps, 0, len(config.Applications)),
-		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
-		Transports:   make(ds.Transports),
-		Workers:      make(ds.Workers),
-		Drivers:      make(ds.Drivers),
-		JSONSchemas:  make(ds.JSONSchemas),
-		Kafka:        make(ds.KafkaConfigs),
-		DryRun:       dryrun,
-		Meta:         genMeta,
+		StarterVersion: starterVersion,
+		Applications:   make(ds.Apps, 0, len(config.Applications)),
+		PostGenerate:   make([]ExecCmd, 0, len(config.PostGenerate)),
+		Transports:     make(ds.Transports),
+		Workers:        make(ds.Workers),
+		Drivers:        make(ds.Drivers),
+		JSONSchemas:    make(ds.JSONSchemas),
+		Kafka:          make(ds.KafkaConfigs),
+		DryRun:         dryrun,
+		Meta:           genMeta,
 		// Set before processConfig: the inline spec resolve for queue workers
 		// and CLI commands happens inside it and needs the override.
 		SourceRefs: sourceRefs,
@@ -138,6 +145,48 @@ func New(
 	}
 
 	return &g, nil
+}
+
+// resolveStarterVersion settles the generator pin written into the project.
+//
+// The version of the running binary wins, because the pin is provenance — the
+// record of which generator produced this tree, against which regenerating is
+// expected to yield an empty diff. configured (tools.starter_version) is the
+// fallback for a binary that cannot name its own version, i.e. a local build
+// from an untagged tree; with neither, the pin degrades to
+// templater.DefaultStarterVersion and the run says so.
+//
+// configured is validated even when it loses, since a pin the module proxy
+// cannot resolve breaks `make regenerate` for whoever hits the fallback path —
+// a typo should not wait for that moment to surface.
+func (g *Generator) resolveStarterVersion(configured string) error {
+	if configured != "" && !semver.IsValid(configured) && configured != templater.DefaultStarterVersion {
+		return errors.Errorf(
+			"starter_version %q is neither a semantic version (e.g. v1.2.3) nor %q",
+			configured, templater.DefaultStarterVersion,
+		)
+	}
+
+	if g.StarterVersion != "" {
+		return nil
+	}
+
+	if configured != "" {
+		g.StarterVersion = configured
+
+		return nil
+	}
+
+	g.StarterVersion = templater.DefaultStarterVersion
+
+	log.Printf(
+		"warning: this go-project-starter build cannot name its own version, "+
+			"the generated Makefile pins the generator to %q; "+
+			"set tools.starter_version in project.yaml to pin a released version",
+		templater.DefaultStarterVersion,
+	)
+
+	return nil
 }
 
 func (g *Generator) processConfig(config cfg.Config) error {
@@ -164,6 +213,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.GoJSONSchemaVersion = config.Tools.GoJSONSchemaVersion
 	g.GoatVersion = config.Tools.GoatVersion
 	g.GoatServicesVersion = config.Tools.GoatServicesVersion
+
+	if err := g.resolveStarterVersion(config.Tools.StarterVersion); err != nil {
+		return err
+	}
 
 	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
 	if config.Tools.RuntimeVersion != "" {
@@ -813,6 +866,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		GoJSONSchemaVersion:     g.GoJSONSchemaVersion,
 		GoatVersion:             g.GoatVersion,
 		GoatServicesVersion:     g.GoatServicesVersion,
+		StarterVersion:          g.StarterVersion,
 		Applications:            g.Applications,
 		Drivers:                 g.Drivers,
 		Workers:                 g.Workers,

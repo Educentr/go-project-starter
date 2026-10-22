@@ -26,6 +26,12 @@ GO_MOD_VERSION := $(shell awk '$$1 == "go" { print $$2; exit }' go.mod 2>/dev/nu
 # Go version golangci-lint must be built with: a binary built by an older
 # toolchain refuses to load a config targeting a newer Go
 GOLANGCI_BUILD_GO_VERSION := $(if $(GO_MOD_VERSION),$(GO_MOD_VERSION),$(MIN_GO_VERSION))
+# go-project-starter that generated this tree. Written by the generator itself,
+# so it is the provenance of the project and not a choice: regenerating with it
+# must leave the tree unchanged. Raise it with `make update-starter`, never by
+# editing this line — the next regeneration overwrites it.
+GPSPKG = github.com/Educentr/go-project-starter/cmd/go-project-starter
+GPSVERSION = {{ .StarterVersion }}
 # Ogen version
 OGENVERSION = {{ .OgenVersion }}
 {{ if .UseActiveRecord }}
@@ -131,7 +137,21 @@ SOURCE_REF ?=
 
 .PHONY: regenerate
 regenerate:
-	go-project-starter --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
+	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
+
+# Raise the generator pin. The version given here regenerates the project and,
+# being the generator that produced the tree, writes itself into GPSVERSION
+# above — so this is the way out of the pin, which regenerate alone can never
+# leave:
+#   make update-starter STARTER_VERSION=v1.2.3
+# SOURCE_REF applies here too, same as for regenerate.
+.PHONY: update-starter
+update-starter:
+	@test -n "$(STARTER_VERSION)" || { \
+		echo "STARTER_VERSION is required: make update-starter STARTER_VERSION=vX.Y.Z"; \
+		exit 1; \
+	}
+	go run $(GPSPKG)@$(STARTER_VERSION) --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
 
 ##################### End of golang-ci checks #####################
 # Initialize git repository (does not require remote to exist)
