@@ -105,6 +105,11 @@ const (
 	// errRelPathFmt wraps a failure to make a generator-written path
 	// project-relative for the manifest.
 	errRelPathFmt = "error resolve relative path of %s: %w"
+
+	// errCopySpecCtx and errCopySchemaCtx prefix failures of the two copy
+	// channels — planning, directory creation and the copy itself.
+	errCopySpecCtx   = "Error copy spec"
+	errCopySchemaCtx = "Error copy schemas"
 )
 
 var (
@@ -1007,7 +1012,7 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 // resolveInlineSpec materializes a spec source into a local file for
 // one-shot parsing during config load (CLI commands.yaml, queue worker
 // contracts). Unlike resolveAllSources — which runs as a pre-pass and keeps
-// staged files alive for CopySpecs/CopySchemas — inline specs are read and
+// staged files alive for the spec/schema copy step — inline specs are read and
 // parsed immediately, so the caller invokes the returned cleanup right
 // after the parse and the staging dir is gone before Generate() runs.
 //
@@ -1063,7 +1068,7 @@ func resolveInlineSpec(
 // directory. LocalSource entries are joined with BasePath as before.
 //
 // The returned cleanup function MUST be called via defer once Generate is
-// done with the staging files (typically right after CopySpecs/CopySchemas).
+// done with the staging files (typically right after the spec/schema copies).
 func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 	stagingDir, err := os.MkdirTemp("", "gps-specs-")
 	if err != nil {
@@ -1110,7 +1115,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		// by value, so re-publish the updated SpecTargetFiles there too.
 		// SpecPath aliasing works (slice index mutation), but assigning a new
 		// targets slice header here does not propagate to those snapshots —
-		// CopySpecs / GetTargetSpecFile would otherwise fall back to
+		// specCopyTargets / GetTargetSpecFile would otherwise fall back to
 		// filepath.Base of the prefixed staging path (e.g. 1-foo.swagger.yml
 		// when two transports resolve the same upstream file).
 		for ai := range g.Applications {
@@ -1202,86 +1207,6 @@ func resolveOne(ctx context.Context, r *specsource.Resolver, raw string) (string
 		return "", "", err
 	}
 	return res.LocalPath, src.TargetFilename(), nil
-}
-
-// CopySpecs copies every transport spec into the project and returns the paths
-// it wrote, so they can be recorded in the manifest.
-func (g *Generator) CopySpecs() ([]string, error) {
-	written := []string{}
-
-	for _, app := range g.Applications {
-		for _, transport := range app.Transports {
-			for specNum, spec := range transport.SpecPath {
-				if _, err := os.Stat(spec); err != nil {
-					return nil, fmt.Errorf("%w: %s", errSpecNotFound, spec)
-				}
-
-				source := spec
-
-				dest := filepath.Join(
-					transport.GetTargetSpecDir(g.TargetDir),
-					transport.GetTargetSpecFile(specNum),
-				)
-
-				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
-
-				if err := tools.CopyFile(source, dest); err != nil {
-					return nil, err
-				}
-
-				written = append(written, dest)
-			}
-		}
-	}
-
-	return written, nil
-}
-
-// CopySchemas copies every JSON schema into the project and returns the paths
-// it wrote, so they can be recorded in the manifest.
-func (g *Generator) CopySchemas() ([]string, error) {
-	written := []string{}
-
-	for _, schema := range g.JSONSchemas {
-		targetDir := schema.GetTargetSpecDir(g.TargetDir)
-
-		// Ensure target directory exists
-		if err := os.MkdirAll(targetDir, tools.DefaultDirPerm); err != nil {
-			return nil, fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
-		}
-
-		// Collect paths from both legacy Path[] and new Schemas[]
-		var paths []string
-		if len(schema.Schemas) > 0 {
-			for _, item := range schema.Schemas {
-				paths = append(paths, item.Path)
-			}
-		} else {
-			paths = schema.Path
-		}
-
-		for i, schemaPath := range paths {
-			if _, err := os.Stat(schemaPath); err != nil {
-				return nil, errors.Wrapf(err, "schema file not found: %s", schemaPath)
-			}
-
-			fileName := filepath.Base(schemaPath)
-			if i < len(schema.SchemaTargetFiles) && schema.SchemaTargetFiles[i] != "" {
-				fileName = schema.SchemaTargetFiles[i]
-			}
-			dest := filepath.Join(targetDir, fileName)
-
-			log.Printf("copy schema: `%s` to `%s`\n", schemaPath, dest)
-
-			if err := tools.CopyFile(schemaPath, dest); err != nil {
-				return nil, err
-			}
-
-			written = append(written, dest)
-		}
-	}
-
-	return written, nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -1395,6 +1320,12 @@ func (g *Generator) Generate() error {
 
 	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.Manifest, g.staticIgnorePaths()...)
 	if err != nil {
+		// A conflict message already names every path and the action to take;
+		// wrapping it in "Error get user code" would only bury the lede.
+		if errors.Is(err, templater.ErrTargetConflict) {
+			return err
+		}
+
 		return errors.Wrap(err, "Error get user code")
 	}
 
@@ -1540,18 +1471,38 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error resolve specs")
 	}
 
-	copiedSpecs, err := g.CopySpecs()
+	specTargets, err := g.specCopyTargets()
 	if err != nil {
-		return errors.Wrap(err, "Error copy spec")
+		return errors.Wrap(err, errCopySpecCtx)
+	}
+
+	schemaTargets, err := g.schemaCopyTargets()
+	if err != nil {
+		return errors.Wrap(err, errCopySchemaCtx)
+	}
+
+	// Both channels are checked before either is copied: a conflict in a schema
+	// must not leave half the specs already overwritten.
+	if err = checkCopyTargetConflicts(targetPath, g.Meta.Manifest, append(specTargets, schemaTargets...)); err != nil {
+		return err
+	}
+
+	copiedSpecs, err := copyTargets(specTargets)
+	if err != nil {
+		return errors.Wrap(err, errCopySpecCtx)
 	}
 
 	if err = g.rewriteRefsForSpecs(); err != nil {
 		return errors.Wrap(err, "Error rewrite spec refs")
 	}
 
-	copiedSchemas, err := g.CopySchemas()
+	if err = g.ensureSchemaDirs(); err != nil {
+		return errors.Wrap(err, errCopySchemaCtx)
+	}
+
+	copiedSchemas, err := copyTargets(schemaTargets)
 	if err != nil {
-		return errors.Wrap(err, "Error copy schemas")
+		return errors.Wrap(err, errCopySchemaCtx)
 	}
 
 	if err = g.rewriteRefsForSchemas(); err != nil {

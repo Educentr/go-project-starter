@@ -2,7 +2,7 @@
 // project.yaml `path:` entries. A source is one of: a local filesystem path
 // (backward-compatible), an HTTP(S) URL, or a git repository URI. The Resolver
 // materializes every source into a real file under a per-run staging
-// directory so that downstream code (CopySpecs/CopySchemas) can treat all
+// directory so that downstream code (the spec/schema copy step) can treat all
 // sources uniformly as local files.
 package specsource
 

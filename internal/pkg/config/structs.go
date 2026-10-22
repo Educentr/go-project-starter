@@ -362,7 +362,7 @@ type (
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
 		Instantiation string `mapstructure:"instantiation"`
-		// RewriteRefs enables local $ref rewriting after CopySpecs.
+		// RewriteRefs enables local $ref rewriting after the specs are copied.
 		// When true, cross-directory $ref values like
 		// '../common/foo.yaml#/X' are rewritten to './foo.yaml#/X' if
 		// 'foo.yaml' is among the copied sibling specs. Default: false.
@@ -450,7 +450,7 @@ type (
 		Schemas []JSONSchemaItem `mapstructure:"schemas"`
 		// Package overrides the Go package name. Optional, defaults to Name.
 		Package string `mapstructure:"package"`
-		// RewriteRefs enables local $ref rewriting after CopySchemas. See Rest.RewriteRefs.
+		// RewriteRefs enables local $ref rewriting after the schemas are copied. See Rest.RewriteRefs.
 		RewriteRefs bool `mapstructure:"rewrite_refs"`
 	}
 

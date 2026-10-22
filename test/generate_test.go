@@ -2268,3 +2268,144 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 		}
 	})
 }
+
+// dropManifestRecord removes the record of relPath from meta.yaml, simulating
+// the state a project is in when a newer generator version starts to write a
+// path the previous version never wrote.
+func dropManifestRecord(t *testing.T, metaPath, relPath string) {
+	t.Helper()
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	kept := []string{}
+	dropped := false
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "path: "+relPath+",") {
+			dropped = true
+
+			continue
+		}
+
+		kept = append(kept, line)
+	}
+
+	if !dropped {
+		t.Fatalf("meta.yaml has no record for %s:\n%s", relPath, data)
+	}
+
+	if err := os.WriteFile(metaPath, []byte(strings.Join(kept, "\n")), 0644); err != nil {
+		t.Fatalf("Error writing meta.yaml: %v", err)
+	}
+}
+
+// TestConflictWithUserFileAbortsRun covers the data-loss case the manifest
+// makes detectable: the generator starts to write a path where the user keeps a
+// file of their own. The run has to stop with a conflict instead of
+// overwriting it — the file carries no disclaimer marker, so there would be
+// nothing left to recover.
+func TestConflictWithUserFileAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for conflict test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	genRel := "internal/app/constant/psg_constant_gen.go"
+	genFile := filepath.Join(tmpDir, filepath.FromSlash(genRel))
+	userContent := "package constant\n\n// written by hand, no marker in sight\nconst Mine = true\n"
+
+	dropManifestRecord(t, metaPath, genRel)
+
+	if err := os.WriteFile(genFile, []byte(userContent), 0644); err != nil {
+		t.Fatalf("Error writing user file: %v", err)
+	}
+
+	t.Run("dry run reports the conflict", func(t *testing.T) {
+		curDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Error getting current directory: %v", err)
+		}
+
+		out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+			"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+			"--target", tmpDir,
+			"--configDir", filepath.Join(curDir, "..", "example"),
+			"--config", "project.yaml",
+			"--dry-run",
+		}, "Dry run against a conflicting user file ("+tmpDir+")")
+		if err == nil {
+			t.Fatalf("Dry run must fail on a conflict:\n%s", out)
+		}
+
+		if !strings.Contains(out, "conflict: ") || !strings.Contains(out, genRel) {
+			t.Errorf("Dry run must name the conflicting path:\n%s", out)
+		}
+	})
+
+	out, err = generateExample(t, tmpDir, "Regenerate project over a conflicting user file")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on a conflict:\n%s", out)
+	}
+
+	if !strings.Contains(out, "conflict: ") || !strings.Contains(out, genRel) {
+		t.Errorf("Error must name the conflicting path:\n%s", out)
+	}
+
+	got, err := os.ReadFile(genFile)
+	if err != nil {
+		t.Fatalf("Error reading user file: %v", err)
+	}
+
+	if string(got) != userContent {
+		t.Errorf("User file must be left untouched, got:\n%s", got)
+	}
+}
+
+// TestConflictWithUserSpecAbortsRun is the same guard for copied files: specs
+// and schemas have no marker at all, so a hand-written spec on a path the
+// config has only now started to claim would be replaced whole.
+func TestConflictWithUserSpecAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for spec conflict test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	specRel := "api/rest/example/v1/example.swagger.yml"
+	specFile := filepath.Join(tmpDir, filepath.FromSlash(specRel))
+	userContent := "openapi: 3.0.0\n# my own spec, never copied by the generator\n"
+
+	dropManifestRecord(t, metaPath, specRel)
+
+	if err := os.WriteFile(specFile, []byte(userContent), 0644); err != nil {
+		t.Fatalf("Error writing user spec: %v", err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate project over a conflicting user spec")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on a spec conflict:\n%s", out)
+	}
+
+	if !strings.Contains(out, "conflict: ") || !strings.Contains(out, specRel) {
+		t.Errorf("Error must name the conflicting spec:\n%s", out)
+	}
+
+	got, err := os.ReadFile(specFile)
+	if err != nil {
+		t.Fatalf("Error reading user spec: %v", err)
+	}
+
+	if string(got) != userContent {
+		t.Errorf("User spec must be left untouched, got:\n%s", got)
+	}
+}

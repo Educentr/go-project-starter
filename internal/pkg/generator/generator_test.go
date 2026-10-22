@@ -1,6 +1,10 @@
 package generator
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -564,4 +568,78 @@ func TestGeneratorKafkaParams(t *testing.T) {
 	if params.Kafka.Driver != "segmentio" {
 		t.Errorf("GeneratorKafkaParams.Kafka.Driver = %q, want %q", params.Kafka.Driver, "segmentio")
 	}
+}
+
+// TestCheckCopyTargetConflicts covers the copy side of the manifest guard:
+// specs and schemas carry no disclaimer marker, so a user file on a path the
+// config has only now started to claim would be replaced whole.
+func TestCheckCopyTargetConflicts(t *testing.T) {
+	targetDir := t.TempDir()
+
+	specDest := filepath.Join(targetDir, "api", "rest", "svc", "v1", "svc.swagger.yml")
+	schemaDest := filepath.Join(targetDir, "api", "schema", "user", "user.schema.json")
+
+	for _, path := range []string{specDest, schemaDest} {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte("mine\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	targets := []copyTarget{
+		{source: "/staging/svc.swagger.yml", dest: specDest, kind: "spec"},
+		{source: "/staging/user.schema.json", dest: schemaDest, kind: "schema"},
+	}
+
+	// Keeps the manifest non-empty without claiming the paths under test.
+	otherManifest := meta.Manifest{{Path: "psg_other_gen.go", Kind: meta.KindGenerated, Hash: "deadbeef"}}
+
+	t.Run("occupied destination absent from the manifest is a conflict", func(t *testing.T) {
+		err := checkCopyTargetConflicts(targetDir, otherManifest, targets)
+		if err == nil {
+			t.Fatal("expected a conflict error, got nil")
+		}
+
+		if !errors.Is(err, templater.ErrTargetConflict) {
+			t.Errorf("error should be templater.ErrTargetConflict, got: %v", err)
+		}
+
+		for _, path := range []string{specDest, schemaDest} {
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("error should mention %s, got: %v", path, err)
+			}
+		}
+	})
+
+	t.Run("destination recorded in the manifest is ours", func(t *testing.T) {
+		prev := meta.Manifest{
+			{Path: "api/rest/svc/v1/svc.swagger.yml", Kind: meta.KindCopied, Hash: "aaa"},
+			{Path: "api/schema/user/user.schema.json", Kind: meta.KindCopied, Hash: "bbb"},
+		}
+
+		if err := checkCopyTargetConflicts(targetDir, prev, targets); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("destination that does not exist yet is not a conflict", func(t *testing.T) {
+		fresh := []copyTarget{{
+			source: "/staging/new.swagger.yml",
+			dest:   filepath.Join(targetDir, "api", "rest", "new", "v1", "new.swagger.yml"),
+			kind:   "spec",
+		}}
+
+		if err := checkCopyTargetConflicts(targetDir, otherManifest, fresh); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("without a manifest the old behavior is kept", func(t *testing.T) {
+		if err := checkCopyTargetConflicts(targetDir, nil, targets); err != nil {
+			t.Errorf("unexpected error without a manifest: %v", err)
+		}
+	})
 }
