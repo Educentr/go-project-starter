@@ -194,6 +194,10 @@ integration-test-combined: buildfortest build-test-image
 integration-test-grafana: buildfortest build-test-image
 	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGrafana ./test/docker-integration/...
 
+.PHONY: integration-test-goat
+integration-test-goat: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationRESTEnvsGoat ./test/docker-integration/...
+
 # Run documentation server locally
 .PHONY: docs
 docs:
