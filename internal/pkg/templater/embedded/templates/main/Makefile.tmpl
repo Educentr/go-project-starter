@@ -763,7 +763,7 @@ install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $p
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}
 
 .PHONY: download
 download:

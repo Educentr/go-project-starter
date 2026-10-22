@@ -2,13 +2,53 @@ package templater
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+)
+
+// makefileNodeKind classifies one element of a parsed make target line.
+type makefileNodeKind int
+
+// makefilePrereqNode is one element of a parsed make target line, built by
+// parseMakefilePrereqLine at the bottom of this file.
+type makefilePrereqNode struct {
+	kind makefileNodeKind
+	// src is the span of the line this node was parsed from, quoted back in
+	// the failure message so it names the offending groups.
+	src      string
+	children []makefilePrereqNode
+	// isRange marks a group whose body repeats once per element.
+	isRange bool
+}
+
+// makefileTmplPath is the embedded template backing the generated Makefile,
+// read directly by the prerequisite-list tests at the bottom of this file.
+const makefileTmplPath = "embedded/templates/main/Makefile.tmpl"
+
+const (
+	// makefileLiteral is plain text between template actions.
+	makefileLiteral makefileNodeKind = iota
+	// makefileEmit is an action printing a value, e.g. {{ $a.Name }}.
+	makefileEmit
+	// makefileGroup is {{ if }} / {{ range }} / {{ with }} … {{ end }}, holding
+	// the nodes it emits when taken.
+	makefileGroup
+)
+
+var (
+	// makefileTargetLineRe matches a target line, as opposed to a variable
+	// assignment (`FOO:=bar`) or a recipe line (tab-indented).
+	makefileTargetLineRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+:[^=]`)
+	makefileActionRe     = regexp.MustCompile(`\{\{-?\s*(.*?)\s*-?\}\}`)
 )
 
 func TestIsFileIgnored(t *testing.T) {
@@ -1892,5 +1932,317 @@ func TestPrivateReposTokenSecretName(t *testing.T) {
 	appParams := GeneratorAppParams{GeneratorParams: GeneratorParams{PrivateReposTokenSecret: "GO_MODULES_TOKEN"}}
 	if got := appParams.PrivateReposTokenSecretName(); got != "GO_MODULES_TOKEN" {
 		t.Errorf("GeneratorAppParams.PrivateReposTokenSecretName() = %q, want %q", got, "GO_MODULES_TOKEN")
+	}
+}
+
+func makefileTmplSource(t *testing.T) string {
+	t.Helper()
+
+	src, err := templates.ReadFile(makefileTmplPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", makefileTmplPath, err)
+	}
+
+	return string(src)
+}
+
+// makefileTmplLine returns the single template line declaring the given make
+// target, so a test can exercise one prerequisite list without rendering the
+// whole Makefile.
+func makefileTmplLine(t *testing.T, target string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(makefileTmplSource(t), "\n") {
+		if strings.HasPrefix(line, target+":") {
+			return line
+		}
+	}
+
+	t.Fatalf("no %q target line in %s", target, makefileTmplPath)
+
+	return ""
+}
+
+// TestMakefileGenerateAggregatorSeparatesPrereqs renders the `generate:`
+// aggregator with every optional generator switched on and checks that each
+// one lands as its own prerequisite.
+//
+// The sqlc switch ($pg/$sqlc) is still a literal false in the template
+// ("ToDo work with databases"), so no project config can turn it on and a
+// full-generation test cannot reach the sqlc + ActiveRecord combination,
+// nor the sqlc + custom generator one.
+// Rendering the line standalone with the switches forced on is what exercises
+// it: before TOOLS-49 the sqlc group carried no trailing separator and the two
+// prerequisites fused into `sqlcgenerate-argen`, a target that does not exist.
+func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
+	// The line itself only reads $ogen, $sqlc and $jsonschema; $proto is
+	// already a plain literal prerequisite.
+	src := "{{- $ogen := true }}{{- $sqlc := true }}{{- $jsonschema := true }}" +
+		makefileTmplLine(t, "generate")
+
+	tmpl, err := template.New("generate").Parse(src)
+	if err != nil {
+		t.Fatalf("parse generate line: %v", err)
+	}
+
+	var rendered strings.Builder
+
+	data := struct {
+		UseActiveRecord  bool
+		CustomGenerators ds.CustomGenerators
+	}{
+		UseActiveRecord:  true,
+		CustomGenerators: ds.CustomGenerators{{Name: "runtime_limits_ts"}},
+	}
+
+	if err := tmpl.Execute(&rendered, data); err != nil {
+		t.Fatalf("render generate line: %v", err)
+	}
+
+	prereqs := strings.Fields(strings.TrimPrefix(rendered.String(), "generate:"))
+
+	for _, want := range []string{
+		"proto", "generate-ogen", "sqlc", "generate-argen",
+		"generate-jsonschema", "generate-runtime_limits_ts",
+	} {
+		if !slices.Contains(prereqs, want) {
+			t.Errorf("generate: prerequisites %q must contain %q as a separate target", prereqs, want)
+		}
+	}
+}
+
+// parseMakefilePrereqLine splits one template line into literals, emitting
+// actions and nested conditional groups. The template never spreads a group
+// across lines inside a prerequisite list; an unbalanced line is folded back
+// flat rather than reported, since the caller only looks for missing
+// separators.
+func parseMakefilePrereqLine(line string) []makefilePrereqNode {
+	// stack[0] collects the top level; an opener pushes a frame and {{ end }}
+	// pops it into a group node on the frame below.
+	stack := [][]makefilePrereqNode{nil}
+
+	var (
+		openVerbs []string
+		openAt    []int
+		pos       int
+	)
+
+	push := func(n makefilePrereqNode) {
+		top := len(stack) - 1
+		stack[top] = append(stack[top], n)
+	}
+
+	for _, m := range makefileActionRe.FindAllStringSubmatchIndex(line, -1) {
+		if m[0] > pos {
+			push(makefilePrereqNode{kind: makefileLiteral, src: line[pos:m[0]]})
+		}
+
+		action := line[m[0]:m[1]]
+		pos = m[1]
+
+		verb, _, _ := strings.Cut(line[m[2]:m[3]], " ")
+
+		switch verb {
+		case "if", "range", "with":
+			stack = append(stack, nil)
+			openVerbs = append(openVerbs, verb)
+			openAt = append(openAt, m[0])
+		case "end":
+			if len(openVerbs) == 0 {
+				continue
+			}
+
+			verb, at := openVerbs[len(openVerbs)-1], openAt[len(openAt)-1]
+			openVerbs, openAt = openVerbs[:len(openVerbs)-1], openAt[:len(openAt)-1]
+
+			children := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			push(makefilePrereqNode{
+				kind:     makefileGroup,
+				src:      line[at:pos],
+				children: children,
+				isRange:  verb == "range",
+			})
+		default:
+			// Anything else prints a value whose text is unknown here:
+			// {{ $a.Name }}, or {{ else }}, which this template never puts in
+			// a prerequisite list.
+			push(makefilePrereqNode{kind: makefileEmit, src: action})
+		}
+	}
+
+	if pos < len(line) {
+		push(makefilePrereqNode{kind: makefileLiteral, src: line[pos:]})
+	}
+
+	for len(stack) > 1 {
+		children := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		top := len(stack) - 1
+		stack[top] = append(stack[top], children...)
+	}
+
+	return stack[0]
+}
+
+// makefileStartsWithSep reports whether the text a node sequence emits always
+// begins with something make takes as a prerequisite separator. An emitting
+// action prints an unknown value, so it never separates; a group delegates to
+// its own body.
+func makefileStartsWithSep(nodes []makefilePrereqNode) bool {
+	if len(nodes) == 0 {
+		return false
+	}
+
+	switch n := nodes[0]; n.kind {
+	case makefileGroup:
+		return makefileStartsWithSep(n.children)
+	case makefileLiteral:
+		return strings.TrimLeft(n.src, " \t") != n.src
+	default:
+		return false
+	}
+}
+
+// makefileEndsWithSep is makefileStartsWithSep for the other end of the
+// sequence.
+func makefileEndsWithSep(nodes []makefilePrereqNode) bool {
+	if len(nodes) == 0 {
+		return false
+	}
+
+	switch n := nodes[len(nodes)-1]; n.kind {
+	case makefileGroup:
+		return makefileEndsWithSep(n.children)
+	case makefileLiteral:
+		// The colon closing the target name separates the first prerequisite
+		// just as whitespace does: `target:prereq` is valid make.
+		return strings.TrimRight(n.src, " \t") != n.src || strings.HasSuffix(n.src, ":")
+	default:
+		return false
+	}
+}
+
+// makefilePrereqSepIssues reports every junction on a make target line where
+// two prerequisites can fuse into one.
+//
+// A prerequisite list is whitespace-separated, so a conditional group has to
+// carry its own separator: the group's targets appear only when the group is
+// taken, and so must the space next to them. Either side does the job — a
+// leading separator ({{ if $x }} foo{{ end }}) and a trailing one
+// ({{ if $x }}foo {{ end }}) are both correct and the template uses both — as
+// long as every junction ends up with one. Where none does, the group's
+// outermost target fuses with its neighbor's and make fails with "No rule to
+// make target": TOOLS-49 dropped the separator after `sqlc`, turning
+// `sqlc` + `generate-argen` into `sqlcgenerate-argen`.
+func makefilePrereqSepIssues(line string) []string {
+	var (
+		issues []string
+		walk   func(nodes []makefilePrereqNode)
+	)
+
+	walk = func(nodes []makefilePrereqNode) {
+		for i, n := range nodes {
+			// Only a conditional group can make a junction disappear; two
+			// adjacent leaves are text that is always there to be read.
+			if i > 0 && (n.kind == makefileGroup || nodes[i-1].kind == makefileGroup) &&
+				!makefileEndsWithSep(nodes[i-1:i]) && !makefileStartsWithSep(nodes[i:]) {
+				issues = append(issues, fmt.Sprintf("%q meets %q with no separator between them",
+					nodes[i-1].src, n.src))
+			}
+
+			if n.kind != makefileGroup {
+				continue
+			}
+
+			// A range body repeats, so its own tail meets its own head.
+			if n.isRange && !makefileEndsWithSep(n.children) && !makefileStartsWithSep(n.children) {
+				issues = append(issues,
+					fmt.Sprintf("%q repeats with no separator between iterations", n.src))
+			}
+
+			walk(n.children)
+		}
+	}
+
+	walk(parseMakefilePrereqLine(line))
+
+	return issues
+}
+
+// TestMakefilePrereqSeparators guards the whole class of the TOOLS-49 bug
+// instead of the one line that happened to be broken: every conditional group
+// in a prerequisite list must keep its targets apart from their neighbors.
+// These chains keep growing — each new optional generator appends one more
+// group — so the invariant is checked on every target line of the template.
+func TestMakefilePrereqSeparators(t *testing.T) {
+	for i, line := range strings.Split(makefileTmplSource(t), "\n") {
+		if !makefileTargetLineRe.MatchString(line) || !strings.Contains(line, "{{") {
+			continue
+		}
+
+		for _, issue := range makefilePrereqSepIssues(line) {
+			t.Errorf("%s:%d: prerequisites fuse into one target: %s\n\t%s",
+				makefileTmplPath, i+1, issue, line)
+		}
+	}
+}
+
+// TestMakefilePrereqSepIssues covers the checker behind
+// TestMakefilePrereqSeparators on both conventions and on the fusing shapes
+// the template does not currently contain.
+func TestMakefilePrereqSepIssues(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		// want is true when the line must be reported as fusing.
+		want bool
+	}{
+		{
+			name: "separator trails each group",
+			line: `generate: proto {{ if $sqlc }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}`,
+		},
+		{
+			name: "separator leads the group",
+			line: `lint: install-lint{{ if $cg }} lint-custom{{ end }}`,
+		},
+		{
+			name: "colon separates the first prerequisite",
+			line: `proto:{{ if $bufLocal }} ensure-buf ensure-protoc-plugins{{ end }}`,
+		},
+		{
+			name: "nested group supplies the separator",
+			line: `docker: {{ range $_, $a := .Apps }}{{ if $a.HasDocker }}docker-{{ $a.Name }} {{ end }}{{ end }}`,
+		},
+		{
+			name: "TOOLS-49: group carries no separator at all",
+			line: `generate: proto {{ if $sqlc }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}`,
+			want: true,
+		},
+		{
+			name: "leading group ahead of a trailing group fuses",
+			line: `lint: base{{ if $a }} first{{ end }}{{ if $b }}second {{ end }}`,
+			want: true,
+		},
+		{
+			name: "range body unseparated fuses between iterations",
+			line: `build: {{ range $_, $a := .Apps }}build-{{ $a.Name }}{{ end }}`,
+			want: true,
+		},
+		{
+			name: "group fuses with the literal behind it",
+			line: `install-tools: base {{ if $a }}install-a{{ end }}install-goimports`,
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := makefilePrereqSepIssues(tt.line)
+			if got := len(issues) > 0; got != tt.want {
+				t.Errorf("makefilePrereqSepIssues(%q) = %v, want any issue = %v", tt.line, issues, tt.want)
+			}
+		})
 	}
 }
