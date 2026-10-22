@@ -145,9 +145,9 @@ func TestParseErrors(t *testing.T) {
 		},
 		{
 			name:     "typo in field name",
-			yaml:     "keys:\n  - path: /svc/a\n    type: string\n    requred: true\n",
+			yaml:     "keys:\n  - path: /svc/a\n    type: string\n    requires: true\n",
 			sentinel: ockeymap.ErrMalformedMap,
-			wantMsg:  `unknown field "requred"`,
+			wantMsg:  `unknown field "requires"`,
 		},
 		{
 			name:     "missing path",

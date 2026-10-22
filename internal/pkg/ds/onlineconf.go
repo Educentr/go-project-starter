@@ -122,37 +122,6 @@ type OnlineConfAppChecks struct {
 	Checks []OnlineConfCheck
 }
 
-const (
-	// OnlineConfPackage is the Go package name of the generated accessor
-	// package. Deliberately not "onlineconf": the generated package wraps the
-	// library of that name, and the two must be distinguishable at a call
-	// site.
-	OnlineConfPackage = "occonf"
-
-	// onlineConfTreeConst is the identifier of the generated constant holding
-	// the service tree root. The path builders are rendered with it rather than
-	// with the root itself, so the tree name appears once in the package.
-	onlineConfTreeConst = "serviceTree"
-
-	// onlineConfValidatorMsg is the common tail of every validator message.
-	// Kept in one place so the two generated lint configs cannot drift.
-	onlineConfValidatorMsg = "the generated accessor package is the only place OnlineConf is read — " +
-		"call the accessor of the key, and declare the key in the OnlineConf key map when it has none"
-)
-
-// onlineConfDir is the project-relative directory of the generated accessor
-// package. It sits under internal/pkg/ because it is generated core logic with
-// no config dependency, following the repository's three-layer split.
-var onlineConfDir = filepath.Join("internal", "pkg", OnlineConfPackage)
-
-// Origins of a row of the generated OnlineConf registry.
-const (
-	// OnlineConfOriginService marks a key declared by the service's key map.
-	OnlineConfOriginService = "service"
-	// OnlineConfOriginGenerated marks a key the generated code reads.
-	OnlineConfOriginGenerated = "generated"
-)
-
 // OnlineConfSurfaceEntry is one row of the generated OnlineConf registry: one
 // path of the service's tree, whoever reads it.
 type OnlineConfSurfaceEntry struct {
@@ -185,6 +154,54 @@ type OnlineConfSurfaceEntry struct {
 	ReadBy []string
 	// Description says what the key does.
 	Description string
+}
+
+const (
+	// OnlineConfPackage is the Go package name of the generated accessor
+	// package. Deliberately not "onlineconf": the generated package wraps the
+	// library of that name, and the two must be distinguishable at a call
+	// site.
+	OnlineConfPackage = "occonf"
+
+	// onlineConfTreeConst is the identifier of the generated constant holding
+	// the service tree root. The path builders are rendered with it rather than
+	// with the root itself, so the tree name appears once in the package.
+	onlineConfTreeConst = "serviceTree"
+
+	// onlineConfValidatorMsg is the common tail of every validator message.
+	// Kept in one place so the two generated lint configs cannot drift.
+	onlineConfValidatorMsg = "the generated accessor package is the only place OnlineConf is read — " +
+		"call the accessor of the key, and declare the key in the OnlineConf key map when it has none"
+)
+
+// Origins of a row of the generated OnlineConf registry.
+const (
+	// OnlineConfOriginService marks a key declared by the service's key map.
+	OnlineConfOriginService = "service"
+	// OnlineConfOriginGenerated marks a key the generated code reads.
+	OnlineConfOriginGenerated = "generated"
+)
+
+// namesPerAccessor is how many identifiers one accessor can claim — its own
+// name and, for a path builder, the path constant. Used only to pre-size the
+// collision map.
+const namesPerAccessor = 2
+
+// onlineConfDir is the project-relative directory of the generated accessor
+// package. It sits under internal/pkg/ because it is generated core logic with
+// no config dependency, following the repository's three-layer split.
+var onlineConfDir = filepath.Join("internal", "pkg", OnlineConfPackage)
+
+// ErrOnlineConfNameTaken reports two declarations that would generate one
+// function in the accessor package.
+var ErrOnlineConfNameTaken = errors.New("onlineconf accessor name is already taken")
+
+// onlineConfReserved are the names the accessor package carries itself: the
+// library's lifecycle, the subscription helper, the startup check and its
+// sentinel error. A declaration cannot have one of them.
+var onlineConfReserved = map[string]struct{}{
+	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
+	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
 }
 
 // NewOnlineConfConfig assembles a project's whole OnlineConf key map: the
@@ -235,18 +252,6 @@ func NewOnlineConfConfig(
 	return out, nil
 }
 
-// ErrOnlineConfNameTaken reports two declarations that would generate one
-// function in the accessor package.
-var ErrOnlineConfNameTaken = errors.New("onlineconf accessor name is already taken")
-
-// onlineConfReserved are the names the accessor package carries itself: the
-// library's lifecycle, the subscription helper, the startup check and its
-// sentinel error. A declaration cannot have one of them.
-var onlineConfReserved = map[string]struct{}{
-	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
-	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
-}
-
 // checkOnlineConfNames rejects two declarations whose generated functions would
 // collide.
 //
@@ -259,7 +264,7 @@ var onlineConfReserved = map[string]struct{}{
 // names are reserved for the same reason: they only became collidable when the
 // library's lifecycle moved into the generated package.
 func checkOnlineConfNames(accessors []OnlineConfAccessor) error {
-	taken := make(map[string]string, len(accessors)*2)
+	taken := make(map[string]string, len(accessors)*namesPerAccessor)
 
 	var problems []string
 

@@ -182,7 +182,7 @@ func TestDefaultLiteralAbsent(t *testing.T) {
 }
 
 // DefaultText is what the doc comment shows, so it should be the spelling a
-// reader of the map would recognise.
+// reader of the map would recognize.
 func TestDefaultText(t *testing.T) {
 	if got := parseOne(t, "  - path: /svc/a\n    type: duration\n    default: 5m\n").DefaultText(); got != "5m" {
 		t.Errorf("DefaultText() = %q, want %q", got, "5m")

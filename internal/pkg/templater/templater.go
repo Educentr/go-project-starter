@@ -35,6 +35,10 @@ const DefaultPrivateReposTokenSecret = "GH_PAT"
 // invented pin would claim a provenance the tree does not have.
 const DefaultStarterVersion = "latest"
 
+// goCommentWidth is the text width a wrapped doc comment is filled to: the 80
+// columns the generated code is written at, minus the "// " prefix.
+const goCommentWidth = 77
+
 type GeneratorParams struct {
 	AppInfo         string
 	Logger          ds.Logger
@@ -1040,10 +1044,6 @@ func getTmplErrorLine(lines []string, tmplErr string) (string, error) {
 		return "", errors.New("can't get line from error")
 	}
 }
-
-// goCommentWidth is the text width a wrapped doc comment is filled to: the 80
-// columns the generated code is written at, minus the "// " prefix.
-const goCommentWidth = 77
 
 // wrapComment refills prose to width columns, continuing every line after the
 // first with the line-comment prefix. A word longer than width keeps its own

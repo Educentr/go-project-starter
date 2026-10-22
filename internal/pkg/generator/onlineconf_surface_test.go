@@ -196,6 +196,7 @@ func TestAppRequiredChecksFollowTheApplication(t *testing.T) {
 			},
 		},
 	}
+
 	config.RestMap = map[string]cfg.Rest{}
 	for _, rest := range config.RestList {
 		config.RestMap[rest.Name] = rest

@@ -174,7 +174,7 @@ func Parse(data []byte) (*Map, error) {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrMalformedMap, err)
+		return nil, fmt.Errorf(errWrapFmt, ErrMalformedMap, err)
 	}
 
 	if err := m.Validate(); err != nil {

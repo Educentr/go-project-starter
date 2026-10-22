@@ -11,14 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ErrVarNameCollision reports two declared keys whose accessors would carry the
-// same Go identifier (e.g. /svc/queue/max-size and /svc/queue/max_size).
-var ErrVarNameCollision = errors.New("onlineconf accessor name collision")
-
-// ErrBadDefault reports a declared default that does not parse as the declared
-// type.
-var ErrBadDefault = errors.New("invalid default value")
-
 // pathConstPrefix is prepended to an accessor name to build the exported path
 // constant, so that a caller can hand a declared path to Subscribe without
 // importing onlineconf itself.
@@ -27,6 +19,18 @@ const pathConstPrefix = "Path"
 // defaultVarPrefix is prepended to an accessor name to build the unexported
 // variable holding the declared default.
 const defaultVarPrefix = "default"
+
+// errNotStringListFmt wraps a `strings` default that decodes neither as a YAML
+// sequence nor as a comma-separated scalar.
+const errNotStringListFmt = "%w: default is not a list of strings: %w"
+
+// ErrVarNameCollision reports two declared keys whose accessors would carry the
+// same Go identifier (e.g. /svc/queue/max-size and /svc/queue/max_size).
+var ErrVarNameCollision = errors.New("onlineconf accessor name collision")
+
+// ErrBadDefault reports a declared default that does not parse as the declared
+// type.
+var ErrBadDefault = errors.New("invalid default value")
 
 // commonInitialisms maps an upper-cased path word to the spelling Go uses for
 // it. A path segment is prose from the tree, so a derived identifier would
@@ -253,7 +257,7 @@ func (k Key) DefaultLiteral() (string, error) {
 
 // DefaultText returns the declared default as it was written in YAML, for the
 // accessor's doc comment. The literal the accessor is built from comes from
-// DefaultLiteral; this is the spelling a reader of the map would recognise.
+// DefaultLiteral; this is the spelling a reader of the map would recognize.
 func (k Key) DefaultText() string {
 	if !k.HasDefault() {
 		return ""
@@ -361,12 +365,12 @@ func stringsLiteral(node *yaml.Node) (string, error) {
 	switch node.Kind {
 	case yaml.SequenceNode:
 		if err := node.Decode(&items); err != nil {
-			return "", fmt.Errorf("%w: default is not a list of strings: %w", ErrBadDefault, err)
+			return "", fmt.Errorf(errNotStringListFmt, ErrBadDefault, err)
 		}
 	case yaml.ScalarNode:
 		var raw string
 		if err := node.Decode(&raw); err != nil {
-			return "", fmt.Errorf("%w: default is not a list of strings: %w", ErrBadDefault, err)
+			return "", fmt.Errorf(errNotStringListFmt, ErrBadDefault, err)
 		}
 
 		items = splitList(raw)

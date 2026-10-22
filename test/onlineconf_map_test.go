@@ -11,6 +11,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// registryEntry is one row of the generated OnlineConf registry, decoded with a
+// closed schema so that a field added to the template without a thought shows
+// up here.
+type registryEntry struct {
+	Path        string   `yaml:"path"`
+	Origin      string   `yaml:"origin"`
+	Type        string   `yaml:"type"`
+	Required    bool     `yaml:"required"`
+	Accessor    string   `yaml:"accessor"`
+	ReadVia     string   `yaml:"read_via"`
+	Owns        string   `yaml:"owns"`
+	Default     string   `yaml:"default"`
+	ReadBy      []string `yaml:"read_by"`
+	Description string   `yaml:"description"`
+}
+
+// onlineConfRegistryFile is the shape of the generated registry.
+type onlineConfRegistryFile struct {
+	Tree string          `yaml:"tree"`
+	Keys []registryEntry `yaml:"keys"`
+}
+
+// onlineConfMapFile is the key map file name the fixtures and the generated
+// configs agree on.
+const onlineConfMapFile = "onlineconf-key-map.yaml"
+
 // TestGenerateOnlineConfMap covers the whole OnlineConf-key-map feature on a
 // project that declares one: the accessor package, the startup check, and the
 // validator.
@@ -205,22 +231,6 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	}
 
 	assertOnlineConfRegistry(t, tmpDir)
-}
-
-// registryEntry is one row of the generated OnlineConf registry, decoded with a
-// closed schema so that a field added to the template without a thought shows
-// up here.
-type registryEntry struct {
-	Path        string   `yaml:"path"`
-	Origin      string   `yaml:"origin"`
-	Type        string   `yaml:"type"`
-	Required    bool     `yaml:"required"`
-	Accessor    string   `yaml:"accessor"`
-	ReadVia     string   `yaml:"read_via"`
-	Owns        string   `yaml:"owns"`
-	Default     string   `yaml:"default"`
-	ReadBy      []string `yaml:"read_by"`
-	Description string   `yaml:"description"`
 }
 
 // assertOnlineConfRegistry checks the generated registry of the whole OnlineConf
@@ -634,10 +644,6 @@ func generateOnlineConfMap(t *testing.T, fixture, keyMap string) (output, target
 	return out, targetDir, err
 }
 
-// onlineConfMapFile is the key map file name the fixtures and the generated
-// configs agree on.
-const onlineConfMapFile = "onlineconf-key-map.yaml"
-
 // onlineConfRegistry decodes the generated registry of the whole OnlineConf
 // surface, keyed by path. The schema is closed, so a field added to the template
 // without a thought shows up as a decode error here.
@@ -659,12 +665,6 @@ func onlineConfRegistryTree(t *testing.T, raw string) string {
 	t.Helper()
 
 	return decodeOnlineConfRegistry(t, raw).Tree
-}
-
-// onlineConfRegistryFile is the shape of the generated registry.
-type onlineConfRegistryFile struct {
-	Tree string          `yaml:"tree"`
-	Keys []registryEntry `yaml:"keys"`
 }
 
 func decodeOnlineConfRegistry(t *testing.T, raw string) onlineConfRegistryFile {

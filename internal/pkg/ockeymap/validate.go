@@ -7,6 +7,25 @@ import (
 	"strings"
 )
 
+// minPathSegments is the shortest usable path: the service tree root plus one
+// key segment. A bare root is a subtree, and OnlineConf has no subtree read.
+const minPathSegments = 2
+
+const (
+	// problemIndent prefixes every line of a problem list, so that a report of
+	// several problems reads as one indented block under its sentinel.
+	problemIndent = "\n  "
+
+	// errWrapFmt wraps one error in another, both unwrappable.
+	errWrapFmt = "%w: %w"
+
+	// errNotExportedNameFmt reports a `name` override that cannot be the
+	// identifier of a generated function. Shared by the two halves of the map,
+	// which validate the same rule.
+	errNotExportedNameFmt = "name %q is not an exported Go identifier; " +
+		"it names a function in the generated package"
+)
+
 // Sentinel errors. Use errors.Is to distinguish.
 var (
 	// ErrInvalidMap reports an OnlineConf key map that cannot be used for
@@ -49,10 +68,6 @@ var knownTypes = map[string]struct{}{
 	TypeStrings:  {},
 	TypeStruct:   {},
 }
-
-// minPathSegments is the shortest usable path: the service tree root plus one
-// key segment. A bare root is a subtree, and OnlineConf has no subtree read.
-const minPathSegments = 2
 
 // Validate checks the whole map: every entry on its own, uniqueness of paths
 // and of generated accessor names, and that all entries belong to one service
@@ -106,7 +121,7 @@ func (m *Map) treeProblems() []string {
 		return nil
 	}
 
-	var problems []string
+	problems := make([]string, 0, len(m.Keys))
 
 	for i, key := range m.Keys {
 		keyRoot := key.TreeRoot()
@@ -176,8 +191,7 @@ func (k Key) pathProblems() []string {
 // namingProblems checks that the entry yields a usable accessor identifier.
 func (k Key) namingProblems() []string {
 	if k.Name != "" && !identRx.MatchString(k.Name) {
-		return []string{fmt.Sprintf(
-			"name %q is not an exported Go identifier; it names a function in the generated package", k.Name)}
+		return []string{fmt.Sprintf(errNotExportedNameFmt, k.Name)}
 	}
 
 	varName := k.VarName()
@@ -274,5 +288,5 @@ func startsWithLetter(varName string) bool {
 // line. All problems are reported together on purpose: fixing a bad map should
 // take one round trip, not one per entry.
 func problemList(sentinel error, problems []string) error {
-	return fmt.Errorf("%w:\n  %s", sentinel, strings.Join(problems, "\n  "))
+	return fmt.Errorf("%w:%s%s", sentinel, problemIndent, strings.Join(problems, problemIndent))
 }

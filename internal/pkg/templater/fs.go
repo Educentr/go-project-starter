@@ -29,16 +29,6 @@ const (
 	// generated only when a metrics map is configured.
 	metricsLintConfigPath = "configs/golangci-metrics.yml"
 
-	// onlineConfLintConfigPath is the standalone OnlineConf-validator lint
-	// config. Generated in every project: generated code reads OnlineConf
-	// everywhere, so the guard has to hold everywhere.
-	onlineConfLintConfigPath = "configs/golangci-onlineconf.yml"
-
-	// onlineConfTreePath is the registry of the whole OnlineConf surface of the
-	// service — the paths generated code reads plus the service's own
-	// declarations. Generated in every project, for the same reason.
-	onlineConfTreePath = "configs/onlineconf-tree.yaml"
-
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
 	embedTransportPrefix = "embedded/templates/transport"
 	embedWorkerPrefix    = "embedded/templates/worker"
@@ -190,7 +180,10 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 	// A validator config only makes sense alongside the map it enforces, and so
 	// does the registry of the surface the map describes. The OnlineConf map is
 	// never absent — the generated code's half of it is always there — so its
-	// two artifacts are not listed here.
+	// two artifacts (configs/golangci-onlineconf.yml and
+	// configs/onlineconf-tree.yaml) are deliberately not listed here: generated
+	// code reads OnlineConf in every project, so the guard has to hold in every
+	// project.
 	skipMapArtifacts := map[string]bool{
 		metricsLintConfigPath: !params.Metrics.IsEnabled(),
 	}

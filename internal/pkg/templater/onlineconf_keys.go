@@ -145,6 +145,7 @@ func OnlineConfAccessorCalls() (map[string][]string, error) {
 			}
 
 			seen[name] = struct{}{}
+
 			names = append(names, name)
 		}
 

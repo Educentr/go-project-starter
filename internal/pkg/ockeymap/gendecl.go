@@ -45,90 +45,6 @@ import (
 // templates, and subtrees the generated code genuinely reads — `worker/<name>`,
 // `settings`, `bot` — were simply missing from it.
 
-// ErrGenDeclDefect reports a broken declaration shipped with the generator: a
-// declaration file that does not parse, names an unknown scope, uses a
-// placeholder its scope cannot fill, or contradicts another declaration of the
-// same path. It is a defect in this repository, not in the user's project, and
-// the message says so.
-var ErrGenDeclDefect = errors.New("generator onlineconf key declaration defect")
-
-// GenDeclSuffix is the file name suffix of a declaration file. The owning
-// template is the same path with the suffix removed: a declaration for
-// `service.go.tmpl` is `service.go.tmpl.ockeys.yaml` in the same directory, so
-// the mapping between a read and its declaration is mechanical and checkable.
-const GenDeclSuffix = ".ockeys.yaml"
-
-// Dimension placeholders a declared path may carry. Which ones are available is
-// decided by the group's scope — that is what makes a declaration expandable
-// into the concrete paths of a concrete project instead of a pattern nobody can
-// match.
-const (
-	PlaceholderService   = "{service}"
-	PlaceholderTransport = "{transport}"
-	PlaceholderApp       = "{app}"
-	PlaceholderWorker    = "{worker}"
-	PlaceholderClient    = "{client}"
-	PlaceholderEvent     = "{event}"
-)
-
-// pathBuilderSuffix is the mandatory tail of the name of a path-builder entry —
-// a declaration with no `type`, which generates a function returning the path
-// rather than reading it. The suffix keeps a builder from colliding with the
-// `<Name>Path` builder generated alongside a value accessor.
-const pathBuilderSuffix = "Path"
-
-// Declaration scopes — the project dimension a group of keys is read for, and
-// therefore what the generator expands it over.
-const (
-	// ScopeService covers code every project gets, read once per service.
-	ScopeService = "service"
-	// ScopeRESTServer covers the REST server configuration, read per REST
-	// server and per application serving it. A path that names no {app}
-	// expands once per server. {transport} is the server name, which carries
-	// the api version ("api_v1"): the name the generated main hands to
-	// rest.NewServer.
-	ScopeRESTServer = "rest_server"
-	// ScopeRESTClient covers the generated REST clients (ogen_client), read per
-	// client transport.
-	ScopeRESTClient = "rest_client"
-	// ScopeGRPCClient covers the generated gRPC clients (buf_client), read per
-	// client transport.
-	ScopeGRPCClient = "grpc_client"
-	// ScopeKafkaProducer covers the Kafka producer configuration, read per
-	// client name.
-	ScopeKafkaProducer = "kafka_producer"
-	// ScopeKafkaProducerEvent covers per-event Kafka settings, read per client
-	// and event.
-	ScopeKafkaProducerEvent = "kafka_producer_event"
-	// ScopeWorkerDaemon covers the daemon worker template, read per worker.
-	ScopeWorkerDaemon = "worker_daemon"
-	// ScopeWorkerTelegram covers the telegram worker template, read per worker.
-	ScopeWorkerTelegram = "worker_telegram"
-	// ScopeTelegramDriver covers the shared telegram driver, generated once when
-	// the project has a telegram worker.
-	ScopeTelegramDriver = "telegram_driver"
-)
-
-// scopePlaceholders is the closed set of dimension placeholders each scope can
-// fill. A path using anything else is a defect: it could never be expanded into
-// a path that exists in a tree.
-var scopePlaceholders = map[string][]string{
-	ScopeService:            {PlaceholderService},
-	ScopeRESTServer:         {PlaceholderService, PlaceholderTransport, PlaceholderApp},
-	ScopeRESTClient:         {PlaceholderService, PlaceholderTransport},
-	ScopeGRPCClient:         {PlaceholderService, PlaceholderTransport},
-	ScopeKafkaProducer:      {PlaceholderService, PlaceholderClient},
-	ScopeKafkaProducerEvent: {PlaceholderService, PlaceholderClient, PlaceholderEvent},
-	ScopeWorkerDaemon:       {PlaceholderService, PlaceholderWorker},
-	ScopeWorkerTelegram:     {PlaceholderService, PlaceholderWorker},
-	ScopeTelegramDriver:     {PlaceholderService},
-}
-
-// runtimeParamRx is the accepted grammar of a runtime segment, `<name>`: the
-// name becomes a parameter of the generated accessor, so it has to be an
-// unexported Go identifier.
-var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
-
 // GenKey is one declared read of the generated code.
 type GenKey struct {
 	// Path is the key path with dimension placeholders and runtime segments,
@@ -267,12 +183,6 @@ type GeneratorKey struct {
 	ReadBy []string
 }
 
-// Description returns the prose of the entry: every distinct reason the key is
-// read, in declaration order, as one sentence-joined string.
-func (k GeneratorKey) Description() string {
-	return strings.Join(k.Descriptions, " ")
-}
-
 // GenParam is one parameter of a generated accessor, in path order.
 type GenParam struct {
 	// Name is the Go parameter name.
@@ -311,17 +221,6 @@ type GenAccessor struct {
 	ReadBy []string
 }
 
-// Description returns every distinct reason the key is read, joined.
-func (a GenAccessor) Description() string {
-	return strings.Join(a.Descriptions, " ")
-}
-
-// IsPathBuilder reports whether the accessor returns a path instead of reading
-// a value.
-func (a GenAccessor) IsPathBuilder() bool {
-	return a.Type == ""
-}
-
 // GenRequiredCheck is one entry of an application's startup check: a required
 // accessor and the concrete arguments this application reads it with.
 type GenRequiredCheck struct {
@@ -345,6 +244,101 @@ type GenSurface struct {
 	Required []GenRequiredCheck
 }
 
+// expansion accumulates the expansion of every declaration over one project.
+type expansion struct {
+	keys      map[string]*GeneratorKey
+	accessors map[string]*GenAccessor
+	// byName maps an accessor name to the template that claimed it, so that two
+	// different paths cannot generate one function.
+	byName   map[string]string
+	required []GenRequiredCheck
+	problems []string
+}
+
+// GenDeclSuffix is the file name suffix of a declaration file. The owning
+// template is the same path with the suffix removed: a declaration for
+// `service.go.tmpl` is `service.go.tmpl.ockeys.yaml` in the same directory, so
+// the mapping between a read and its declaration is mechanical and checkable.
+const GenDeclSuffix = ".ockeys.yaml"
+
+// Dimension placeholders a declared path may carry. Which ones are available is
+// decided by the group's scope — that is what makes a declaration expandable
+// into the concrete paths of a concrete project instead of a pattern nobody can
+// match.
+const (
+	PlaceholderService   = "{service}"
+	PlaceholderTransport = "{transport}"
+	PlaceholderApp       = "{app}"
+	PlaceholderWorker    = "{worker}"
+	PlaceholderClient    = "{client}"
+	PlaceholderEvent     = "{event}"
+)
+
+// pathBuilderSuffix is the mandatory tail of the name of a path-builder entry —
+// a declaration with no `type`, which generates a function returning the path
+// rather than reading it. The suffix keeps a builder from colliding with the
+// `<Name>Path` builder generated alongside a value accessor.
+const pathBuilderSuffix = "Path"
+
+// Declaration scopes — the project dimension a group of keys is read for, and
+// therefore what the generator expands it over.
+const (
+	// ScopeService covers code every project gets, read once per service.
+	ScopeService = "service"
+	// ScopeRESTServer covers the REST server configuration, read per REST
+	// server and per application serving it. A path that names no {app}
+	// expands once per server. {transport} is the server name, which carries
+	// the api version ("api_v1"): the name the generated main hands to
+	// rest.NewServer.
+	ScopeRESTServer = "rest_server"
+	// ScopeRESTClient covers the generated REST clients (ogen_client), read per
+	// client transport.
+	ScopeRESTClient = "rest_client"
+	// ScopeGRPCClient covers the generated gRPC clients (buf_client), read per
+	// client transport.
+	ScopeGRPCClient = "grpc_client"
+	// ScopeKafkaProducer covers the Kafka producer configuration, read per
+	// client name.
+	ScopeKafkaProducer = "kafka_producer"
+	// ScopeKafkaProducerEvent covers per-event Kafka settings, read per client
+	// and event.
+	ScopeKafkaProducerEvent = "kafka_producer_event"
+	// ScopeWorkerDaemon covers the daemon worker template, read per worker.
+	ScopeWorkerDaemon = "worker_daemon"
+	// ScopeWorkerTelegram covers the telegram worker template, read per worker.
+	ScopeWorkerTelegram = "worker_telegram"
+	// ScopeTelegramDriver covers the shared telegram driver, generated once when
+	// the project has a telegram worker.
+	ScopeTelegramDriver = "telegram_driver"
+)
+
+// ErrGenDeclDefect reports a broken declaration shipped with the generator: a
+// declaration file that does not parse, names an unknown scope, uses a
+// placeholder its scope cannot fill, or contradicts another declaration of the
+// same path. It is a defect in this repository, not in the user's project, and
+// the message says so.
+var ErrGenDeclDefect = errors.New("generator onlineconf key declaration defect")
+
+// scopePlaceholders is the closed set of dimension placeholders each scope can
+// fill. A path using anything else is a defect: it could never be expanded into
+// a path that exists in a tree.
+var scopePlaceholders = map[string][]string{
+	ScopeService:            {PlaceholderService},
+	ScopeRESTServer:         {PlaceholderService, PlaceholderTransport, PlaceholderApp},
+	ScopeRESTClient:         {PlaceholderService, PlaceholderTransport},
+	ScopeGRPCClient:         {PlaceholderService, PlaceholderTransport},
+	ScopeKafkaProducer:      {PlaceholderService, PlaceholderClient},
+	ScopeKafkaProducerEvent: {PlaceholderService, PlaceholderClient, PlaceholderEvent},
+	ScopeWorkerDaemon:       {PlaceholderService, PlaceholderWorker},
+	ScopeWorkerTelegram:     {PlaceholderService, PlaceholderWorker},
+	ScopeTelegramDriver:     {PlaceholderService},
+}
+
+// runtimeParamRx is the accepted grammar of a runtime segment, `<name>`: the
+// name becomes a parameter of the generated accessor, so it has to be an
+// unexported Go identifier.
+var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
+
 // genKeyFields is the closed set of fields a declaration entry may carry.
 var genKeyFields = map[string]struct{}{
 	"path": {}, "name": {}, "type": {}, "required": {},
@@ -354,6 +348,23 @@ var genKeyFields = map[string]struct{}{
 // genGroupFields is the closed set of fields a declaration group may carry.
 var genGroupFields = map[string]struct{}{
 	"scope": {}, "keys": {},
+}
+
+// Description returns the prose of the entry: every distinct reason the key is
+// read, in declaration order, as one sentence-joined string.
+func (k GeneratorKey) Description() string {
+	return strings.Join(k.Descriptions, " ")
+}
+
+// Description returns every distinct reason the key is read, joined.
+func (a GenAccessor) Description() string {
+	return strings.Join(a.Descriptions, " ")
+}
+
+// IsPathBuilder reports whether the accessor returns a path instead of reading
+// a value.
+func (a GenAccessor) IsPathBuilder() bool {
+	return a.Type == ""
 }
 
 // UnmarshalYAML decodes a declaration entry, rejecting unknown fields.
@@ -429,7 +440,8 @@ func ParseGenDecl(data []byte, origin string) (*GenDecl, error) {
 	}
 
 	if problems := d.problems(); len(problems) > 0 {
-		return nil, fmt.Errorf("%w: %s:\n  %s", ErrGenDeclDefect, origin, strings.Join(problems, "\n  "))
+		return nil, fmt.Errorf("%w: %s:%s%s", ErrGenDeclDefect, origin,
+			problemIndent, strings.Join(problems, problemIndent))
 	}
 
 	return &d, nil
@@ -648,9 +660,7 @@ func (k GenKey) namingProblems() []string {
 	var problems []string
 
 	if k.Name != "" && !identRx.MatchString(k.Name) {
-		problems = append(problems, fmt.Sprintf(
-			"name %q is not an exported Go identifier; it names a function in the generated package",
-			k.Name))
+		problems = append(problems, fmt.Sprintf(errNotExportedNameFmt, k.Name))
 
 		return problems
 	}
@@ -740,7 +750,7 @@ func (k GenKey) ownedPrefix() string {
 // needs.
 //
 // Two declarations of the same path are merged — the dev-stand flag is read by
-// several templates — but a disagreement about what the path is is a defect,
+// several templates — but a disagreement about what the path is counts as a defect,
 // because then the two readers do not mean the same key.
 func ExpandGenDecls(decls []GenDeclFile, surface ProjectSurface) (*GenSurface, error) {
 	if surface.Service == "" {
@@ -772,17 +782,6 @@ func ExpandGenDecls(decls []GenDeclFile, surface ProjectSurface) (*GenSurface, e
 	}
 
 	return e.result(), nil
-}
-
-// expansion accumulates the expansion of every declaration over one project.
-type expansion struct {
-	keys      map[string]*GeneratorKey
-	accessors map[string]*GenAccessor
-	// byName maps an accessor name to the template that claimed it, so that two
-	// different paths cannot generate one function.
-	byName   map[string]string
-	required []GenRequiredCheck
-	problems []string
 }
 
 // addGroup expands one declaration group over the project.
@@ -1217,7 +1216,7 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 	}
 
 	if len(problems) > 0 {
-		return fmt.Errorf("%w: %w", ErrInvalidMap, problemList(ErrReservedPath, problems))
+		return fmt.Errorf(errWrapFmt, ErrInvalidMap, problemList(ErrReservedPath, problems))
 	}
 
 	return nil

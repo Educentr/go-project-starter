@@ -107,6 +107,11 @@ const (
 	// errOnlineConfMapCtx prefixes failures of the OnlineConf key surface.
 	errOnlineConfMapCtx = "onlineconf key map"
 
+	// errOnlineConfPathCtx prefixes failures of the `onlineconf.path` channel —
+	// resolving the reference, loading the map and checking it against the keys
+	// the generator itself declares.
+	errOnlineConfPathCtx = "onlineconf.path"
+
 	// Worker templates whose generated code reads its own OnlineConf subtree.
 	workerTemplateDaemon   = "daemon"
 	workerTemplateTelegram = "telegram"
@@ -1078,7 +1083,7 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 			context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
 		)
 		if err != nil {
-			return errors.Wrapf(err, "onlineconf.path: resolve %s", config.OnlineConf.Path)
+			return errors.Wrapf(err, "%s: resolve %s", errOnlineConfPathCtx, config.OnlineConf.Path)
 		}
 
 		keyMap, err := ockeymap.Load(mapPath)
@@ -1086,11 +1091,11 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 		cleanup()
 
 		if err != nil {
-			return errors.Wrap(err, "onlineconf.path")
+			return errors.Wrap(err, errOnlineConfPathCtx)
 		}
 
 		if err := keyMap.CheckGeneratorKeys(generated.Keys); err != nil {
-			return errors.Wrap(err, "onlineconf.path")
+			return errors.Wrap(err, errOnlineConfPathCtx)
 		}
 
 		warnOnlineConfTreeRoot(keyMap.TreeRoot(), config.Main.Name)
@@ -1264,16 +1269,16 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 	}
 
 	for _, worker := range config.WorkerList {
+		// A queue worker falls through deliberately: its generated code reads
+		// no OnlineConf key at all, so there is nothing to claim under
+		// /<service>/worker/<name> for it. That is also why the declarations
+		// are scoped per worker template rather than to workers in general.
 		switch worker.GeneratorTemplate {
 		case workerTemplateDaemon:
 			surface.DaemonWorkers = append(surface.DaemonWorkers, worker.Name)
 		case workerTemplateTelegram:
 			surface.TelegramWorkers = append(surface.TelegramWorkers, worker.Name)
 		}
-		// A queue worker falls through deliberately: its generated code reads
-		// no OnlineConf key at all, so there is nothing to claim under
-		// /<service>/worker/<name> for it. That is also why the declarations
-		// are scoped per worker template rather than to workers in general.
 	}
 
 	return surface
