@@ -2,7 +2,7 @@
 // project.yaml `path:` entries. A source is one of: a local filesystem path
 // (backward-compatible), an HTTP(S) URL, or a git repository URI. The Resolver
 // materializes every source into a real file under a per-run staging
-// directory so that downstream code (CopySpecs/CopySchemas) can treat all
+// directory so that downstream code (the spec/schema copy step) can treat all
 // sources uniformly as local files.
 package specsource
 
@@ -48,8 +48,13 @@ type ResolvedSpec struct {
 	// LocalPath is an absolute path on the local filesystem that downstream
 	// code can copy or read.
 	LocalPath string
-	// Source is the original parsed source.
+	// Source is the parsed source. For a GitSource it carries the *effective*
+	// ref — the one actually fetched, which differs from the ref in the config
+	// when ResolverOptions.SourceRefs overrode it.
 	Source SpecSource
+	// Commit is the SHA the git clone resolved to. Empty for local and HTTP
+	// sources, which have no commit to speak of.
+	Commit string
 }
 
 // Sentinel errors. Use errors.Is to distinguish.

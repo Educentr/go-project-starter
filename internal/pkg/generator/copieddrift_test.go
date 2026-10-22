@@ -9,7 +9,7 @@ import (
 )
 
 // TestCopiedSpecTargets pins the destinations the drift pre-pass derives.
-// They must equal what CopySpecs/CopySchemas go on to write — a mismatch would
+// They must equal what the copy pass goes on to write — a mismatch would
 // make the check compare the wrong file (or nothing at all) and let an edited
 // spec through.
 func TestCopiedSpecTargets(t *testing.T) {
@@ -29,7 +29,7 @@ func TestCopiedSpecTargets(t *testing.T) {
 	}
 
 	g := &Generator{
-		// The same transport is served by two applications: CopySpecs walks
+		// The same transport is served by two applications: the copy pass walks
 		// both, so the pre-pass must not report its destination twice.
 		Applications: ds.Apps{
 			{Name: "publicApi", Transports: ds.Transports{

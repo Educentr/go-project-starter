@@ -484,7 +484,7 @@ func TestRemoteSpec_HTTP_StagingCleaned(t *testing.T) {
 // reader nothing about where to fix the contract.
 func TestRemoteSpec_HTTP_DriftNamesSourceURI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, fakeOpenAPIBody)
+		_, _ = io.WriteString(w, fakeOpenAPIBody) //nolint:errcheck // test fixture server, as in the other cases here
 	}))
 	defer srv.Close()
 

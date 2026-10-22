@@ -66,10 +66,11 @@ go-project-starter --config=example/config.yaml
 make test                # Run tests with coverage
 make race                # Run tests with race detector
 
-# Linting (requires golangci-lint v1.52.2)
-make install-lint        # Install golangci-lint
-make lint                # Check diffs with origin/main
-make lint-full           # Full code lint
+# Linting
+make install-lint        # Install golangci-lint (version pinned by GOLANGCI_TAG in Makefile)
+make lint                # Check diffs with origin/main — this is the CI gate (lint.yml)
+make lint-config-verify  # Check configs/golangci.yml against the pinned version's schema
+make lint-full           # Full code lint — currently red on main (~600 pre-existing issues)
 make lint-fix            # Auto-fix linting issues
 
 # Coverage report
@@ -174,6 +175,20 @@ CLI и queue-worker spec'и (которые парсятся inline во вре�
 
 Прокидка: `resolveSourceRefs(pflag.CommandLine, os.Getenv)` в `cmd/go-project-starter/main.go` (есть флаги → env игнорируется целиком) → `generator.New(..., sourceRefs)` → `Generator.SourceRefs` → `ResolverOptions.SourceRefs` в **обоих** путях резолва (`resolveAllSources` и `resolveInlineSpec`), один и тот же указатель — по нему накапливается учёт совпадений. Адресный селектор, не совпавший ни с одним источником, — ошибка (`SourceRefs.CheckUsed()` в `Generate()` сразу после `resolveAllSources`): опечатка в имени репозитория не должна молча оставить его на дефолтной ветке. Общая форма «неиспользованной» не считается. В сгенерированном проекте: `make regenerate SOURCE_REF=<ref>` или `SOURCE_REF="<repo>:<ref> <repo>:<ref>"` (`main/Makefile.tmpl`, `$(foreach …)`). Документация: [docs/configuration/remote-specs.md](docs/configuration/remote-specs.md#переопределение-ref-sourceref).
 
+## Свои генераторы (`generator` + `contract`)
+
+Секция `generator` в `project.yaml` объявляет **генератор проекта** — три команды, без модели пакетных менеджеров: `install` (опц.), `cmd`, `lint` (опц.). Версия и способ установки принадлежат экосистеме генератора (`go install …@v1`, `npm ci` по lockfile, `pip install -r`), поэтому пин живёт внутри команды, а не отдельным ключом. Секция `contract` объявляет спеку (`path` — грамматика `rest[].path`; `copy`; `target` опц.) и ссылается на генератор обязательным `generator_name` — вход, из которого ничего не генерируется, контрактом не является.
+
+Три команды ложатся на три цели: `install` → `install-<gen>` в зависимостях `install-tools`, `cmd` → `generate-<gen>` в `generate` (после встроенных, и через него в `regenerate`), `lint` → `lint-<gen>` в зависимостях `lint`. Одна цель на генератор, `cmd`/`lint` вызываются по одному разу на каждую его спеку. `generate-<gen>` от `install-<gen>` не зависит — как встроенные. Без объявленных `generator`/`contract` вывод Makefile не меняется ни на строку (`TestGenerateWithoutCustomGenerators_MakefileUnchanged`).
+
+В `cmd`/`lint` доступны ровно две переменные Go-шаблона: `.Spec` (путь `copy` от корня проекта) и `.Target` (поле `target`). У `install` переменных нет — он выполняется один раз на генератор. Шаблоны валидируются при загрузке конфига: неизвестная переменная, незакрытое `{{`, ссылка на `.Target` в записи без `target` — ошибка загрузки, не пустая строка в команде. Имя генератора — `^[a-z0-9_-]+$`; коллизия со встроенной make-целью (`ogen`, `argen`, `jsonschema`, `lint`, `tools`, …, префикс `test-env-`) тоже ошибка.
+
+Поля `version` нет: что забирать — `@ref` в `path` (пин) либо `--sourceRef`, как у остальных каналов. Что **забрано** — стартер пишет в манифест `.project-config/meta.yaml`: `source` (с вырезанным токеном), эффективный `ref` и `commit` (SHA; для https/local — только `source` плюс `hash`). Вывод `cmd` в манифест не попадает: его пишет не стартер.
+
+**Спеки внутри проекта не правятся** — только в контрактном репозитории. Хеш скопированной спеки на диске ≠ манифесту → **ошибка генерации** (не warning, в отличие от правки выше disclaimer-маркера): там артефакт — сам файл и перегенерация его и исправляет, здесь расхождение означает, что сгенерированный код не соответствует ни одной опубликованной версии контракта.
+
+Реализация: `internal/pkg/config/contract.go` (типы секций, валидация, разбор и рендер шаблонов команд), `internal/pkg/ds/contract.go` (то, что видит шаблон Makefile — генераторы с уже отрендеренными командами), `internal/pkg/generator/contract.go` (`processGenerators`, `resolveContracts`, `checkContractDrift`, `copyContracts`), `main/Makefile.tmpl` (цели). Провенанс приезжает из `specsource.ResolvedSpec.Commit` (`gitHeadCommit`). Полная документация: [docs/configuration/custom-generators.md](docs/configuration/custom-generators.md).
+
 ## Rewrite Refs
 
 Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `project.yaml`. После `CopySpecs`/`CopySchemas` стартер сканирует target-директорию (`api/rest/<svc>/<ver>/` или `api/schema/<name>/`) и переписывает кросс-директорные `$ref` (`../common/foo.yaml#/X`) в локальные (`./foo.yaml#/X`) — при условии, что sibling-файл с этим basename уже скопирован рядом и входит в whitelist `SpecTargetFiles`/`SchemaTargetFiles`.
@@ -199,6 +214,20 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 Свои метрики генератор описывает той же картой — `internal/pkg/metricsmap/embedded/internal-metrics.yaml` (Go-рантайм, ogen, Kafka-продюсер). Наборы складываются в одно пространство имён, совпадение имён — ошибка генерации, не переопределение. Внутренние поля `owner` (какой компонент конструирует коллектор) и `requires` (какая возможность проекта нужна) зарезервированы за внутренней картой и в карте сервиса отвергаются.
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
+
+## Grafana Annotations
+
+Секция `grafana.annotations[]` в `project.yaml` объявляет записи-запросы, которые эмитятся в `.annotations.list[]` **каждого** сгенерированного дашборда рядом со стоковой записью builtIn. Сами события (деплой, рестарт, краш) постит сервис в рантайме через `POST /api/annotations`; без записи-запроса они складываются в Grafana, но ни на одном графике не рисуются.
+
+Аннотации объявляются на сервис целиком — приложение **не** ссылается на них по имени, как на datasources (`$.Grafana.Annotations` в шаблоне, не `.Application.Grafana`). Запись — чистые данные, маппинг в JSON один к одному.
+
+Поддерживается только теговый запрос к встроенному хранилищу (`datasource: grafana`, uid `-- Grafana --`): у запроса выражением к prometheus/loki принципиально другая форма `target`, это не ещё одно значение того же поля.
+
+Дефолты применяются на границе config → шаблон (`ResolvedIconColor`/`ResolvedLimit`/`ResolvedEnable`/`ResolvedTags`), потому что пустой `iconColor` или `limit: 0` Grafana трактует как «не рисовать». `tags` принимает и список YAML, и строку через запятую — viper режет скаляр по `,` без trim, поэтому `ResolvedTags` обрезает пробелы, иначе тег ` restart` не совпал бы ни с одним событием. `enable` — указатель: явный `false` (объявлена, но по умолчанию выключена) надо отличать от отсутствующего поля.
+
+Валидация (`config.GrafanaAnnotation.IsValid`, `Grafana.validateAnnotations`) отвергает: пустое имя, имя стоковой записи `Annotations & Alerts`, дубли имён, запрос без тегов, неподдерживаемый `datasource`, отрицательный `limit`, control-символы в `name`/`icon_color`/тегах (шаблонный `escapeJSON` их не экранирует → сломанный JSON доски). Объявленные аннотации при полном отсутствии datasources — тоже ошибка: дашборд генерируется только для приложений со ссылкой на datasource, записям было бы некуда попасть.
+
+Реализация: `internal/pkg/grafana/config.go` (тип `Annotation`, константы встроенного хранилища и дефолтов), `internal/pkg/config/structs.go` (`GrafanaAnnotation`, валидация, резолверы), маппинг в `Generator.processConfig()`, вывод — `internal/pkg/templater/embedded/templates/grafana/dashboards/dashboard.json.tmpl`. Полная документация: [docs/configuration/infrastructure.md](docs/configuration/infrastructure.md#аннотации).
 
 ## Regeneration Behavior
 
@@ -245,7 +274,7 @@ manifest:
   `.gitignore`, `README.md`, `LICENSE.txt`, `CLAUDE.md`, `static/**`), в манифест **не**
   попадают.
 
-Манифест даёт три вещи:
+Манифест даёт четыре вещи:
 
 1. **Точную orphan-детекцию.** Удаляются только файлы, которые есть в предыдущем манифесте и
    выпали из текущего вывода. Посторонние файлы в дереве (`*_gen.go.orig` от merge-конфликта,
@@ -255,7 +284,25 @@ manifest:
    манифестом, генератор печатает `warning: <путь>: generated part was changed …`. Это
    предупреждение, а не ошибка: правки выше маркера перезаписываются (force-режим — отдельная
    задача).
-3. **Запрет правки скопированных спек** (`kind: copied`). Расхождение хеша на диске с манифестом —
+3. **Отказ перезаписать чужой файл (конфликт).** Файл из текущего вывода, который лежит на диске,
+   но **записи в предыдущем манифесте не имеет**, генератор не писал — значит он пользовательский.
+   Прогон падает **до записи чего-либо**, перечисляя все такие пути сразу:
+
+   ```text
+   conflict: 2 files exist and were not written by the generator — rename or remove them:
+     - internal/app/constant/psg_constant_gen.go
+     - api/rest/example/v1/example.swagger.yml
+   ```
+
+   Проверка покрывает все типы: с disclaimer-маркером (раньше молча перезаписывалось всё выше
+   маркера), без него (раньше — невнятное `error split disclaimer in file …`) и `isFileIgnored`
+   (`.json`, `.keep`, `*.mod` — раньше файл терялся целиком), а также `kind: copied` (спеки
+   REST/gRPC, JSON Schema). Исключения: user-owned пути (`go.mod`, `.gitignore`, `README.md`,
+   `static/**` — `templater.IsUserOwned`), pending rename (ищется по `OldDestName`, как записал
+   предыдущий прогон) и проект без манифеста. Запись с пустым `hash` считается «нашей».
+   Сентинел — `templater.ErrTargetConflict` (конкретный тип `*templater.TargetConflictError`
+   со списком путей); `--dry-run` сообщает о конфликте так же.
+4. **Запрет правки скопированных спек** (`kind: copied`). Расхождение хеша на диске с манифестом —
    **ошибка генерации**, ненулевой код выхода (см. ниже).
 
 Хеши обновляются по диску после `post_generate` (goimports, `go mod tidy`, `make generate`
@@ -263,8 +310,10 @@ manifest:
 дрейфе для всех файлов.
 
 Проект, сгенерированный до `version: 5`, манифеста не имеет: первый прогон работает по-старому
-(обход дерева + поиск disclaimer в содержимом) и записывает манифест, со второго — точный путь.
-Реализация: `internal/pkg/meta/meta.go`, `templater.GetUserCodeFromFiles()`.
+(обход дерева + поиск disclaimer в содержимом, конфликты не детектируются) и записывает манифест,
+со второго — точный путь.
+Реализация: `internal/pkg/meta/meta.go`, `templater.GetUserCodeFromFiles()`,
+`internal/pkg/templater/conflict.go`, `generator.checkCopyTargetConflicts()`.
 
 ### Скопированные спеки не правятся внутри проекта (`kind: copied`)
 
@@ -303,7 +352,7 @@ files from version control.
 
 Реализация: `Manifest.CheckCopiedDrift` + `CopiedDriftError`/`CopiedFileDriftHint`
 (`internal/pkg/meta/drift.go`), сбор целей — `Generator.copiedSpecTargets()`
-(`internal/pkg/generator/generator.go`), вызов — в начале `Generator.Generate()`. Формулировка
+(`internal/pkg/generator/copy.go`), вызов — в начале `Generator.Generate()`. Формулировка
 ошибки и подсказка лежат в `meta`, чтобы другие каналы, копирующие файлы в проект, переиспользовали
 их, а не придумывали свои.
 

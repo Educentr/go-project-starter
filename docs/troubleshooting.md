@@ -160,6 +160,34 @@ make generate
 make ogen
 ```
 
+### `toolchain upgrade needed to resolve <модуль>`
+
+```
+go: toolchain upgrade needed to resolve go.opentelemetry.io/otel/exporters/otlp/otlptrace
+go: ...@v1.47.0 requires go >= 1.26.0 (running go 1.24.4; GOTOOLCHAIN=local)
+```
+
+**Причина:** `go mod tidy` резолвит не только импорты проекта, но и импорты
+**тестов зависимостей**. Если такой пакет не требуется ни одним модулем в графе,
+tidy берёт его `@latest` — а `@latest` может требовать Go новее, чем
+`tools.golang_version` проекта. Под `GOTOOLCHAIN=local` (так настроены
+официальные `golang:*` образы) подняться до нужного тулчейна нельзя, и tidy
+падает. Шаг `post_generate: go_mod_tidy` при этом прерывает генерацию.
+
+**Решение:** запинить проблемный модуль в `go.mod` на версию, совместимую с
+вашей `tools.golang_version` — обычно это версия из той же релизной линейки,
+что и уже присутствующие в `go.mod` соседние модули:
+
+```go
+require (
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.33.0 // indirect
+	go.opentelemetry.io/proto/otlp v1.4.0 // indirect
+)
+```
+
+Для goat-проектов такие пины уже входят в шаблон `go.mod` — подробнее
+см. [Go Version Policy](GO-VERSION-POLICY.md).
+
 ### Приватные модули не загружаются
 
 **Причина:** Не настроен GOPRIVATE.

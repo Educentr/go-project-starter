@@ -1,0 +1,65 @@
+main:
+  name: customgentest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/customgentest.git
+  module_path: github.com/test/customgentest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+# Two generators on purpose: one declares all three commands, the other only
+# `cmd`. The second one must get a generate- target and nothing else — no
+# empty install- or lint- target to fail the build.
+generator:
+  - name: runtime_limits_ts
+    install: npm ci --prefix web
+    cmd: node web/scripts/generate-runtime-limits.mjs {{ .Spec }} --out {{ .Target }}
+    lint: npx --prefix web spec-lint {{ .Spec }}
+  - name: codex_types
+    cmd: go run ./internal/cmd/codextypes {{ .Spec }}
+
+# Two contracts on the first generator: its generate- target has to run the
+# command once per spec, and `install` must still appear exactly once.
+contract:
+  - path: ./runtime_limits.yaml
+    copy: api/contract/runtime_limits.yaml
+    target: web/src/generated/runtimeLimits.ts
+    generator_name: runtime_limits_ts
+  - path: ./runtime_limits_extra.yaml
+    copy: api/contract/runtime_limits_extra.yaml
+    target: web/src/generated/runtimeLimitsExtra.ts
+    generator_name: runtime_limits_ts
+  - path: ./codex_broker.swagger.yml
+    copy: api/contract/codex_broker.swagger.yml
+    generator_name: codex_types
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys

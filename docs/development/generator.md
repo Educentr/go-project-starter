@@ -305,14 +305,16 @@ func (h *Handler) CustomMethod() {
 **первым делом в `Generator.Generate()`**, до записи файлов. Два требования к месту вызова:
 
 1. **До любой записи.** Сгенерированные файлы пишутся на диск раньше, чем `resolveAllSources()`
-   → `CopySpecs()`; проверка внутри `CopySpecs` оставила бы дерево наполовину перезаписанным.
+   → `copyTargets()`; проверка внутри копирующего пасса оставила бы дерево наполовину
+   перезаписанным.
 2. **До `resolveAllSources()`.** После пре-пасса резолва `Transport.SpecPath` и
    `JSONSchema.Path`/`Schemas[].Path` указывают на временный staging, а в сообщении нужен
    исходный `path` из `project.yaml` — иначе подсказка «правьте в контрактном репозитории»
    бесполезна.
 
-Набор проверяемых файлов собирает `Generator.copiedSpecTargets()`: он повторяет обход
-`CopySpecs`/`CopySchemas` (приложения → транспорты → `SpecPath`; `JSONSchemas` →
+Набор проверяемых файлов собирает `Generator.copiedSpecTargets()`
+(`internal/pkg/generator/copy.go`, рядом с копирующим пассом): он повторяет обход
+`specCopyTargets`/`schemaCopyTargets` (приложения → транспорты → `SpecPath`; `JSONSchemas` →
 `schemaSourcePaths()`) и выводит имя файла в `api/` тем же способом, что и пре-пасс резолва, —
 через `SpecSource.TargetFilename()`. Источник для сообщения — `SpecSource.Describe()`
 (token-redacted). Нераспарсившийся `path` пре-пасс пропускает: про него корректнее отчитается

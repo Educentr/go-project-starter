@@ -1,0 +1,3 @@
+limits:
+  cpu_millis: 2000
+  memory_mb: 4096

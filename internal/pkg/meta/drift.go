@@ -10,19 +10,6 @@ import (
 	"strings"
 )
 
-// ErrCopiedDrift is the sentinel behind every copied-file drift report. Match
-// it with errors.Is to tell a drifted tree apart from any other generator
-// failure.
-var ErrCopiedDrift = errors.New("file copied by the generator was edited inside the project")
-
-// CopiedFileDriftHint is the operator-facing part of the drift message: what to
-// do about it. Kept separate from the error so other channels that copy files
-// into the project (and hit the same rule) reuse one wording instead of
-// inventing their own.
-const CopiedFileDriftHint = "files copied by the generator are not an edit point: change them at the source " +
-	"(the contract repository the path points to) and re-run the generator. " +
-	"To drop the local edits, restore the files from version control."
-
 // CopiedFile pairs a file the generator copies into the project as-is with the
 // source it comes from.
 //
@@ -41,6 +28,19 @@ type CopiedFile struct {
 type CopiedDriftError struct {
 	Files []CopiedFile
 }
+
+// CopiedFileDriftHint is the operator-facing part of the drift message: what to
+// do about it. Kept separate from the error so other channels that copy files
+// into the project (and hit the same rule) reuse one wording instead of
+// inventing their own.
+const CopiedFileDriftHint = "files copied by the generator are not an edit point: change them at the source " +
+	"(the contract repository the path points to) and re-run the generator. " +
+	"To drop the local edits, restore the files from version control."
+
+// ErrCopiedDrift is the sentinel behind every copied-file drift report. Match
+// it with errors.Is to tell a drifted tree apart from any other generator
+// failure.
+var ErrCopiedDrift = errors.New("file copied by the generator was edited inside the project")
 
 // Unwrap exposes ErrCopiedDrift so callers can match the error by sentinel
 // without depending on the concrete type.

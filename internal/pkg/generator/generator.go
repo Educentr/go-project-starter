@@ -55,6 +55,7 @@ type Generator struct {
 	GoJSONSchemaVersion     string
 	GoatVersion             string
 	GoatServicesVersion     string
+	StarterVersion          string
 	TargetDir               string
 	ConfigPath              string // Source config file path for copying to target
 	DockerImagePrefix       string
@@ -71,6 +72,11 @@ type Generator struct {
 	Documentation           ds.DocsConfig
 	Metrics                 ds.MetricsConfig
 	GithubCI                ds.GithubCIConfig
+	// CustomGenerators are the project's own generators with their commands
+	// rendered per contract — what the Makefile targets are built from.
+	CustomGenerators ds.CustomGenerators
+	// Contracts are the specs fetched for those generators.
+	Contracts ds.Contracts
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -99,6 +105,11 @@ const (
 	// errRelPathFmt wraps a failure to make a generator-written path
 	// project-relative for the manifest.
 	errRelPathFmt = "error resolve relative path of %s: %w"
+
+	// errCopySpecCtx and errCopySchemaCtx prefix failures of the two copy
+	// channels — planning, directory creation and the copy itself.
+	errCopySpecCtx   = "Error copy spec"
+	errCopySchemaCtx = "Error copy schemas"
 )
 
 var (
@@ -111,23 +122,29 @@ var (
 // Generator.SourceRefs); build it with specsource.ParseSourceRefs, which
 // validates every ref in it.
 //
-// The first parameter is the generator's own version string. It is accepted
-// but unused, as it has been so far — storing it in Generator.AppInfo would
-// rewrite the disclaimer header of every generated file in every project,
-// which is a change of its own and not part of this one.
+// starterVersion is the version of the running generator binary, as reported
+// by selfversion.Resolve, or an empty string when that binary cannot name it
+// (a local build from an untagged tree). It is pinned into the generated
+// project so the tree records which generator produced it; see
+// resolveStarterVersion for what an empty value falls back to.
+//
+// It is deliberately not stored in Generator.AppInfo: that would rewrite the
+// disclaimer header of every generated file in every project, which is a
+// change of its own and not part of this one.
 func New(
-	_ string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRefs *specsource.SourceRefs,
+	starterVersion string, config cfg.Config, genMeta meta.Meta, dryrun bool, sourceRefs *specsource.SourceRefs,
 ) (*Generator, error) {
 	g := Generator{
-		Applications: make(ds.Apps, 0, len(config.Applications)),
-		PostGenerate: make([]ExecCmd, 0, len(config.PostGenerate)),
-		Transports:   make(ds.Transports),
-		Workers:      make(ds.Workers),
-		Drivers:      make(ds.Drivers),
-		JSONSchemas:  make(ds.JSONSchemas),
-		Kafka:        make(ds.KafkaConfigs),
-		DryRun:       dryrun,
-		Meta:         genMeta,
+		StarterVersion: starterVersion,
+		Applications:   make(ds.Apps, 0, len(config.Applications)),
+		PostGenerate:   make([]ExecCmd, 0, len(config.PostGenerate)),
+		Transports:     make(ds.Transports),
+		Workers:        make(ds.Workers),
+		Drivers:        make(ds.Drivers),
+		JSONSchemas:    make(ds.JSONSchemas),
+		Kafka:          make(ds.KafkaConfigs),
+		DryRun:         dryrun,
+		Meta:           genMeta,
 		// Set before processConfig: the inline spec resolve for queue workers
 		// and CLI commands happens inside it and needs the override.
 		SourceRefs: sourceRefs,
@@ -138,6 +155,48 @@ func New(
 	}
 
 	return &g, nil
+}
+
+// resolveStarterVersion settles the generator pin written into the project.
+//
+// The version of the running binary wins, because the pin is provenance — the
+// record of which generator produced this tree, against which regenerating is
+// expected to yield an empty diff. configured (tools.starter_version) is the
+// fallback for a binary that cannot name its own version, i.e. a local build
+// from an untagged tree; with neither, the pin degrades to
+// templater.DefaultStarterVersion and the run says so.
+//
+// configured is validated even when it loses, since a pin the module proxy
+// cannot resolve breaks `make regenerate` for whoever hits the fallback path —
+// a typo should not wait for that moment to surface.
+func (g *Generator) resolveStarterVersion(configured string) error {
+	if configured != "" && !semver.IsValid(configured) && configured != templater.DefaultStarterVersion {
+		return errors.Errorf(
+			"starter_version %q is neither a semantic version (e.g. v1.2.3) nor %q",
+			configured, templater.DefaultStarterVersion,
+		)
+	}
+
+	if g.StarterVersion != "" {
+		return nil
+	}
+
+	if configured != "" {
+		g.StarterVersion = configured
+
+		return nil
+	}
+
+	g.StarterVersion = templater.DefaultStarterVersion
+
+	log.Printf(
+		"warning: this go-project-starter build cannot name its own version, "+
+			"the generated Makefile pins the generator to %q; "+
+			"set tools.starter_version in project.yaml to pin a released version",
+		templater.DefaultStarterVersion,
+	)
+
+	return nil
 }
 
 func (g *Generator) processConfig(config cfg.Config) error {
@@ -164,6 +223,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.GoJSONSchemaVersion = config.Tools.GoJSONSchemaVersion
 	g.GoatVersion = config.Tools.GoatVersion
 	g.GoatServicesVersion = config.Tools.GoatServicesVersion
+
+	if err := g.resolveStarterVersion(config.Tools.StarterVersion); err != nil {
+		return err
+	}
 
 	// Set RuntimeVersion: use config value if provided, otherwise use MinRuntimeVersion
 	if config.Tools.RuntimeVersion != "" {
@@ -194,6 +257,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	}
 
 	if err := g.processMetricsMap(config); err != nil {
+		return err
+	}
+
+	if err := g.processGenerators(config); err != nil {
 		return err
 	}
 
@@ -353,6 +420,21 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		})
 	}
 
+	// Process Grafana annotation queries. They are dashboard-level and
+	// declared once for the whole service, so every generated dashboard gets
+	// the same set — an app does not reference them the way it does datasources.
+	for _, cfgAnn := range config.Grafana.Annotations {
+		g.Grafana.Annotations = append(g.Grafana.Annotations, grafana.Annotation{
+			Name:      cfgAnn.Name,
+			IconColor: cfgAnn.ResolvedIconColor(),
+			Tags:      cfgAnn.ResolvedTags(),
+			MatchAny:  cfgAnn.MatchAny,
+			Hide:      cfgAnn.Hide,
+			Enable:    cfgAnn.ResolvedEnable(),
+			Limit:     cfgAnn.ResolvedLimit(),
+		})
+	}
+
 	// Process JSON Schema configurations
 	for _, js := range config.JSONSchemaList {
 		if js.Name == "" {
@@ -505,6 +587,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		RunsOn:            runsOn,
 		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
 		DoctlVersion:      config.GithubCI.DoctlVersion,
+		DoctlMode:         config.GithubCI.DoctlMode(),
 	}
 
 	for _, app := range config.Applications {
@@ -813,6 +896,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		GoJSONSchemaVersion:     g.GoJSONSchemaVersion,
 		GoatVersion:             g.GoatVersion,
 		GoatServicesVersion:     g.GoatServicesVersion,
+		StarterVersion:          g.StarterVersion,
 		Applications:            g.Applications,
 		Drivers:                 g.Drivers,
 		Workers:                 g.Workers,
@@ -823,6 +907,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Documentation:           g.Documentation,
 		Metrics:                 g.Metrics,
 		GithubCI:                g.GithubCI,
+		CustomGenerators:        g.CustomGenerators,
 	}
 }
 
@@ -928,7 +1013,7 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 // resolveInlineSpec materializes a spec source into a local file for
 // one-shot parsing during config load (CLI commands.yaml, queue worker
 // contracts). Unlike resolveAllSources — which runs as a pre-pass and keeps
-// staged files alive for CopySpecs/CopySchemas — inline specs are read and
+// staged files alive for the spec/schema copy step — inline specs are read and
 // parsed immediately, so the caller invokes the returned cleanup right
 // after the parse and the staging dir is gone before Generate() runs.
 //
@@ -984,7 +1069,7 @@ func resolveInlineSpec(
 // directory. LocalSource entries are joined with BasePath as before.
 //
 // The returned cleanup function MUST be called via defer once Generate is
-// done with the staging files (typically right after CopySpecs/CopySchemas).
+// done with the staging files (typically right after the spec/schema copies).
 func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 	stagingDir, err := os.MkdirTemp("", "gps-specs-")
 	if err != nil {
@@ -1031,7 +1116,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		// by value, so re-publish the updated SpecTargetFiles there too.
 		// SpecPath aliasing works (slice index mutation), but assigning a new
 		// targets slice header here does not propagate to those snapshots —
-		// CopySpecs / GetTargetSpecFile would otherwise fall back to
+		// specCopyTargets / GetTargetSpecFile would otherwise fall back to
 		// filepath.Base of the prefixed staging path (e.g. 1-foo.swagger.yml
 		// when two transports resolve the same upstream file).
 		for ai := range g.Applications {
@@ -1071,6 +1156,10 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		g.JSONSchemas[name] = j
 	}
 
+	if err := g.resolveContracts(ctx, resolver); err != nil {
+		return cleanup, err
+	}
+
 	return cleanup, nil
 }
 
@@ -1100,6 +1189,12 @@ func (g *Generator) hasGitSource() bool {
 			}
 		}
 	}
+
+	for _, c := range g.Contracts {
+		if check(c.RawPath) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -1113,159 +1208,6 @@ func resolveOne(ctx context.Context, r *specsource.Resolver, raw string) (string
 		return "", "", err
 	}
 	return res.LocalPath, src.TargetFilename(), nil
-}
-
-// CopySpecs copies every transport spec into the project and returns the paths
-// it wrote, so they can be recorded in the manifest.
-func (g *Generator) CopySpecs() ([]string, error) {
-	written := []string{}
-
-	for _, app := range g.Applications {
-		for _, transport := range app.Transports {
-			for specNum, spec := range transport.SpecPath {
-				if _, err := os.Stat(spec); err != nil {
-					return nil, fmt.Errorf("%w: %s", errSpecNotFound, spec)
-				}
-
-				source := spec
-
-				dest := filepath.Join(
-					transport.GetTargetSpecDir(g.TargetDir),
-					transport.GetTargetSpecFile(specNum),
-				)
-
-				log.Printf("copy spec: `%s` to `%s`\n", source, dest)
-
-				if err := tools.CopyFile(source, dest); err != nil {
-					return nil, err
-				}
-
-				written = append(written, dest)
-			}
-		}
-	}
-
-	return written, nil
-}
-
-// CopySchemas copies every JSON schema into the project and returns the paths
-// it wrote, so they can be recorded in the manifest.
-func (g *Generator) CopySchemas() ([]string, error) {
-	written := []string{}
-
-	for _, schema := range g.JSONSchemas {
-		targetDir := schema.GetTargetSpecDir(g.TargetDir)
-
-		// Ensure target directory exists
-		if err := os.MkdirAll(targetDir, tools.DefaultDirPerm); err != nil {
-			return nil, fmt.Errorf("failed to create schema directory %s: %w", targetDir, err)
-		}
-
-		paths := schemaSourcePaths(schema)
-
-		for i, schemaPath := range paths {
-			if _, err := os.Stat(schemaPath); err != nil {
-				return nil, errors.Wrapf(err, "schema file not found: %s", schemaPath)
-			}
-
-			fileName := filepath.Base(schemaPath)
-			if i < len(schema.SchemaTargetFiles) && schema.SchemaTargetFiles[i] != "" {
-				fileName = schema.SchemaTargetFiles[i]
-			}
-			dest := filepath.Join(targetDir, fileName)
-
-			log.Printf("copy schema: `%s` to `%s`\n", schemaPath, dest)
-
-			if err := tools.CopyFile(schemaPath, dest); err != nil {
-				return nil, err
-			}
-
-			written = append(written, dest)
-		}
-	}
-
-	return written, nil
-}
-
-// schemaSourcePaths returns the schema source paths of one jsonschema entry,
-// preferring the Schemas[] form over the legacy Path[] one.
-func schemaSourcePaths(schema ds.JSONSchema) []string {
-	if len(schema.Schemas) == 0 {
-		return schema.Path
-	}
-
-	paths := make([]string, 0, len(schema.Schemas))
-	for _, item := range schema.Schemas {
-		paths = append(paths, item.Path)
-	}
-
-	return paths
-}
-
-// copiedSpecTargets lists every file CopySpecs/CopySchemas will write into the
-// project, paired with the source it comes from. targetPath must be absolute.
-//
-// It MUST be called before resolveAllSources: afterwards SpecPath points into
-// the per-run staging directory, and a staging path in a drift message tells
-// the reader nothing about where to actually fix the contract. Destination
-// names are derived exactly the way the resolve pre-pass derives
-// SpecTargetFiles (SpecSource.TargetFilename), so they match the files
-// CopySpecs/CopySchemas go on to write.
-func (g *Generator) copiedSpecTargets(targetPath string) ([]meta.CopiedFile, error) {
-	targets := []meta.CopiedFile{}
-	seen := map[string]struct{}{}
-
-	add := func(dir, raw string) error {
-		src, err := specsource.ParseSpecSource(raw)
-		if err != nil {
-			// Reporting a malformed source is not this pre-pass's job: the
-			// resolve pass fails on it anyway, with the transport or schema
-			// name and the entry index attached.
-			return nil
-		}
-
-		dest := filepath.Join(dir, src.TargetFilename())
-
-		rel, err := meta.RelPath(targetPath, dest)
-		if err != nil {
-			return fmt.Errorf(errRelPathFmt, dest, err)
-		}
-
-		// A transport is snapshotted into every application that serves it, so
-		// the same destination is reached more than once.
-		if _, dup := seen[rel]; dup {
-			return nil
-		}
-
-		seen[rel] = struct{}{}
-		targets = append(targets, meta.CopiedFile{Path: rel, Source: src.Describe()})
-
-		return nil
-	}
-
-	for _, app := range g.Applications {
-		for _, transport := range app.Transports {
-			dir := transport.GetTargetSpecDir(targetPath)
-
-			for _, raw := range transport.SpecPath {
-				if err := add(dir, raw); err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-
-	for _, schema := range g.JSONSchemas {
-		dir := schema.GetTargetSpecDir(targetPath)
-
-		for _, raw := range schemaSourcePaths(schema) {
-			if err := add(dir, raw); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return targets, nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -1398,6 +1340,12 @@ func (g *Generator) Generate() error {
 
 	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.Manifest, g.staticIgnorePaths()...)
 	if err != nil {
+		// A conflict message already names every path and the action to take;
+		// wrapping it in "Error get user code" would only bury the lede.
+		if errors.Is(err, templater.ErrTargetConflict) {
+			return err
+		}
+
 		return errors.Wrap(err, "Error get user code")
 	}
 
@@ -1543,22 +1491,56 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error resolve specs")
 	}
 
-	copiedSpecs, err := g.CopySpecs()
+	specTargets, err := g.specCopyTargets()
 	if err != nil {
-		return errors.Wrap(err, "Error copy spec")
+		return errors.Wrap(err, errCopySpecCtx)
+	}
+
+	schemaTargets, err := g.schemaCopyTargets()
+	if err != nil {
+		return errors.Wrap(err, errCopySchemaCtx)
+	}
+
+	// Both channels are checked before either is copied: a conflict in a schema
+	// must not leave half the specs already overwritten.
+	if err = checkCopyTargetConflicts(targetPath, g.Meta.Manifest, append(specTargets, schemaTargets...)); err != nil {
+		return err
+	}
+
+	copiedSpecs, err := copyTargets(specTargets)
+	if err != nil {
+		return errors.Wrap(err, errCopySpecCtx)
 	}
 
 	if err = g.rewriteRefsForSpecs(); err != nil {
 		return errors.Wrap(err, "Error rewrite spec refs")
 	}
 
-	copiedSchemas, err := g.CopySchemas()
+	if err = g.ensureSchemaDirs(); err != nil {
+		return errors.Wrap(err, errCopySchemaCtx)
+	}
+
+	copiedSchemas, err := copyTargets(schemaTargets)
 	if err != nil {
-		return errors.Wrap(err, "Error copy schemas")
+		return errors.Wrap(err, errCopySchemaCtx)
 	}
 
 	if err = g.rewriteRefsForSchemas(); err != nil {
 		return errors.Wrap(err, "Error rewrite schema refs")
+	}
+
+	if err = g.checkContractCollisions(manifest); err != nil {
+		return err
+	}
+
+	// Before copyContracts, which overwrites the file the check looks at.
+	if err = g.checkContractDrift(targetPath); err != nil {
+		return err
+	}
+
+	contractRecords, err := g.copyContracts(targetPath)
+	if err != nil {
+		return errors.Wrap(err, "Error copy contracts")
 	}
 
 	// Refs are rewritten in place, so the copied files are hashed only now.
@@ -1567,7 +1549,8 @@ func (g *Generator) Generate() error {
 		return err
 	}
 
-	g.Meta.SetManifest(append(manifest, copiedRecords...))
+	manifest = append(manifest, copiedRecords...)
+	g.Meta.SetManifest(append(manifest, contractRecords...))
 
 	// Create .project-config directory in target for meta.yaml and config
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
