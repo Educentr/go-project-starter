@@ -101,9 +101,13 @@ coverage:
 	@go tool cover -html=.cover -o coverage.html
 	@go tool cover -func .cover | grep "total:"
 
+# Unit tests with the race detector. This is the CI gate (unit-test.yml), so
+# -count=1 keeps the test cache from masking a failure on a re-run.
+# ./test/docker-integration is excluded: it needs a prebuilt image and has its
+# own job (make integration-test).
 .PHONY: race
 race:
-	@go test $$(go list ./... | grep -v /test/docker-integration) -race -parallel=10
+	@go test $$(go list ./... | grep -v /test/docker-integration) -race -parallel=10 -count=1
 
 .PHONY: local-install
 local-install:
