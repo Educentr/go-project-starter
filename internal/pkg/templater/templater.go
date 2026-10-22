@@ -79,7 +79,7 @@ type GeneratorParams struct {
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
-	// GithubCI carries the runner, job timeout and doctl version applied to
+	// GithubCI carries the runner, job timeout and doctl setup applied to
 	// every job of the generated GitHub Actions workflows.
 	GithubCI ds.GithubCIConfig
 	// CustomGenerators are the project's own generators (the `generator`

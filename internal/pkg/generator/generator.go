@@ -587,6 +587,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		RunsOn:            runsOn,
 		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
 		DoctlVersion:      config.GithubCI.DoctlVersion,
+		DoctlMode:         config.GithubCI.DoctlMode(),
 	}
 
 	for _, app := range config.Applications {

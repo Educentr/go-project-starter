@@ -320,6 +320,14 @@ jobs:
           username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
           password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
       {{ else if eq $.RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+      - name: Log in to DO Container Registry
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
@@ -330,6 +338,7 @@ jobs:
 
       - name: Log in to DO Container Registry
         run: doctl registry login
+{{- end }}
       {{ else if eq $.RegistryType "aws" }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -394,6 +403,14 @@ jobs:
           persist-credentials: false
 
       {{ if eq .RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+      - name: Log in to DO Container Registry
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
@@ -404,6 +421,7 @@ jobs:
 
       - name: Log in to DO Container Registry
         run: doctl registry login
+{{- end }}
       {{ else if eq .RegistryType "github" }}
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2

@@ -85,3 +85,35 @@ func TestGithubCIConfig_JobHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestGithubCIConfig_DoctlFromImage(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  GithubCIConfig
+		want bool
+	}{
+		{
+			name: "zero config keeps the install step",
+			cfg:  GithubCIConfig{},
+			want: false,
+		},
+		{
+			name: "explicit install mode keeps the install step",
+			cfg:  GithubCIConfig{DoctlMode: DoctlModeInstall},
+			want: false,
+		},
+		{
+			name: "image mode drops the install step",
+			cfg:  GithubCIConfig{DoctlMode: DoctlModeImage},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.DoctlFromImage(); got != tt.want {
+				t.Errorf("GithubCIConfig.DoctlFromImage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
