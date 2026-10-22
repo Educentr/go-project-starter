@@ -29,6 +29,8 @@ vendor
 
 # Binaries for programs and plugins
 bin/
+# `make build` output
+/go-project-starter
 *.exe
 *.dll
 *.so

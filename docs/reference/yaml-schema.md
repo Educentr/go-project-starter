@@ -20,6 +20,8 @@ driver:                    # Драйверы интеграций
 applications:              # Приложения (deployment units)
 grafana:                   # Grafana datasources
 jsonschema:                # JSON Schema для типизации
+generator:                 # Свои генераторы проекта (install/cmd/lint)
+contract:                  # Спеки для своих генераторов
 artifacts:                 # Типы артефактов сборки
 packaging:                 # Конфигурация системных пакетов
 docker:                    # Docker настройки
@@ -57,6 +59,7 @@ git:
   repo: string              # [required] URL Git репозитория
   module_path: string       # [required] Go module path
   private_repos: string     # [optional] Приватные модули для GOPRIVATE (через запятую)
+  private_repos_token_secret: string  # [optional] Имя GitHub-секрета с токеном для приватных модулей. Default: GH_PAT
 ```
 
 ---
@@ -78,6 +81,8 @@ tools:
   runtime_version: string          # [auto] Версия go-project-starter-runtime
   goat_version: string             # [auto] Версия GOAT test framework
   goat_services_version: string    # [auto] Версия GOAT services
+  starter_version: string          # [auto] Версия go-project-starter (пин в Makefile; читается
+                                   #        только если бинарь не знает своей версии)
 ```
 
 ---
@@ -107,7 +112,8 @@ rest:
     instantiation: string       # [optional] static (default) или dynamic
     auth_params:                # [optional] Параметры аутентификации
       transport: header         # Тип транспорта (только header)
-      type: apikey              # Тип аутентификации: apikey или bearer
+      type: apikey              # Тип аутентификации: apikey|bearer|basic
+                                # Имя схемы в спеке: AuthHeader|BearerAuth|BasicAuth
 ```
 
 ### Типы генераторов REST
@@ -124,6 +130,18 @@ rest:
 |-------|----------|
 | `static` | Один экземпляр клиента на всё приложение (default) |
 | `dynamic` | Новый экземпляр для каждого запроса |
+
+### Типы `auth_params.type` (ogen_client)
+
+| Тип | Имя схемы в спеке | Узлы OnlineConf под `auth_params` |
+|-----|-------------------|-----------------------------------|
+| `apikey` | `AuthHeader` | `apikey` |
+| `bearer` | `BearerAuth` | `token` |
+| `basic` | `BasicAuth` | `username`, `password` |
+
+Имя схемы в `components.securitySchemes` обязано совпадать с колонкой «Имя схемы в
+спеке» — из него ogen выводит метод `SecuritySource`, который реализует сгенерированная
+обёртка. Подробнее — [Транспорты](../configuration/transports.md#параметры-аутентификации).
 
 ---
 
@@ -339,7 +357,7 @@ applications:
 
 ## Секция `grafana`
 
-Глобальные настройки Grafana datasources.
+Глобальные настройки Grafana: datasources и записи аннотаций.
 
 ```yaml
 grafana:
@@ -348,9 +366,26 @@ grafana:
       type: string              # [required] Тип: prometheus|loki
       access: string            # [optional] Режим: proxy (default)|direct
       url: string               # [required] URL datasource
+      uid: string               # [optional] uid datasource (default: ds-<lowercase name>)
       isDefault: bool           # [optional] Default datasource
       editable: bool            # [optional] Редактируемый в UI
+
+  annotations:
+    - name: string              # [required] Уникальное имя (подпись тумблера на доске)
+      tags: [string]            # [required] Теги событий; список или строка через запятую
+      icon_color: string        # [optional] Цвет маркера (default: yellow)
+      datasource: string        # [optional] Только grafana — встроенное хранилище (default)
+      match_any: bool           # [optional] OR по тегам вместо AND (default: false)
+      hide: bool                # [optional] Скрыть тумблер в шапке доски (default: false)
+      enable: bool              # [optional] Начальное состояние тумблера (default: true)
+      limit: int                # [optional] Лимит событий на запрос (default: 100)
 ```
+
+`uid` — до 40 символов из `a-z A-Z 0-9 - _`; итоговые uid (явные и вычисленные)
+должны быть уникальны. Подробнее — [инфраструктура](../configuration/infrastructure.md#поля-datasource).
+
+`annotations` эмитятся в `.annotations.list[]` каждого сгенерированного дашборда рядом
+со стоковой записью builtIn. Подробнее — [инфраструктура](../configuration/infrastructure.md#аннотации).
 
 ---
 
@@ -373,6 +408,31 @@ jsonschema:
     path:
       - string
 ```
+
+---
+
+## Секции `generator` и `contract`
+
+Генераторы, которые приносит сам проект, и спеки, которые стартер для них забирает.
+Подробно — [Свои генераторы](../configuration/custom-generators.md).
+
+```yaml
+generator:
+  - name: string              # [required] ^[a-z0-9_-]+$, не встроенная make-цель
+    install: string           # [optional] команда установки, без переменных
+    cmd: string               # [required] команда генерации; {{ .Spec }}, {{ .Target }}
+    lint: string              # [optional] линтер генератора; {{ .Spec }}, {{ .Target }}
+
+contract:
+  - path: string              # [required] источник спеки, грамматика rest[].path
+    copy: string              # [required] куда положить, путь от корня проекта
+    target: string            # [optional] путь вывода генератора ({{ .Target }})
+    generator_name: string    # [required] ссылка на запись generator
+```
+
+Make-цели: `install-<name>` → в `install-tools`, `generate-<name>` → в `generate`,
+`lint-<name>` → в `lint`. Одна цель на генератор, `cmd`/`lint` вызываются по разу на каждую
+его спеку.
 
 ---
 
@@ -486,6 +546,10 @@ post_generate:
 | `kafka.driver: custom` | Требуются `driver_import`, `driver_package`, `driver_obj` |
 | `rest.generator_type: template` | Требуется `generator_template` |
 | `rest.instantiation` | Только для `ogen_client` |
+| запись `contract` | Требуется `generator_name`, существующий в `generator` |
+| `cmd`/`lint` ссылается на `{{ .Target }}` | Запись `contract` обязана задать `target` |
+| `generator.name` | `^[a-z0-9_-]+$`, без коллизии со встроенной make-целью |
+| `contract.copy` / `contract.target` | Относительный очищенный путь внутри проекта |
 
 ---
 

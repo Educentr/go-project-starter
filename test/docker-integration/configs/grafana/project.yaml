@@ -17,7 +17,11 @@ tools:
 
 grafana:
   datasources:
+    # Explicit uid: this dashboard is meant for a shared Grafana where the
+    # metrics datasource is provisioned centrally as "victoriametrics".
+    # Loki below has no uid and keeps the generated default (ds-loki).
     - name: Prometheus
+      uid: victoriametrics
       type: prometheus
       access: proxy
       url: http://prometheus:9090
@@ -29,6 +33,19 @@ grafana:
       url: http://loki:3100
       isDefault: false
       editable: false
+  annotations:
+    # Comma-separated tags, every optional field spelled out.
+    - name: "Deploys / Restarts / Crashes"
+      icon_color: yellow
+      datasource: grafana
+      tags: deploy, restart, crash
+      match_any: true
+      limit: 50
+    # Tags as a YAML list, everything optional left at its default
+    # (icon_color yellow, limit 100, enable true, match_any false).
+    - name: Migrations
+      tags:
+        - migration
 
 rest:
   - name: api

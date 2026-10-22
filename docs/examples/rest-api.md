@@ -83,12 +83,22 @@ rest:
     version: v1
 
   # Клиент для внешнего API с аутентификацией
+  # (схема apiKey в спеке должна называться AuthHeader)
   - name: payment_provider
     path: [./api/external/payment.yaml]
     generator_type: ogen_client
     auth_params:
       transport: header
       type: apikey
+
+  # Клиент для API с HTTP Basic
+  # (схема http/basic в спеке должна называться BasicAuth)
+  - name: billing_provider
+    path: [./api/external/billing.yaml]
+    generator_type: ogen_client
+    auth_params:
+      transport: header
+      type: basic
 
   # Системные endpoints
   - name: sys
@@ -99,14 +109,16 @@ rest:
 
 applications:
   - name: server
-    transport: [api, payment_provider, sys]
+    transport: [api, payment_provider, billing_provider, sys]
 ```
 
 **Как работает:**
 
 - `api` — ваш REST сервер
-- `payment_provider` — типобезопасный клиент для внешнего API
-- API ключ читается из OnlineConf
+- `payment_provider`, `billing_provider` — типобезопасные клиенты для внешних API
+- Креденшелы читаются из OnlineConf: API ключ из `auth_params/apikey`, пара логин/пароль
+  из `auth_params/username` и `auth_params/password` (см.
+  [Параметры аутентификации](../configuration/transports.md#параметры-аутентификации))
 
 ## С несколькими версиями API
 

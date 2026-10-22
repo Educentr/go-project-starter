@@ -18,8 +18,8 @@ OnlineConf позволяет изменять конфигурацию без �
 ```
 {service_name}/
 ├── devstand                    # 0 или 1
-├── log/
-│   └── level                   # info, debug, error
+├── default/
+│   └── log_level               # info, debug, error (процессный логгер)
 ├── transport/
 │   └── rest/
 │       └── {name}_{version}/
@@ -28,11 +28,24 @@ OnlineConf позволяет изменять конфигурацию без �
 │           ├── timeout_read        # 30s (ReadTimeout + IdleTimeout)
 │           ├── timeout_write       # 60s (WriteTimeout)
 │           ├── timeout_read_header # 30s (ReadHeaderTimeout, default = timeout_read)
-│           └── handler/
+│           ├── handler/
+│           │   ├── default/
+│           │   │   └── timeout     # 2s (default handler timeout)
+│           │   └── {path}/
+│           │       └── timeout     # per-path handler timeout
+│           └── mw/metrics/
 │               ├── default/
-│               │   └── timeout     # 2s (default handler timeout)
-│               └── {path}/
-│                   └── timeout     # per-path handler timeout
+│               │   └── log_level   # уровень логгера запроса
+│               └── {url_path}/
+│                   └── log_level   # уровень для одного endpoint-а
+├── worker/
+│   └── {worker_name}/
+│       ├── default/
+│       │   ├── timeout             # дефолтный таймаут джоба
+│       │   └── log_level           # уровень логгера воркера
+│       └── job/
+│           ├── timeout             # таймаут джоба
+│           └── log_level           # уровень логгера джоба
 ├── db/
 │   └── main/
 │       ├── host                # localhost:5432
@@ -94,6 +107,53 @@ Handler timeout — таймаут на обработку одного HTTP-з�
 
 Если handler timeout превышает server write timeout, он автоматически уменьшается до write timeout с предупреждением в логе. Это предотвращает ситуацию, когда handler продолжает работать после того, как сервер уже закрыл соединение.
 
+## Уровень логирования
+
+Логгер создаётся не один на процесс: своя копия появляется на каждый HTTP-запрос и на
+каждый джоб воркера. Уровень каждой копии читается **под тем поддеревом, которому эта
+копия принадлежит**:
+
+```text
+<префикс>/default/log_level            # базовый уровень этого логгера
+<префикс>/{endpoint|job}/log_level     # переопределение для одного endpoint-а / джоба
+```
+
+Переопределение применяется, только если значение непустое и отличается от базового;
+иначе действует базовое. Нераспознанный уровень трактуется как `info`.
+
+### Инвариант префикса
+
+**`ocPrefix`, который вызывающий передаёт логгеру, — это абсолютный путь поддерева в
+дереве конфигурации; имя сервиса в нём уже есть.** Сгенерированный конструктор логгера
+(`pkg/app/logger/psg_{zlog,logrus}_gen.go`) имя сервиса **не** приписывает — он только
+дописывает к префиксу узел уровня. Пустой `ocPrefix` означает процессный логгер: его
+префикс — корень сервиса. Пустые компоненты пути отбрасываются, поэтому путь с `//`
+не возникает.
+
+Фактические префиксы:
+
+| Логгер | `<префикс>` | Узел переопределения |
+|---|---|---|
+| процессный (создаётся на старте) | `/{svc}` | нет |
+| запрос REST | `/{svc}/transport/rest/{transport}/{app}/mw/metrics` | `{urlPath}` |
+| джоб воркера | `/{svc}/worker/{worker}` | `job` |
+
+Примеры:
+
+```text
+/my-api/default/log_level                                        # весь процесс
+/my-api/transport/rest/api_v1/web-app/mw/metrics/default/log_level   # все запросы транспорта
+/my-api/transport/rest/api_v1/web-app/mw/metrics/users/{id}/log_level # один endpoint
+/my-api/worker/telegram/default/log_level                        # воркер
+/my-api/worker/telegram/job/log_level                            # джоб воркера
+```
+
+> **Поведенческое изменение конфигурации.** До исправления конструктор логгера приписывал
+> имя сервиса к префиксу, в котором оно уже было, и читал уровень на один сегмент глубже
+> (`/{svc}/{svc}/…`), то есть переопределение уровня не работало никогда — всегда
+> применялся `info`. Проекты, в которых значение было выставлено по старому, удвоенному
+> пути, после регенерации должны перенести его на путь из таблицы выше.
+
 ## Переменные окружения
 
 OnlineConf значения могут передаваться через переменные окружения:
@@ -101,7 +161,7 @@ OnlineConf значения могут передаваться через пе�
 ```bash
 # Core settings
 OC_{ProjectName}__devstand=0
-OC_{ProjectName}__log__level=info
+OC_{ProjectName}__default__log_level=info
 
 # REST API settings
 OC_{ProjectName}__transport__rest__{name}_{version}__ip=0.0.0.0

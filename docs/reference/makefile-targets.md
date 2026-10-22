@@ -13,6 +13,15 @@
 | `make argen` | Генерация ActiveRecord |
 | `make mock` | Генерация моков |
 
+Генераторы, объявленные проектом в секции `generator`, добавляют свои цели — по одной на
+генератор (см. [Свои генераторы](../configuration/custom-generators.md)):
+
+| Цель | Описание |
+|------|----------|
+| `make install-{generator}` | Установка генератора; в зависимостях `install-tools` |
+| `make generate-{generator}` | Вызов генератора на каждой его спеке; в зависимостях `generate` |
+| `make lint-{generator}` | Линтер генератора; в зависимостях `lint` |
+
 ## Тестирование
 
 | Цель | Описание |
@@ -32,6 +41,13 @@
 | `make lint-full` | Полный lint всего кода |
 | `make lint-fix` | Автоисправление lint ошибок |
 | `make install-lint` | Установка golangci-lint |
+
+Дополнительные флаги golangci-lint передаются через переменную `LINT_ARGS` (по умолчанию пусто),
+она подставляется во все три цели:
+
+```bash
+make lint LINT_ARGS='--build-tags=integration'
+```
 
 ## Docker
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,20 +15,31 @@ import (
 	projinit "github.com/Educentr/go-project-starter/internal/pkg/init"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/migrate"
+	"github.com/Educentr/go-project-starter/internal/pkg/selfversion"
 	"github.com/Educentr/go-project-starter/internal/pkg/setup"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
 
 const (
 	msgConfig         = "used config path ="
+	msgSourceRef      = "spec sources without an explicit @ref are taken from:"
 	cmdSetup          = "setup"
 	cmdInit           = "init"
 	cmdMigrate        = "migrate"
 	cmdVersion        = "version"
+	argVersion        = "--version"
+	argEndOfFlags     = "--"
 	defaultConfigDir  = ".project-config"
 	defaultConfigFile = "project.yaml"
 	flagConfig        = "config"
 	flagDryRun        = "dry-run"
+	flagSourceRef     = "sourceRef"
+	envSourceRef      = "GPS_SOURCE_REF"
 	usageConfigFile   = "project configuration file"
+	usageSourceRef    = "git ref for the spec sources in project.yaml that do not pin one explicitly: " +
+		"either <ref> for every repository, or <repo>:<ref> for one of them. " +
+		"Repeatable, and one value may carry several entries separated by commas or spaces " +
+		"(env " + envSourceRef + ", used only when the flag is absent)"
 
 	layoutFailedToBindFlags       = "failed to bind flags: %v"
 	layoutFailedToLoadConfig      = "failed to load config: %v"
@@ -37,6 +49,8 @@ const (
 	layoutFailedToSetup           = "failed to run setup: %v"
 	layoutFailedToInit            = "failed to run init: %v"
 	layoutFailedToMigrate         = "failed to migrate config: %v"
+	layoutInvalidSourceRef        = "invalid --%s: %v"
+	layoutVersion                 = "go-project-starter %s\ncommit: %s\nbuilt: %s\n"
 )
 
 var (
@@ -46,6 +60,15 @@ var (
 )
 
 func main() {
+	// Answered before the subcommand dispatch: --version is documented as a
+	// flag common to every command, and each subcommand hands pflag only its
+	// own arguments, so no single flag set can see it.
+	if versionRequested(os.Args[1:]) {
+		printVersion(os.Stdout)
+
+		return
+	}
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case cmdSetup:
@@ -60,14 +83,40 @@ func main() {
 			runMigrate()
 
 			return
-		case cmdVersion:
-			fmt.Printf("go-project-starter %s\ncommit: %s\nbuilt: %s\n", version, commit, buildDate)
-
-			return
 		}
 	}
 
 	runGenerator()
+}
+
+// versionRequested reports whether args — the process arguments without the
+// program name — ask for the version of the generator. Both documented forms
+// count: the `version` subcommand, and the --version flag in any position,
+// including after a subcommand of its own. Past the end-of-flags terminator
+// everything is an operand, so a literal `--version` there is not a request.
+func versionRequested(args []string) bool {
+	if len(args) > 0 && args[0] == cmdVersion {
+		return true
+	}
+
+	for _, arg := range args {
+		switch arg {
+		case argEndOfFlags:
+			return false
+		case argVersion:
+			return true
+		}
+	}
+
+	return false
+}
+
+// printVersion writes the build identity of the binary: the version it was
+// built from, the commit and the build time, all three stamped by the linker
+// (LD_FLAGS in the Makefile). Both request forms print exactly this, so a
+// script may parse the output of either one.
+func printVersion(w io.Writer) {
+	fmt.Fprintf(w, layoutVersion, version, commit, buildDate)
 }
 
 func runSetup() {
@@ -218,6 +267,7 @@ func runGenerator() {
 		cfgPath       string
 		targetDir     string
 		baseConfigDir string
+		sourceRefs    *specsource.SourceRefs
 		err           error
 		dryRun        bool
 	)
@@ -226,6 +276,9 @@ func runGenerator() {
 	pflag.StringVar(&cfgPath, flagConfig, defaultConfigFile, usageConfigFile)
 	pflag.StringVar(&targetDir, "target", "", "target directory")
 	pflag.BoolVar(&dryRun, flagDryRun, false, "Dry run")
+	// Repeatable: contracts come from several repositories, each of which may
+	// need its own ref in one build (see resolveSourceRefs).
+	pflag.StringArray(flagSourceRef, nil, usageSourceRef)
 
 	pflag.Parse()
 
@@ -233,7 +286,15 @@ func runGenerator() {
 		log.Fatalf(layoutFailedToBindFlags, err)
 	}
 
+	if sourceRefs, err = resolveSourceRefs(pflag.CommandLine, os.Getenv); err != nil {
+		log.Fatalf(layoutInvalidSourceRef, flagSourceRef, err)
+	}
+
 	log.Println(msgConfig, cfgPath)
+
+	if !sourceRefs.IsEmpty() {
+		log.Println(msgSourceRef, sourceRefs)
+	}
 
 	cfgDir := baseConfigDir
 	if !filepath.IsAbs(baseConfigDir) {
@@ -254,8 +315,9 @@ func runGenerator() {
 		cfg.SetTargetDir(targetDir)
 	}
 
-	appInfo := fmt.Sprintf("go-project-starter-%s", version)
-	if gen, err = generator.New(appInfo, cfg, genMeta, dryRun); err != nil {
+	// The version of this binary is pinned into the generated project, so the
+	// tree records which generator produced it (see selfversion).
+	if gen, err = generator.New(selfversion.Resolve(version), cfg, genMeta, dryRun, sourceRefs); err != nil {
 		log.Fatalf(layoutFailedToCreateGenerator, err)
 	}
 
@@ -268,4 +330,34 @@ func runGenerator() {
 	}
 
 	log.Println("done")
+}
+
+// resolveSourceRefs returns the git ref overrides for the `path:` sources of
+// project.yaml: the --sourceRef flags when any were passed, otherwise the
+// GPS_SOURCE_REF env var, otherwise an empty set — no override, every source
+// keeps the ref written in the config.
+//
+// Precedence is all-or-nothing on purpose: if the command line names any ref,
+// the env var is ignored entirely rather than merged into it. A per-repository
+// set is only meaningful as a whole, and half of it coming from an exported
+// variable nobody remembers is how a tree ends up built from two states of the
+// contracts.
+//
+// Every ref is validated here, at the boundary where it enters the process, so
+// a typo fails before any config is read or any repository is cloned.
+func resolveSourceRefs(fs *pflag.FlagSet, getenv func(string) string) (*specsource.SourceRefs, error) {
+	var entries []string
+
+	if fs.Changed(flagSourceRef) {
+		values, err := fs.GetStringArray(flagSourceRef)
+		if err != nil {
+			return nil, fmt.Errorf("read --%s: %w", flagSourceRef, err)
+		}
+
+		entries = values
+	} else if env := getenv(envSourceRef); env != "" {
+		entries = []string{env}
+	}
+
+	return specsource.ParseSourceRefs(entries)
 }

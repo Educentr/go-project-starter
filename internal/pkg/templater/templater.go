@@ -29,37 +29,53 @@ const MinRuntimeVersion = "v0.15.0"
 // flag declared in a CLI spec.
 const goTypeDuration = "time.Duration"
 
+// DefaultPrivateReposTokenSecret is the CI secret name used to fetch private
+// Go modules when git.private_repos_token_secret is not set in project.yaml.
+const DefaultPrivateReposTokenSecret = "GH_PAT"
+
+// DefaultStarterVersion is the generator pin written into a project when the
+// running binary cannot name its own version and the config does not pin one
+// either (a local build from an untagged tree). "latest" keeps `make
+// regenerate` working; it is deliberately not a version number, because an
+// invented pin would claim a provenance the tree does not have.
+const DefaultStarterVersion = "latest"
+
 type GeneratorParams struct {
-	AppInfo             string
-	Logger              ds.Logger
-	Author              string
-	Year                string
-	ProjectName         string
-	ProjectPath         string
-	RegistryType        string
-	UseActiveRecord     bool
-	DevStand            bool
-	GenerateLlmsMd      bool
-	LlmsFileName        string // "CLAUDE.md" or "LLMS.md" — determined at generation time
-	CI                  []string
-	CISet               bool
-	Repo                string
-	PrivateRepos        string
-	DockerImagePrefix   string
-	SkipServiceInit     bool
-	GoLangVersion       string
-	OgenVersion         string
-	ArgenVersion        string
-	GolangciVersion     string
-	LintExcludePaths    []string
-	RuntimeVersion      string
-	GoJSONSchemaVersion string
-	GoatVersion         string
-	GoatServicesVersion string
-	Drivers             ds.Drivers
-	Workers             ds.Workers
-	JSONSchemas         ds.JSONSchemas
-	Kafka               ds.KafkaConfigs
+	AppInfo         string
+	Logger          ds.Logger
+	Author          string
+	Year            string
+	ProjectName     string
+	ProjectPath     string
+	RegistryType    string
+	UseActiveRecord bool
+	DevStand        bool
+	GenerateLlmsMd  bool
+	LlmsFileName    string // "CLAUDE.md" or "LLMS.md" — determined at generation time
+	CI              []string
+	CISet           bool
+	Repo            string
+	PrivateRepos    string
+	// Read via PrivateReposTokenSecretName, which applies the default.
+	PrivateReposTokenSecret string
+	DockerImagePrefix       string
+	SkipServiceInit         bool
+	GoLangVersion           string
+	OgenVersion             string
+	ArgenVersion            string
+	GolangciVersion         string
+	LintExcludePaths        []string
+	RuntimeVersion          string
+	GoJSONSchemaVersion     string
+	GoatVersion             string
+	GoatServicesVersion     string
+	// StarterVersion is the go-project-starter version this tree was generated
+	// with; the Makefile calls exactly it to regenerate.
+	StarterVersion string
+	Drivers        ds.Drivers
+	Workers        ds.Workers
+	JSONSchemas    ds.JSONSchemas
+	Kafka          ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
@@ -67,6 +83,27 @@ type GeneratorParams struct {
 	Grafana       grafana.Config
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
+	Metrics       ds.MetricsConfig
+	// GithubCI carries the runner, job timeout and doctl setup applied to
+	// every job of the generated GitHub Actions workflows.
+	GithubCI ds.GithubCIConfig
+	// CustomGenerators are the project's own generators (the `generator`
+	// section), with their commands already rendered per contract. Empty when
+	// the project declares none, and then the generated Makefile is unchanged.
+	CustomGenerators ds.CustomGenerators
+}
+
+// PrivateReposTokenSecretName returns the name of the CI secret that holds the
+// token used to fetch private Go modules, falling back to
+// DefaultPrivateReposTokenSecret when the project does not configure one.
+// Templates call this instead of reading PrivateReposTokenSecret directly, so
+// an unset value never renders as an empty secret reference.
+func (g GeneratorParams) PrivateReposTokenSecretName() string {
+	if g.PrivateReposTokenSecret == "" {
+		return DefaultPrivateReposTokenSecret
+	}
+
+	return g.PrivateReposTokenSecret
 }
 
 // type GeneratorParamDriver struct {
@@ -104,6 +141,12 @@ type GeneratorRunnerParams struct {
 type GeneratorKafkaParams struct {
 	GeneratorParams
 	Kafka ds.KafkaConfig
+	// ProducerMetrics carries the producer's metric declarations, so that the
+	// driver template renders names, help texts and label sets from the
+	// generator's internal metrics map instead of repeating them as literals.
+	ProducerMetrics ds.KafkaProducerMetrics
+	// ProducerLabel is the ConstLabel naming the producer instance.
+	ProducerLabel string
 }
 
 // GeneratorStaticDirParams holds parameters for generating the static-files
@@ -246,6 +289,12 @@ var (
 		"etc/onlineconf/.keep": {},
 		"public/.keep":         {}, // ToDo ignore all keep files
 	}
+
+	// ErrNonRegularTarget is returned when a path the generator is about to write
+	// is occupied by a non-regular entry (symlink, socket, device, fifo). Writing
+	// there would follow the entry instead of replacing it — possibly to a target
+	// outside the project tree — so generation stops instead.
+	ErrNonRegularTarget = errors.New("non-regular entry, generator won't overwrite")
 )
 
 func isFileIgnore(path string) bool {
@@ -291,6 +340,20 @@ func hasAnyPrefix(path string, prefixes []string) bool {
 // extraIgnore holds additional project-relative path prefixes (e.g. "static/")
 // whose existing contents must never be read, diffed, or deleted — used for
 // user-provided static assets.
+//
+// Non-regular entries (symlinks, sockets, devices, fifos) are never generator
+// artefacts. A path from the generated file set occupied by one fails the diff
+// with ErrNonRegularTarget — writing there would follow the entry instead of
+// replacing it. In the fallback tree walk the remaining non-regular entries are
+// recorded in OtherFiles and their contents are not read; with a manifest they
+// are not visited at all unless they are part of the output set.
+//
+// With a manifest, a path of the output set that exists on disk but has no
+// record in prev was not written by us: the diff fails with
+// ErrTargetConflict (*TargetConflictError, every offending path at once)
+// instead of overwriting a file of the user's. User-owned paths (IsUserOwned,
+// extraIgnore) and pending renames are exempt; without a manifest there is
+// nothing to compare against, so the fallback keeps the old behavior.
 func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest, extraIgnore ...string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
@@ -304,8 +367,14 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest
 		DriftFiles:     make(map[string]string),
 	}
 
+	// genFiles mirrors the initial NewFiles set and is never mutated: NewFiles
+	// loses entries as the walk matches them, but the collision check below has
+	// to know every path the generator is going to write.
+	genFiles := make(map[string]struct{}, len(files))
+
 	for _, file := range files {
 		filesDiff.NewFiles[file.DestName] = struct{}{}
+		genFiles[file.DestName] = struct{}{}
 		dir := file.DestName
 
 		for {
@@ -331,7 +400,7 @@ func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest
 		return filesDiff, nil
 	}
 
-	if err := scanTargetTree(&filesDiff, targetDir, extraIgnore); err != nil {
+	if err := scanTargetTree(&filesDiff, targetDir, genFiles, extraIgnore); err != nil {
 		return ds.FilesDiff{}, err
 	}
 
@@ -372,6 +441,7 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 
 	prevIdx := prev.Index()
 	curSet := make(map[string]struct{}, len(files))
+	conflicts := []string{}
 
 	for _, file := range files {
 		rel, err := meta.RelPath(absTarget, file.DestName)
@@ -379,11 +449,32 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 			return errors.Wrap(err, "error resolve relative path of "+file.DestName)
 		}
 
+		relOld := rel
+		if file.OldDestName != "" && file.OldDestName != file.DestName {
+			relOld, err = meta.RelPath(absTarget, file.OldDestName)
+			if err != nil {
+				return errors.Wrap(err, "error resolve relative path of "+file.OldDestName)
+			}
+		}
+
 		curSet[rel] = struct{}{}
 
-		if err := diffExpectedFile(filesDiff, file, rel, prevIdx, extraIgnore); err != nil {
+		if err := diffExpectedFile(filesDiff, file, rel, relOld, prevIdx, extraIgnore); err != nil {
+			// Conflicts are collected instead of returned: the user should see
+			// every path they have to move out of the way, not one per run.
+			var conflict *TargetConflictError
+			if errors.As(err, &conflict) {
+				conflicts = append(conflicts, conflict.Paths...)
+
+				continue
+			}
+
 			return err
 		}
+	}
+
+	if err := NewTargetConflictError(conflicts); err != nil {
+		return err
 	}
 
 	// Existing directories are not "new" — keeps the dry-run report honest.
@@ -398,13 +489,19 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 
 // diffExpectedFile classifies one file of the current output set against its
 // on-disk state: user code below the marker is preserved, hand edits above the
-// marker are reported as drift, and files that must not be touched once they
-// exist are moved to IgnoreFiles.
-func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevIdx map[string]meta.FileRecord, extraIgnore []string) error {
-	// A pending rename means the content still lives under the old name.
-	srcPath := file.DestName
+// marker are reported as drift, a path occupied by a file we never wrote is a
+// conflict, and files that must not be touched once they exist are moved to
+// IgnoreFiles.
+//
+// rel is the project-relative path of file.DestName, relOld that of
+// file.OldDestName (equal to rel when nothing is being renamed).
+func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel, relOld string, prevIdx map[string]meta.FileRecord, extraIgnore []string) error {
+	// A pending rename means the content still lives under the old name — and
+	// that is the name the previous run recorded in the manifest, so the record
+	// lookup below has to follow the same path.
+	srcPath, relSrc := file.DestName, rel
 	if file.OldDestName != "" && file.OldDestName != file.DestName && !regularFileExists(file.DestName) && regularFileExists(file.OldDestName) {
-		srcPath = file.OldDestName
+		srcPath, relSrc = file.OldDestName, relOld
 	}
 
 	if isFileIgnore(rel) || hasAnyPrefix(rel, extraIgnore) {
@@ -417,7 +514,12 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		return nil
 	}
 
-	st, err := os.Stat(srcPath)
+	// Lstat, not Stat: the check below is about the entry sitting on the path,
+	// not about what it points at. A symlink to a regular file passes a Stat
+	// check and the generator then writes through the link — possibly outside
+	// the project tree. The fallback walk sees the same thing via
+	// fs.DirEntry.Type(), which is lstat-based too.
+	st, err := os.Lstat(srcPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Brand new file — stays in NewFiles.
@@ -427,8 +529,22 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		return errors.Wrap(err, "error stat file "+srcPath)
 	}
 
+	// Same situation as in the fallback walk: a generated path is occupied by a
+	// symlink/socket/device, so writing there would follow the entry instead of
+	// replacing it. Both paths report it with the same sentinel.
 	if !st.Mode().IsRegular() {
-		return errors.New("target path is not a regular file: " + srcPath)
+		return errors.Wrap(ErrNonRegularTarget, srcPath)
+	}
+
+	// The manifest is the only authority on "did we write this": a file that is
+	// not in it belongs to the user, even when it carries a disclaimer marker or
+	// sits on a path a newer generator version has just started to claim.
+	// Overwriting it would destroy content the user cannot get back, so the run
+	// stops. A record with an empty hash still counts as ours — it says the file
+	// was written, only its content was not hashed.
+	rec, ours := prevIdx[relSrc]
+	if !ours {
+		return NewTargetConflictError([]string{srcPath})
 	}
 
 	delete(filesDiff.NewFiles, file.DestName)
@@ -451,8 +567,7 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		}
 	}
 
-	rec, ok := prevIdx[rel]
-	if !ok || rec.Hash == "" {
+	if rec.Hash == "" {
 		return nil
 	}
 
@@ -541,7 +656,11 @@ func regularFileExists(path string) bool {
 // and infers what used to be generated from the disclaimer string in the file
 // content. Used for projects whose meta.yaml carries no manifest yet; the run
 // writes one, so the next run takes the exact path.
-func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []string) error {
+//
+// genFiles is the full set of paths the generator is about to write; unlike
+// filesDiff.NewFiles it is not drained by the walk, so the non-regular check
+// below can still tell an occupied generated path from a foreign entry.
+func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, genFiles map[string]struct{}, extraIgnore []string) error {
 	foundDirs := make(map[string]struct{})
 
 	err := fs.WalkDir(os.DirFS(targetDir), ".", func(relPath string, d fs.DirEntry, err error) error {
@@ -574,6 +693,20 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []str
 			return nil
 		}
 
+		// Symlinks and other non-regular entries are reported by fs.WalkDir with
+		// IsDir() == false, so without this branch they would reach os.ReadFile
+		// below: a symlink to a directory fails there ("is a directory") and kills
+		// the whole walk with an error that points nowhere near the cause.
+		if !d.Type().IsRegular() {
+			if _, ex := genFiles[newFile]; ex {
+				return errors.Wrap(ErrNonRegularTarget, path)
+			}
+
+			filesDiff.OtherFiles[path] = struct{}{}
+
+			return nil
+		}
+
 		if _, ex := filesDiff.NewFiles[newFile]; ex {
 			delete(filesDiff.NewFiles, newFile)
 
@@ -586,7 +719,7 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []str
 
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error read generated file "+path)
 			}
 
 			_, userData, err := splitDisclaimer(string(fileContent))
@@ -609,7 +742,7 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, extraIgnore []str
 
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "error read existing file "+path)
 			}
 
 			_, userData, err := splitDisclaimer(string(fileContent))
@@ -692,7 +825,10 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			}
 			return strings.Join(parts, "")
 		},
-		"errorf": func(format string, args ...any) error { return fmt.Errorf(format, args...) },
+		// Returning (string, error) makes text/template abort execution with
+		// this error. Returning only an error would render its message into
+		// the output file instead, leaving a broken artifact behind.
+		"errorf": func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
 		"add":    func(a, b int) int { return a + b },
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string
@@ -784,6 +920,24 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			return "*" + varName
 		},
 		"printf": fmt.Sprintf,
+		// GoQuote renders a string as a Go double-quoted literal. Used for
+		// values that come from a contract file rather than from the config —
+		// metric help texts in particular, which are free-form prose and may
+		// legitimately contain quotes, backslashes or newlines.
+		"GoQuote": strconv.Quote,
+		// GoComment renders a possibly multi-line string as the body of a
+		// line comment, continuing every line after the first with "// ".
+		// Needed wherever contract prose lands in a doc comment: a help text
+		// written as a YAML literal block keeps its newlines, and the second
+		// line would otherwise escape the comment and not compile.
+		"GoComment": func(s string) string {
+			lines := strings.Split(strings.TrimRight(s, "\r\n"), "\n")
+			for i := range lines {
+				lines[i] = strings.TrimRight(lines[i], "\r")
+			}
+
+			return strings.Join(lines, "\n// ")
+		},
 		// Queue serialization template helpers
 		"serializeField": func(field ds.QueueField) string {
 			switch field.Type {

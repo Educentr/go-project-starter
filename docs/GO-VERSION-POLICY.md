@@ -84,6 +84,64 @@ Workflow `.github/workflows/go-version-check.yml` запускает скрип�
 - `.github/workflows/go-version-check.yml`
 - `make check-go-version`
 
+## Второй класс проблемы: `@latest` у тестовых импортов зависимостей
+
+Minimal toolchain (выше) — про случай «локальный Go **старее** `go.mod`». Есть
+симметричный класс: проект запинен на **старую** версию Go, а `go mod tidy` не
+может разрешить граф, потому что тянет чужой `@latest`.
+
+### Механика
+
+`go mod tidy` резолвит не только импорты самого модуля, но и импорты **тестов
+пакетов, которые модуль импортирует**. Такой пакет может не требоваться ни
+одним модулем в графе — тогда для него нет версии в `require`, и tidy берёт
+`@latest`. Если `@latest` объявляет `go >= X`, а проект запинен ниже X, под
+`GOTOOLCHAIN=local` подняться некуда, и tidy падает целиком:
+
+```
+go: toolchain upgrade needed to resolve go.opentelemetry.io/otel/exporters/otlp/otlptrace
+go: ...@v1.47.0 requires go >= 1.26.0 (running go 1.24.4; GOTOOLCHAIN=local)
+```
+
+Реальный кейс (TOOLS-51): goat-проект на `tools.golang_version: "1.24"`.
+Цепочка — `goat-services` → `testcontainers-go` → `docker/client` (*tested by*)
+→ `docker/testutil` → `otlptrace`. Шаг `post_generate: go_mod_tidy` падал, а
+ошибка post_generate прерывает генерацию — **первичная генерация goat-проекта
+на тулчейне 1.24 не доходила до конца**.
+
+Почему дефект долго не был виден: у разработчика с Go >= 1.26 и
+`GOTOOLCHAIN=auto` tidy просто докачивает новый тулчейн и проходит. Воспроизводится
+только там, где тулчейну запрещено подниматься, — в частности в официальных
+`golang:*` образах, которые ставят `GOTOOLCHAIN=local`.
+
+### Политика
+
+1. **Чиним пином, а не `-e`.** `go mod tidy -e` проводит tidy мимо
+   неразрешимых пакетов и этим маскирует весь класс ошибок зависимостей для
+   всех проектов — в цель `tidy` его добавлять нельзя.
+2. **Версия пина — из той же релизной линейки, что соседние модули в
+   `go.mod`.** Для otlptrace это `v1.33.0` под уже присутствующий
+   `go.opentelemetry.io/otel v1.33.0`, плюс `go.opentelemetry.io/proto/otlp
+   v1.4.0` — ровно то, что требует сам otlptrace. Так MVS не двигает остальной
+   граф.
+3. **Пин помечается комментарием** с причиной и условием снятия — как уже
+   сделано для `github.com/gofrs/uuid/v5` в `go.mod.tmpl`.
+4. **Снимать пин можно**, когда минимальная поддерживаемая версия Go догонит
+   требование `@latest`. Проверка — не глазами, а прогоном
+   `make integration-test-goat`.
+5. **Поднимать `tools.golang_version` вместо пина — не вариант**: это сужает
+   поддерживаемый диапазон Go всем потребителям ради чужой тестовой
+   зависимости.
+
+### Чем это закрыто в CI
+
+`TestIntegrationRESTEnvsGoat` (`test/docker-integration/integration_test.go`)
+генерирует фикстуру `rest-envs-goat` (goat + Go 1.24 + `go_mod_tidy` в
+`post_generate`) внутри образа `golang:1.24.4`. Тест отдельно проверяет свои
+предпосылки — `GOTOOLCHAIN=local` в образе и `go 1.24` в сгенерированном
+`go.mod`, — чтобы не превратиться в «зелёный по неинтересной причине».
+Локально: `make integration-test-goat`.
+
 ## Применение
 
 | Сценарий | Действие |
@@ -106,3 +164,5 @@ Workflow `.github/workflows/go-version-check.yml` запускает скрип�
 - `.github/workflows/go-version-check.yml` — CI job нашего репо
 - `internal/pkg/templater/embedded/templates/main/.github/workflows/go-version-check.yml.tmpl` — CI job сгенерированного проекта
 - `Makefile` / `Makefile.tmpl` — target `check-go-version`
+- `internal/pkg/templater/embedded/templates/main/go.mod.tmpl` — пины транзитивных зависимостей (см. «Второй класс проблемы»)
+- `test/docker-integration/integration_test.go` — `TestIntegrationRESTEnvsGoat`, страховка от регрессии этих пинов

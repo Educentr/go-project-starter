@@ -132,6 +132,7 @@ git:
   private_repos:
     - github.com/myorg/internal-pkg
     - gitlab.com/company/*
+  private_repos_token_secret: GO_MODULES_TOKEN
 ```
 
 ### Поля
@@ -141,6 +142,7 @@ git:
 | `repo` | Да | URL Git репозитория |
 | `module_path` | Да | Go module path |
 | `private_repos` | Нет | Список приватных модулей для GOPRIVATE |
+| `private_repos_token_secret` | Нет | Имя GitHub-секрета с токеном для приватных модулей. По умолчанию `GH_PAT` |
 
 ### Приватные Go модули
 
@@ -160,6 +162,39 @@ git:
 ```bash
 GOPRIVATE=github.com/myorg/internal-pkg,gitlab.com/company/*
 ```
+
+### Имя секрета с токеном
+
+Сгенерированный workflow GitHub Actions (`.github/workflows/ci_cd.yml`) читает токен
+для скачивания приватных модулей из секрета `GH_PAT`. Если токены разделены по классу
+привилегии — например, узкий read-only токен на модули отдельно от токенов с правом
+записи — имя секрета задаётся явно:
+
+```yaml
+git:
+  repo: github.com/myorg/service
+  module_path: github.com/myorg/service
+  private_repos: github.com/myorg/internal-pkg
+  private_repos_token_secret: GO_MODULES_TOKEN
+```
+
+Имя подставляется во все места workflow, где используется этот токен
+(`insteadOf` для `go mod download` и build-секрет для `docker build`):
+
+```yaml
+GH_TOKEN: ${{ secrets.GO_MODULES_TOKEN }}
+```
+
+Детали:
+
+- Значение должно быть корректным именем секрета: `[A-Za-z_][A-Za-z0-9_]*`.
+  Иначе генерация падает с ошибкой валидации конфига.
+- Если поле не задано, используется `GH_PAT` — вывод у существующих проектов
+  не меняется.
+- Меняется только имя секрета GitHub Actions. Id build-секрета (`github_token`)
+  и имена переменных окружения внутри шагов остаются прежними, поэтому
+  `Dockerfile` и `Makefile` править не нужно.
+- В `.gitlab-ci.yml` поле не используется: там токен приходит из переменных GitLab CI.
 
 ## Секция `tools`
 
@@ -192,6 +227,38 @@ tools:
 | `go_jsonschema_version` | Версия go-jsonschema | v0.16.0 |
 | `goat_version` | Версия GOAT тест-фреймворка | авто |
 | `goat_services_version` | Версия GOAT services | авто |
+| `starter_version` | Версия go-project-starter, которую сгенерированный `Makefile` зовёт на регенерацию | авто |
+
+### `starter_version` — пин генератора
+
+Сгенерированный `Makefile` зовёт генератор так же, как зовёт ogen и argen — по версии,
+которую сам же и скачивает:
+
+```make
+GPSPKG = github.com/Educentr/go-project-starter/cmd/go-project-starter
+GPSVERSION = v1.2.3
+
+regenerate:
+	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}
+```
+
+Пин — **провенанс**: генератор пишет туда версию *того бинаря, который собрал дерево*, а не
+выбранную вручную. Поэтому регенерация записанной версией обязана давать пустой дифф, и это
+проверяется в CI. Править строку `GPSVERSION` руками бессмысленно — следующий прогон её перезапишет.
+
+`starter_version` в `project.yaml` читается **только** когда бинарь не может назвать свою версию
+(локальная сборка из нетегированного дерева): тогда в пин идёт значение из конфига, а если и его
+нет — `latest`, о чём генератор печатает warning. Значение должно быть semver-тегом (`v1.2.3`) либо
+литералом `latest`, иначе генерация падает: непроверенный пин сломал бы `make regenerate`.
+
+Поднять версию (единственный выход из пина, потому что `make regenerate` всегда зовёт записанную):
+
+```bash
+make update-starter STARTER_VERSION=v1.3.0
+```
+
+Цель регенерирует проект указанной версией, и та, будучи генератором дерева, записывает себя
+в `GPSVERSION`. `SOURCE_REF` работает здесь так же, как в `make regenerate`.
 
 ## Секция `post_generate`
 

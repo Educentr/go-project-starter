@@ -115,6 +115,22 @@ require (
 	github.com/Educentr/goat {{ .GoatVersion }}
 	github.com/Educentr/goat-services {{ .GoatServicesVersion }}
 )
+
+// Pin: these packages reach the module graph only through the tests of a
+// dependency — goat-services imports testcontainers-go, whose docker/client
+// is tested by docker/testutil, which imports otlptrace. `go mod tidy` has to
+// resolve such packages too, and because no module in the graph requires them
+// it picks @latest; otlptrace@v1.47.0+ requires Go >= 1.26, so tidy fails
+// outright on a project pinned to Go 1.24 (GOTOOLCHAIN=local). v1.33.0 is the
+// otlptrace release matching the otel v1.33.0 line above, and proto/otlp
+// v1.4.0 is exactly what it requires.
+// Dropping these lines is safe only once the minimum supported Go reaches the
+// version @latest demands — the rest-envs-goat docker-integration test is the
+// guard that catches it if @latest moves again.
+require (
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.33.0 // indirect
+	go.opentelemetry.io/proto/otlp v1.4.0 // indirect
+)
 {{ end }}
 {{ if .DevStand }}
 // Local development: resolve internal packages from local directory

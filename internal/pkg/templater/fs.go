@@ -24,6 +24,10 @@ const (
 	ciGitHubPrefix   = ".github"
 	ciGitLabFileName = ".gitlab-ci.yml"
 
+	// metricsLintConfigPath is the standalone metrics-validator lint config,
+	// generated only when a metrics map is configured.
+	metricsLintConfigPath = "configs/golangci-metrics.yml"
+
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
 	embedTransportPrefix = "embedded/templates/transport"
 	embedWorkerPrefix    = "embedded/templates/worker"
@@ -155,6 +159,21 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 			// Skip docker-compose-dev.yaml and etc/onlineconf/ files
 			if strings.HasPrefix(f.DestName, "docker-compose-dev") ||
 				strings.Contains(f.DestName, "etc/onlineconf") {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
+	}
+
+	// The metrics validator config only makes sense alongside a metrics map.
+	if !params.Metrics.IsEnabled() {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			if f.DestName == metricsLintConfigPath {
 				continue
 			}
 
@@ -542,6 +561,35 @@ func GetGrafanaProvisioningTemplates(params GeneratorParams) (dirs []ds.Files, f
 	return
 }
 
+// GetMetricsTemplates returns the generated collector package built from the
+// service's metrics map. Returns nothing when no map is configured, or when the
+// map declares only external metrics (library-emitted) and there is therefore
+// no collector to construct.
+func GetMetricsTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	if !params.Metrics.IsEnabled() || !params.Metrics.HasGenerated() {
+		return nil, nil, nil
+	}
+
+	dirs, files, err = GetTemplates(templates, "embedded/templates/metrics", params)
+	if err != nil {
+		err = errors.Wrap(err, "error while get metrics templates")
+
+		return
+	}
+
+	metricsPath := params.Metrics.GetPackagePath()
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(metricsPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(metricsPath, files[i].DestName)
+	}
+
+	return
+}
+
 // GetGrafanaDashboardTemplates returns Grafana dashboard templates for an application
 func GetGrafanaDashboardTemplates(params GeneratorAppParams) (dirs []ds.Files, files []ds.Files, err error) {
 	dirs, files, err = GetTemplates(templates, "embedded/templates/grafana/dashboards", params)
@@ -679,6 +727,16 @@ func GetKafkaDriverTemplates(kafka ds.KafkaConfig, params GeneratorParams) ([]ds
 	kafkaParams := GeneratorKafkaParams{
 		GeneratorParams: params,
 		Kafka:           kafka,
+		ProducerLabel:   ds.ProducerLabel,
+	}
+
+	if kafka.Type == ds.KafkaTypeProducer {
+		producerMetrics, err := ds.NewKafkaProducerMetrics()
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "kafka producer %s", kafka.Name)
+		}
+
+		kafkaParams.ProducerMetrics = producerMetrics
 	}
 
 	templatePath := embedJoin("embedded/templates/driver/kafka", kafka.Type, embedFilesSuffix)

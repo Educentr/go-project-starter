@@ -54,6 +54,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "ArgenVersion required when use_active_record is true")
 	}
 
+	// Проверяется здесь, а не в Git.IsValid(): тот метод существует, но из
+	// GetConfig не вызывается, и включать его сейчас значит задним числом
+	// активировать проверки repo/module_path на уже рабочих конфигах.
+	if ok, msg := validateSecretName("git.private_repos_token_secret", config.Git.PrivateReposTokenSecret); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config git section: "+msg)
+	}
+
 	config.Main.LoggerObj = loggers.LoggerMapping[config.Main.Logger]
 
 	// создаем мапки
@@ -166,6 +173,24 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	// Validate documentation configuration
 	if ok, msg := config.Documentation.IsValid(); !ok {
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config documentation section: "+msg)
+	}
+
+	// Validate the metrics map reference. The map's own contents are checked
+	// at generation time, once a remote map has been fetched.
+	if ok, msg := config.Metrics.IsValid(baseDir); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config metrics section: "+msg)
+	}
+
+	// Validate GitHub CI configuration
+	if ok, msg := config.GithubCI.IsValid(config.Main.RegistryType); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
+	}
+
+	// Validate the custom generators together with the contracts they consume:
+	// a dangling generator_name or a command reading a variable the contract
+	// does not set has to fail here, not halfway through a generation run.
+	if ok, msg := ValidateGenerators(baseDir, config.GeneratorList, config.ContractList); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config generator/contract section: "+msg)
 	}
 
 	for i := range config.Applications {
@@ -286,7 +311,6 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 
 	return config, nil
 }
-
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)
 // are referenced in at least one application

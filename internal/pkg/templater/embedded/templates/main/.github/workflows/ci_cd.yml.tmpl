@@ -8,7 +8,7 @@ on:
 
 jobs:
   prepare-env:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     outputs:
       ENABLE_BUILD: ${{"{{"}} steps.vars_enabled.outputs.ENABLE_BUILD {{"}}"}}
       RELEASE: ${{"{{"}} steps.vers_and_containers.outputs.RELEASE {{"}}"}}
@@ -208,7 +208,9 @@ jobs:
 
       - name: Checkout repository
         if: steps.vars_enabled.outputs.ENABLE_BUILD == 'true'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: "Version and containers"
         id: vers_and_containers
@@ -239,7 +241,7 @@ jobs:
 
 {{ if .Artifacts.HasDocker }}
   create_env_files:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     strategy:
       matrix:
         envs: ${{"{{"}} fromJSON(needs.prepare-env.outputs.DEPLOY_ENVS) {{"}}"}}
@@ -291,7 +293,7 @@ jobs:
 
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}
   run-goat-tests-{{ $a.Name | ReplaceDash }}:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_GOAT_TESTS != 'true'
@@ -300,7 +302,9 @@ jobs:
       packages: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -316,13 +320,25 @@ jobs:
           username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
           password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
       {{ else if eq $.RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+      - name: Log in to DO Container Registry
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         run: doctl registry login
+{{- end }}
       {{ else if eq $.RegistryType "aws" }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -344,7 +360,7 @@ jobs:
 
       - name: Configure Git for private repos
         env:
-          GH_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+          GH_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
 
@@ -367,7 +383,7 @@ jobs:
 {{ end }}{{ end }}
 
   build:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
@@ -382,16 +398,30 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       {{ if eq .RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+      - name: Log in to DO Container Registry
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
 
       - name: Log in to DO Container Registry
         run: doctl registry login
+{{- end }}
       {{ else if eq .RegistryType "github" }}
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
@@ -422,14 +452,14 @@ jobs:
       - name: Configure Git for private repos
         env:
           # Use PAT if available, otherwise use GITHUB_TOKEN
-          GITHUB_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+          GITHUB_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
         run: |
           git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: "Build and push"
         id: build_and_push
         env:
           REGISTRY_SERVER: ${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}
-          GITHUB_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+          GITHUB_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
         run: |
           make ${{"{{"}} matrix.containers {{"}}"}}
           make ${{"{{"}} matrix.containers {{"}}"}}-push
@@ -447,7 +477,7 @@ jobs:
 
 {{ if .Artifacts.HasPackaging }}
   build-packages:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{ range $_, $a := .Applications }}{{ if $a.GoatTests }}      - run-goat-tests-{{ $a.Name | ReplaceDash }}
@@ -458,7 +488,9 @@ jobs:
       (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -468,7 +500,7 @@ jobs:
 
       - name: Configure Git for private repos
         env:
-          GH_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+          GH_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
 
@@ -517,7 +549,7 @@ jobs:
   #   vars.UPLOAD_PATH - Remote path for packages
   {{- end }}
   upload-packages:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - build-packages
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
@@ -580,7 +612,7 @@ jobs:
 
 {{ if .Documentation.IsEnabled }}
   deploy-docs:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && github.ref == 'refs/heads/main'
@@ -591,9 +623,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-{{- if .Documentation.IsGitHubPages }}
         with:
+{{- if .Documentation.IsGitHubPages }}
+          # The checkout token is kept on purpose: `mkdocs gh-deploy` pushes to
+          # the gh-pages branch, which is what `permissions: contents: write`
+          # above is granted for.
           fetch-depth: 0
+{{- else }}
+          persist-credentials: false
 {{- end }}
 {{- if .Documentation.IsS3 }}
 
@@ -638,7 +675,7 @@ jobs:
 
 {{ if .Artifacts.HasDocker }}
   deploy:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     strategy:
       matrix:
         ips: ${{"{{"}} fromJSON(needs.prepare-env.outputs.SSH_HOST_MATRIX) {{"}}"}}
@@ -693,7 +730,7 @@ jobs:
 {{ end }}
 
   artifact_version:
-    runs-on: ubuntu-latest
+    {{ $.GithubCI.JobHeader }}
     needs:
       - prepare-env
 {{- if .Artifacts.HasDocker }}

@@ -11,6 +11,9 @@
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
+- [GitHub CI](github-ci.md) — раннер, timeout и установка doctl в GitHub Actions
+- [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
+- [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки
 
 ## Базовая структура
 
@@ -25,6 +28,7 @@ git:
   repo: string              # URL Git репозитория
   module_path: string       # Go module path
   private_repos: []         # Приватные Go модули
+  private_repos_token_secret: string  # Имя секрета с токеном (default: GH_PAT)
 
 rest:
   - name: string            # Имя транспорта
@@ -55,6 +59,7 @@ applications:
 
 grafana:
   datasources: []           # Datasources для Grafana
+  annotations: []           # Записи аннотаций в .annotations.list[] дашборда
 
 artifacts:
   - docker                  # Типы артефактов
@@ -113,3 +118,6 @@ applications:
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
+- [GitHub CI](github-ci.md) — раннер, timeout и установка doctl в GitHub Actions
+- [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
+- [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки
