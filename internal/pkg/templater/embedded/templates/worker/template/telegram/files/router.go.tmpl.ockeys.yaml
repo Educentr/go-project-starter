@@ -3,6 +3,7 @@ groups:
   - scope: worker_telegram
     keys:
       - path: "{service}/devstand"
+        name: DevStand
         type: bool
         default: "false"
         description: >-
@@ -10,6 +11,7 @@ groups:
           production.
 
       - path: "{service}/settings/auto_refund_disable"
+        name: SettingsAutoRefundDisable
         type: bool
         default: "false"
         description: Whether a failed payment is refunded automatically.

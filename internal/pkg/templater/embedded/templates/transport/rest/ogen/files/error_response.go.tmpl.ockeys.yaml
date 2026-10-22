@@ -3,6 +3,7 @@ groups:
   - scope: rest_server
     keys:
       - path: "{service}/devstand"
+        name: DevStand
         type: bool
         default: "false"
         description: >-

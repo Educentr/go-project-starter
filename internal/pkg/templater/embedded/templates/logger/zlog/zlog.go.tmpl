@@ -5,14 +5,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
-const (
-	onlineconfLevelPath = "log_level"
-)
+// levelDefaultKey is the key the level that applies to everything under a prefix
+// is read at. The runtime hands this constructor the prefix and the key of one
+// endpoint or job; `default` is the one key it does not get told about.
+const levelDefaultKey = "default"
 
 func InitZlog(ctx context.Context, serviceName string) context.Context {
 	zlog.TimeFieldFormat = zlog.TimeFormatUnixMs
@@ -24,32 +26,40 @@ func InitZlog(ctx context.Context, serviceName string) context.Context {
 		)
 
 		// Создаём новый экземпляр логерра
-		devStand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(serviceName, "devstand"), false)
+		devStand, _, err := occonf.DevStand(ctx)
 		if err == nil && devStand {
 			zlogInst = zlog.New(zlog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
 		}
 
 		zlogInst = zlogInst.With().Timestamp().Caller().Logger()
 
-		levelCfg, err := onlineconf.GetString(
-			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, "default", onlineconfLevelPath),
-			zlog.LevelInfoValue,
-		)
-		if err == nil {
-			// Уровень логирования по умолчанию
-			levelGlob, err = zlog.ParseLevel(levelCfg)
-			if err != nil {
-				levelGlob = zlog.InfoLevel
+		// The level is read under the prefix the caller composed, so it goes
+		// through the one shared accessor rather than through a per-path one: the
+		// concrete paths this reaches are declared by the readers that supply the
+		// prefix (see zlog.go.tmpl.ockeys.yaml).
+		//
+		// The fallback applies to an unreadable key as well as to an absent one.
+		// The comparison below decides whether the per-endpoint override wins, so
+		// an empty level after a failed read would switch the level of every
+		// request on that endpoint.
+		levelCfg := zlog.LevelInfoValue
+
+		if v, ok, err := occonf.LogLevel(ctx, onlineconfPrefix, levelDefaultKey); err == nil {
+			if ok {
+				levelCfg = v
 			}
+
+			// Уровень логирования по умолчанию
+			level, perr := zlog.ParseLevel(levelCfg)
+			if perr != nil {
+				level = zlog.InfoLevel
+			}
+
+			levelGlob = level
 		}
 
 		// Уровень логирования переопределённый для данного endpoint-а
-		levelCfgEndpoint, err := onlineconf.GetString(
-			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, ocPath, onlineconfLevelPath),
-			"",
-		)
+		levelCfgEndpoint, _, err := occonf.LogLevel(ctx, onlineconfPrefix, ocPath)
 		if err == nil {
 			levelEP, err = zlog.ParseLevel(levelCfgEndpoint)
 			// Если не получилось распарсить уровень то выставляем Info

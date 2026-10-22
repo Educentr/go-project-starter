@@ -7,27 +7,53 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 )
 
-// TestOnlineConfKeyDeclarationsCoverEveryRead is the check that keeps the
+// TestNoTemplateReadsOnlineConfDirectly is the guard of the generator repository
+// that mirrors the one the generated project carries.
+//
+// A generated project may call the go-onlineconf library from exactly one place,
+// the generated accessor package, and `make onlineconf-validate` enforces it. So
+// a template that called the library itself would emit code the project's own
+// gate rejects — and the place to find that out is here, not in a user's build.
+func TestNoTemplateReadsOnlineConfDirectly(t *testing.T) {
+	users, err := OnlineConfLibraryUsers()
+	if err != nil {
+		t.Fatalf("OnlineConfLibraryUsers() error: %v", err)
+	}
+
+	for _, template := range users {
+		t.Errorf("%s uses the onlineconf library directly; read through the generated %s package "+
+			"instead, and declare the key in %s%s", template, ds.OnlineConfPackage,
+			template, ockeymap.GenDeclSuffix)
+	}
+}
+
+// TestOnlineConfDeclarationsMatchAccessorCalls is the check that keeps the
 // generator's own key declarations honest.
 //
 // Declaring the keys generated code reads is only worth anything if the
-// declaration cannot fall behind the code. The previous answer — a hand-kept
-// list of reserved path prefixes — looked complete and was not: subtrees the
-// generated code genuinely reads (`worker/<name>`, `settings`, `bot`) were
-// simply missing, and nothing would ever have said so. This test is what makes
-// that impossible: a template that reads a key must carry a declaration file
-// next to it, or this fails.
-func TestOnlineConfKeyDeclarationsCoverEveryRead(t *testing.T) {
-	reading, err := OnlineConfReadingTemplates()
+// declaration cannot fall behind the code. The first answer — a hand-kept list of
+// reserved path prefixes — looked complete and was not: subtrees the generated
+// code genuinely reads (`worker/<name>`, `settings`, `bot`) were simply missing,
+// and nothing would ever have said so.
+//
+// The link is now mechanical in both directions. Generated code reads a key by
+// calling the accessor of that key, and an accessor exists because some
+// declaration asks for it — so an accessor a template calls must be one the
+// template itself declares, and an accessor a template declares must be one it
+// calls. A read added without a declaration fails to resolve a name; a read
+// removed without its declaration leaves an accessor nobody calls.
+func TestOnlineConfDeclarationsMatchAccessorCalls(t *testing.T) {
+	calls, err := OnlineConfAccessorCalls()
 	if err != nil {
-		t.Fatalf("OnlineConfReadingTemplates() error: %v", err)
+		t.Fatalf("OnlineConfAccessorCalls() error: %v", err)
 	}
 
-	if len(reading) == 0 {
-		t.Fatal("no template reads OnlineConf: the scan is broken, not the templates")
+	if len(calls) == 0 {
+		t.Fatal("no template calls the accessor package: the scan is broken, not the templates")
 	}
 
 	decls, err := LoadOnlineConfKeyDecls()
@@ -35,62 +61,51 @@ func TestOnlineConfKeyDeclarationsCoverEveryRead(t *testing.T) {
 		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
 	}
 
-	declared := make(map[string]*ockeymap.GenDecl, len(decls))
+	declared := make(map[string][]string, len(decls))
 	for _, decl := range decls {
-		declared[decl.Owner] = decl.Decl
+		declared[decl.Owner] = declaredAccessorNames(decl.Decl)
 	}
 
-	for _, template := range reading {
-		if _, ok := declared[template]; !ok {
-			t.Errorf("%s reads an OnlineConf key but declares none: add %s%s next to it",
-				template, template, ockeymap.GenDeclSuffix)
+	for template, names := range calls {
+		own := declared[template]
+
+		for _, name := range names {
+			if declares(own, name) {
+				continue
+			}
+
+			t.Errorf("%s calls %s.%s, which it does not declare: add the key to %s%s "+
+				"(declared there: %s)", template, ds.OnlineConfPackage, name,
+				template, ockeymap.GenDeclSuffix, strings.Join(own, ", "))
 		}
 	}
 
-	// The other direction: a declaration whose template is gone declares a read
-	// nobody performs, and would keep a path reserved against the service map
-	// for no reason.
 	for _, decl := range decls {
-		if !slices.Contains(reading, decl.Owner) {
-			t.Errorf("%s%s declares keys, but %s performs no OnlineConf read",
-				decl.Owner, ockeymap.GenDeclSuffix, decl.Owner)
+		for _, name := range declared[decl.Owner] {
+			if isCalled(calls[decl.Owner], name) {
+				continue
+			}
+
+			t.Errorf("%s%s declares %s, but %s never calls it or its path builder: a declaration "+
+				"without a read keeps a path claimed against the service map for nothing",
+				decl.Owner, ockeymap.GenDeclSuffix, name, decl.Owner)
 		}
 	}
 }
 
-// TestOnlineConfDeclarationsCoverPathLiterals catches the subtler drift: a
-// template that already has a declaration file grows a new read.
-//
-// It reads the path literals out of the template — the strings handed to
-// MakePath and the path helpers around it — and requires each segment to appear
-// in a path that template declares. A new key brings a new literal with it, so a
-// read added without a declaration fails here even though the file exists.
-//
-// Segments assembled out of identifiers (a const, a parameter, a slice built
-// above the call) are invisible to this and are covered by the declaration
-// review instead; the check is deliberately one-sided, so that it can only fail
-// on a literal nobody declared.
-func TestOnlineConfDeclarationsCoverPathLiterals(t *testing.T) {
-	decls, err := LoadOnlineConfKeyDecls()
-	if err != nil {
-		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
-	}
+// declares reports whether a declared name covers the called one. A declaration
+// of a value key yields two functions — the accessor and the builder of its path,
+// which a subscription needs — so a call of `<Name>Path` is a call of `<Name>`'s
+// declaration.
+func declares(own []string, called string) bool {
+	return slices.Contains(own, called) ||
+		slices.Contains(own, strings.TrimSuffix(called, "Path"))
+}
 
-	for _, decl := range decls {
-		source, rerr := ReadTemplateSource(decl.Owner)
-		if rerr != nil {
-			t.Fatalf("reading %s: %v", decl.Owner, rerr)
-		}
-
-		declaredSegments := declaredPathSegments(decl.Decl)
-
-		for _, segment := range pathLiteralSegments(source) {
-			if _, ok := declaredSegments[segment]; !ok {
-				t.Errorf("%s builds an OnlineConf path out of %q, which no declared path in %s%s carries",
-					decl.Owner, segment, decl.Owner, ockeymap.GenDeclSuffix)
-			}
-		}
-	}
+// isCalled reports whether a declaration is used, by its accessor or by its path
+// builder. Reading the path and reading the value are both reads of the key.
+func isCalled(calls []string, declared string) bool {
+	return slices.Contains(calls, declared) || slices.Contains(calls, declared+"Path")
 }
 
 // TestOnlineConfDeclarationsParse pins that every shipped declaration is valid:
@@ -152,20 +167,6 @@ func TestLoggerDeclarationsAgree(t *testing.T) {
 	}
 }
 
-// declaredKeySet returns "<scope> <path> <type> dynamic=<bool>" per declared
-// key, so that a divergence in any of them is reported.
-func declaredKeySet(decl *ockeymap.GenDecl) map[string]struct{} {
-	out := make(map[string]struct{})
-
-	for _, group := range decl.Groups {
-		for _, key := range group.Keys {
-			out[fmt.Sprintf("%s %s %s dynamic=%t", group.Scope, key.Path, key.Type, key.Dynamic)] = struct{}{}
-		}
-	}
-
-	return out
-}
-
 // TestOnlineConfDeclarationsAreNotCopiedIntoProjects pins that a declaration
 // file stays generator input. It lives inside the templates tree, and the tree
 // is walked wholesale — so without the skip in GetTemplates it would land in
@@ -183,49 +184,21 @@ func TestOnlineConfDeclarationsAreNotCopiedIntoProjects(t *testing.T) {
 	}
 }
 
-// declaredPathSegments collects every literal segment of every path a
-// declaration carries.
-func declaredPathSegments(decl *ockeymap.GenDecl) map[string]struct{} {
-	segments := make(map[string]struct{})
+// declaredAccessorNames returns the accessor identifiers a declaration asks the
+// generator for, sorted. An entry read through a shared accessor contributes
+// none: it declares a concrete path for the registry, and the reader already has
+// its accessor.
+func declaredAccessorNames(decl *ockeymap.GenDecl) []string {
+	var out []string
 
 	for _, group := range decl.Groups {
 		for _, key := range group.Keys {
-			for _, segment := range strings.Split(strings.Trim(key.Path, "/"), "/") {
-				segments[segment] = struct{}{}
-			}
-		}
-	}
-
-	return segments
-}
-
-// pathLiteralSegments returns the path segments a template spells out as string
-// literals inside a path-building call.
-//
-// It scans the path-building calls (pathBuilders) and takes their quoted
-// arguments. A literal carrying a template action ({{ .ProjectName }}) is
-// skipped: its value is decided at generation time and is a placeholder in the
-// declaration too.
-func pathLiteralSegments(source string) []string {
-	found := make(map[string]struct{})
-
-	for _, offset := range pathCallOffsets(source) {
-		for _, literal := range quotedArgs(source[offset:]) {
-			if strings.Contains(literal, "{{") {
+			if key.Name == "" || slices.Contains(out, key.Name) {
 				continue
 			}
 
-			for _, segment := range strings.Split(strings.Trim(literal, "/"), "/") {
-				if segment != "" {
-					found[segment] = struct{}{}
-				}
-			}
+			out = append(out, key.Name)
 		}
-	}
-
-	out := make([]string, 0, len(found))
-	for segment := range found {
-		out = append(out, segment)
 	}
 
 	sort.Strings(out)
@@ -233,67 +206,21 @@ func pathLiteralSegments(source string) []string {
 	return out
 }
 
-// pathBuilders are the calls a template assembles an OnlineConf path with:
-// go-onlineconf's own joiner plus the helpers the templates wrap it in. A
-// template introducing another helper is still caught by the owner-level check
-// above; this list only decides how much the literal check can see.
-var pathBuilders = []string{
-	"onlineconf.MakePath(",
-	"GetConfigPath(",
-	"GetTgTokenPath(",
-}
+// declaredKeySet returns one line per declared key, carrying everything a
+// divergence could hide in — including the prose, because the registry reports
+// the default and the description of whichever declaration the expansion saw
+// first, so a value changed in one file only would silently win.
+func declaredKeySet(decl *ockeymap.GenDecl) map[string]struct{} {
+	out := make(map[string]struct{})
 
-// pathCallOffsets returns the offset of the opening parenthesis of every
-// path-building call in source.
-func pathCallOffsets(source string) []int {
-	var offsets []int
-
-	for _, builder := range pathBuilders {
-		for searched := 0; ; {
-			idx := strings.Index(source[searched:], builder)
-			if idx < 0 {
-				break
-			}
-
-			offsets = append(offsets, searched+idx+len(builder)-1)
-			searched += idx + len(builder)
+	for _, group := range decl.Groups {
+		for _, key := range group.Keys {
+			out[fmt.Sprintf("%s %s name=%s type=%s required=%t shared=%t read_via=%s default=%s description=%s",
+				group.Scope, key.Path, key.Name, key.Type,
+				key.Required, key.Shared, key.ReadVia,
+				key.Default, strings.Join(strings.Fields(key.Description), " "))] = struct{}{}
 		}
 	}
 
-	sort.Ints(offsets)
-
-	return offsets
-}
-
-// quotedArgs returns the double-quoted literals of the argument list starting at
-// the opening parenthesis of source, stopping at its matching close so that a
-// literal belonging to an enclosing call is not picked up.
-func quotedArgs(source string) []string {
-	var (
-		args  []string
-		depth int
-	)
-
-	for i := 0; i < len(source); i++ {
-		switch source[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-
-			if depth == 0 {
-				return args
-			}
-		case '"':
-			end := strings.IndexByte(source[i+1:], '"')
-			if end < 0 {
-				return args
-			}
-
-			args = append(args, source[i+1:i+1+end])
-			i += end + 1
-		}
-	}
-
-	return args
+	return out
 }

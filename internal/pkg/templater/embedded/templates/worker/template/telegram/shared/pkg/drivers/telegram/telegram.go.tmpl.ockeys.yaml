@@ -2,7 +2,17 @@
 groups:
   - scope: telegram_driver
     keys:
+      - path: "{service}/security/tg_token"
+        name: TelegramToken
+        type: string
+        required: true
+        description: >-
+          Bot token. Declared here as well as next to the read in auth.go.tmpl
+          because this file subscribes to the key: a new value rebuilds the bot
+          in place, and the subscription needs the path.
+
       - path: "{service}/security/buffer_size"
+        name: TelegramBufferSize
         type: int
         default: "the driver's defaultBufferSize"
         description: >-
@@ -10,6 +20,7 @@ groups:
           [1, 100] are ignored and the library default is kept.
 
       - path: "{service}/security/tg_api_endpoint"
+        name: TelegramAPIEndpoint
         type: string
         default: "the endpoint passed as a driver option, then the library default"
         description: >-

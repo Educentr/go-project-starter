@@ -2,6 +2,7 @@ package templater
 
 import (
 	"io/fs"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -19,14 +20,24 @@ const templatesRoot = "embedded/templates"
 // OnlineConf is meant to be read from, so its template declares nothing.
 const occonfTemplateDir = "occonf"
 
-// onlineConfReadMarkers are the calls that mean "this template's generated code
-// reads a key". Deliberately not every mention of the package: the generated
-// mains call Initialize, StartWatcher, StopWatcher and FromContext, which
-// manage the instance rather than read any key, and demanding a declaration for
-// them would make the rule mean nothing.
-var onlineConfReadMarkers = []string{
-	"onlineconf.MakePath(",
-	"onlineconf.Get",
+// onlineConfPackageRx matches any use of the go-onlineconf package. Outside the
+// accessor package's own template that is a defect: the generated project's
+// validator forbids it, so a template that did it would emit code `make
+// onlineconf-validate` rejects.
+var onlineConfPackageRx = regexp.MustCompile(`\bonlineconf\.[A-Z]`)
+
+// occonfCallRx matches a call into the generated accessor package in a template.
+// The identifier is what the test checks against the declarations: an accessor a
+// template calls has to be one the template declares.
+var occonfCallRx = regexp.MustCompile(`\bocconf\.([A-Z][A-Za-z0-9]*)`)
+
+// occonfFacade are the exported names of the accessor package that come from the
+// package itself rather than from a declaration: the library's lifecycle, the
+// subscription helper, the startup check and its sentinel error. A template may
+// use them without declaring anything — they read no particular key.
+var occonfFacade = map[string]struct{}{
+	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
+	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
 }
 
 // LoadOnlineConfKeyDecls reads every OnlineConf key declaration shipped with the
@@ -78,17 +89,84 @@ func LoadOnlineConfKeyDecls() ([]ockeymap.GenDeclFile, error) {
 	return decls, nil
 }
 
-// OnlineConfReadingTemplates returns the Go templates whose generated code reads
-// an OnlineConf key, relative to the templates root.
+// OnlineConfLibraryUsers returns the Go templates outside the accessor package
+// that use the go-onlineconf library directly, relative to the templates root.
 //
-// It is what ties a declaration to a read: every template listed here must carry
-// a declaration file, and TestOnlineConfKeyDeclarations fails when one does not.
-// Without that check the declarations would be just another hand-maintained
-// list, and a read added to a template would fall out of the surface silently.
-func OnlineConfReadingTemplates() ([]string, error) {
-	var reading []string
+// The answer has to stay empty. The generated project's validator forbids every
+// call into the library outside the generated accessor package, so a template
+// that made one would emit code that cannot pass `make onlineconf-validate` —
+// and the place to find that out is this repository's test suite, not a user's
+// project.
+func OnlineConfLibraryUsers() ([]string, error) {
+	var users []string
 
-	err := fs.WalkDir(templates, templatesRoot, func(path string, d fs.DirEntry, err error) error {
+	err := walkGoTemplates(func(relative, source string) error {
+		if onlineConfPackageRx.MatchString(source) {
+			users = append(users, relative)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "error while scanning templates for onlineconf use")
+	}
+
+	sort.Strings(users)
+
+	return users, nil
+}
+
+// OnlineConfAccessorCalls returns, per Go template outside the accessor package,
+// the names of the accessor package's functions its generated code calls.
+//
+// It is what ties a declaration to a read, in both directions. An accessor a
+// template calls has to be one the template declares, so that the declaration
+// sits in the file a developer has open while adding the read; and an accessor a
+// template declares has to be one it calls, so that a read removed from a
+// template takes its declaration with it. The facade names (see occonfFacade)
+// are excluded: they read no particular key.
+func OnlineConfAccessorCalls() (map[string][]string, error) {
+	calls := map[string][]string{}
+
+	err := walkGoTemplates(func(relative, source string) error {
+		seen := map[string]struct{}{}
+
+		var names []string
+
+		for _, match := range occonfCallRx.FindAllStringSubmatch(source, -1) {
+			name := match[1]
+
+			if _, facade := occonfFacade[name]; facade {
+				continue
+			}
+
+			if _, dup := seen[name]; dup {
+				continue
+			}
+
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+
+		if len(names) > 0 {
+			sort.Strings(names)
+			calls[relative] = names
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "error while scanning templates for accessor calls")
+	}
+
+	return calls, nil
+}
+
+// walkGoTemplates calls visit for every Go template outside the accessor
+// package's own directory, with its path relative to the templates root and its
+// source.
+func walkGoTemplates(visit func(relative, source string) error) error {
+	return fs.WalkDir(templates, templatesRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -108,20 +186,8 @@ func OnlineConfReadingTemplates() ([]string, error) {
 			return rerr
 		}
 
-		if readsOnlineConf(string(data)) {
-			reading = append(reading, relative)
-		}
-
-		return nil
+		return visit(relative, string(data))
 	})
-
-	if err != nil {
-		return nil, errors.Wrap(err, "error while scanning templates for onlineconf reads")
-	}
-
-	sort.Strings(reading)
-
-	return reading, nil
 }
 
 // ReadTemplateSource returns the raw text of a template, relative to the
@@ -133,17 +199,6 @@ func ReadTemplateSource(relative string) (string, error) {
 	}
 
 	return string(data), nil
-}
-
-// readsOnlineConf reports whether a template's generated code reads a key.
-func readsOnlineConf(source string) bool {
-	for _, marker := range onlineConfReadMarkers {
-		if strings.Contains(source, marker) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // templateRelPath strips the embed prefix from a template path.

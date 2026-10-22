@@ -962,10 +962,15 @@ func TestGenerateRESTTimeouts(t *testing.T) {
 		}
 	}
 
-	// pkg/app/restconfig/psg_config_oc_gen.go — timeout config via OnlineConf (server/mw moved to runtime)
+	// pkg/app/restconfig/psg_config_oc_gen.go — timeout config via the generated
+	// accessors (server/mw moved to runtime). The paths themselves live in the
+	// accessor package now; here the point is that both timeouts are resolved
+	// with their app-then-transport fallback.
 	assertFileContains(t, "pkg/app/restconfig/psg_config_oc_gen.go", []string{
-		`"server/timeout/read"`,
-		`"server/timeout/write"`,
+		"occonf.RESTServerAppTimeoutRead(ctx, serverName, appName)",
+		"occonf.RESTServerTimeoutRead(ctx, serverName)",
+		"occonf.RESTServerAppTimeoutWrite(ctx, serverName, appName)",
+		"occonf.RESTServerTimeoutWrite(ctx, serverName)",
 		"SubscribeTimeoutChanges",
 		"ResolveHandlerTimeout",
 		"CreateContextWithTimeout",

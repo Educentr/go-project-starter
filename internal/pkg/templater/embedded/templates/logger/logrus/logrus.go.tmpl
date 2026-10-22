@@ -4,14 +4,16 @@ import (
 	"context"
 	"os"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 	"github.com/sirupsen/logrus"
+
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
-const (
-	onlineconfLevelPath = "log_level"
-)
+// levelDefaultKey is the key the level that applies to everything under a prefix
+// is read at. The runtime hands this constructor the prefix and the key of one
+// endpoint or job; `default` is the one key it does not get told about.
+const levelDefaultKey = "default"
 
 func InitLogrus(ctx context.Context, serviceName string) context.Context {
 	applog := logger.InitAppLogrus(func(onlineconfPrefix, ocPath string) *logrus.Entry {
@@ -19,7 +21,7 @@ func InitLogrus(ctx context.Context, serviceName string) context.Context {
 		log.SetOutput(os.Stdout)
 
 		// Создаём новый экземпляр логгера
-		devStand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(serviceName, "devstand"), false)
+		devStand, _, err := occonf.DevStand(ctx)
 		if err == nil && devStand {
 			log.SetFormatter(&logrus.TextFormatter{
 				FullTimestamp: true,
@@ -33,25 +35,33 @@ func InitLogrus(ctx context.Context, serviceName string) context.Context {
 			levelEP   = logrus.InfoLevel
 		)
 
-		levelCfg, err := onlineconf.GetString(
-			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, "default", onlineconfLevelPath),
-			logrus.InfoLevel.String(),
-		)
-		if err == nil {
-			// Уровень логирования по умолчанию
-			levelGlob, err = logrus.ParseLevel(levelCfg)
-			if err != nil {
-				levelGlob = logrus.InfoLevel
+		// The level is read under the prefix the caller composed, so it goes
+		// through the one shared accessor rather than through a per-path one: the
+		// concrete paths this reaches are declared by the readers that supply the
+		// prefix (see logrus.go.tmpl.ockeys.yaml).
+		//
+		// The fallback applies to an unreadable key as well as to an absent one.
+		// The comparison below decides whether the per-endpoint override wins, so
+		// an empty level after a failed read would switch the level of every
+		// request on that endpoint.
+		levelCfg := logrus.InfoLevel.String()
+
+		if v, ok, err := occonf.LogLevel(ctx, onlineconfPrefix, levelDefaultKey); err == nil {
+			if ok {
+				levelCfg = v
 			}
+
+			// Уровень логирования по умолчанию
+			level, perr := logrus.ParseLevel(levelCfg)
+			if perr != nil {
+				level = logrus.InfoLevel
+			}
+
+			levelGlob = level
 		}
 
 		// Уровень логирования переопределённый для данного endpoint-а
-		levelCfgEndpoint, err := onlineconf.GetString(
-			ctx,
-			onlineconf.MakePath(serviceName, onlineconfPrefix, ocPath, onlineconfLevelPath),
-			"",
-		)
+		levelCfgEndpoint, _, err := occonf.LogLevel(ctx, onlineconfPrefix, ocPath)
 		if err == nil {
 			levelEP, err = logrus.ParseLevel(levelCfgEndpoint)
 			// Если не получилось распарсить уровень то выставляем Info

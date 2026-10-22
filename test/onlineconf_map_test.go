@@ -70,10 +70,10 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	// (GetString(ctx, path, d...)) indexes d[0] on a read error, so it panics
 	// when called without a default.
 	for _, want := range []string{
-		"onlineconf.GetDurationIfExists(ctx, PathSupervisorMinLifetime)",
-		"onlineconf.GetIntIfExists(ctx, PathSupervisorMaxAgents)",
-		"onlineconf.GetStringIfExists(ctx, PathQueueName)",
-		"onlineconf.GetStruct(ctx, PathAgentEnv, dst)",
+		"path := PathSupervisorMinLifetime\n\n\tv, ok, err := onlineconf.GetDurationIfExists(ctx, path)",
+		"path := PathSupervisorMaxAgents\n\n\tv, ok, err := onlineconf.GetIntIfExists(ctx, path)",
+		"path := PathQueueName\n\n\tv, ok, err := onlineconf.GetStringIfExists(ctx, path)",
+		"path := PathAgentEnv\n\n\tok, err := onlineconf.GetStruct(ctx, path, dst)",
 	} {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("generated accessor package should read through %q", want)
@@ -92,7 +92,7 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	}
 
 	// Required keys report ErrKeyNotSet rather than a zero value.
-	if !strings.Contains(occonfFile, "ErrKeyNotSet, PathSupervisorMaxAgents") {
+	if !strings.Contains(occonfFile, "ErrKeyNotSet, path") {
 		t.Error("a required key should report ErrKeyNotSet when absent")
 	}
 
@@ -107,7 +107,9 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	for _, want := range []string{
 		"func Subscribe(ctx context.Context, paths []string, cb func() error) error",
 		"func Paths() []string",
-		"func CheckRequired(ctx context.Context) error",
+		"func CheckRequired(ctx context.Context, app string) error",
+		"func Initialize(ctx context.Context, configDir string) (context.Context, error)",
+		"func StartWatcher(ctx context.Context) error",
 	} {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("generated accessor package should declare %q", want)
@@ -118,17 +120,25 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	// accessors — so the startup check and the running service agree on what
 	// "usable" means.
 	for _, want := range []string{
-		"_, err := SupervisorMaxAgents(ctx)",
-		"_, err := ConfluenceURL(ctx)",
-		"_, err := DatabaseDSN(ctx)",
+		"_, err := SupervisorMaxAgents(ctx); return err",
+		"_, err := ConfluenceURL(ctx); return err",
+		"_, err := DatabaseDSN(ctx); return err",
 	} {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("requiredChecks should read %q", want)
 		}
 	}
 
-	if strings.Contains(occonfFile, "_, err := QueueName(ctx)") {
+	if strings.Contains(occonfFile, "_, err := QueueName(ctx); return err") {
 		t.Error("an optional key must not appear in the startup check")
+	}
+
+	// ActiveRecord is the one library that reads the tree itself, through an
+	// interface that IS the whole reader set — so the hand-off it needs can read
+	// any path, and is a known gap in the map. A project that does not use
+	// ActiveRecord must not get it: then there is no way past the accessors.
+	if strings.Contains(occonfFile, "func ActiveRecordConfig(") {
+		t.Error("a project without ActiveRecord should not get the configuration hand-off")
 	}
 
 	// The check is wired into the generated main at the configuration
@@ -136,7 +146,7 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	// installation, and the place to find out is process start.
 	mainFile := readGenerated(t, tmpDir, "cmd", "api", "psg_main_gen.go")
 
-	if !strings.Contains(mainFile, "occonf.CheckRequired(mainCtx)") {
+	if !strings.Contains(mainFile, `occonf.CheckRequired(mainCtx, "api")`) {
 		t.Error("generated main should verify the required keys at startup")
 	}
 
@@ -151,7 +161,7 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	for _, want := range []string{
 		"- forbidigo",
 		`^onlineconf\.`,
-		"path: (internal/pkg/occonf/|psg_[^/]*_gen\\.go$)",
+		"path: internal/pkg/occonf/",
 	} {
 		if !strings.Contains(ocLint, want) {
 			t.Errorf("configs/golangci-onlineconf.yml should contain %q", want)
@@ -204,9 +214,10 @@ type registryEntry struct {
 	Path        string   `yaml:"path"`
 	Origin      string   `yaml:"origin"`
 	Type        string   `yaml:"type"`
-	Dynamic     bool     `yaml:"dynamic"`
 	Required    bool     `yaml:"required"`
 	Accessor    string   `yaml:"accessor"`
+	ReadVia     string   `yaml:"read_via"`
+	Owns        string   `yaml:"owns"`
 	Default     string   `yaml:"default"`
 	ReadBy      []string `yaml:"read_by"`
 	Description string   `yaml:"description"`
@@ -223,33 +234,17 @@ func assertOnlineConfRegistry(t *testing.T, tmpDir string) {
 	t.Helper()
 
 	raw := readGenerated(t, tmpDir, "configs", "onlineconf-tree.yaml")
+	byPath := onlineConfRegistry(t, tmpDir)
 
-	var registry struct {
-		Tree string          `yaml:"tree"`
-		Keys []registryEntry `yaml:"keys"`
-	}
-
-	dec := yaml.NewDecoder(strings.NewReader(raw))
-	dec.KnownFields(true)
-
-	if err := dec.Decode(&registry); err != nil {
-		t.Fatalf("configs/onlineconf-tree.yaml does not parse as yaml: %v", err)
-	}
-
-	if registry.Tree != "/octest" {
-		t.Errorf("registry tree = %q, want /octest", registry.Tree)
-	}
-
-	byPath := make(map[string]registryEntry, len(registry.Keys))
-	for _, entry := range registry.Keys {
-		byPath[entry.Path] = entry
+	if tree := onlineConfRegistryTree(t, raw); tree != "/octest" {
+		t.Errorf("registry tree = %q, want /octest", tree)
 	}
 
 	// A service key carries its accessor, so a reader of the registry knows how
 	// the service reads it.
 	service, ok := byPath["/octest/db/dsn"]
 	if !ok {
-		t.Fatalf("registry should list every declared key, got %d entries", len(registry.Keys))
+		t.Fatalf("registry should list every declared key, got %d entries", len(byPath))
 	}
 
 	if service.Origin != "service" || service.Accessor != "DatabaseDSN" || !service.Required {
@@ -272,16 +267,28 @@ func assertOnlineConfRegistry(t *testing.T, tmpDir string) {
 		t.Errorf("generated key row should name the template it is read by, got %v", generated.ReadBy)
 	}
 
-	// A subtree read under a runtime key cannot be listed path by path, so it is
-	// listed as a subtree — and that is also what the service map is kept out
-	// of.
-	dynamic, ok := byPath["/octest/settings/enabled"]
+	// A path whose last segments the generated code computes at runtime keeps
+	// its <name> spelling, and names the point from which the subtree belongs
+	// to the generated code — which is what the service map is kept out of.
+	runtimeKeyed, ok := byPath["/octest/settings/enabled/<action>"]
 	if !ok {
-		t.Fatal("registry should list the per-action allow lists as a subtree")
+		t.Fatal("registry should list the per-action allow lists")
 	}
 
-	if !dynamic.Dynamic || dynamic.Type != "" {
-		t.Errorf("dynamic row = %+v, want dynamic: true and no type", dynamic)
+	if runtimeKeyed.Owns != "/octest/settings/enabled" || runtimeKeyed.Accessor != "SettingsEnabled" {
+		t.Errorf("runtime-keyed row = %+v, want it to claim /octest/settings/enabled", runtimeKeyed)
+	}
+
+	// A log level is read through one shared accessor whose path its caller
+	// composes, so the row names that accessor instead of one of its own: the
+	// concrete path exists, and so does the only function that reaches it.
+	level, ok := byPath["/octest/transport/rest/api_v1/api/handler/default/log_level"]
+	if !ok {
+		t.Fatal("registry should list the per-application log level")
+	}
+
+	if level.ReadVia != "LogLevel" || level.Accessor != "" {
+		t.Errorf("log level row = %+v, want read_via LogLevel and no accessor of its own", level)
 	}
 
 	// The transport keys are expanded against this project: the names in them
@@ -373,7 +380,7 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 			path:    "/octest/settings/enabled/login",
 			keyType: "strings",
 			wantMsgs: []string{
-				"/octest/settings/enabled", "runtime key",
+				"/octest/settings/enabled", "computes",
 				"main/internal/pkg/service/service.go.tmpl",
 			},
 		},
@@ -381,7 +388,7 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 			name:     "inside the per-handler subtree",
 			path:     "/octest/transport/rest/api_v1/api/handler/some_path/timeout",
 			keyType:  "duration",
-			wantMsgs: []string{"/octest/transport/rest/api_v1/api/handler", "runtime key"},
+			wantMsgs: []string{"/octest/transport/rest/api_v1/api/handler", "computes"},
 		},
 	}
 
@@ -431,7 +438,7 @@ func TestGenerateRejectsWorkerAndBotKeys(t *testing.T) {
 			name:   "admin ACL the telegram authorization reads",
 			keyMap: "keys:\n  - path: /telegramtest/bot/admins/42\n    type: string\n",
 			wantMsgs: []string{
-				"/telegramtest/bot/admins", "runtime key",
+				"/telegramtest/bot/admins", "computes",
 				"worker/template/telegram/shared/pkg/drivers/telegram/service.go.tmpl",
 			},
 		},
@@ -479,40 +486,74 @@ func TestGenerateAllowsKeysOfAbsentDimensions(t *testing.T) {
 	}
 }
 
-// TestGenerateWithoutOnlineConfMap pins that no map means nothing is switched
-// on. A half-on transitional mode would leave traces in generated code that
-// nobody cleans up later.
+// TestGenerateWithoutOnlineConfMap pins the invariant the acceptance of this
+// feature turns on: a project always has a complete map of the OnlineConf keys
+// it reads, and everything built on the map exists in every project.
+//
+// `onlineconf.path` adds the service's keys to the map; it is not the switch for
+// the feature. It used to be, and that left the guard off exactly where the only
+// reader was the generated code — the half of the surface nobody could see.
 func TestGenerateWithoutOnlineConfMap(t *testing.T) {
 	tmpDir := generateFromConfig(t, "grafana", "Generate project without an OnlineConf key map")
 
-	if _, err := os.Stat(filepath.Join(tmpDir, "internal", "pkg", "occonf")); !os.IsNotExist(err) {
-		t.Error("no key map should mean no generated accessor package")
+	occonfFile := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	// The generator's half of the map is there, with its accessors.
+	for _, want := range []string{
+		"func DevStand(ctx context.Context) (bool, bool, error)",
+		"func SecurityCSRFEnabled(ctx context.Context) (bool, bool, error)",
+		"func Initialize(ctx context.Context, configDir string) (context.Context, error)",
+		"func CheckRequired(",
+	} {
+		if !strings.Contains(occonfFile, want) {
+			t.Errorf("a project without a key map should still declare %q", want)
+		}
 	}
 
-	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "golangci-onlineconf.yml")); !os.IsNotExist(err) {
-		t.Error("no key map should mean no validator config")
+	// And the service's half is empty, so there are no path constants of its
+	// own and nothing to list in Paths().
+	if strings.Contains(occonfFile, "func Paths() []string") {
+		t.Error("without a service key map there is nothing for Paths() to return")
 	}
 
-	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "onlineconf-tree.yaml")); !os.IsNotExist(err) {
-		t.Error("no key map should mean no surface registry")
+	if _, err := os.Stat(filepath.Join(tmpDir, "configs", "golangci-onlineconf.yml")); err != nil {
+		t.Errorf("the validator config belongs in every project: %v", err)
+	}
+
+	for path, entry := range onlineConfRegistry(t, tmpDir) {
+		if entry.Origin != "generated" {
+			t.Errorf("registry row %s has origin %q: a project without a key map declares no keys of its own",
+				path, entry.Origin)
+		}
 	}
 
 	mainLint := readGenerated(t, tmpDir, "configs", "golangci-lint.yml")
 
-	if strings.Contains(mainLint, "forbidigo") {
-		t.Error("no key map (and no metrics map) should mean no forbidigo rule in the lint config")
+	if !strings.Contains(mainLint, `^onlineconf\.`) {
+		t.Error("the OnlineConf rule belongs in the lint config of every project")
 	}
 
 	makefile := readGenerated(t, tmpDir, "Makefile")
 
-	if strings.Contains(makefile, "onlineconf-validate") {
-		t.Error("no key map should mean no onlineconf-validate target")
+	if !strings.Contains(makefile, "onlineconf-validate") {
+		t.Error("the onlineconf-validate target belongs in every project")
 	}
 
 	mainFile := readGenerated(t, tmpDir, "cmd", "api", "psg_main_gen.go")
 
-	if strings.Contains(mainFile, "CheckRequired") {
-		t.Error("no key map should mean no startup check in the generated main")
+	for _, want := range []string{
+		`occonf.CheckRequired(mainCtx, "api")`,
+		"occonf.Initialize(mainCtx, getOnlineconfDir())",
+		"occonf.StartWatcher(mainCtx)",
+	} {
+		if !strings.Contains(mainFile, want) {
+			t.Errorf("generated main should go through the accessor package: %q", want)
+		}
+	}
+
+	// The whole point of the package: the library is reached from nowhere else.
+	if strings.Contains(mainFile, "onlineconf.") {
+		t.Error("generated main must not call the onlineconf library directly")
 	}
 }
 
@@ -596,3 +637,216 @@ func generateOnlineConfMap(t *testing.T, fixture, keyMap string) (output, target
 // onlineConfMapFile is the key map file name the fixtures and the generated
 // configs agree on.
 const onlineConfMapFile = "onlineconf-key-map.yaml"
+
+// onlineConfRegistry decodes the generated registry of the whole OnlineConf
+// surface, keyed by path. The schema is closed, so a field added to the template
+// without a thought shows up as a decode error here.
+func onlineConfRegistry(t *testing.T, tmpDir string) map[string]registryEntry {
+	t.Helper()
+
+	registry := decodeOnlineConfRegistry(t, readGenerated(t, tmpDir, "configs", "onlineconf-tree.yaml"))
+
+	byPath := make(map[string]registryEntry, len(registry.Keys))
+	for _, entry := range registry.Keys {
+		byPath[entry.Path] = entry
+	}
+
+	return byPath
+}
+
+// onlineConfRegistryTree returns the tree the registry describes.
+func onlineConfRegistryTree(t *testing.T, raw string) string {
+	t.Helper()
+
+	return decodeOnlineConfRegistry(t, raw).Tree
+}
+
+// onlineConfRegistryFile is the shape of the generated registry.
+type onlineConfRegistryFile struct {
+	Tree string          `yaml:"tree"`
+	Keys []registryEntry `yaml:"keys"`
+}
+
+func decodeOnlineConfRegistry(t *testing.T, raw string) onlineConfRegistryFile {
+	t.Helper()
+
+	var registry onlineConfRegistryFile
+
+	dec := yaml.NewDecoder(strings.NewReader(raw))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(&registry); err != nil {
+		t.Fatalf("configs/onlineconf-tree.yaml does not parse as yaml: %v", err)
+	}
+
+	return registry
+}
+
+// TestGeneratedReadsKeepTheirPaths is the pin on the one thing that must NOT
+// change when the generated code moves from assembling paths itself to calling
+// accessors: the paths.
+//
+// Every entry below is a path the generated code read before the accessor
+// package existed, spelled as it is now built. An installation configures a
+// tree, not a Go API — if one of these moved, existing services would silently
+// stop finding their configuration.
+func TestGeneratedReadsKeepTheirPaths(t *testing.T) {
+	tmpDir := generateFromConfig(t, "combined", "Generate project for the generated-path pin")
+	occonfFile := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	// serviceTree is the constant the path builders start from; the tree root is
+	// the service name, as the generated readers always had it.
+	if !strings.Contains(occonfFile, `const serviceTree = "combinedtest"`) {
+		t.Error("the generated readers read under /<service name>")
+	}
+
+	wantBuilders := map[string]string{
+		// REST server configuration: both declared forms, app-first.
+		"RESTServerAppPortPath":           `serviceTree, "transport", "rest", transport, app, "port"`,
+		"RESTServerPortPath":              `serviceTree, "transport", "rest", transport, "port"`,
+		"RESTServerAppTimeoutReadPath":    `serviceTree, "transport", "rest", transport, app, "server", "timeout", "read"`,
+		"RESTServerTimeoutReadHeaderPath": `serviceTree, "transport", "rest", transport, "server", "timeout", "read_header"`,
+		"RESTAppHandlerTimeoutPath":       `serviceTree, "transport", "rest", transport, app, "handler", urlPath, "timeout"`,
+		"RESTHandlerDefaultTimeoutPath":   `serviceTree, "transport", "rest", transport, "handler", "default", "timeout"`,
+		// Prefixes the provider hands to the runtime and to the logger.
+		"RESTAppHandlerPath": `serviceTree, "transport", "rest", transport, app, "handler"`,
+		"RESTAppMetricsPath": `serviceTree, "transport", "rest", transport, app, "mw", "metrics"`,
+		// The log level, composed by whoever supplies the prefix.
+		"LogLevelPath": `serviceTree, prefix, levelKey, "log_level"`,
+		// Clients.
+		"GRPCClientHostPath": `serviceTree, "transport", "grpc", transport, "host"`,
+		// Workers.
+		"WorkerPath":            `serviceTree, "worker", worker`,
+		"WorkerJobsEnabledPath": `serviceTree, "worker", worker, "jobs", "enabled"`,
+		"WorkerJobTimeoutPath":  `serviceTree, "worker", worker, "job", "timeout"`,
+		// The telegram driver and its ACLs.
+		"BotAdminACLPath": `serviceTree, "bot", "admins", tgID`,
+		"BotUserACLPath":  `serviceTree, "bot", "users", tgID`,
+		// The per-action allow lists of the service layer.
+		"SettingsEnabledPath":     `serviceTree, "settings", "enabled", action`,
+		"SettingsEnabledUserPath": `serviceTree, "settings", "enabled", action, tgID`,
+	}
+
+	for builder, args := range wantBuilders {
+		if want := "return onlineconf.MakePath(" + args + ")"; !strings.Contains(occonfFile, want) {
+			t.Errorf("%s should build its path as MakePath(%s)", builder, args)
+		}
+	}
+
+	// A key whose path has no variable segment is known at generation time, so
+	// its builder returns a constant rather than composing the same string on
+	// every read — the dev-stand flag is read once per request through the
+	// logger. The path itself is what must not move.
+	wantConstants := map[string]string{
+		"SecurityHTTPAuthEnabledPath":   "/combinedtest/security/httpAuth/enabled",
+		"SecurityCORSAllowAllPath":      "/combinedtest/security/cors/allow_all",
+		"DevStandPath":                  "/combinedtest/devstand",
+		"TelegramTokenPath":             "/combinedtest/security/tg_token",
+		"TelegramBufferSizePath":        "/combinedtest/security/buffer_size",
+		"BotUsersACLPath":               "/combinedtest/bot/users",
+		"SettingsAutoRefundDisablePath": "/combinedtest/settings/auto_refund_disable",
+	}
+
+	for builder, path := range wantConstants {
+		want := "func " + builder + "() string {\n\treturn \"" + path + "\"\n}"
+		if !strings.Contains(occonfFile, want) {
+			t.Errorf("%s should return the constant %q", builder, path)
+		}
+	}
+}
+
+// The generated REST client is not part of the fixture above, and its two keys
+// are the ones a client installation configures — so they get the same pin.
+func TestGeneratedRESTClientReadsKeepTheirPaths(t *testing.T) {
+	tmpDir := generateFromConfig(t, "rest-client-basic-auth", "Generate project with a REST client")
+	occonfFile := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	for builder, args := range map[string]string{
+		"RESTClientHostPath":     `serviceTree, "transport", "rest", transport, "host"`,
+		"RESTClientTimeoutPath":  `serviceTree, "transport", "rest", transport, "timeout"`,
+		"RESTClientUsernamePath": `serviceTree, "transport", "rest", transport, "auth_params", "username"`,
+		"RESTClientPasswordPath": `serviceTree, "transport", "rest", transport, "auth_params", "password"`,
+	} {
+		if want := "return onlineconf.MakePath(" + args + ")"; !strings.Contains(occonfFile, want) {
+			t.Errorf("%s should build its path as MakePath(%s)", builder, args)
+		}
+	}
+}
+
+// TestGenerateRESTClientOnlyProject is the regression test for the gating the
+// accessor set used to have.
+//
+// The REST configuration provider is generated for any project with a REST
+// transport — including one whose only REST transport is a CLIENT, which has no
+// server dimension at all. Gating the accessors on the project's dimensions
+// therefore produced a provider calling 33 functions the accessor package did
+// not contain. An accessor takes its dimensions as arguments, so it is valid
+// whatever the project has; what the dimensions decide is the registry.
+func TestGenerateRESTClientOnlyProject(t *testing.T) {
+	tmpDir := generateFromConfig(t, "rest-client-only", "Generate project whose only REST transport is a client")
+
+	occonfFile := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+	provider := readGenerated(t, tmpDir, "pkg", "app", "restconfig", "psg_config_oc_gen.go")
+
+	// Every accessor the provider calls has to be there, whatever the project
+	// has of the dimension it names.
+	for _, want := range []string{
+		"func RESTServerIP(", "func RESTServerAppPort(", "func RESTServerTimeoutReadPath(",
+		"func RESTAppHandlerPath(", "func RESTAppMetricsPath(", "func SecurityCSRFEnabled(",
+	} {
+		if !strings.Contains(occonfFile, want) {
+			t.Errorf("the accessor package should declare %q: the REST provider calls it", want)
+		}
+	}
+
+	if !strings.Contains(provider, "occonf.RESTServerIP(ctx, serverName)") {
+		t.Error("the REST provider should read through the accessor package")
+	}
+
+	// The registry, on the other hand, claims only what this project reads: it
+	// has no REST server, so no server path is claimed against the service map.
+	for path := range onlineConfRegistry(t, tmpDir) {
+		if strings.Contains(path, "/transport/rest/") && !strings.Contains(path, "billing_v1") {
+			t.Errorf("registry claims %s, but this project serves no REST transport", path)
+		}
+	}
+}
+
+// TestGeneratedRequiredKeysSurviveProjectSettings pins the rule that decides
+// which generator keys are `required`.
+//
+// A key is required only when no project.yaml setting can make the component
+// absent while its code is still generated. A client declared
+// `instantiation: dynamic` takes its address as an argument and never reads
+// host or port; one declared `optional: true` is skipped when unset. Requiring
+// those would stop a process over a key nothing in it reads — and the
+// rest-client fixture below has exactly that shape.
+func TestGeneratedRequiredKeysSurviveProjectSettings(t *testing.T) {
+	withDynamicClient := readGenerated(t,
+		generateFromConfig(t, "rest-client-basic-auth", "Generate project with a dynamic REST client"),
+		"internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	for _, unwanted := range []string{"/host\"", "/port\""} {
+		if strings.Contains(withDynamicClient, "ErrKeyNotSet, \"") &&
+			strings.Contains(withDynamicClient, unwanted) {
+			t.Errorf("a client host/port must not be a startup requirement: %q is in the check", unwanted)
+		}
+	}
+
+	// The telegram token is the opposite case: a bot cannot authenticate a
+	// single call without it, and no project setting makes a telegram worker
+	// run without its driver.
+	telegram := readGenerated(t,
+		generateFromConfig(t, "worker-telegram", "Generate project with a telegram worker"),
+		"internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	if !strings.Contains(telegram, `"/telegramtest/security/tg_token"`) ||
+		!strings.Contains(telegram, `"bot": {`) {
+		t.Error("the telegram token should be checked at the startup of the application running the bot")
+	}
+
+	// And only there: the REST application of the same project runs no bot.
+	if strings.Contains(telegram, `"api": {`) {
+		t.Error("an application that runs no telegram worker must not require the token")
+	}
+}

@@ -222,16 +222,7 @@ func (k Key) TreeRoot() string {
 
 // Kind returns the accessor shape family behind the declared type.
 func (k Key) Kind() string {
-	switch k.Type {
-	case TypeString, TypeInt, TypeBool, TypeDuration:
-		return KindScalar
-	case TypeStrings:
-		return KindStrings
-	case TypeStruct:
-		return KindStruct
-	default:
-		return ""
-	}
+	return KindOf(k.Type)
 }
 
 // Shape returns what the generated accessor returns. The declaration decides:

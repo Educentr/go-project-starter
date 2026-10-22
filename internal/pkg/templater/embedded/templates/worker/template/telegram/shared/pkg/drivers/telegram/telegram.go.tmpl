@@ -8,12 +8,13 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 	"github.com/prometheus/client_golang/prometheus"
 	{{ .Logger.Import }}
 	"golang.org/x/sync/errgroup"
+
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 // OnSendErrorCallback вызывается при ошибке отправки сообщения
@@ -138,8 +139,6 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 	// ошибка, которую он возвращает, — «logger is nil».
 	_ = tgbotapi.SetLogger(botLogger{out: stdlog.Default()})
 
-	bufferSizeConfigPath := onlineconf.MakePath(serviceName, configPath, "buffer_size")
-
 	updateTgToken := func(ctx context.Context) error {
 		err := updateTgSHA(ctx, serviceName)
 		if err != nil {
@@ -154,7 +153,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		// Get API endpoint from onlineconf or use option value
 		apiEndpoint := tg.apiEndpoint
 		if apiEndpoint == "" {
-			apiEndpoint, _ = onlineconf.GetString(ctx, onlineconf.MakePath(serviceName, configPath, "tg_api_endpoint"), "")
+			apiEndpoint, _, _ = occonf.TelegramAPIEndpoint(ctx)
 		}
 
 		if apiEndpoint == "" {
@@ -170,7 +169,11 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		}
 
 		if tg.startUpdatePoller {
-			bufferSize, err := onlineconf.GetInt(ctx, bufferSizeConfigPath, defaultBufferSize)
+			bufferSize, ok, err := occonf.TelegramBufferSize(ctx)
+			if !ok {
+				bufferSize = defaultBufferSize
+			}
+
 			if err != nil {
 				{{ $.Logger.ErrorMsg "ctx" "err" "Error getting buffer_size" }}
 
@@ -199,7 +202,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 		return nil
 	}
 
-	err := onlineconf.RegisterSubscription(ctx, onlineconf.DefaultModule, []string{GetTgTokenPath(ctx, serviceName)},
+	err := occonf.Subscribe(ctx, []string{occonf.TelegramTokenPath()},
 		func() error {
 			{{ $.Logger.InfoMsg "ctx" "tg_token updated" }}
 

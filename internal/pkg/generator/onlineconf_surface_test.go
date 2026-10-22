@@ -7,6 +7,7 @@ import (
 	cfg "github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
+	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 )
 
 // The surface decides which generator-owned keys exist for a project, and that
@@ -120,16 +121,21 @@ func TestGeneratorKeysExcludeAbsentReaders(t *testing.T) {
 		Applications: []cfg.Application{{Name: "web", TransportList: []cfg.AppTransport{{Name: "api"}}}},
 	}
 
-	keys, err := generatorOnlineConfKeys(config)
+	decls, err := templater.LoadOnlineConfKeyDecls()
 	if err != nil {
-		t.Fatalf("generatorOnlineConfKeys() error: %v", err)
+		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
 	}
 
-	if len(keys) == 0 {
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
+	if err != nil {
+		t.Fatalf("ExpandGenDecls() error: %v", err)
+	}
+
+	if len(generated.Keys) == 0 {
 		t.Fatal("a project with a REST server reads OnlineConf keys")
 	}
 
-	for _, key := range keys {
+	for _, key := range generated.Keys {
 		for _, unwanted := range []string{"/svc/kafka/", "/svc/worker/", "/svc/bot/"} {
 			if strings.HasPrefix(key.Path, unwanted) {
 				t.Errorf("%s is claimed by %v, but nothing generated reads it", key.Path, key.ReadBy)
@@ -142,10 +148,10 @@ func TestGeneratorKeysExcludeAbsentReaders(t *testing.T) {
 		"/svc/transport/rest/api_v1/web/port": false,
 		"/svc/security/csrf/enabled":          false,
 		"/svc/devstand":                       false,
-		"/svc/settings/enabled":               false,
+		"/svc/settings/enabled/<action>":      false,
 	}
 
-	for _, key := range keys {
+	for _, key := range generated.Keys {
 		if _, listed := want[key.Path]; listed {
 			want[key.Path] = true
 		}
@@ -154,6 +160,91 @@ func TestGeneratorKeysExcludeAbsentReaders(t *testing.T) {
 	for path, found := range want {
 		if !found {
 			t.Errorf("%s should be among the generator's keys", path)
+		}
+	}
+}
+
+// The startup check is per application on purpose: a required key belongs to a
+// component, and a process that does not run that component never reads it.
+// Checking the project.s whole set in every process would stop a REST-only
+// application over the telegram token of a worker it never starts.
+func TestAppRequiredChecksFollowTheApplication(t *testing.T) {
+	config := cfg.Config{
+		Main: cfg.Main{Name: "svc"},
+		RestList: cfg.RestList{
+			{Name: "api", Version: "v1", GeneratorType: "ogen"},
+			{Name: "billing", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient},
+		},
+		GrpcList: cfg.GrpcList{{Name: "items", GeneratorType: "buf_client"}},
+		KafkaList: cfg.KafkaList{{
+			Name: "orders", Type: ds.KafkaTypeProducer, Client: "orders",
+			Events: []cfg.KafkaEvent{{Name: "created"}},
+		}},
+		WorkerList: cfg.WorkerList{{Name: "bot", GeneratorType: "template", GeneratorTemplate: "telegram"}},
+		Applications: []cfg.Application{
+			{Name: "web", TransportList: []cfg.AppTransport{{Name: "api"}}},
+			{Name: "bot", WorkerList: []string{"bot"}},
+			{Name: "producers", KafkaList: []cfg.AppKafka{{Name: "orders"}}},
+			{
+				Name: "integrations",
+				TransportList: []cfg.AppTransport{
+					{Name: "billing"},
+					// Optional: the generated client skips an absent host, so the
+					// startup check must not demand one.
+					{Name: "items", Config: cfg.AppTransportConfig{Optional: true}},
+				},
+			},
+		},
+	}
+	config.RestMap = map[string]cfg.Rest{}
+	for _, rest := range config.RestList {
+		config.RestMap[rest.Name] = rest
+	}
+
+	config.GrpcMap = map[string]cfg.Grpc{}
+	for _, grpc := range config.GrpcList {
+		config.GrpcMap[grpc.Name] = grpc
+	}
+
+	config.WorkerMap = map[string]cfg.Worker{}
+	for _, worker := range config.WorkerList {
+		config.WorkerMap[worker.Name] = worker
+	}
+
+	config.KafkaMap = map[string]cfg.Kafka{}
+	for _, kafka := range config.KafkaList {
+		config.KafkaMap[kafka.Name] = kafka
+	}
+
+	decls, err := templater.LoadOnlineConfKeyDecls()
+	if err != nil {
+		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
+	}
+
+	want := map[string][]string{
+		"web": {},
+		"bot": {"/svc/security/tg_token"},
+		// A client host is not `required`: a client declared
+		// `instantiation: dynamic` never reads it, and one declared
+		// `optional: true` is skipped when it is unset — whether the key is
+		// needed is a project setting, not a property of the key.
+		"integrations": {},
+		"producers":    {"/svc/kafka/orders/brokers"},
+	}
+
+	for _, app := range config.Applications {
+		surface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app, optionalComponents(config)))
+		if err != nil {
+			t.Fatalf("ExpandGenDecls(%s) error: %v", app.Name, err)
+		}
+
+		got := make([]string, 0, len(surface.Required))
+		for _, check := range surface.Required {
+			got = append(got, check.Path)
+		}
+
+		if strings.Join(got, ",") != strings.Join(want[app.Name], ",") {
+			t.Errorf("application %s requires %v, want %v", app.Name, got, want[app.Name])
 		}
 	}
 }

@@ -3,21 +3,20 @@ package {{ .Transport.Name }}
 import (
 	"context"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/pkg/errors"
     
 	{{/* Import only the ogen package, like client.go does. Transport.Import
 	     also carries this very wrapper package (the app layer needs both),
 	     and emitting it here is a self-import — an import cycle. */}}
 	{{ .Transport.PkgName }} "{{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}"
-	"{{ .ProjectPath }}/internal/app/constant"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 {{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey") }}
 type SecuritySource struct {}
 
 func (ak *SecuritySource) AuthHeader(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.AuthHeader, error) {
-    key, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "auth_params", "apikey"))
+    key, _, err := occonf.RESTClientAPIKey(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
         return {{ .Transport.PkgName }}.AuthHeader{}, errors.Wrap(err, "error getting API key")
     }
@@ -36,7 +35,7 @@ func (ak *SecuritySource) AuthHeader(ctx context.Context, operationName {{ .Tran
 type SecuritySource struct {}
 
 func (s *SecuritySource) BearerAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.BearerAuth, error) {
-    token, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "auth_params", "token"))
+    token, _, err := occonf.RESTClientToken(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
         return {{ .Transport.PkgName }}.BearerAuth{}, errors.Wrap(err, "error getting Bearer token")
     }
@@ -53,7 +52,7 @@ func (s *SecuritySource) BearerAuth(ctx context.Context, operationName {{ .Trans
 type SecuritySource struct {}
 
 func (s *SecuritySource) BasicAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.BasicAuth, error) {
-    username, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "auth_params", "username"))
+    username, _, err := occonf.RESTClientUsername(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
         return {{ .Transport.PkgName }}.BasicAuth{}, errors.Wrap(err, "error getting Basic auth username")
     }
@@ -62,10 +61,9 @@ func (s *SecuritySource) BasicAuth(ctx context.Context, operationName {{ .Transp
         return {{ .Transport.PkgName }}.BasicAuth{}, errors.New("Basic auth username not set")
     }
 
-    // The password node must exist (GetString without a default errors on a
-    // missing path), but an empty value is accepted on purpose: APIs that
-    // carry the secret in the username use an empty password.
-    password, err := onlineconf.GetString(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "auth_params", "password"))
+    // An absent password node is accepted on purpose, and so is an empty
+    // value: APIs that carry the secret in the username use an empty password.
+    password, _, err := occonf.RESTClientPassword(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
         return {{ .Transport.PkgName }}.BasicAuth{}, errors.Wrap(err, "error getting Basic auth password")
     }

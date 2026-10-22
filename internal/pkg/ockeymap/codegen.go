@@ -107,7 +107,31 @@ func (k Key) DefaultVarName() string {
 // no type of its own — the value shape belongs to the caller, who passes the
 // destination.
 func (k Key) GoType() string {
-	switch k.Type {
+	return GoTypeOf(k.Type)
+}
+
+// ZeroLiteral returns the Go expression for the value an accessor returns
+// alongside an error.
+func (k Key) ZeroLiteral() string {
+	return ZeroLiteralOf(k.Type)
+}
+
+// Getter returns the go-onlineconf reader the accessor is built on.
+func (k Key) Getter() string {
+	return GetterOf(k.Type)
+}
+
+// NeedsTimeImport reports whether the entry pulls "time" into the generated
+// package.
+func (k Key) NeedsTimeImport() bool {
+	return k.Type == TypeDuration
+}
+
+// GoTypeOf returns the Go type a declared value type reads into. A struct has
+// none of its own: the value shape belongs to the caller, who passes the
+// destination.
+func GoTypeOf(valueType string) string {
+	switch valueType {
 	case TypeString:
 		return "string"
 	case TypeInt:
@@ -123,10 +147,10 @@ func (k Key) GoType() string {
 	}
 }
 
-// ZeroLiteral returns the Go expression for the value an accessor returns
-// alongside an error.
-func (k Key) ZeroLiteral() string {
-	switch k.Type {
+// ZeroLiteralOf returns the Go expression for the value an accessor of this type
+// returns alongside an error.
+func ZeroLiteralOf(valueType string) string {
+	switch valueType {
 	case TypeString:
 		return `""`
 	case TypeInt, TypeDuration:
@@ -140,13 +164,15 @@ func (k Key) ZeroLiteral() string {
 	}
 }
 
-// Getter returns the go-onlineconf reader the accessor is built on. The scalar
-// types use the *IfExists form on purpose: the defaulting form
+// GetterOf returns the go-onlineconf reader an accessor of this type is built
+// on.
+//
+// The scalar types use the *IfExists form on purpose: the defaulting form
 // (onlineconf.GetString(ctx, path, d...)) indexes d[0] on a read error, so it
 // panics when called without a default — and generated code must not depend on
 // a caller remembering to pass one.
-func (k Key) Getter() string {
-	switch k.Type {
+func GetterOf(valueType string) string {
+	switch valueType {
 	case TypeString:
 		return "GetStringIfExists"
 	case TypeInt:
@@ -164,10 +190,18 @@ func (k Key) Getter() string {
 	}
 }
 
-// NeedsTimeImport reports whether the entry pulls "time" into the generated
-// package.
-func (k Key) NeedsTimeImport() bool {
-	return k.Type == TypeDuration
+// KindOf returns the accessor shape family behind a declared value type.
+func KindOf(valueType string) string {
+	switch valueType {
+	case TypeString, TypeInt, TypeBool, TypeDuration:
+		return KindScalar
+	case TypeStrings:
+		return KindStrings
+	case TypeStruct:
+		return KindStruct
+	default:
+		return ""
+	}
 }
 
 // DefaultLiteral renders the declared default as a Go expression of the
@@ -379,4 +413,149 @@ func KnownTypes() []string {
 	sort.Strings(out)
 
 	return out
+}
+
+// --- code generation of the generator's own accessors ---
+
+// GoType returns the Go type the accessor yields.
+func (a GenAccessor) GoType() string {
+	return GoTypeOf(a.Type)
+}
+
+// ZeroLiteral returns the Go expression for the value the accessor returns
+// alongside an error.
+func (a GenAccessor) ZeroLiteral() string {
+	return ZeroLiteralOf(a.Type)
+}
+
+// Getter returns the go-onlineconf reader the accessor is built on.
+func (a GenAccessor) Getter() string {
+	return GetterOf(a.Type)
+}
+
+// Kind returns the accessor shape family behind the declared type.
+func (a GenAccessor) Kind() string {
+	return KindOf(a.Type)
+}
+
+// Shape returns what the accessor returns: always the value alongside its
+// presence.
+//
+// One shape, unlike a service key's three, and `required` does not change it.
+// A generator-owned key has no machine-readable default — the fallback is the
+// generated reader's own, applied where that reader implements its fallback
+// chain — and a reader of a key declared `required` still has to be able to see
+// an absent one: a transport marked `optional: true` in project.yaml is skipped
+// rather than reported. So `required` moves the question to process start, where
+// the startup check knows which components this application actually runs, and
+// leaves the read itself alone.
+func (GenAccessor) Shape() string {
+	return ShapeOptional
+}
+
+// NeedsTimeImport reports whether the accessor pulls "time" into the generated
+// package.
+func (a GenAccessor) NeedsTimeImport() bool {
+	return a.Type == TypeDuration
+}
+
+// PathBuilderName returns the identifier of the function returning the
+// accessor's path. Callers need it for a subscription: the path of a key whose
+// dimensions are runtime arguments cannot be a constant.
+func (a GenAccessor) PathBuilderName() string {
+	if a.IsPathBuilder() {
+		return a.Name
+	}
+
+	return a.Name + pathBuilderSuffix
+}
+
+// ParamDecl renders the accessor's parameters as a Go parameter list —
+// "transport, app string" — or the empty string when it takes none.
+func (a GenAccessor) ParamDecl() string {
+	if len(a.Params) == 0 {
+		return ""
+	}
+
+	return a.ParamNames() + " string"
+}
+
+// ParamNames renders the accessor's parameters as an argument list, for the call
+// from the accessor to its path builder.
+func (a GenAccessor) ParamNames() string {
+	names := make([]string, 0, len(a.Params))
+	for _, param := range a.Params {
+		names = append(names, param.Name)
+	}
+
+	return strings.Join(names, ", ")
+}
+
+// PathArgs renders the arguments of the onlineconf.MakePath call that builds the
+// accessor's path: the service tree, then one argument per segment — a quoted
+// literal for a fixed segment, the parameter itself for a variable one.
+//
+// tree is the service tree root the generated code reads under. It is passed in
+// rather than taken from the declaration because the declaration carries the
+// {service} placeholder, and what that expands to is the project's name.
+func (a GenAccessor) PathArgs(tree string) string {
+	segments := pathSegments(a.Template)
+	args := make([]string, 0, len(segments))
+
+	for i, segment := range segments {
+		switch {
+		case i == 0 && segment == PlaceholderService:
+			args = append(args, tree)
+		case isPlaceholder(segment):
+			args = append(args, strings.Trim(segment, "{}"))
+		case isRuntimeParam(segment):
+			args = append(args, strings.Trim(segment, "<>"))
+		default:
+			args = append(args, strconv.Quote(segment))
+		}
+	}
+
+	return strings.Join(args, ", ")
+}
+
+// DocPath renders the declared path for the accessor's doc comment, with the
+// service tree substituted and the variable segments left visible.
+func (a GenAccessor) DocPath(tree string) string {
+	segments := pathSegments(a.Template)
+	out := make([]string, 0, len(segments))
+
+	for i, segment := range segments {
+		if i == 0 && segment == PlaceholderService {
+			segment = tree
+		}
+
+		out = append(out, segment)
+	}
+
+	return "/" + strings.Join(out, "/")
+}
+
+// QuotedArgs renders a startup check's dimension values as Go string literals.
+func (c GenRequiredCheck) QuotedArgs() string {
+	quoted := make([]string, 0, len(c.Args))
+	for _, arg := range c.Args {
+		quoted = append(quoted, strconv.Quote(arg))
+	}
+
+	return strings.Join(quoted, ", ")
+}
+
+// ConstPath returns the accessor's whole path as a Go string literal, or the
+// empty string when the path has a variable segment.
+//
+// An accessor without parameters reads one fixed path, and the generator knows
+// it — so the path builder can return a constant instead of composing the same
+// string on every read. The dev-stand flag is read once per request through the
+// logger; rebuilding `/svc/devstand` there is work nobody asked for.
+func (a GenAccessor) ConstPath(tree string) string {
+	if len(a.Params) > 0 {
+		return ""
+	}
+
+	return strconv.Quote(a.DocPath(tree))
 }

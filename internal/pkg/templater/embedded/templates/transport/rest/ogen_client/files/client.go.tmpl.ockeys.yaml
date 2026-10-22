@@ -3,12 +3,18 @@ groups:
   - scope: rest_client
     keys:
       - path: "{service}/transport/rest/{transport}/host"
+        name: RESTClientHost
         type: string
         description: >-
-          Base URL of the upstream service. Startup fails when it is unset:
-          a client with no host has nothing to call.
+          Base URL of the upstream service. Not `required`: a client declared
+          `instantiation: dynamic` in project.yaml takes its base URL as an
+          argument and never reads this key, and one declared `optional: true`
+          is skipped when it is unset — so whether the key is needed is a
+          project setting, not a property of the key. The generated client
+          reports a missing host at Init, with the transport named.
 
       - path: "{service}/transport/rest/{transport}/timeout"
+        name: RESTClientTimeout
         type: duration
         default: 2s
         description: Timeout of one request of this client.

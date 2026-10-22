@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	{{ if not .Transport.IsDynamic -}}
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
-	{{- end }}
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	{{ if not .Transport.IsDynamic -}}
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
+	{{ end -}}
 	{{ .Logger.Import }}
 )
 {{ if .Transport.IsDynamic }}
@@ -82,38 +82,15 @@ func (c *ClientWrapper) ClientName() string {
 
 // Init creates the actual gRPC connection
 func (c *ClientWrapper) Init(ctx context.Context, serviceName string) (*Client, error) {
-	var (
-		host string
-		port string
-	)
-
 	// Get configuration from OnlineConf
-	for _, path := range []string{
-		onlineconf.MakePath(serviceName, "transport/grpc/{{ .Transport.Name }}/host"),
-	} {
-		var ex bool
-		var err error
-		host, ex, err = onlineconf.GetStringIfExists(ctx, path)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get host from config")
-		}
-		if ex {
-			break
-		}
+	host, _, err := occonf.GRPCClientHost(ctx, "{{ .Transport.Name }}")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get host from config")
 	}
 
-	for _, path := range []string{
-		onlineconf.MakePath(serviceName, "transport/grpc/{{ .Transport.Name }}/port"),
-	} {
-		var ex bool
-		var err error
-		port, ex, err = onlineconf.GetStringIfExists(ctx, path)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get port from config")
-		}
-		if ex {
-			break
-		}
+	port, _, err := occonf.GRPCClientPort(ctx, "{{ .Transport.Name }}")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get port from config")
 	}
 {{ if .Applications.IsTransportOptional .Transport.Name }}
 	if host == "" || port == "" {

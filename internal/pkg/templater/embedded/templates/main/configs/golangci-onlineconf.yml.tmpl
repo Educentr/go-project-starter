@@ -1,12 +1,16 @@
 # OnlineConf validator — the enforcing half of the OnlineConf key map.
 #
-# The map gives the service typed accessors to read through (see
+# The map gives this project typed accessors to read through (see
 # {{ .OnlineConf.GetPackagePath }}); this config makes that the ONLY way to
 # read. Without it the declaration would be a convention: nothing stops a
 # developer from writing one more onlineconf.MakePath next to the generated
 # accessors, and that is exactly the shape the map exists to remove — a path
 # assembled out of private segment constants is invisible to every tool that
 # would otherwise check it against the declaration.
+#
+# Every project gets this check, with or without `onlineconf.path` in
+# project.yaml: the generated code reads OnlineConf everywhere, so half of the
+# map is always there and the guard has to hold everywhere too.
 #
 # Run it with `make onlineconf-validate`.
 #
@@ -44,19 +48,14 @@ linters:
     # exemption below is narrower and explicit about why each path is exempt.
     generated: disable
     rules:
-      # Two groups are exempt, and only these two.
+      # One exemption, and only one: the generated accessor package, which is
+      # where OnlineConf IS read.
       #
-      # The generated accessor package is where OnlineConf IS read.
-      #
-      # Every generated Go file (psg_*_gen.go) reads the generator's own
-      # subtrees — transport, security, kafka, logger, dev-stand — which the
-      # service map may not declare at all. Those readers are generated in full
-      # from project.yaml; they are not hand-written escape hatches.
-      #
-      # Known limit: the hand-written section below the disclaimer marker inside
-      # a psg_*_gen.go file is exempt along with the file. Hand-written files
-      # (handlers, services, workers) — where service code actually lives — stay
-      # in scope.
+      # Generated files used to be exempt as a class, because the generated code
+      # read the generator's own keys directly. That left a hole — the manual
+      # section below the disclaimer marker of a psg_*_gen.go file could read any
+      # key and nothing would notice. The generated code reads through the
+      # accessors now, so the exemption is gone and the hole with it.
       - linters:
           - forbidigo
         path: {{ .OnlineConf.ExemptPathPattern }}

@@ -30,12 +30,13 @@ const (
 	metricsLintConfigPath = "configs/golangci-metrics.yml"
 
 	// onlineConfLintConfigPath is the standalone OnlineConf-validator lint
-	// config, generated only when an OnlineConf key map is configured.
+	// config. Generated in every project: generated code reads OnlineConf
+	// everywhere, so the guard has to hold everywhere.
 	onlineConfLintConfigPath = "configs/golangci-onlineconf.yml"
 
 	// onlineConfTreePath is the registry of the whole OnlineConf surface of the
-	// service — its own declarations plus the paths generated code reads.
-	// Generated only when an OnlineConf key map is configured.
+	// service — the paths generated code reads plus the service's own
+	// declarations. Generated in every project, for the same reason.
 	onlineConfTreePath = "configs/onlineconf-tree.yaml"
 
 	// Embedded template path prefixes (always use forward slashes for embed.FS)
@@ -187,11 +188,11 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 	}
 
 	// A validator config only makes sense alongside the map it enforces, and so
-	// does the registry of the surface the map describes.
+	// does the registry of the surface the map describes. The OnlineConf map is
+	// never absent — the generated code's half of it is always there — so its
+	// two artifacts are not listed here.
 	skipMapArtifacts := map[string]bool{
-		metricsLintConfigPath:    !params.Metrics.IsEnabled(),
-		onlineConfLintConfigPath: !params.OnlineConf.IsEnabled(),
-		onlineConfTreePath:       !params.OnlineConf.IsEnabled(),
+		metricsLintConfigPath: !params.Metrics.IsEnabled(),
 	}
 
 	filteredMapFiles := make([]ds.Files, 0, len(files))
@@ -614,12 +615,12 @@ func GetMetricsTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Fi
 }
 
 // GetOnlineConfTemplates returns the generated accessor package built from the
-// service's OnlineConf key map. Returns nothing when no map is configured.
+// project's OnlineConf key map — the paths the generated code reads plus, when
+// project.yaml points at one, the service's own declarations.
+//
+// Every project gets it: generated code reads OnlineConf in every project, and
+// the package is the only place the library may be called from.
 func GetOnlineConfTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
-	if !params.OnlineConf.IsEnabled() || !params.OnlineConf.HasKeys() {
-		return nil, nil, nil
-	}
-
 	dirs, files, err = GetTemplates(templates, "embedded/templates/occonf", params)
 	if err != nil {
 		err = errors.Wrap(err, "error while get onlineconf templates")

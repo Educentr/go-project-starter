@@ -943,56 +943,82 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	return nil
 }
 
-// processOnlineConfMap resolves and parses the service's OnlineConf key map.
+// processOnlineConfMap assembles the project's whole OnlineConf key map: the
+// paths the generated code reads, plus the service's own declarations when
+// project.yaml points at a key map.
 //
-// Like the metrics map it is materialized inline (same mechanism as the CLI and
-// queue-worker contracts) because the declarations are needed by collectFiles,
-// which runs before the resolveAllSources pre-pass. Nothing downstream reads
-// the map file itself — the generated accessor package is the artifact — so the
-// staged copy is dropped right after the parse and no copy lands in the
-// project. The --sourceRef ref override applies here too, so a remote map comes
-// from the same state of the contracts as the rest.
+// It runs for every project, with or without `onlineconf.path`. Generated code
+// reads OnlineConf in every project, so every project gets the accessor package,
+// the validator, the startup check and the registry; the service's map adds its
+// keys to them. It used to be the switch for the whole feature, which left the
+// guard off exactly where the only reader was the generated code.
 //
-// Without `onlineconf.path` nothing is switched on and no generated artifact
-// changes.
+// The service map is materialized inline (same mechanism as the metrics map, the
+// CLI and queue-worker contracts) because the declarations are needed by
+// collectFiles, which runs before the resolveAllSources pre-pass. Nothing
+// downstream reads the map file itself — the generated accessor package is the
+// artifact — so the staged copy is dropped right after the parse and no copy
+// lands in the project. The --sourceRef ref override applies here too, so a
+// remote map comes from the same state of the contracts as the rest.
 func (g *Generator) processOnlineConfMap(config cfg.Config) error {
-	if !config.OnlineConf.IsEnabled() {
-		g.OnlineConf = ds.OnlineConfConfig{}
-
-		return nil
-	}
-
-	mapPath, cleanup, err := resolveInlineSpec(
-		context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
-	)
+	decls, err := templater.LoadOnlineConfKeyDecls()
 	if err != nil {
-		return errors.Wrapf(err, "onlineconf.path: resolve %s", config.OnlineConf.Path)
+		return errors.Wrap(err, errOnlineConfMapCtx)
 	}
 
-	keyMap, err := ockeymap.Load(mapPath)
-
-	cleanup()
-
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
 	if err != nil {
-		return errors.Wrap(err, "onlineconf.path")
+		return errors.Wrap(err, errOnlineConfMapCtx)
 	}
 
-	generated, err := generatorOnlineConfKeys(config)
+	perApp := make(map[string]*ockeymap.GenSurface, len(config.Applications))
+
+	// One scan for the whole project: the answer does not depend on which
+	// application is being expanded.
+	optional := optionalComponents(config)
+
+	for _, app := range config.Applications {
+		appSurface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app, optional))
+		if err != nil {
+			return errors.Wrapf(err, "%s: application %s", errOnlineConfMapCtx, app.Name)
+		}
+
+		perApp[app.Name] = appSurface
+	}
+
+	var serviceKeys []ockeymap.Key
+
+	if config.OnlineConf.IsEnabled() {
+		mapPath, cleanup, err := resolveInlineSpec(
+			context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "onlineconf.path: resolve %s", config.OnlineConf.Path)
+		}
+
+		keyMap, err := ockeymap.Load(mapPath)
+
+		cleanup()
+
+		if err != nil {
+			return errors.Wrap(err, "onlineconf.path")
+		}
+
+		if err := keyMap.CheckGeneratorKeys(generated.Keys); err != nil {
+			return errors.Wrap(err, "onlineconf.path")
+		}
+
+		warnOnlineConfTreeRoot(keyMap.TreeRoot(), config.Main.Name)
+
+		serviceKeys = keyMap.Keys
+	}
+
+	onlineConf, err := ds.NewOnlineConfConfig(config.Main.Name, serviceKeys, generated, perApp)
 	if err != nil {
-		return err
+		return errors.Wrap(err, errOnlineConfMapCtx)
 	}
 
-	if err := keyMap.CheckGeneratorKeys(generated); err != nil {
-		return errors.Wrap(err, "onlineconf.path")
-	}
-
-	warnOnlineConfTreeRoot(keyMap.TreeRoot(), config.Main.Name)
-
-	g.OnlineConf = ds.OnlineConfConfig{
-		Enabled:       true,
-		Keys:          keyMap.Keys,
-		GeneratedKeys: generated,
-	}
+	g.OnlineConf = onlineConf
 
 	return nil
 }
@@ -1018,27 +1044,84 @@ func warnOnlineConfTreeRoot(mapRoot, serviceName string) {
 		mapRoot, serviceName)
 }
 
-// generatorOnlineConfKeys returns the concrete OnlineConf paths the generated
-// code of this project reads.
+// onlineConfAppSurface describes the dimensions of ONE application: the
+// transports, workers and Kafka clients its process actually runs.
 //
-// It is the generator's half of the key surface, and it exists for two reasons.
-// A path generated code already reads must not be declarable by the service —
-// otherwise the key has two readers with two spellings, which is what the map
-// exists to prevent. And the owner of the contract has to be able to see the
-// whole tree, so the expanded list goes into the generated registry next to the
-// service's own declarations.
-func generatorOnlineConfKeys(config cfg.Config) ([]ockeymap.GeneratorKey, error) {
-	decls, err := templater.LoadOnlineConfKeyDecls()
-	if err != nil {
-		return nil, errors.Wrap(err, errOnlineConfMapCtx)
+// It exists for the startup check. A required key belongs to a component — a
+// gRPC client's host, a Kafka producer's brokers, a telegram bot's token — and a
+// process that does not run that component never reads it, so checking the
+// project's whole set in every process would stop a REST-only application over
+// the token of a worker it never starts.
+// A component declared optional is left out. The generated code treats an
+// absent key of an optional transport or Kafka client as "not configured, skip"
+// rather than as an error, and `optional: true` is the project saying so — a
+// startup check that failed over it would contradict the project's own setting.
+// Optionality is per project rather than per application, the same way the
+// generated readers test it.
+func onlineConfAppSurface(config cfg.Config, app cfg.Application, optional map[string]bool) ockeymap.ProjectSurface {
+	appConfig := config
+	appConfig.RestList = nil
+	appConfig.GrpcList = nil
+	appConfig.KafkaList = nil
+	appConfig.WorkerList = nil
+	appConfig.Applications = []cfg.Application{app}
+
+	for _, transport := range app.TransportList {
+		if optional[transport.Name] {
+			continue
+		}
+
+		if rest, ok := config.RestMap[transport.Name]; ok {
+			appConfig.RestList = append(appConfig.RestList, rest)
+		}
+
+		if grpc, ok := config.GrpcMap[transport.Name]; ok {
+			appConfig.GrpcList = append(appConfig.GrpcList, grpc)
+		}
 	}
 
-	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
-	if err != nil {
-		return nil, errors.Wrap(err, errOnlineConfMapCtx)
+	for _, kafka := range app.KafkaList {
+		if kafka.Optional || optional[kafka.Name] {
+			continue
+		}
+
+		if client, ok := config.KafkaMap[kafka.Name]; ok {
+			appConfig.KafkaList = append(appConfig.KafkaList, client)
+		}
 	}
 
-	return generated, nil
+	for _, name := range app.WorkerList {
+		if worker, ok := config.WorkerMap[name]; ok {
+			appConfig.WorkerList = append(appConfig.WorkerList, worker)
+		}
+	}
+
+	return onlineConfSurface(appConfig)
+}
+
+// optionalComponents returns the names of the transports and Kafka clients at
+// least one application declares optional — the same condition the generated
+// readers are rendered with (ds.Apps.IsTransportOptional), so that a key the
+// generated code is willing to do without is not one the startup check insists
+// on.
+func optionalComponents(config cfg.Config) map[string]bool {
+	out := map[string]bool{}
+
+	for _, app := range config.Applications {
+		for _, transport := range app.TransportList {
+			if transport.Config.Optional {
+				out[transport.Name] = true
+			}
+		}
+
+		for _, kafka := range app.KafkaList {
+			if kafka.Optional {
+				out[kafka.Name] = true
+			}
+		}
+	}
+
+	return out
 }
 
 // onlineConfSurface describes the project dimensions the generator's own key

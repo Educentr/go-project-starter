@@ -205,14 +205,9 @@ func TestParseErrors(t *testing.T) {
 			wantMsg:  "contradict each other",
 		},
 		{
-			// go-onlineconf's GetStrings reports no presence, so a `required`
-			// here would be a promise the generated accessor could not keep.
-			name:     "required strings",
-			yaml:     "keys:\n  - path: /svc/a\n    type: strings\n    required: true\n",
-			sentinel: ockeymap.ErrInvalidMap,
-			wantMsg:  "cannot be `required`",
-		},
-		{
+			// A struct is the one type whose presence the accessor cannot verify
+			// on its own: it would have to unmarshal the value, and the
+			// destination type belongs to the caller, not to the map.
 			name:     "required struct",
 			yaml:     "keys:\n  - path: /svc/a\n    type: struct\n    required: true\n",
 			sentinel: ockeymap.ErrInvalidMap,

@@ -3,6 +3,7 @@ package ockeymap
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -12,23 +13,35 @@ import (
 
 // Declarations of the OnlineConf keys the GENERATOR's own code reads.
 //
-// The service map alone is not enough to make "no key is read from two places
-// with two spellings" true: generated code reads OnlineConf too — transport
-// timeouts, security toggles, worker and Kafka settings, the dev-stand flag.
-// Until those reads are declared, two things are wrong at once. The service can
-// declare a path generated code already reads, getting a second reader with a
-// second spelling; and the owner of the contract cannot see the whole surface of
-// the tree, because half of it exists only inside templates.
+// Every generated project reads OnlineConf — transport timeouts, security
+// toggles, log levels, worker and Kafka settings, the dev-stand flag — whether
+// or not it declares a key map of its own. So the project's key map has two
+// halves: the service's declarations, and these. Both are generated into one
+// accessor package, both go into one registry, and a path in one half may not be
+// declared in the other.
 //
-// So every template whose generated code reads a key carries a declaration file
-// next to it (`<template>.ockeys.yaml`), and the paths in it are expanded at
-// generation time against the actual project: transports, applications, workers,
-// Kafka clients. Declaration next to the read is the point — the file a
-// developer has open while adding a read is the file that must grow an entry,
-// and TestOnlineConfKeyDeclarations fails when it does not.
+// A declaration lives next to the read it describes: every template whose
+// generated code reads a key carries a `<template>.ockeys.yaml` beside it. That
+// placement is the point — the file a developer has open while adding a read is
+// the file that must grow an entry, and the templater tests fail when it does
+// not.
 //
-// Reserving prefixes (`/svc/transport/**` and friends) was the earlier answer
-// and the wrong one: the list was maintained by hand, nothing tied it to the
+// A declared path carries two kinds of variable segment:
+//
+//	{service}, {transport}, {app}, {worker}, {client}, {event}
+//	    project dimensions, known at generation time. They become parameters of
+//	    the generated accessor, because the generated readers are generic over
+//	    them: the REST configuration provider is handed a server and an
+//	    application name by the runtime, not by the generator.
+//
+//	<urlPath>, <tgID>, <action>, …
+//	    segments the generated code computes at runtime. They become parameters
+//	    too, and they make the generator the owner of the subtree they open: there
+//	    is no single path to compare against, so the service map may not declare
+//	    inside it.
+//
+// Reserving prefixes (`/svc/transport/**` and friends) was the first answer and
+// the wrong one: the list was maintained by hand, nothing tied it to the
 // templates, and subtrees the generated code genuinely reads — `worker/<name>`,
 // `settings`, `bot` — were simply missing from it.
 
@@ -45,9 +58,10 @@ var ErrGenDeclDefect = errors.New("generator onlineconf key declaration defect")
 // the mapping between a read and its declaration is mechanical and checkable.
 const GenDeclSuffix = ".ockeys.yaml"
 
-// Placeholders a declared path may carry. Which ones are available is decided by
-// the group's scope — that is what makes a declaration expandable into the
-// concrete paths of a concrete project instead of a pattern nobody can match.
+// Dimension placeholders a declared path may carry. Which ones are available is
+// decided by the group's scope — that is what makes a declaration expandable
+// into the concrete paths of a concrete project instead of a pattern nobody can
+// match.
 const (
 	PlaceholderService   = "{service}"
 	PlaceholderTransport = "{transport}"
@@ -57,6 +71,12 @@ const (
 	PlaceholderEvent     = "{event}"
 )
 
+// pathBuilderSuffix is the mandatory tail of the name of a path-builder entry —
+// a declaration with no `type`, which generates a function returning the path
+// rather than reading it. The suffix keeps a builder from colliding with the
+// `<Name>Path` builder generated alongside a value accessor.
+const pathBuilderSuffix = "Path"
+
 // Declaration scopes — the project dimension a group of keys is read for, and
 // therefore what the generator expands it over.
 const (
@@ -65,7 +85,7 @@ const (
 	// ScopeRESTServer covers the REST server configuration, read per REST
 	// server and per application serving it. A path that names no {app}
 	// expands once per server. {transport} is the server name, which carries
-	// the api version ("api_v1") — the name the generated main hands to
+	// the api version ("api_v1"): the name the generated main hands to
 	// rest.NewServer.
 	ScopeRESTServer = "rest_server"
 	// ScopeRESTClient covers the generated REST clients (ogen_client), read per
@@ -89,9 +109,9 @@ const (
 	ScopeTelegramDriver = "telegram_driver"
 )
 
-// scopePlaceholders is the closed set of placeholders each scope can fill. A
-// path using anything else is a defect: it could never be expanded into a path
-// that exists in a tree.
+// scopePlaceholders is the closed set of dimension placeholders each scope can
+// fill. A path using anything else is a defect: it could never be expanded into
+// a path that exists in a tree.
 var scopePlaceholders = map[string][]string{
 	ScopeService:            {PlaceholderService},
 	ScopeRESTServer:         {PlaceholderService, PlaceholderTransport, PlaceholderApp},
@@ -104,23 +124,42 @@ var scopePlaceholders = map[string][]string{
 	ScopeTelegramDriver:     {PlaceholderService},
 }
 
+// runtimeParamRx is the accepted grammar of a runtime segment, `<name>`: the
+// name becomes a parameter of the generated accessor, so it has to be an
+// unexported Go identifier.
+var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
+
 // GenKey is one declared read of the generated code.
 type GenKey struct {
-	// Path is the key path with placeholders, e.g.
-	// {service}/transport/rest/{transport}/{app}/port. Required.
+	// Path is the key path with dimension placeholders and runtime segments,
+	// e.g. {service}/transport/rest/{transport}/{app}/handler/<urlPath>/timeout.
+	// Required.
 	Path string `yaml:"path"`
-	// Type is the value type, one of the Type* constants. Set when the path
-	// itself is read as a value; a declaration may carry only Dynamic, when
-	// generated code reads below the path but not the path itself.
+	// Name is the Go identifier of the generated accessor. Required, except on
+	// an entry carrying ReadVia — that entry generates nothing.
+	Name string `yaml:"name"`
+	// Type is the value type, one of the Type* constants. An entry without one
+	// is a path builder: generated code is handed the path and reads below it,
+	// so the subtree belongs to the generator and the builder is what the
+	// template calls.
 	Type string `yaml:"type"`
-	// Dynamic marks a subtree the generated code reads under a key it computes
-	// at runtime: the url path of a request, a telegram user id, an action name.
-	// There is no single path to declare, so the subtree as a whole belongs to
-	// the generator and the service map may not declare inside it.
-	//
-	// It combines with Type: /<svc>/bot/users is read both as a value (the
-	// blanket ACL) and per telegram id below it.
-	Dynamic bool `yaml:"dynamic"`
+	// Required marks a key the generated reader cannot work without. The
+	// accessor then reports ErrKeyNotSet instead of a zero value, and the
+	// startup check of every application reading it fails when it is absent.
+	// Only a path with no runtime segment can be required: a path the generator
+	// cannot enumerate is a path the startup check cannot verify.
+	Required bool `yaml:"required"`
+	// Shared marks an accessor whose path is composed entirely from segments its
+	// caller supplies at runtime. It claims no subtree: the concrete paths it
+	// reaches are declared by the readers that compose them, each carrying
+	// ReadVia pointing back here. The log level is the one of these — the runtime
+	// hands the logger a prefix, and the prefixes are the REST middleware's and
+	// the workers', declared in their own scopes.
+	Shared bool `yaml:"shared"`
+	// ReadVia names the shared accessor this path is read through. The entry then
+	// declares a concrete path for the registry and for the collision check, and
+	// generates no accessor of its own — the reader already has one.
+	ReadVia string `yaml:"read_via"`
 	// Default is the fallback the generated reader applies, as prose for the
 	// registry. It documents the key; nothing is generated from it.
 	Default string `yaml:"default"`
@@ -171,6 +210,10 @@ type KafkaProducer struct {
 // It is deliberately a plain description of the project rather than the
 // generator's config type: the expansion is a pure function of these names, and
 // that is what makes it testable without building a whole project.
+//
+// The same type describes one application, which is what the startup check needs
+// — a process must not refuse to start over a key only some other application of
+// the project reads.
 type ProjectSurface struct {
 	// Service is the service tree root — the project name.
 	Service string
@@ -193,14 +236,26 @@ type ProjectSurface struct {
 }
 
 // GeneratorKey is one concrete OnlineConf path the generated code of a concrete
-// project reads.
+// project reads. Runtime segments stay in their `<name>` spelling: that is the
+// honest rendering of a path whose last segments only exist at runtime.
 type GeneratorKey struct {
-	// Path is the full path, expanded.
+	// Path is the full path, with every dimension placeholder expanded.
 	Path string
-	// Type is the value type, empty for a dynamic subtree.
+	// Type is the value type, empty for a path handed to generated code as a
+	// prefix.
 	Type string
-	// Dynamic reports a subtree read under a key computed at runtime.
-	Dynamic bool
+	// Accessor is the generated accessor of this path, empty when the path is
+	// read through a shared one.
+	Accessor string
+	// ReadVia names the shared accessor the path is read through, empty
+	// otherwise.
+	ReadVia string
+	// OwnedPrefix is the path from which the subtree belongs to the generator,
+	// empty when the path claims no subtree. It is the path itself for a prefix
+	// builder, and the part before the first runtime segment otherwise.
+	OwnedPrefix string
+	// Required reports a key the startup check verifies.
+	Required bool
 	// Default is the fallback the generated reader applies, as prose.
 	Default string
 	// Descriptions holds what the key does, one entry per distinct reason it is
@@ -218,9 +273,82 @@ func (k GeneratorKey) Description() string {
 	return strings.Join(k.Descriptions, " ")
 }
 
+// GenParam is one parameter of a generated accessor, in path order.
+type GenParam struct {
+	// Name is the Go parameter name.
+	Name string
+	// Runtime reports a segment the generated code computes at runtime, as
+	// opposed to a project dimension the generator knows.
+	Runtime bool
+}
+
+// GenAccessor is one function the generator contributes to the accessor
+// package: a typed read, or a builder of a path generated code reads below.
+//
+// One accessor per declared path template, merged across the declaration files:
+// the dev-stand flag is declared by four templates and read through one
+// function.
+type GenAccessor struct {
+	// Name is the Go identifier.
+	Name string
+	// Template is the declared path, normalized, with its placeholders and
+	// runtime segments intact. It is the identity of the accessor.
+	Template string
+	// Type is the value type, empty for a path builder.
+	Type string
+	// Required reports an accessor that returns ErrKeyNotSet for an absent key.
+	Required bool
+	// Shared reports an accessor that claims no subtree because its whole path
+	// comes from its caller.
+	Shared bool
+	// Params are the accessor's parameters, in path order.
+	Params []GenParam
+	// Default is the fallback the generated reader applies, as prose.
+	Default string
+	// Descriptions holds what the key does, one entry per distinct reason.
+	Descriptions []string
+	// ReadBy lists the declaring templates, sorted.
+	ReadBy []string
+}
+
+// Description returns every distinct reason the key is read, joined.
+func (a GenAccessor) Description() string {
+	return strings.Join(a.Descriptions, " ")
+}
+
+// IsPathBuilder reports whether the accessor returns a path instead of reading
+// a value.
+func (a GenAccessor) IsPathBuilder() bool {
+	return a.Type == ""
+}
+
+// GenRequiredCheck is one entry of an application's startup check: a required
+// accessor and the concrete arguments this application reads it with.
+type GenRequiredCheck struct {
+	// Accessor is the Go identifier of the accessor to call.
+	Accessor string
+	// Args are the dimension values, in parameter order, already quoted as Go
+	// string literals.
+	Args []string
+	// Path is the concrete path the call reads, for the error message of a
+	// declaration defect and for review.
+	Path string
+}
+
+// GenSurface is the generator's half of a project's OnlineConf key map.
+type GenSurface struct {
+	// Keys are the concrete paths the generated code of this project reads.
+	Keys []GeneratorKey
+	// Accessors are the functions the accessor package gets for them.
+	Accessors []GenAccessor
+	// Required are the startup checks, one per required accessor and expansion.
+	Required []GenRequiredCheck
+}
+
 // genKeyFields is the closed set of fields a declaration entry may carry.
 var genKeyFields = map[string]struct{}{
-	"path": {}, "type": {}, "dynamic": {}, "default": {}, "description": {},
+	"path": {}, "name": {}, "type": {}, "required": {},
+	"shared": {}, "read_via": {}, "default": {}, "description": {},
 }
 
 // genGroupFields is the closed set of fields a declaration group may carry.
@@ -232,8 +360,11 @@ var genGroupFields = map[string]struct{}{
 func (k *GenKey) UnmarshalYAML(value *yaml.Node) error {
 	type plain struct {
 		Path        string `yaml:"path"`
+		Name        string `yaml:"name"`
 		Type        string `yaml:"type"`
-		Dynamic     bool   `yaml:"dynamic"`
+		Required    bool   `yaml:"required"`
+		Shared      bool   `yaml:"shared"`
+		ReadVia     string `yaml:"read_via"`
 		Default     string `yaml:"default"`
 		Description string `yaml:"description"`
 	}
@@ -247,9 +378,12 @@ func (k *GenKey) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 
-	k.Path = strings.TrimSpace(p.Path)
+	k.Path = normalizePath(p.Path)
+	k.Name = p.Name
 	k.Type = p.Type
-	k.Dynamic = p.Dynamic
+	k.Required = p.Required
+	k.Shared = p.Shared
+	k.ReadVia = p.ReadVia
 	k.Default = p.Default
 	k.Description = p.Description
 
@@ -337,13 +471,29 @@ func (d *GenDecl) problems() []string {
 // problems checks one declaration entry against the placeholders its scope can
 // fill.
 func (k GenKey) problems(allowed []string) []string {
-	var problems []string
-
 	if k.Path == "" {
 		return []string{"path is required"}
 	}
 
-	segments := pathSegments(normalizePath(k.Path))
+	problems := k.segmentProblems(allowed)
+	problems = append(problems, k.shapeProblems()...)
+	problems = append(problems, k.namingProblems()...)
+
+	if strings.TrimSpace(k.Description) == "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q has no description: the generated registry is where the owner of the contract "+
+				"reads what a generator-owned key does", k.Path))
+	}
+
+	return problems
+}
+
+// segmentProblems checks the grammar of the path and the placeholders against
+// the scope.
+func (k GenKey) segmentProblems(allowed []string) []string {
+	segments := k.Segments()
+
+	var problems []string
 
 	if len(segments) < minPathSegments {
 		problems = append(problems, fmt.Sprintf(
@@ -364,63 +514,244 @@ func (k GenKey) problems(allowed []string) []string {
 					"path %q uses %s, which this scope cannot fill (available: %s)",
 					k.Path, segment, strings.Join(allowed, ", ")))
 			}
+		case strings.HasPrefix(segment, "<"), strings.HasSuffix(segment, ">"):
+			if !runtimeParamRx.MatchString(segment) {
+				problems = append(problems, fmt.Sprintf(
+					"path %q has an invalid runtime segment %q, expected %s",
+					k.Path, segment, runtimeParamRx.String()))
+			}
 		case !segmentRx.MatchString(segment):
-			problems = append(problems, fmt.Sprintf("path %q has an invalid segment %q, expected %s or a placeholder",
-				k.Path, segment, segmentRx.String()))
+			problems = append(problems, fmt.Sprintf("path %q has an invalid segment %q, expected %s, "+
+				"a {dimension} or a <runtimeSegment>", k.Path, segment, segmentRx.String()))
 		}
 	}
 
-	problems = append(problems, k.typeProblems()...)
+	names := make(map[string]struct{}, len(segments))
 
-	if strings.TrimSpace(k.Description) == "" {
+	for _, param := range k.Params() {
+		if _, taken := names[param.Name]; taken {
+			problems = append(problems, fmt.Sprintf(
+				"path %q uses the parameter name %q twice, so the accessor could not be written",
+				k.Path, param.Name))
+		}
+
+		names[param.Name] = struct{}{}
+	}
+
+	if len(segments) > 1 && isRuntimeParam(segments[1]) && !k.Shared {
 		problems = append(problems, fmt.Sprintf(
-			"path %q has no description: the generated registry is where the owner of the contract "+
-				"reads what a generator-owned key does", k.Path))
+			"path %q opens a runtime subtree directly under {service}, which would claim the whole "+
+				"service tree. Only a `shared: true` accessor may do that, and it claims nothing: "+
+				"its concrete paths are declared by the readers that compose them", k.Path))
 	}
 
 	return problems
 }
 
-// typeProblems checks what the declaration says is read. `type` means the path
-// itself is read as a value, `dynamic` means generated code reads below it under
-// a runtime key; a declaration carrying neither says nothing is read and is a
-// defect.
-func (k GenKey) typeProblems() []string {
-	if k.Type == "" {
-		if !k.Dynamic {
-			return []string{fmt.Sprintf(
-				"path %q declares neither `type` nor `dynamic: true`, so it says nothing is read: "+
-					"name the value type, or mark the subtree read under a runtime key", k.Path)}
+// shapeProblems checks the combination of type, required, shared and read_via —
+// what the entry says is read and how.
+func (k GenKey) shapeProblems() []string {
+	var problems []string
+
+	if k.Type != "" {
+		if _, ok := knownTypes[k.Type]; !ok {
+			problems = append(problems, fmt.Sprintf(
+				"path %q declares type %q, expected one of %s (or no type at all, for a path "+
+					"generated code reads below)", k.Path, k.Type, strings.Join(KnownTypes(), ", ")))
+		}
+	}
+
+	if k.ReadVia != "" {
+		if k.Type == "" {
+			problems = append(problems, fmt.Sprintf(
+				"path %q names read_via %s but no type: a path read through a shared accessor is "+
+					"read as a value", k.Path, k.ReadVia))
 		}
 
+		if k.Name != "" {
+			problems = append(problems, fmt.Sprintf(
+				"path %q names both read_via %s and name %s: the path is read through the shared "+
+					"accessor, so no accessor of its own is generated", k.Path, k.ReadVia, k.Name))
+		}
+
+		if k.Shared {
+			problems = append(problems, fmt.Sprintf(
+				"path %q is both `shared` and read_via %s: a shared accessor is the one others are "+
+					"read through", k.Path, k.ReadVia))
+		}
+	} else if k.Name == "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q has no name: it names the generated accessor the template calls", k.Path))
+	}
+
+	if k.Shared {
+		if k.Type == "" {
+			problems = append(problems, fmt.Sprintf(
+				"path %q is `shared` but declares no type: a shared accessor reads a value", k.Path))
+		}
+
+		if !slices.ContainsFunc(k.Params(), func(p GenParam) bool { return p.Runtime }) {
+			problems = append(problems, fmt.Sprintf(
+				"path %q is `shared` but has no runtime segment: a shared accessor is one whose "+
+					"path its caller composes", k.Path))
+		}
+	}
+
+	problems = append(problems, k.requiredProblems()...)
+
+	return problems
+}
+
+// requiredProblems checks that `required` can be enforced for this entry.
+func (k GenKey) requiredProblems() []string {
+	if !k.Required {
 		return nil
 	}
 
-	if _, ok := knownTypes[k.Type]; !ok {
-		return []string{fmt.Sprintf("path %q declares type %q, expected one of %s (or `dynamic: true`)",
-			k.Path, k.Type, strings.Join(KnownTypes(), ", "))}
+	var problems []string
+
+	if k.Type == "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `required` but declares no type: there is no value to require", k.Path))
 	}
 
-	return nil
+	if k.Default != "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q declares both `required` and `default`: a key with a fallback is never "+
+				"missing, and requiring it would stop installations that rely on the fallback", k.Path))
+	}
+
+	if k.Shared {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `shared` and `required`: the startup check cannot enumerate the paths a "+
+				"caller composes", k.Path))
+	}
+
+	if slices.ContainsFunc(k.Params(), func(p GenParam) bool { return p.Runtime }) {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `required` but has a runtime segment: the startup check verifies paths the "+
+				"generator can enumerate, and this one only exists once the process is running", k.Path))
+	}
+
+	if k.Type == TypeStruct {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `required` and type %s: verifying it would mean unmarshaling the value, and "+
+				"the destination type belongs to the caller. The startup check also calls the accessor "+
+				"without a destination, which a struct accessor has no signature for", k.Path, TypeStruct))
+	}
+
+	return problems
+}
+
+// namingProblems checks that the entry names a usable Go identifier.
+func (k GenKey) namingProblems() []string {
+	var problems []string
+
+	if k.Name != "" && !identRx.MatchString(k.Name) {
+		problems = append(problems, fmt.Sprintf(
+			"name %q is not an exported Go identifier; it names a function in the generated package",
+			k.Name))
+
+		return problems
+	}
+
+	if k.ReadVia != "" && !identRx.MatchString(k.ReadVia) {
+		problems = append(problems, fmt.Sprintf(
+			"read_via %q is not an exported Go identifier; it names the shared accessor the path is "+
+				"read through", k.ReadVia))
+	}
+
+	switch {
+	case k.Name == "":
+	case k.Type == "" && !strings.HasSuffix(k.Name, pathBuilderSuffix):
+		problems = append(problems, fmt.Sprintf(
+			"path %q declares no type, so it generates a path builder and its name %q must end in %q",
+			k.Path, k.Name, pathBuilderSuffix))
+	case k.Type != "" && strings.HasSuffix(k.Name, pathBuilderSuffix):
+		problems = append(problems, fmt.Sprintf(
+			"path %q reads a value, so its name %q must not end in %q — that spelling is taken by "+
+				"the path builder generated alongside the accessor", k.Path, k.Name, pathBuilderSuffix))
+	}
+
+	return problems
+}
+
+// Segments returns the path segments of the declaration, root first.
+func (k GenKey) Segments() []string {
+	return pathSegments(k.Path)
+}
+
+// Params returns the parameters the generated accessor takes: every dimension
+// placeholder except {service}, and every runtime segment, in path order.
+func (k GenKey) Params() []GenParam {
+	segments := k.Segments()
+	out := make([]GenParam, 0, len(segments))
+
+	for i, segment := range segments {
+		switch {
+		case i == 0 && segment == PlaceholderService:
+		case isPlaceholder(segment):
+			out = append(out, GenParam{Name: strings.Trim(segment, "{}")})
+		case isRuntimeParam(segment):
+			out = append(out, GenParam{Name: strings.Trim(segment, "<>"), Runtime: true})
+		}
+	}
+
+	return out
+}
+
+// ownedPrefix returns the path from which the subtree belongs to the generator,
+// as a template, or the empty string when the entry claims nothing.
+//
+// A path builder owns everything below the path it hands out: the generated
+// reader appends segments the generator never sees. A path with a runtime
+// segment owns everything from that segment on, for the same reason. A shared
+// accessor owns nothing — its caller supplies the whole path, and the concrete
+// paths are declared where the caller is.
+func (k GenKey) ownedPrefix() string {
+	if k.Shared || k.ReadVia != "" {
+		return ""
+	}
+
+	segments := k.Segments()
+
+	for i, segment := range segments {
+		if isRuntimeParam(segment) {
+			return "/" + strings.Join(segments[:i], "/")
+		}
+	}
+
+	if k.Type == "" {
+		return k.Path
+	}
+
+	return ""
 }
 
 // ExpandGenDecls turns the generator's declarations into the concrete paths the
-// generated code of this project reads.
+// generated code of this project reads, the accessors generated for them, and
+// the startup checks of the required ones.
 //
 // A path whose placeholders the project cannot fill is skipped rather than
 // reported: a REST transport wired into no application has no {app} to expand,
-// and a project with no Kafka producer reads no Kafka keys. Two declarations of
-// the same path are merged — the dev-stand flag is read by several templates —
-// but a disagreement about its type or its dynamic flag is a defect, because
-// then the two readers do not mean the same key.
-func ExpandGenDecls(decls []GenDeclFile, surface ProjectSurface) ([]GeneratorKey, error) {
+// and a project with no Kafka producer reads no Kafka keys. That is also what
+// makes the function usable per application — pass the dimensions of one
+// application and the required checks are the ones that application's process
+// needs.
+//
+// Two declarations of the same path are merged — the dev-stand flag is read by
+// several templates — but a disagreement about what the path is is a defect,
+// because then the two readers do not mean the same key.
+func ExpandGenDecls(decls []GenDeclFile, surface ProjectSurface) (*GenSurface, error) {
 	if surface.Service == "" {
 		return nil, fmt.Errorf("%w: project surface has no service name", ErrGenDeclDefect)
 	}
 
-	merged := make(map[string]*GeneratorKey)
-
-	var problems []string
+	e := expansion{
+		keys:      map[string]*GeneratorKey{},
+		accessors: map[string]*GenAccessor{},
+		byName:    map[string]string{},
+	}
 
 	for _, decl := range decls {
 		if decl.Decl == nil {
@@ -428,60 +759,103 @@ func ExpandGenDecls(decls []GenDeclFile, surface ProjectSurface) ([]GeneratorKey
 		}
 
 		for _, group := range decl.Decl.Groups {
-			for _, substitution := range surface.substitutions(group.Scope) {
-				for _, key := range group.Keys {
-					path, ok := expandPath(key.Path, substitution)
-					if !ok {
-						continue
-					}
-
-					if msg := mergeGeneratorKey(merged, path, key, decl.Owner); msg != "" {
-						problems = append(problems, msg)
-					}
-				}
-			}
+			e.addGroup(group, decl.Owner, surface)
 		}
 	}
 
-	if len(problems) > 0 {
-		sort.Strings(problems)
+	e.checkReadVia()
 
-		return nil, problemList(ErrGenDeclDefect, problems)
+	if len(e.problems) > 0 {
+		sort.Strings(e.problems)
+
+		return nil, problemList(ErrGenDeclDefect, e.problems)
 	}
 
-	out := make([]GeneratorKey, 0, len(merged))
-
-	for _, key := range merged {
-		sort.Strings(key.ReadBy)
-		out = append(out, *key)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-
-	return out, nil
+	return e.result(), nil
 }
 
-// mergeGeneratorKey folds one expanded declaration into the result, returning a
-// problem description when it contradicts an entry already there.
-func mergeGeneratorKey(merged map[string]*GeneratorKey, path string, key GenKey, owner string) string {
-	existing, seen := merged[path]
+// expansion accumulates the expansion of every declaration over one project.
+type expansion struct {
+	keys      map[string]*GeneratorKey
+	accessors map[string]*GenAccessor
+	// byName maps an accessor name to the template that claimed it, so that two
+	// different paths cannot generate one function.
+	byName   map[string]string
+	required []GenRequiredCheck
+	problems []string
+}
+
+// addGroup expands one declaration group over the project.
+//
+// The accessor set does NOT depend on the project's dimensions, the registry
+// does. An accessor takes its dimensions as arguments, so it is valid whatever
+// the project has — and a template that is generated calls its accessors
+// unconditionally, so gating them on a dimension would be a compile error
+// waiting to happen: the REST configuration provider is generated for a project
+// whose only REST transport is a client, and it still calls every server
+// accessor.
+//
+// What the dimensions decide is which concrete paths this project reads: the
+// rows of the registry, and the startup checks of the required ones.
+func (e *expansion) addGroup(group GenGroup, owner string, surface ProjectSurface) {
+	substitutions := surface.substitutions(group.Scope)
+
+	for _, key := range group.Keys {
+		e.addAccessor(key, owner)
+
+		// A shared accessor contributes no row to the registry: the concrete
+		// paths it reaches are the ones declared with read_via.
+		if key.Shared {
+			continue
+		}
+
+		for _, substitution := range substitutions {
+			path, ok := expandPath(key.Path, substitution)
+			if !ok {
+				continue
+			}
+
+			e.addKey(key, owner, path)
+
+			if key.Required {
+				e.addRequired(key, substitution, path)
+			}
+		}
+	}
+}
+
+// addKey folds one expanded path into the registry, reporting a contradiction
+// with an entry already there.
+func (e *expansion) addKey(key GenKey, owner, path string) {
+	accessor := key.Name
+	if key.ReadVia != "" {
+		accessor = ""
+	}
+
+	existing, seen := e.keys[path]
 	if !seen {
-		merged[path] = &GeneratorKey{
+		e.keys[path] = &GeneratorKey{
 			Path:         path,
 			Type:         key.Type,
-			Dynamic:      key.Dynamic,
+			Accessor:     accessor,
+			ReadVia:      key.ReadVia,
+			OwnedPrefix:  expandOwnedPrefix(key, path),
+			Required:     key.Required,
 			Default:      key.Default,
 			Descriptions: []string{key.Description},
 			ReadBy:       []string{owner},
 		}
 
-		return ""
+		return
 	}
 
-	if existing.Type != key.Type || existing.Dynamic != key.Dynamic {
-		return fmt.Sprintf("path %q is declared as %s by %s and as %s by %s",
-			path, describeGenType(existing.Type, existing.Dynamic), strings.Join(existing.ReadBy, ", "),
-			describeGenType(key.Type, key.Dynamic), owner)
+	if existing.Type != key.Type || existing.Accessor != accessor || existing.ReadVia != key.ReadVia {
+		e.problems = append(e.problems, fmt.Sprintf("path %q is declared as %s by %s and as %s by %s",
+			path, describeGenKey(existing.Type, existing.Accessor, existing.ReadVia),
+			strings.Join(existing.ReadBy, ", "),
+			describeGenKey(key.Type, accessor, key.ReadVia), owner))
+
+		return
 	}
 
 	if !slices.Contains(existing.ReadBy, owner) {
@@ -496,8 +870,151 @@ func mergeGeneratorKey(merged map[string]*GeneratorKey, path string, key GenKey,
 	if key.Description != "" && !slices.Contains(existing.Descriptions, key.Description) {
 		existing.Descriptions = append(existing.Descriptions, key.Description)
 	}
+}
 
-	return ""
+// addAccessor folds one declaration into the set of generated functions, keyed
+// by its path template.
+func (e *expansion) addAccessor(key GenKey, owner string) {
+	if key.ReadVia != "" {
+		return
+	}
+
+	existing, seen := e.accessors[key.Path]
+	if !seen {
+		// Both names a declaration occupies: the accessor and, for a value key,
+		// the builder of its path. Reserving only the declared one would let a
+		// value key `Worker` and a path builder `WorkerPath` through, and the
+		// generated package would declare WorkerPath twice.
+		for _, name := range key.generatedNames() {
+			if claimant, taken := e.byName[name]; taken {
+				e.problems = append(e.problems, fmt.Sprintf(
+					"%s is generated for %q and for %q: one name, two paths",
+					name, claimant, key.Path))
+
+				return
+			}
+		}
+
+		for _, name := range key.generatedNames() {
+			e.byName[name] = key.Path
+		}
+
+		e.accessors[key.Path] = &GenAccessor{
+			Name:         key.Name,
+			Template:     key.Path,
+			Type:         key.Type,
+			Required:     key.Required,
+			Shared:       key.Shared,
+			Params:       key.Params(),
+			Default:      key.Default,
+			Descriptions: []string{key.Description},
+			ReadBy:       []string{owner},
+		}
+
+		return
+	}
+
+	if existing.Name != key.Name || existing.Type != key.Type ||
+		existing.Required != key.Required || existing.Shared != key.Shared {
+		e.problems = append(e.problems, fmt.Sprintf(
+			"template %q is declared as %s by %s and as %s by %s",
+			key.Path, describeGenAccessor(existing.Name, existing.Type, existing.Required),
+			strings.Join(existing.ReadBy, ", "),
+			describeGenAccessor(key.Name, key.Type, key.Required), owner))
+
+		return
+	}
+
+	if !slices.Contains(existing.ReadBy, owner) {
+		existing.ReadBy = append(existing.ReadBy, owner)
+	}
+
+	if key.Description != "" && !slices.Contains(existing.Descriptions, key.Description) {
+		existing.Descriptions = append(existing.Descriptions, key.Description)
+	}
+}
+
+// addRequired records one startup check: the required accessor and the dimension
+// values this expansion reads it with.
+func (e *expansion) addRequired(key GenKey, substitution map[string]string, path string) {
+	args := make([]string, 0, len(key.Params()))
+
+	for _, param := range key.Params() {
+		args = append(args, substitution["{"+param.Name+"}"])
+	}
+
+	check := GenRequiredCheck{Accessor: key.Name, Args: args, Path: path}
+
+	if slices.ContainsFunc(e.required, func(c GenRequiredCheck) bool { return c.Path == check.Path }) {
+		return
+	}
+
+	e.required = append(e.required, check)
+}
+
+// checkReadVia reports a path declared as read through a shared accessor that
+// does not exist, or that is not shared. Without the check a typo would leave a
+// row in the registry pointing at nothing.
+func (e *expansion) checkReadVia() {
+	shared := make(map[string]struct{}, len(e.accessors))
+
+	for _, accessor := range e.accessors {
+		if accessor.Shared {
+			shared[accessor.Name] = struct{}{}
+		}
+	}
+
+	for path, key := range e.keys {
+		if key.ReadVia == "" {
+			continue
+		}
+
+		if _, ok := shared[key.ReadVia]; !ok {
+			e.problems = append(e.problems, fmt.Sprintf(
+				"path %q is declared read_via %s, which is no shared accessor of this project "+
+					"(declared by %s)", path, key.ReadVia, strings.Join(key.ReadBy, ", ")))
+		}
+	}
+}
+
+// result assembles the sorted expansion.
+func (e *expansion) result() *GenSurface {
+	out := GenSurface{
+		Keys:      make([]GeneratorKey, 0, len(e.keys)),
+		Accessors: make([]GenAccessor, 0, len(e.accessors)),
+		Required:  e.required,
+	}
+
+	for _, key := range e.keys {
+		sort.Strings(key.ReadBy)
+		out.Keys = append(out.Keys, *key)
+	}
+
+	for _, accessor := range e.accessors {
+		sort.Strings(accessor.ReadBy)
+		out.Accessors = append(out.Accessors, *accessor)
+	}
+
+	sort.Slice(out.Keys, func(i, j int) bool { return out.Keys[i].Path < out.Keys[j].Path })
+	sort.Slice(out.Accessors, func(i, j int) bool { return out.Accessors[i].Name < out.Accessors[j].Name })
+	sort.Slice(out.Required, func(i, j int) bool { return out.Required[i].Path < out.Required[j].Path })
+
+	return &out
+}
+
+// generatedNames returns every Go identifier the declaration makes the generator
+// emit: the accessor, plus the builder of its path when it reads a value. A
+// path-builder entry emits only itself — its name already ends in the suffix.
+func (k GenKey) generatedNames() []string {
+	if k.Name == "" {
+		return nil
+	}
+
+	if k.Type == "" {
+		return []string{k.Name}
+	}
+
+	return []string{k.Name, k.Name + pathBuilderSuffix}
 }
 
 // substitutions returns one placeholder mapping per expansion of the scope over
@@ -597,9 +1114,10 @@ func oneDimension(base map[string]string, placeholder string, values []string) [
 	return out
 }
 
-// expandPath substitutes the placeholders of a declared path. It reports false
-// when the path needs a placeholder the mapping does not carry — the expansion
-// does not apply to this dimension of the project.
+// expandPath substitutes the dimension placeholders of a declared path, leaving
+// runtime segments in their `<name>` spelling. It reports false when the path
+// needs a placeholder the mapping does not carry — the expansion does not apply
+// to this dimension of the project.
 func expandPath(raw string, substitution map[string]string) (string, bool) {
 	segments := pathSegments(normalizePath(raw))
 	out := make([]string, 0, len(segments))
@@ -622,15 +1140,31 @@ func expandPath(raw string, substitution map[string]string) (string, bool) {
 	return "/" + strings.Join(out, "/"), true
 }
 
+// expandOwnedPrefix returns the owned subtree of an expanded key, as a concrete
+// path. The expanded path is passed in rather than re-expanded so that the
+// prefix cannot drift from the key it belongs to.
+func expandOwnedPrefix(key GenKey, path string) string {
+	prefix := key.ownedPrefix()
+	if prefix == "" {
+		return ""
+	}
+
+	depth := len(pathSegments(prefix))
+
+	return "/" + strings.Join(pathSegments(path)[:depth], "/")
+}
+
 // CheckGeneratorKeys reports declarations of the service map that the generated
 // code already reads.
 //
 // Two ways that happens. An exact path match is a key with two readers and two
 // spellings — the thing the map exists to prevent. And a declaration at or
-// inside a subtree the generated code reads under a runtime key (the url path
-// of a request, a telegram user id, an action name) is the same collision, only
-// invisible: there is no single generated path to compare against, so the
-// subtree belongs to the generator as a whole.
+// inside a subtree the generated code owns is the same collision, only
+// invisible: the subtree is either handed to generated code as a prefix, or
+// opened by a segment the generated code computes at runtime (the url path of a
+// request, a telegram user id, an action name). Either way there is no single
+// generated path to compare against, so the subtree belongs to the generator as
+// a whole.
 func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 	if m == nil || len(generated) == 0 {
 		return nil
@@ -638,7 +1172,7 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 
 	exact := make(map[string]GeneratorKey, len(generated))
 
-	dynamic := make([]GeneratorKey, 0, len(generated))
+	owned := make([]GeneratorKey, 0, len(generated))
 
 	for _, key := range generated {
 		// Both, when a path is read as a value and read below: /<svc>/bot/users
@@ -647,8 +1181,8 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 			exact[key.Path] = key
 		}
 
-		if key.Dynamic {
-			dynamic = append(dynamic, key)
+		if key.OwnedPrefix != "" {
+			owned = append(owned, key)
 		}
 	}
 
@@ -663,19 +1197,19 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 			continue
 		}
 
-		for _, subtree := range dynamic {
-			if !isAtOrUnder(key.Path, subtree.Path) {
+		for _, subtree := range owned {
+			if !isAtOrUnder(key.Path, subtree.OwnedPrefix) {
 				continue
 			}
 
-			where := fmt.Sprintf("is inside %q, a subtree", subtree.Path)
-			if key.Path == subtree.Path {
+			where := fmt.Sprintf("is inside %q, a subtree", subtree.OwnedPrefix)
+			if key.Path == subtree.OwnedPrefix {
 				where = "is the root of a subtree"
 			}
 
 			problems = append(problems, fmt.Sprintf(
-				"keys[%d]: path %q %s the generator reads itself under a "+
-					"runtime key (generated by %s): %s",
+				"keys[%d]: path %q %s the generated code reads below under a segment it computes "+
+					"itself (generated by %s): %s",
 				i, key.Path, where, strings.Join(subtree.ReadBy, ", "), subtree.Description()))
 
 			break
@@ -692,10 +1226,10 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 // isAtOrUnder reports whether path is prefix itself or sits below it, matching
 // on segment boundaries so that /svc/bots is not "under" /svc/bot.
 //
-// The root counts: a declaration of the root of a generated dynamic subtree is
-// the service claiming a node the generated code already owns, and it would
-// otherwise produce two rows for one path in the registry, one of them saying
-// the path is not declarable.
+// The root counts: a declaration of the root of a subtree the generated code
+// owns is the service claiming a node the generated code already reads below,
+// and it would otherwise produce two rows for one path in the registry, one of
+// them saying the path is not declarable.
 func isAtOrUnder(path, prefix string) bool {
 	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
@@ -722,21 +1256,39 @@ func GenScopes() []string {
 	return out
 }
 
-// describeGenType names what a declaration says a path is, for the message of a
-// contradiction between two declarations.
-func describeGenType(valueType string, dynamic bool) string {
+// describeGenKey names what a declaration says a path is, for the message of a
+// contradiction between two declarations of it.
+func describeGenKey(valueType, accessor, readVia string) string {
 	switch {
 	case valueType == "":
-		return "a dynamic subtree"
-	case dynamic:
-		return "type " + valueType + " plus a dynamic subtree"
+		return "a path read below"
+	case readVia != "":
+		return "type " + valueType + " read through " + readVia
 	default:
-		return "type " + valueType
+		return "type " + valueType + " read through " + accessor
 	}
 }
 
-// isPlaceholder reports whether a path segment is a placeholder rather than a
-// literal segment.
+// describeGenAccessor names what a declaration says an accessor is.
+func describeGenAccessor(name, valueType string, required bool) string {
+	if valueType == "" {
+		return "the path builder " + name
+	}
+
+	out := name + " of type " + valueType
+	if required {
+		out += ", required"
+	}
+
+	return out
+}
+
+// isPlaceholder reports whether a path segment is a dimension placeholder.
 func isPlaceholder(segment string) bool {
 	return strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}")
+}
+
+// isRuntimeParam reports whether a path segment is a runtime segment.
+func isRuntimeParam(segment string) bool {
+	return strings.HasPrefix(segment, "<") && strings.HasSuffix(segment, ">")
 }

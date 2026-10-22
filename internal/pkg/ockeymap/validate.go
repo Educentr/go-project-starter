@@ -217,10 +217,11 @@ func (k Key) defaultProblems() []string {
 // requiredProblems checks that `required` can actually be enforced for the
 // declared type.
 //
-// It can only be enforced where go-onlineconf reports presence. GetStrings
-// returns the caller's fallback for an absent key with no flag to tell the two
-// apart, and GetStruct needs a destination type the map does not carry — so a
-// `required` on either would be a promise the generated code could not keep.
+// It can be enforced wherever the generated accessor can tell an absent key from
+// a present one. For a scalar and for a list that is the presence flag of a
+// *IfExists read; a struct is the exception, because verifying it would mean
+// unmarshaling into a destination type the map does not carry, so a `required`
+// there would be a promise the generated code could not keep.
 func (k Key) requiredProblems() []string {
 	if !k.Required {
 		return nil
@@ -233,11 +234,11 @@ func (k Key) requiredProblems() []string {
 			"a key with a default is never missing")
 	}
 
-	if k.Kind() != KindScalar {
+	if k.Kind() == KindStruct {
 		problems = append(problems, fmt.Sprintf(
-			"type %s cannot be `required`: go-onlineconf reports no presence for it, "+
-				"so the generated accessor could not tell an absent key from an empty value. "+
-				"Declare a `default` instead", k.Type))
+			"type %s cannot be `required`: verifying it would mean unmarshaling the value, and the "+
+				"destination type belongs to the caller, not to the map. Read it with the accessor's "+
+				"presence flag instead", k.Type))
 	}
 
 	return problems

@@ -1,29 +1,36 @@
-// Package {{ .OnlineConf.GetPackageName }} holds a typed accessor for every
-// OnlineConf key this service is allowed to read, generated from the service's
-// OnlineConf key map.
+// Package {{ .OnlineConf.GetPackageName }} is this project's only access to
+// OnlineConf: a typed accessor for every key the project reads, generated from
+// the project's OnlineConf key map.
 //
-// The service does not assemble OnlineConf paths in code: it calls the
-// functions below. That is the point — a key that is not in the map has no
-// accessor to read it through, so reading an undeclared key is impossible
-// rather than merely discouraged. `make onlineconf-validate` enforces the other
-// half of the rule: no calls into the onlineconf package outside this one.
+// The map has two halves and this package is generated from both. The
+// generator's half is the keys the generated code reads — transport timeouts,
+// log levels, security toggles, worker and Kafka settings, the dev-stand flag —
+// declared next to the templates that read them. The service's half is the key
+// map `onlineconf.path` points at, and it is optional: a project without one
+// still reads OnlineConf, and still gets this package.
+//
+// Nothing else in the project assembles an OnlineConf path or calls the
+// onlineconf library: `make onlineconf-validate` forbids it outside this
+// package. That is what makes "the project reads an undeclared key" impossible
+// rather than merely discouraged — a key that is not in the map has no accessor
+// to read it through.
 //
 // A path assembled at the call site is what the map removes. Built from private
 // segment constants — MakePath(constant.ServiceName, ocSegmentDocker,
 // "network") — the path exists nowhere as a whole, so no guard, registry or
 // review can see it, and it diverges from the declaration silently.
 //
-// Every declared key lives in the /{{ .OnlineConf.TreeRoot }} tree. The keys
-// below are the service's half of it; configs/onlineconf-tree.yaml lists the
-// whole surface, including the paths the generated code reads itself — those
-// have their generated readers as callers and no accessor here.
+// configs/onlineconf-tree.yaml lists the whole surface this package covers, both
+// halves, with the reader of every generated one.
 package {{ .OnlineConf.GetPackageName }}
 
 import (
 	"context"
+{{- if .OnlineConf.NeedsErrorsImport }}
 	"errors"
+{{- end }}
 	"fmt"
-{{- if .OnlineConf.HasRequired }}
+{{- if .OnlineConf.NeedsStringsImport }}
 	"strings"
 {{- end }}
 {{- if .OnlineConf.NeedsTimeImport }}
@@ -33,131 +40,77 @@ import (
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 )
 
+// serviceTree is the root of the tree the generated readers read under. Their
+// declared paths carry it, so it is spelled out once here instead of being
+// rebuilt from the service name at every call site.
+const serviceTree = "{{ .OnlineConf.TreeRoot }}"
+{{- if .OnlineConf.HasRequired }}
+
 // ErrKeyNotSet reports a key declared `required` that is absent from the tree.
 // Use errors.Is to tell it apart from a value that is present but unreadable.
 var ErrKeyNotSet = errors.New("required onlineconf key is not set")
-
-// Declared OnlineConf paths. Exported so that a caller can hand a path to
-// Subscribe without reaching into the onlineconf package, which the validator
-// forbids here.
-const (
-{{- range $_, $k := .OnlineConf.Keys }}
-	// {{ $k.PathConstName }} is the path of {{ $k.VarName }} ({{ $k.Type }}).
-	{{ $k.PathConstName }} = "{{ $k.Path }}"
 {{- end }}
-)
-{{- range $_, $k := .OnlineConf.Keys }}
 
-// {{ $k.VarName }} reads {{ $k.Path }} ({{ $k.Type }}).
-{{- if $k.Description }}
+// --- lifecycle ---
 //
-// {{ $k.Description | GoComment }}
-{{- end }}
+// The library's own entry points live here too, for the same reason the reads
+// do: the validator bans the onlineconf package everywhere else, and a
+// generated main that reached past this package would be the one exception
+// nobody could see.
+
+// Initialize loads the configuration tree from configDir and returns a context
+// carrying it. Every read below takes a context descended from this one.
+func Initialize(ctx context.Context, configDir string) (context.Context, error) {
+	ctx, err := onlineconf.Initialize(ctx, onlineconf.WithConfigDir(configDir))
+	if err != nil {
+		return nil, fmt.Errorf("initialize onlineconf: %w", err)
+	}
+
+	return ctx, nil
+}
+
+// StartWatcher starts reloading the tree when it changes on disk.
+func StartWatcher(ctx context.Context) error {
+	if err := onlineconf.StartWatcher(ctx); err != nil {
+		return fmt.Errorf("start onlineconf watcher: %w", err)
+	}
+
+	return nil
+}
+
+// StopWatcher stops reloading the tree.
+func StopWatcher(ctx context.Context) error {
+	if err := onlineconf.StopWatcher(ctx); err != nil {
+		return fmt.Errorf("stop onlineconf watcher: %w", err)
+	}
+
+	return nil
+}
+
+{{- if .UseActiveRecord }}
+
+// ActiveRecordConfig hands ActiveRecord the configuration instance it reads its
+// shard settings from.
 //
-{{- if eq $k.Shape "required" }}
-// The key is declared `required`: an absent key is reported as ErrKeyNotSet,
-// never as a zero value. CheckRequired verifies it at startup.
-{{- else if eq $k.Shape "default" }}
-// An absent key yields the declared default ({{ $k.DefaultText }}).
-{{- else if eq $k.Kind "struct" }}
-// The value is JSON, unmarshaled into dst, which must be a pointer. dst is left
-// untouched when the key is absent (reported by the returned bool) or does not
-// unmarshal, so it is safe to pre-fill it with a default. This is also how a
-// list is read: OnlineConf has no subtree traversal, so a list is one key with
-// a structured value.
-{{- else if eq $k.Kind "strings" }}
-// The value is a comma-separated string or a JSON array. An absent key yields
-// nil: go-onlineconf reports no presence for this type, which is why the
-// declaration cannot mark it `required`.
-{{- else }}
-// The declaration names neither a default nor a requirement, so presence is
-// returned alongside the value — a zero value and an unset key are not the
-// same answer.
-{{- end }}
-{{- if eq $k.Kind "struct" }}
-func {{ $k.VarName }}(ctx context.Context, dst any) (bool, error) {
-	ok, err := onlineconf.{{ $k.Getter }}(ctx, {{ $k.PathConstName }}, dst)
-	if err != nil {
-		return false, fmt.Errorf("onlineconf %s: %w", {{ $k.PathConstName }}, err)
-	}
-
-	return ok, nil
-}
-{{- else if eq $k.Kind "strings" }}
-func {{ $k.VarName }}(ctx context.Context) ({{ $k.GoType }}, error) {
-{{- if eq $k.Shape "default" }}
-	// A fresh slice per call: the fallback is handed to the caller, and a
-	// package-level one would let a caller mutate the declared default.
-	fallback := {{ $k.DefaultLiteral }}
-
-	v, err := onlineconf.{{ $k.Getter }}(ctx, {{ $k.PathConstName }}, fallback)
-	if err != nil {
-		return fallback, fmt.Errorf("onlineconf %s: %w", {{ $k.PathConstName }}, err)
-	}
-{{- else }}
-	v, err := onlineconf.{{ $k.Getter }}(ctx, {{ $k.PathConstName }}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("onlineconf %s: %w", {{ $k.PathConstName }}, err)
-	}
-{{- end }}
-
-	return v, nil
-}
-{{- else if eq $k.Shape "optional" }}
-func {{ $k.VarName }}(ctx context.Context) ({{ $k.GoType }}, bool, error) {
-	v, ok, err := onlineconf.{{ $k.Getter }}(ctx, {{ $k.PathConstName }})
-	if err != nil {
-		return {{ $k.ZeroLiteral }}, false, fmt.Errorf("onlineconf %s: %w", {{ $k.PathConstName }}, err)
-	}
-
-	return v, ok, nil
-}
-{{- else if eq $k.Shape "default" }}
-func {{ $k.VarName }}(ctx context.Context) ({{ $k.GoType }}, error) {
-	v, ok, err := onlineconf.{{ $k.Getter }}(ctx, {{ $k.PathConstName }})
-	if err != nil {
-		return {{ $k.DefaultLiteral }}, fmt.Errorf("onlineconf %s: %w", {{ $k.PathConstName }}, err)
-	}
-
-	if !ok {
-		return {{ $k.DefaultLiteral }}, nil
-	}
-
-	return v, nil
-}
-{{- else }}
-func {{ $k.VarName }}(ctx context.Context) ({{ $k.GoType }}, error) {
-	v, ok, err := onlineconf.{{ $k.Getter }}(ctx, {{ $k.PathConstName }})
-	if err != nil {
-		return {{ $k.ZeroLiteral }}, fmt.Errorf("onlineconf %s: %w", {{ $k.PathConstName }}, err)
-	}
-
-	if !ok {
-		return {{ $k.ZeroLiteral }}, fmt.Errorf("%w: %s", ErrKeyNotSet, {{ $k.PathConstName }})
-	}
-
-	return v, nil
+// It is a hand-off, not an accessor: activerecord.ConfigInterface IS the
+// library.s whole reader set, so the value this returns can read any path. That
+// is a gap in the map — ActiveRecord.s own reads (db/<shard>, user, password,
+// …) are not declared and do not appear in configs/onlineconf-tree.yaml, and
+// they never were. It is generated only for a project that uses ActiveRecord,
+// so a project without one has no way past the accessors at all.
+//
+// Do not use it to read a key. Declare the key and call its accessor.
+func ActiveRecordConfig(ctx context.Context) *onlineconf.OnlineconfInstance {
+	return onlineconf.FromContext(ctx)
 }
 {{- end }}
-{{- end }}
-
-// Paths returns every declared path, in declaration order. Useful for a
-// subscription that should fire on any configuration change the service cares
-// about.
-func Paths() []string {
-	return []string{
-{{- range $_, $k := .OnlineConf.Keys }}
-		{{ $k.PathConstName }},
-{{- end }}
-	}
-}
 
 // Subscribe registers cb to run when any of paths changes.
 //
-// It exists because the validator forbids calling onlineconf from service code:
+// It exists because the validator forbids calling onlineconf from project code:
 // without it a service that reacts to configuration changes would have no way
-// to do so except by breaking the rule. Pass the Path* constants of this
-// package.
+// to do so except by breaking the rule. Pass a Path* constant or the result of a
+// Path builder of this package.
 func Subscribe(ctx context.Context, paths []string, cb func() error) error {
 	if err := onlineconf.RegisterSubscription(ctx, onlineconf.DefaultModule, paths, cb); err != nil {
 		return fmt.Errorf("subscribe to onlineconf: %w", err)
@@ -165,45 +118,293 @@ func Subscribe(ctx context.Context, paths []string, cb func() error) error {
 
 	return nil
 }
-{{ if .OnlineConf.HasRequired }}
-// requiredChecks reads every key declared `required`. The reads go through the
-// accessors rather than through onlineconf directly, so the startup check and
-// the running service agree on what "usable" means — and the error already
-// names the path.
-var requiredChecks = []func(ctx context.Context) error{
-{{- range $_, $k := .OnlineConf.Required }}
-	func(ctx context.Context) error { _, err := {{ $k.VarName }}(ctx); return err },
+{{- if .OnlineConf.HasServiceKeys }}
+
+// --- paths of the service's declarations ---
+//
+// Exported so that a caller can hand a path to Subscribe without reaching into
+// the onlineconf package, which the validator forbids here.
+const (
+{{- range $_, $a := .OnlineConf.ServicePathConsts }}
+	// {{ $a.PathConst }} is the path of {{ $a.Name }} ({{ $a.Type }}).
+	{{ $a.PathConst }} = "{{ $a.DocPath }}"
+{{- end }}
+)
+{{- end }}
+{{- range $_, $a := .OnlineConf.Accessors }}
+{{ if $a.IsPathBuilder -}}
+// {{ $a.Name }} returns {{ $a.DocPath }}.
+//
+// The generated code reads below this path under segments it computes at
+// runtime, so the subtree belongs to it as a whole and the service key map may
+// not declare inside it.
+{{- if $a.Description }}
+//
+// {{ $a.Description | GoCommentWrap }}
+{{- end }}
+//
+// {{ printf "Read by: %s." $a.ReadByText | GoCommentWrap }}
+func {{ $a.Name }}({{ $a.ParamDecl }}) string {
+{{- if $a.ConstPath }}
+	return {{ $a.ConstPath }}
+{{- else }}
+	return onlineconf.MakePath({{ $a.PathArgs }})
+{{- end }}
+}
+{{- else -}}
+{{- if $a.PathBuilder }}
+// {{ $a.PathBuilder }} returns {{ $a.DocPath }} — the path {{ $a.Name }} reads.
+// A subscription needs the path, and a key whose segments are arguments cannot
+// have a constant.
+func {{ $a.PathBuilder }}({{ $a.ParamDecl }}) string {
+{{- if $a.ConstPath }}
+	return {{ $a.ConstPath }}
+{{- else }}
+	return onlineconf.MakePath({{ $a.PathArgs }})
 {{- end }}
 }
 
-// CheckRequired verifies that every key declared `required` is present in the
+{{ end -}}
+// {{ $a.Name }} reads {{ $a.DocPath }} ({{ $a.Type }}).
+{{- if $a.Description }}
+//
+// {{ $a.Description | GoCommentWrap }}
+{{- end }}
+//
+{{- if eq $a.Shape "required" }}
+// The key is declared `required`: an absent key is reported as ErrKeyNotSet,
+// never as a zero value. CheckRequired verifies it at startup.
+{{- else if eq $a.Shape "default" }}
+// {{ printf "An absent key yields the declared default (%s)." $a.DefaultText | GoCommentWrap }}
+{{- else if eq $a.Kind "struct" }}
+// The value is JSON, unmarshaled into dst, which must be a pointer. dst is left
+// untouched when the key is absent (reported by the returned bool) or does not
+// unmarshal, so it is safe to pre-fill it with a default. This is also how a
+// list is read: OnlineConf has no subtree traversal, so a list is one key with
+// a structured value.
+{{- else }}
+// Presence is returned alongside the value: a zero value and an unset key are
+// not the same answer, and the caller is the one that knows what to do with
+// either.
+{{- if $a.DefaultText }}
+//
+// {{ printf "The reader of this key falls back to %s." $a.DefaultText | GoCommentWrap }}
+{{- end }}
+{{- if $a.Required }}
+//
+// The key is declared `required`: CheckRequired reports it missing at startup,
+// in every application running the component that reads it. The read still
+// answers with presence, because a component declared `optional: true` in
+// project.yaml is skipped rather than reported.
+{{- end }}
+{{- end }}
+{{- if $a.ReadBy }}
+//
+// {{ printf "Read by: %s." $a.ReadByText | GoCommentWrap }}
+{{- end }}
+{{- if eq $a.Kind "struct" }}
+{{- /* A struct key is never `required`: verifying it would mean unmarshaling the
+       value, and the destination type belongs to the caller. Both halves of the
+       map reject the combination, so this branch has one shape. */}}
+func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{{ end }}, dst any) (bool, error) {
+	path := {{ $a.PathExpr }}
+
+	ok, err := onlineconf.{{ $a.Getter }}(ctx, path, dst)
+	if err != nil {
+		return false, fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+
+	return ok, nil
+}
+{{- else if eq $a.Kind "strings" }}
+func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{{ end }}) ({{ $a.GoType }}, {{ if eq $a.Shape "optional" }}bool, {{ end }}error) {
+	path := {{ $a.PathExpr }}
+{{- if eq $a.Shape "default" }}
+
+	// A fresh slice per call: the fallback is handed to the caller, and a
+	// package-level one would let a caller mutate the declared default.
+	fallback := {{ $a.DefaultLiteral }}
+
+	v, err := onlineconf.{{ $a.Getter }}(ctx, path, fallback)
+	if err != nil {
+		return fallback, fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+
+	return v, nil
+{{- else }}
+
+	// The list first, and the string reader only to tell an absent key from an
+	// empty one — GetStrings answers nil for both, and "no key" and "an empty
+	// list" are different configurations. Doing it in this order keeps the
+	// common case (the key is set) to one lookup.
+	v, err := onlineconf.{{ $a.Getter }}(ctx, path, nil)
+	if err != nil {
+		return nil, {{ if eq $a.Shape "optional" }}false, {{ end }}fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+
+	if len(v) > 0 {
+		return v, {{ if eq $a.Shape "optional" }}true, {{ end }}nil
+	}
+
+	_, ok, err := onlineconf.GetStringIfExists(ctx, path)
+	if err != nil {
+		return nil, {{ if eq $a.Shape "optional" }}false, {{ end }}fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+{{- if eq $a.Shape "required" }}
+
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotSet, path)
+	}
+
+	return v, nil
+{{- else }}
+
+	return v, ok, nil
+{{- end }}
+{{- end }}
+}
+{{- else if eq $a.Shape "optional" }}
+func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{{ end }}) ({{ $a.GoType }}, bool, error) {
+	path := {{ $a.PathExpr }}
+
+	v, ok, err := onlineconf.{{ $a.Getter }}(ctx, path)
+	if err != nil {
+		return {{ $a.ZeroLiteral }}, false, fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+
+	return v, ok, nil
+}
+{{- else if eq $a.Shape "default" }}
+func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{{ end }}) ({{ $a.GoType }}, error) {
+	path := {{ $a.PathExpr }}
+
+	v, ok, err := onlineconf.{{ $a.Getter }}(ctx, path)
+	if err != nil {
+		return {{ $a.DefaultLiteral }}, fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+
+	if !ok {
+		return {{ $a.DefaultLiteral }}, nil
+	}
+
+	return v, nil
+}
+{{- else }}
+func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{{ end }}) ({{ $a.GoType }}, error) {
+	path := {{ $a.PathExpr }}
+
+	v, ok, err := onlineconf.{{ $a.Getter }}(ctx, path)
+	if err != nil {
+		return {{ $a.ZeroLiteral }}, fmt.Errorf("onlineconf %s: %w", path, err)
+	}
+
+	if !ok {
+		return {{ $a.ZeroLiteral }}, fmt.Errorf("%w: %s", ErrKeyNotSet, path)
+	}
+
+	return v, nil
+}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .OnlineConf.HasServiceKeys }}
+
+// Paths returns every path the service's own key map declares, in declaration
+// order. Useful for a subscription that should fire on any configuration change
+// the service cares about.
+func Paths() []string {
+	return []string{
+{{- range $_, $a := .OnlineConf.ServicePathConsts }}
+		{{ $a.PathConst }},
+{{- end }}
+	}
+}
+{{- end }}
+{{ if .OnlineConf.HasRequired }}
+// requiredCheck is one key the startup check verifies. The read goes through the
+// accessor rather than through onlineconf directly, so the startup check and the
+// running process agree on what "usable" means — and the error already names the
+// path.
+type requiredCheck struct {
+	path string
+	read func(ctx context.Context) error
+}
+
+// serviceRequired are the keys the service's own map declares `required`. They
+// hold for every application of the project: the map has no application
+// dimension.
+var serviceRequired = []requiredCheck{
+{{- range $_, $c := .OnlineConf.ServiceRequired }}
+	{path: "{{ $c.Path }}", read: func(ctx context.Context) error { _, err := {{ $c.Accessor }}(ctx); return err }},
+{{- end }}
+}
+
+// generatedRequired are the keys the generated code cannot work without, per
+// application.
+//
+// Per application on purpose. A required key belongs to a component — a gRPC
+// client's host, a Kafka producer's brokers, a telegram bot's token — and a
+// process that does not run that component does not read it. Checking the
+// project's whole set in every process would stop a REST-only application over
+// the token of a worker it never starts. A component declared `optional: true`
+// in project.yaml is left out for the same reason: the generated reader skips
+// it, so the check must not insist on it.
+//
+// The reads go through the ordinary accessors, which answer with presence; the
+// requirement is applied here rather than inside the accessor, so that a reader
+// of an optional component still gets to see an absent key.
+var generatedRequired = map[string][]requiredCheck{
+{{- range $_, $app := .OnlineConf.AppRequired }}
+	"{{ $app.App }}": {
+	{{- range $_, $c := $app.Checks }}
+		{path: "{{ $c.Path }}", read: func(ctx context.Context) error {
+			_, ok, err := {{ $c.Accessor }}(ctx{{ if $c.Args }}, {{ $c.Args }}{{ end }})
+			if err != nil {
+				return err
+			}
+
+			if !ok {
+				return fmt.Errorf("%w: %s", ErrKeyNotSet, "{{ $c.Path }}")
+			}
+
+			return nil
+		}},
+	{{- end }}
+	},
+{{- end }}
+}
+
+// CheckRequired verifies that every key app cannot run without is present in the
 // tree and readable as its declared type. It reports all problems at once.
 //
 // Call it once, at startup, next to the rest of the configuration boundary: a
 // missing required key is a misconfiguration of the installation, and the place
 // to find out is process start, not the first request that happens to read it.
-// The generated main does exactly that.
-func CheckRequired(ctx context.Context) error {
-	problems := make([]string, 0, len(requiredChecks))
+// The generated main does exactly that, passing its own application name.
+func CheckRequired(ctx context.Context, app string) error {
+	checks := append(append([]requiredCheck(nil), serviceRequired...), generatedRequired[app]...)
 
-	for _, read := range requiredChecks {
-		if err := read(ctx); err != nil {
+	problems := make([]string, 0, len(checks))
+
+	for _, check := range checks {
+		if err := check.read(ctx); err != nil {
 			problems = append(problems, err.Error())
 		}
 	}
 
 	if len(problems) > 0 {
-		return fmt.Errorf("%d of %d required onlineconf keys unusable: %s",
-			len(problems), len(requiredChecks), strings.Join(problems, "; "))
+		return fmt.Errorf("%d of %d required onlineconf keys of %s unusable: %s",
+			len(problems), len(checks), app, strings.Join(problems, "; "))
 	}
 
 	return nil
 }
 {{- else }}
-// CheckRequired verifies that every key declared `required` is present in the
-// tree. This map declares none, so there is nothing to check — the function
-// exists so that the generated main does not change shape with the map.
-func CheckRequired(_ context.Context) error {
+// CheckRequired verifies that every key an application cannot run without is
+// present in the tree. Nothing this project reads is declared `required`, so
+// there is nothing to check — the function exists so that the generated main
+// does not change shape with the map.
+func CheckRequired(_ context.Context, _ string) error {
 	return nil
 }
 {{- end }}

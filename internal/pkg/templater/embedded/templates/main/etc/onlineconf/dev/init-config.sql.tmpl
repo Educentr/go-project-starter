@@ -356,17 +356,6 @@ SET @worker_{{ $worker.Name | ReplaceDash }}_id = LAST_INSERT_ID();
 INSERT INTO `my_config_tree_log` (`NodeID`, `Version`, `Value`, `ContentType`, `Author`, `Comment`)
 VALUES (@worker_{{ $worker.Name | ReplaceDash }}_id, 1, NULL, 'application/x-null', 'go-project-starter', 'Auto-generated');
 
-{{- if eq $worker.GeneratorTemplate "telegram" }}
--- Telegram worker config
-INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
-VALUES ('buffer_size', @worker_{{ $worker.Name | ReplaceDash }}_id, '100', 'text/plain', 'Updates channel buffer size');
-
-INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
-VALUES ('tg_token', @worker_{{ $worker.Name | ReplaceDash }}_id, '', 'text/plain', 'Telegram bot token (set manually)');
-
-INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
-VALUES ('tg_api_endpoint', @worker_{{ $worker.Name | ReplaceDash }}_id, '', 'text/plain', 'Custom Telegram API endpoint (optional)');
-{{- end }}
 
 {{- if eq $worker.GeneratorTemplate "daemon" }}
 -- Daemon worker config
@@ -466,6 +455,18 @@ VALUES (LAST_INSERT_ID(), 1, NULL, 'application/x-null', 'go-project-starter', '
 {{- end }}
 
 {{- if $hasTelegramWorker }}
+-- The telegram driver reads its own settings under security/, not under the
+-- worker: see worker/template/telegram/shared/pkg/drivers/telegram/const.go.tmpl
+-- (configPath = "security") and the generated configs/onlineconf-tree.yaml.
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('tg_token', @security_id, '', 'text/plain', 'Telegram bot token (set manually)');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('buffer_size', @security_id, '100', 'text/plain', 'Updates channel buffer size');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('tg_api_endpoint', @security_id, '', 'text/plain', 'Custom Telegram API endpoint (optional)');
+
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
 VALUES ('bot', @service_id, NULL, 'application/x-null', 'Bot configuration');
 SET @bot_id = LAST_INSERT_ID();

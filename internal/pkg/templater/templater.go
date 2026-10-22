@@ -865,6 +865,14 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 
 			return strings.Join(lines, "\n// ")
 		},
+		// GoCommentWrap renders prose as the body of a line comment, rewrapped
+		// to the width the surrounding generated code is written at. A folded
+		// YAML description arrives as one long line, and a doc comment that runs
+		// past the line length every linter checks is a diff nobody can read —
+		// so the prose is refilled rather than passed through.
+		"GoCommentWrap": func(s string) string {
+			return wrapComment(s, goCommentWidth)
+		},
 		// Queue serialization template helpers
 		"serializeField": func(field ds.QueueField) string {
 			switch field.Type {
@@ -972,4 +980,41 @@ func getTmplErrorLine(lines []string, tmplErr string) (string, error) {
 	} else {
 		return "", errors.New("can't get line from error")
 	}
+}
+
+// goCommentWidth is the text width a wrapped doc comment is filled to: the 80
+// columns the generated code is written at, minus the "// " prefix.
+const goCommentWidth = 77
+
+// wrapComment refills prose to width columns, continuing every line after the
+// first with the line-comment prefix. A word longer than width keeps its own
+// line rather than being broken — an OnlineConf path or a Go identifier must
+// stay copy-pasteable.
+func wrapComment(s string, width int) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return ""
+	}
+
+	var (
+		b    strings.Builder
+		line = words[0]
+	)
+
+	for _, word := range words[1:] {
+		if len(line)+1+len(word) > width {
+			b.WriteString(line)
+			b.WriteString("\n// ")
+
+			line = word
+
+			continue
+		}
+
+		line += " " + word
+	}
+
+	b.WriteString(line)
+
+	return b.String()
 }

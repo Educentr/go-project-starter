@@ -4,15 +4,14 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/pkg/errors"
 	{{ .Logger.Import }}
 
-	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/app/worker/telegrambot/handler"
 	"{{ .ProjectPath }}/internal/pkg/service"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 )
 
@@ -123,13 +122,13 @@ func (w *Worker) Purchase(ctx context.Context, message *tgbotapi.Message) (conte
 		return ctx, errors.Wrap(err, "Internal error")
 	}
 
-	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath(constant.ServiceName, "devstand"), false)
+	devstand, _, err := occonf.DevStand(ctx)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Unexpected error from onlineconf" }}
 	}
 
 	// settings/auto_refund_disable - позволяет отключить авторефанд на devstand
-	autoRefundDisable, _ := onlineconf.GetBool(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "auto_refund_disable"), false)
+	autoRefundDisable, _, _ := occonf.SettingsAutoRefundDisable(ctx)
 
 	invoice := telegram.TelegramInvoiceData{
 		Products: srv.NewInvoiceProducts(),

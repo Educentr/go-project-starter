@@ -10,7 +10,6 @@ import (
 	{{ .Logger.Import }}
 	"github.com/prometheus/client_golang/prometheus"
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"golang.org/x/sync/errgroup"
 
 	"{{ .ProjectPath }}/pkg/app/daemon"
@@ -19,8 +18,8 @@ import (
 {{ if ne (.Logger.FilesToGenerate) "logrus" }}	"github.com/Educentr/go-project-starter-runtime/pkg/logger"
 {{ end }}	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
-	"{{ .ProjectPath }}/internal/app/constant"
 	"{{ .ProjectPath }}/internal/pkg/service"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 type Worker struct {
@@ -114,11 +113,16 @@ func (w *Worker) Init(ctx context.Context, serviceName, _ string, metricsRegistr
 	return nil
 }
 
-func GetConfigPath(key ...string) string{
-	components := []string{constant.ServiceName, "worker", WorkerName}
-	components = append(components, key...)
-
-	return onlineconf.MakePath(components...)
+// GetConfigPath returns this worker's OnlineConf subtree — the prefix the logger
+// reads the log level below. The subtree is declared by the generator
+// (telegram.go.tmpl.ockeys.yaml), which is why the path comes from the accessor
+// package instead of being assembled out of segments here.
+//
+// It takes no key: a path composed here would address a node no declaration
+// carries and no registry row shows, which is the thing the key map removes.
+// Read a value through its accessor.
+func GetConfigPath() string {
+	return occonf.WorkerPath(WorkerName)
 }
 
 func (w *Worker) getUpdateType(update tgbotapi.Update) string {
@@ -141,13 +145,18 @@ func (w *Worker) getUpdateType(update tgbotapi.Update) string {
 func (w *Worker) JobStarter(ctx context.Context, update tgbotapi.Update) (error) {
 	ocPrefix := GetConfigPath()
 
-	defaultTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "default", "timeout"), 0)
+	defaultTimeout, _, err := occonf.WorkerDefaultTimeout(ctx, WorkerName)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "error getting default job timeout" "str::$nameFieldLogger::WorkerName" }}
 	}
-	jobTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "job", "timeout"), defaultTimeout)
+
+	jobTimeout, ok, err := occonf.WorkerJobTimeout(ctx, WorkerName)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "error getting job timeout" "str::$nameFieldLogger::WorkerName" }}
+	}
+
+	if !ok {
+		jobTimeout = defaultTimeout
 	}
 
 	ctxJob, cancel, err := reqctx.CreateContextWithTimeout(ctx, ctx, jobTimeout)
@@ -308,13 +317,18 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 					for _, hm := range hiddenMessages {
 						ocPrefix := GetConfigPath()
 
-						defaultTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "default", "timeout"), 0)
+						defaultTimeout, _, err := occonf.WorkerDefaultTimeout(ctx, WorkerName)
 						if err != nil {
 							{{ .Logger.ErrorMsg "ctx" "err" "error getting default job timeout" "str::$nameFieldLogger::WorkerName" }}
 						}
-						hmTimeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(ocPrefix, "job", "timeout"), defaultTimeout)
+
+						hmTimeout, ok, err := occonf.WorkerJobTimeout(ctx, WorkerName)
 						if err != nil {
 							{{ .Logger.ErrorMsg "ctx" "err" "error getting job timeout" "str::$nameFieldLogger::WorkerName" }}
+						}
+
+						if !ok {
+							hmTimeout = defaultTimeout
 						}
 
 						hmCtx, cancel, err := reqctx.CreateContextWithTimeout(ctx, ctx, hmTimeout)

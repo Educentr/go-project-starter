@@ -1,23 +1,31 @@
 # The OnlineConf keys the generated telegram authorization reads.
 #
-# Both ACL subtrees are keyed by telegram user id, which is a runtime key — so
-# the subtrees belong to the generated code as a whole. /<service>/bot/users is
-# declared as both: it is read as the blanket ACL and as the root of the per-user
-# ones.
+# Both ACL subtrees are keyed by telegram user id, which the generated code
+# computes at runtime — so the subtrees belong to it as a whole.
+# /<service>/bot/users is read twice: as a value, for the blanket ACL of every
+# user, and below, for one user.
 groups:
   - scope: telegram_driver
     keys:
-      - path: "{service}/bot/admins"
-        dynamic: true
+      - path: "{service}/bot/admins/<tgID>"
+        name: BotAdminACL
+        type: string
+        default: "absent — the user is not an administrator"
         description: >-
-          Administrator ACLs, keyed by telegram user id
-          (.../admins/<telegram id>). The value is a comma-separated list of
-          `role:<name>` entries and command names; `root` grants every role.
+          Administrator ACL of one telegram user: a comma-separated list of
+          `role:<name>` entries and command names, where `root` grants every
+          role.
 
       - path: "{service}/bot/users"
+        name: BotUsersACL
         type: string
-        dynamic: true
+        default: "absent — the per-user ACL decides alone"
         description: >-
-          User ACL. Read as a value for the blanket ACL of every user, and below
-          as .../users/<telegram id> for one user. The value is a
-          comma-separated list of command names; `full` grants every command.
+          Blanket user ACL, applied to every telegram user: a comma-separated
+          list of command names, where `full` grants every command.
+
+      - path: "{service}/bot/users/<tgID>"
+        name: BotUserACL
+        type: string
+        default: "absent — the blanket ACL decides alone"
+        description: User ACL of one telegram user, in the same form as the blanket one.
