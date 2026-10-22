@@ -477,6 +477,45 @@ func TestRemoteSpec_HTTP_StagingCleaned(t *testing.T) {
 	}
 }
 
+// TestRemoteSpec_HTTP_DriftNamesSourceURI verifies that when a spec fetched
+// from a remote source is edited inside the project, the refusal names the URI
+// written in project.yaml. After the resolve pre-pass SpecPath points into the
+// per-run staging dir, and "/tmp/gps-specs-123/openapi.yaml" would tell the
+// reader nothing about where to fix the contract.
+func TestRemoteSpec_HTTP_DriftNamesSourceURI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, fakeOpenAPIBody) //nolint:errcheck // test fixture server, as in the other cases here
+	}))
+	defer srv.Close()
+
+	configDir := t.TempDir()
+	targetDir := t.TempDir()
+	specURL := srv.URL + "/openapi.yaml"
+	writeRemoteSpecConfig(t, configDir, specURL)
+
+	if out, err := runGenerator(t, configDir, targetDir); err != nil {
+		t.Fatalf("generator failed: %v\n%s", err, out)
+	}
+
+	specPath := filepath.Join(targetDir, "api", "rest", "api", "v1", "openapi.yaml")
+	if err := os.WriteFile(specPath, []byte(fakeOpenAPIBody+"# hand edit\n"), 0o644); err != nil {
+		t.Fatalf("edit copied spec: %v", err)
+	}
+
+	out, err := runGenerator(t, configDir, targetDir)
+	if err == nil {
+		t.Fatalf("regeneration must fail on an edited copied spec:\n%s", out)
+	}
+
+	if !strings.Contains(out, specURL) {
+		t.Errorf("error must name the source URI %q:\n%s", specURL, out)
+	}
+
+	if strings.Contains(out, "gps-specs-") {
+		t.Errorf("error must not expose the staging path:\n%s", out)
+	}
+}
+
 func countStagingDirs(t *testing.T) int {
 	t.Helper()
 	entries, err := os.ReadDir(os.TempDir())

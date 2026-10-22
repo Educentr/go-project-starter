@@ -171,7 +171,13 @@ func (r *Resolver) resolveGit(ctx context.Context, s GitSource) (ResolvedSpec, e
 	if err := copyFile(srcFile, dst); err != nil {
 		return ResolvedSpec{}, err
 	}
-	return ResolvedSpec{LocalPath: dst, Source: s}, nil
+
+	commit, err := gitHeadCommit(ctx, cloneDir, r.logStderr)
+	if err != nil {
+		return ResolvedSpec{}, fmt.Errorf("specsource: %s: %w", s.Describe(), err)
+	}
+
+	return ResolvedSpec{LocalPath: dst, Source: s, Commit: commit}, nil
 }
 
 // uniqueStagingPath builds a path under stagingDir/files/ that does not

@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -288,6 +289,70 @@ func TestLintTargetsFlags(t *testing.T) {
 		if !strings.Contains(makefile, cmd) {
 			t.Errorf("generated Makefile must contain lint invocation %q", cmd)
 		}
+	}
+}
+
+// TestMakefilePinsGeneratorVersion verifies that the generated Makefile calls
+// the generator the same way it calls every other generator it drives — by a
+// pinned version it fetches itself — instead of a bare `go-project-starter`
+// that has to be pre-installed in the environment (issue #49).
+func TestMakefilePinsGeneratorVersion(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for starter pin test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefileContent, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	pkg := "GPSPKG = github.com/Educentr/go-project-starter/cmd/go-project-starter"
+	if !strings.Contains(makefile, pkg) {
+		t.Errorf("generated Makefile must declare %q", pkg)
+	}
+
+	// This generator ran as `go run main.go`, i.e. from no published version,
+	// and the config pins none — so the pin degrades to the documented
+	// default rather than to something unresolvable like "dev".
+	pin := "GPSVERSION = " + templater.DefaultStarterVersion
+	if !strings.Contains(makefile, pin) {
+		t.Errorf("generated Makefile must pin the generator as %q", pin)
+	}
+
+	regenerate := "go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}"
+	if !strings.Contains(makefile, regenerate) {
+		t.Errorf("regenerate target must fetch the pinned generator: %q", regenerate)
+	}
+
+	if strings.Contains(makefile, "\tgo-project-starter --target") {
+		t.Error("regenerate target must not call a pre-installed go-project-starter binary (issue #49)")
+	}
+
+	// Without a way out, the pin is a trap: the only path to regeneration is
+	// fixed on the recorded version, which writes itself back on every run.
+	update := "go run $(GPSPKG)@$(STARTER_VERSION) --target ${PWD}"
+	if !strings.Contains(makefile, update) {
+		t.Errorf("update-starter target must run the requested version: %q", update)
+	}
+
+	if !strings.Contains(makefile, "update-starter:") {
+		t.Error("generated Makefile must expose an update-starter target")
 	}
 }
 
@@ -1657,6 +1722,130 @@ func TestGenerateGrafanaDatasourceUIDDefault(t *testing.T) {
 	}
 }
 
+// TestGenerateGrafanaAnnotations — grafana.annotations[] объявляет записи-запросы в
+// .annotations.list[] дашборда. Без них события, которые сервис постит в
+// /api/annotations (деплой, рестарт, краш), складываются в Grafana, но ни на одном
+// графике не рисуются: блок был литералом шаблона с единственной стоковой записью
+// builtIn, а дописанная руками запись стиралась следующим `make regenerate`.
+//
+// Отказ при этом тихий — JSON остаётся валидным, дашборд открывается, панели работают,
+// поэтому тест разбирает файл как JSON и проверяет сами записи, а не вхождение строк.
+//
+// Фикстура configs/grafana покрывает обе формы одной генерацией: у первой записи теги
+// заданы строкой через запятую и все опциональные поля проставлены, у второй — списком
+// YAML и всё опциональное оставлено на дефолтах.
+func TestGenerateGrafanaAnnotations(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project with annotations ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	const dashboardFile = "configs/grafana/dashboards/api.json"
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, dashboardFile))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", dashboardFile, err)
+	}
+
+	// Весь дашборд обязан остаться валидным JSON: записи вставляются в литерал
+	// шаблона, и лишняя/пропущенная запятая ломает файл целиком.
+	var dashboard struct {
+		Annotations struct {
+			List []struct {
+				BuiltIn    int    `json:"builtIn"`
+				Name       string `json:"name"`
+				IconColor  string `json:"iconColor"`
+				Enable     bool   `json:"enable"`
+				Hide       bool   `json:"hide"`
+				Type       string `json:"type"`
+				Datasource struct {
+					Type string `json:"type"`
+					UID  string `json:"uid"`
+				} `json:"datasource"`
+				Target struct {
+					Limit    int      `json:"limit"`
+					MatchAny bool     `json:"matchAny"`
+					Tags     []string `json:"tags"`
+					Type     string   `json:"type"`
+				} `json:"target"`
+			} `json:"list"`
+		} `json:"annotations"`
+	}
+
+	if err := json.Unmarshal(content, &dashboard); err != nil {
+		t.Fatalf("%s is not valid JSON: %v", dashboardFile, err)
+	}
+
+	list := dashboard.Annotations.List
+	if len(list) != 3 {
+		t.Fatalf("%s should hold the builtIn entry plus 2 declared annotations, got %d", dashboardFile, len(list))
+	}
+
+	// Стоковая запись builtIn остаётся на месте: объявленные добавляются рядом с ней,
+	// а не вместо неё.
+	if list[0].BuiltIn != 1 || list[0].Name != "Annotations & Alerts" {
+		t.Errorf("%s: first entry should stay the builtIn one, got %+v", dashboardFile, list[0])
+	}
+
+	deploys, migrations := list[1], list[2]
+
+	if deploys.Name != "Deploys / Restarts / Crashes" {
+		t.Errorf("declared annotation name = %q, want %q", deploys.Name, "Deploys / Restarts / Crashes")
+	}
+
+	// Теги из строки `deploy, restart, crash` должны приехать без пробелов: с ними
+	// Grafana не нашла бы ни одного события.
+	wantTags := []string{"deploy", "restart", "crash"}
+	if strings.Join(deploys.Target.Tags, ",") != strings.Join(wantTags, ",") {
+		t.Errorf("declared annotation tags = %q, want %q", deploys.Target.Tags, wantTags)
+	}
+
+	if deploys.Target.Limit != 50 || !deploys.Target.MatchAny {
+		t.Errorf("declared annotation target = %+v, want limit 50 and matchAny true", deploys.Target)
+	}
+
+	if deploys.IconColor != "yellow" || !deploys.Enable || deploys.Hide {
+		t.Errorf("declared annotation = %+v, want iconColor yellow, enable true, hide false", deploys)
+	}
+
+	// Запрос должен быть тегового типа и адресован встроенному хранилищу аннотаций —
+	// иначе Grafana ничего не вытянет.
+	if deploys.Type != "tags" || deploys.Target.Type != "tags" {
+		t.Errorf("declared annotation types = (%q, %q), want both %q", deploys.Type, deploys.Target.Type, "tags")
+	}
+
+	if deploys.Datasource.Type != "grafana" || deploys.Datasource.UID != "-- Grafana --" {
+		t.Errorf("declared annotation datasource = %+v, want the built-in grafana store", deploys.Datasource)
+	}
+
+	// Вторая запись проверяет дефолты: ни один опциональный knob не задан, но пустой
+	// цвет или limit 0 Grafana трактует как «не рисовать».
+	if migrations.Name != "Migrations" {
+		t.Errorf("second declared annotation name = %q, want %q", migrations.Name, "Migrations")
+	}
+
+	if migrations.IconColor != "yellow" || migrations.Target.Limit != 100 {
+		t.Errorf("second declared annotation = %+v, want default iconColor yellow and limit 100", migrations)
+	}
+
+	if !migrations.Enable || migrations.Target.MatchAny {
+		t.Errorf("second declared annotation = %+v, want default enable true and matchAny false", migrations)
+	}
+}
+
 // generateExample runs the generator into targetDir using the example/ config.
 func generateExample(t *testing.T, targetDir, msg string) (string, error) {
 	t.Helper()
@@ -1672,6 +1861,130 @@ func generateExample(t *testing.T, targetDir, msg string) (string, error) {
 		"--configDir", filepath.Join(curDir, "..", "example"),
 		"--config", "project.yaml",
 	}, msg+" ("+targetDir+")")
+}
+
+// readProjectFile reads a project-relative file out of a generated tree.
+func readProjectFile(t *testing.T, targetDir, rel string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", rel, err)
+	}
+
+	return string(data)
+}
+
+// appendToProjectFile appends a line to a project-relative file and returns the
+// new content, imitating a hand edit made inside the generated project.
+func appendToProjectFile(t *testing.T, targetDir, rel, line string) string {
+	t.Helper()
+
+	path := filepath.Join(targetDir, filepath.FromSlash(rel))
+	content := readProjectFile(t, targetDir, rel) + line
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", rel, err)
+	}
+
+	return content
+}
+
+// TestCopiedSpecDriftAbortsRun covers the rule that specs live in the contract
+// repository: a spec or JSON schema edited inside the project tree stops the
+// generator instead of being silently overwritten. The run must be refused
+// before anything is written, so the tree is left exactly as the author left
+// it — including the edit they can still salvage.
+func TestCopiedSpecDriftAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for copied spec drift test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		specRel   = "api/rest/example/v1/example.swagger.yml"
+		schemaRel = "api/schema/models/user.schema.json"
+	)
+
+	editedSpec := appendToProjectFile(t, tmpDir, specRel, "\n# hand edit inside the project\n")
+	editedSchema := appendToProjectFile(t, tmpDir, schemaRel, "\n")
+
+	metaRel := filepath.Join(".project-config", "meta.yaml")
+	metaBefore := readProjectFile(t, tmpDir, metaRel)
+	mainBefore := readProjectFile(t, tmpDir, "cmd/publicApi/psg_main_gen.go")
+
+	out, err = generateExample(t, tmpDir, "Regenerate project with edited specs")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on an edited copied spec:\n%s", out)
+	}
+
+	// The message has to name both the file in the project and the source to
+	// fix instead — the `path` entry from project.yaml.
+	for _, want := range []string{
+		specRel, "./example.swagger.yml",
+		schemaRel, "./user.schema.json",
+		"restore the files from version control",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Error must mention %q:\n%s", want, out)
+		}
+	}
+
+	if got := readProjectFile(t, tmpDir, specRel); got != editedSpec {
+		t.Errorf("Edited spec must be left untouched, got:\n%s", got)
+	}
+
+	if got := readProjectFile(t, tmpDir, schemaRel); got != editedSchema {
+		t.Errorf("Edited schema must be left untouched, got:\n%s", got)
+	}
+
+	if readProjectFile(t, tmpDir, metaRel) != metaBefore {
+		t.Error("meta.yaml must not be rewritten when the run is refused")
+	}
+
+	if readProjectFile(t, tmpDir, "cmd/publicApi/psg_main_gen.go") != mainBefore {
+		t.Error("generated files must not be rewritten when the run is refused")
+	}
+}
+
+// TestGeneratedDriftStaysWarning is the regression half of
+// TestCopiedSpecDriftAbortsRun: a hand edit above the disclaimer marker of a
+// generated file keeps the old behavior — a warning, and the edit is
+// overwritten. Only copied files escalate to an error.
+func TestGeneratedDriftStaysWarning(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for generated drift test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		genRel  = "cmd/publicApi/psg_main_gen.go"
+		handTag = "// hand edit above the marker"
+	)
+
+	genFile := filepath.Join(tmpDir, filepath.FromSlash(genRel))
+	content := readProjectFile(t, tmpDir, genRel)
+
+	if err := os.WriteFile(genFile, []byte(handTag+"\n"+content), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", genRel, err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate project with edited generated file")
+	if err != nil {
+		t.Fatalf("Hand edit above the marker must not fail the run: %s\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "generated part was changed") {
+		t.Errorf("Hand edit above the marker must be reported as a warning:\n%s", out)
+	}
+
+	if strings.Contains(readProjectFile(t, tmpDir, genRel), handTag) {
+		t.Error("Hand edit above the marker must be overwritten")
+	}
 }
 
 // TestObsoleteFileCleanup verifies that a generated file which dropped out of
@@ -2078,4 +2391,145 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 			t.Error("workflow contains an empty secret reference")
 		}
 	})
+}
+
+// dropManifestRecord removes the record of relPath from meta.yaml, simulating
+// the state a project is in when a newer generator version starts to write a
+// path the previous version never wrote.
+func dropManifestRecord(t *testing.T, metaPath, relPath string) {
+	t.Helper()
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	kept := []string{}
+	dropped := false
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "path: "+relPath+",") {
+			dropped = true
+
+			continue
+		}
+
+		kept = append(kept, line)
+	}
+
+	if !dropped {
+		t.Fatalf("meta.yaml has no record for %s:\n%s", relPath, data)
+	}
+
+	if err := os.WriteFile(metaPath, []byte(strings.Join(kept, "\n")), 0644); err != nil {
+		t.Fatalf("Error writing meta.yaml: %v", err)
+	}
+}
+
+// TestConflictWithUserFileAbortsRun covers the data-loss case the manifest
+// makes detectable: the generator starts to write a path where the user keeps a
+// file of their own. The run has to stop with a conflict instead of
+// overwriting it — the file carries no disclaimer marker, so there would be
+// nothing left to recover.
+func TestConflictWithUserFileAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for conflict test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	genRel := "internal/app/constant/psg_constant_gen.go"
+	genFile := filepath.Join(tmpDir, filepath.FromSlash(genRel))
+	userContent := "package constant\n\n// written by hand, no marker in sight\nconst Mine = true\n"
+
+	dropManifestRecord(t, metaPath, genRel)
+
+	if err := os.WriteFile(genFile, []byte(userContent), 0644); err != nil {
+		t.Fatalf("Error writing user file: %v", err)
+	}
+
+	t.Run("dry run reports the conflict", func(t *testing.T) {
+		curDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Error getting current directory: %v", err)
+		}
+
+		out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+			"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+			"--target", tmpDir,
+			"--configDir", filepath.Join(curDir, "..", "example"),
+			"--config", "project.yaml",
+			"--dry-run",
+		}, "Dry run against a conflicting user file ("+tmpDir+")")
+		if err == nil {
+			t.Fatalf("Dry run must fail on a conflict:\n%s", out)
+		}
+
+		if !strings.Contains(out, "conflict: ") || !strings.Contains(out, genRel) {
+			t.Errorf("Dry run must name the conflicting path:\n%s", out)
+		}
+	})
+
+	out, err = generateExample(t, tmpDir, "Regenerate project over a conflicting user file")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on a conflict:\n%s", out)
+	}
+
+	if !strings.Contains(out, "conflict: ") || !strings.Contains(out, genRel) {
+		t.Errorf("Error must name the conflicting path:\n%s", out)
+	}
+
+	got, err := os.ReadFile(genFile)
+	if err != nil {
+		t.Fatalf("Error reading user file: %v", err)
+	}
+
+	if string(got) != userContent {
+		t.Errorf("User file must be left untouched, got:\n%s", got)
+	}
+}
+
+// TestConflictWithUserSpecAbortsRun is the same guard for copied files: specs
+// and schemas have no marker at all, so a hand-written spec on a path the
+// config has only now started to claim would be replaced whole.
+func TestConflictWithUserSpecAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for spec conflict test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	specRel := "api/rest/example/v1/example.swagger.yml"
+	specFile := filepath.Join(tmpDir, filepath.FromSlash(specRel))
+	userContent := "openapi: 3.0.0\n# my own spec, never copied by the generator\n"
+
+	dropManifestRecord(t, metaPath, specRel)
+
+	if err := os.WriteFile(specFile, []byte(userContent), 0644); err != nil {
+		t.Fatalf("Error writing user spec: %v", err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate project over a conflicting user spec")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on a spec conflict:\n%s", out)
+	}
+
+	if !strings.Contains(out, "conflict: ") || !strings.Contains(out, specRel) {
+		t.Errorf("Error must name the conflicting spec:\n%s", out)
+	}
+
+	got, err := os.ReadFile(specFile)
+	if err != nil {
+		t.Fatalf("Error reading user spec: %v", err)
+	}
+
+	if string(got) != userContent {
+		t.Errorf("User spec must be left untouched, got:\n%s", got)
+	}
 }

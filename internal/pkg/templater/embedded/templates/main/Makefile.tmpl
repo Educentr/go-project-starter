@@ -26,6 +26,12 @@ GO_MOD_VERSION := $(shell awk '$$1 == "go" { print $$2; exit }' go.mod 2>/dev/nu
 # Go version golangci-lint must be built with: a binary built by an older
 # toolchain refuses to load a config targeting a newer Go
 GOLANGCI_BUILD_GO_VERSION := $(if $(GO_MOD_VERSION),$(GO_MOD_VERSION),$(MIN_GO_VERSION))
+# go-project-starter that generated this tree. Written by the generator itself,
+# so it is the provenance of the project and not a choice: regenerating with it
+# must leave the tree unchanged. Raise it with `make update-starter`, never by
+# editing this line — the next regeneration overwrites it.
+GPSPKG = github.com/Educentr/go-project-starter/cmd/go-project-starter
+GPSVERSION = {{ .StarterVersion }}
 # Ogen version
 OGENVERSION = {{ .OgenVersion }}
 {{ if .UseActiveRecord }}
@@ -57,6 +63,14 @@ endif
 LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)' -X 'main.BuildTime=$(BUILD_DATE)' -X 'main.BuildOS=$(OSNAME)'
 # GOPATH
 GOPATH = $(shell go env GOPATH)
+# Directory the install-* targets write tool binaries into: both `go install`
+# and the curl-based install-buf land here.
+GOBIN_DIR := $(GOPATH)/bin
+# CI containers and freshly provisioned machines usually do not have GOBIN_DIR
+# on PATH, so a tool an install-* target just installed would still not be
+# callable by name. Append it — after the caller's PATH, so a binary baked into
+# a toolchain image keeps priority over a copy in GOBIN_DIR.
+export PATH := $(PATH):$(GOBIN_DIR)
 GOPROXY ?=https://proxy.golang.org,direct
 GOPRIVATE ?=github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}
 PACKAGE = $(shell go list -m)
@@ -139,7 +153,21 @@ SOURCE_REF ?=
 
 .PHONY: regenerate
 regenerate:
-	go-project-starter --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
+	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
+
+# Raise the generator pin. The version given here regenerates the project and,
+# being the generator that produced the tree, writes itself into GPSVERSION
+# above — so this is the way out of the pin, which regenerate alone can never
+# leave:
+#   make update-starter STARTER_VERSION=v1.2.3
+# SOURCE_REF applies here too, same as for regenerate.
+.PHONY: update-starter
+update-starter:
+	@test -n "$(STARTER_VERSION)" || { \
+		echo "STARTER_VERSION is required: make update-starter STARTER_VERSION=vX.Y.Z"; \
+		exit 1; \
+	}
+	go run $(GPSPKG)@$(STARTER_VERSION) --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
 
 ##################### End of golang-ci checks #####################
 # Initialize git repository (does not require remote to exist)
@@ -195,7 +223,7 @@ check-go-version:
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
-lint: install-lint
+lint: install-lint{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Lints }} lint-{{ $cg.Name }}{{ end }}{{ end }}
 	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main $(LINT_ARGS)
 
 # Run full code lint
@@ -495,10 +523,10 @@ build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
 
 .PHONE: build-for-test
 build-for-test: {{ range $_, $a := .Applications }}build_for_test-{{ $a.Name }} {{ end }}
-
+{{ $bufLocal := false }}{{ range $_, $h := .Applications.GetGrpcTransport }}{{ if $h.BufLocalPlugins }}{{ $bufLocal = true }}{{ end }}{{ end }}
 # Generate pb files from proto description
 .PHONY: proto
-proto:
+proto:{{ if $bufLocal }} ensure-buf ensure-protoc-plugins{{ end }}
 {{ $proto := false }}
 {{- range $_, $h := .Applications.GetGrpcTransport }}
 	{{ $proto = true }}
@@ -562,7 +590,7 @@ install-argen:
 {{ $jsonschema = true }}
 # Generate Go structs from JSON Schema files
 .PHONY: generate-jsonschema
-generate-jsonschema:
+generate-jsonschema: ensure-go-jsonschema
 {{- range $name, $schema := .JSONSchemas }}
 	@echo "Generating Go code from JSON Schema for {{ $name }}..."
 	@mkdir -p {{ $schema.GetTargetGeneratePath "" }}
@@ -575,6 +603,13 @@ generate-jsonschema:
 .PHONY: install-go-jsonschema
 install-go-jsonschema:
 	go install github.com/atombender/go-jsonschema@$(GO_JSONSCHEMA_VERSION)
+
+# Guard, not an unconditional "install-go-jsonschema" prerequisite: toolchain
+# images bake the binary on the same pin, and installing it on every run would
+# both hit the network and shadow the baked binary with a copy in GOBIN_DIR.
+.PHONY: ensure-go-jsonschema
+ensure-go-jsonschema:
+	@command -v go-jsonschema >/dev/null 2>&1 || $(MAKE) --no-print-directory install-go-jsonschema
 {{- end }}
 
 {{ if eq $ogen true }}
@@ -609,11 +644,11 @@ release-tag:
 # Install dependencies for protobuf generator
 .PHONY: install-buf
 install-buf:
-	mkdir -p "$(shell go env GOPATH)/bin"
+	mkdir -p "$(GOBIN_DIR)"
 	curl -sSL \
     	"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(shell uname -s)-$(shell uname -m)" \
-    	-o "$(shell go env GOPATH)/bin/buf" && \
-  	chmod +x "$(shell go env GOPATH)/bin/buf"
+    	-o "$(GOBIN_DIR)/buf" && \
+  	chmod +x "$(GOBIN_DIR)/buf"
 
 # Install protoc-gen-go and protoc-gen-go-grpc
 # Pin protoc-gen-go-grpc: v1.6.2 bumped the required Go version to 1.25.0,
@@ -623,6 +658,21 @@ install-buf:
 install-protoc-gen-go-grpc:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+{{- if $bufLocal }}
+
+# buf and the local protoc plugins it shells out to (buf.gen.yaml uses
+# "local: protoc-gen-go" / "local: protoc-gen-go-grpc") have to be on PATH for
+# the `buf generate` in the proto target. Guarded rather than an unconditional
+# prerequisite: toolchain images bake these binaries, and installing them on
+# every run would both hit the network and shadow the baked ones via GOBIN_DIR.
+.PHONY: ensure-buf
+ensure-buf:
+	@command -v buf >/dev/null 2>&1 || $(MAKE) --no-print-directory install-buf
+
+.PHONY: ensure-protoc-plugins
+ensure-protoc-plugins:
+	@{ command -v protoc-gen-go && command -v protoc-gen-go-grpc; } >/dev/null 2>&1 || $(MAKE) --no-print-directory install-protoc-gen-go-grpc
+{{- end }}
 {{- end }}
 
 # Install local git hooks
@@ -657,7 +707,7 @@ tidy: get-runtime
 
 
 .PHONY: clean-import
-clean-import:
+clean-import: ensure-goimports
 	@echo "cleaning imports..."
 	@goimports -w .
 
@@ -686,19 +736,42 @@ install-goimports:
 	# last release still compatible with generated projects pinned to Go 1.24.
 	go install golang.org/x/tools/cmd/goimports@v0.42.0
 
+# Guard, not an unconditional "install-goimports" prerequisite: toolchain
+# images bake the binary on the same pin, and installing it on every run would
+# both hit the network and shadow the baked binary with a copy in GOBIN_DIR.
+.PHONY: ensure-goimports
+ensure-goimports:
+	@command -v goimports >/dev/null 2>&1 || $(MAKE) --no-print-directory install-goimports
+
 .PHONY: install-onlineconf-updater
 install-onlineconf-updater:
 	go install github.com/Nikolo/onlineconf/onlineconf-updater/v3@$(ONLINECONF_UPDATER_VERSION)
 
-# Install dependencies for tools
+{{ range $_, $cg := .CustomGenerators }}# Generator '{{ $cg.Name }}', declared in the `generator` section of
+# .project-config/project.yaml. The commands belong to the project: the
+# starter owns fetching the contract and wiring the targets, not the
+# generation itself.
+{{ if $cg.Install }}.PHONY: install-{{ $cg.Name }}
+install-{{ $cg.Name }}:
+	{{ $cg.Install }}
+
+{{ end }}.PHONY: generate-{{ $cg.Name }}
+generate-{{ $cg.Name }}:
+{{ range $_, $cmd := $cg.Cmds }}	{{ $cmd }}
+{{ end }}
+{{ if $cg.Lints }}.PHONY: lint-{{ $cg.Name }}
+lint-{{ $cg.Name }}:
+{{ range $_, $cmd := $cg.Lints }}	{{ $cmd }}
+{{ end }}
+{{ end }}{{ end }}# Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}install-goimports
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Install }}install-{{ $cg.Name }} {{ end }}{{ end }}install-goimports
 
 # Generate mock packages
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}
 
 .PHONY: download
 download:

@@ -1,0 +1,27 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # make race == go test $(go list ./... | grep -v /test/docker-integration)
+      #              -race -parallel=10 -count=1
+      # docker-integration is excluded here: it needs a prebuilt image and runs
+      # in its own job (integration-test.yml).
+      - name: Run unit tests
+        run: make race

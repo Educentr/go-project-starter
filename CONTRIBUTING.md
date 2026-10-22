@@ -57,10 +57,11 @@ make build
 make test                # С coverage
 make race                # С race detector
 
-# Linting (требуется golangci-lint v1.52.2)
-make install-lint        # Установка golangci-lint
-make lint                # Проверка изменений относительно origin/main
-make lint-full           # Полный lint всего кода
+# Linting
+make install-lint        # Установка golangci-lint (версия — GOLANGCI_TAG в Makefile)
+make lint                # Проверка изменений относительно origin/main — это гейт CI (lint.yml)
+make lint-config-verify  # Проверка configs/golangci.yml на схему закреплённой версии
+make lint-full           # Полный lint всего кода — сейчас красный на main (~600 issues)
 make lint-fix            # Автоисправление
 
 # Coverage отчёт
