@@ -1,0 +1,91 @@
+openapi: 3.0.2
+servers:
+  - url: http://billing.invalid/v1
+    description: External billing provider
+info:
+  version: 1.0.0
+  title: Billing Partner API
+tags:
+  - name: invoices
+    description: Invoice endpoints
+paths:
+  /invoices/{id}:
+    get:
+      tags:
+        - invoices
+      summary: Get an invoice
+      operationId: getInvoice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+  # The operation billing-reduced.swagger.yml drops: removing it must take
+  # ListInvoices out of the generated mock as well, otherwise the mock keeps
+  # referring to types ogen no longer emits. The parameter is what makes that
+  # visible — ogen derives ListInvoicesParams from it, and a mock left behind
+  # with that type in its signature no longer compiles.
+  /invoices:
+    get:
+      tags:
+        - invoices
+      summary: List invoices
+      operationId: listInvoices
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invoice'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+components:
+  schemas:
+    Invoice:
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        amount:
+          type: integer
+          format: int64
+      type: object
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object

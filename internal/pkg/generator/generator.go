@@ -1922,8 +1922,10 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 			dirs = append(dirs, dirsTest...)
 			files = append(files, filesTest...)
 
-			// Generate mock templates for applications with ogen_clients
-			if app.HasOgenClients() {
+			// Generate mock templates for applications with ogen_clients.
+			// App.HasMocks() is the same predicate the Makefile uses to decide
+			// whether generate-mocks has a directory to walk — keep them in sync.
+			if app.HasMocks() {
 				dirsMock, filesMock, err := templater.GetMockTemplates(g.GetTmplAppParams(app))
 				if err != nil {
 					return nil, nil, fmt.Errorf("failed to get mock templates for %s: %w", app.Name, err)

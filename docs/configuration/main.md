@@ -282,8 +282,17 @@ post_generate:
 | `tools_install` | Установить ogen, argen, golangci-lint |
 | `clean_imports` | Организовать imports через goimports |
 | `executable_scripts` | Сделать скрипты исполняемыми |
-| `call_generate` | Запустить `make generate` |
+| `call_generate` | Запустить `make generate` — все генераторы, включая моки |
+| `call_generate_mock` | Запустить `make mock` — все `//go:generate` проекта |
 | `go_mod_tidy` | Запустить `go mod tidy` |
+
+!!! note "`call_generate_mock` отдельно не нужен"
+    `call_generate` уже перегенерирует моки, каркас которых пишет генератор:
+    `generate-mocks` входит в агрегатор `generate` (см.
+    [Makefile Targets Reference](../reference/makefile-targets.md#моки-и-make-generate)).
+    `call_generate_mock` сохранён для обратной совместимости и зовёт `make mock` —
+    это `go generate ./...`, то есть **все** директивы проекта, включая написанные
+    вручную. Для новых конфигураций используйте `call_generate`.
 
 !!! note "Важно для dev_stand"
     `dev_stand: true` требует `git_install` в `post_generate`, так как OnlineConf добавляется как git submodule.

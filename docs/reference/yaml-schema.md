@@ -518,9 +518,12 @@ post_generate:
   - tools_install               # Установка инструментов
   - clean_imports               # Организация импортов (goimports)
   - executable_scripts          # chmod +x для скриптов
-  - call_generate               # Вызов make generate
+  - call_generate               # Вызов make generate (все генераторы, включая моки)
+  - call_generate_mock          # Вызов make mock (все //go:generate проекта), legacy
   - go_mod_tidy                 # go mod tidy
 ```
+
+Описание шагов — [Конфигурация: `post_generate`](../configuration/main.md#секция-post_generate).
 
 ---
 

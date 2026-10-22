@@ -1,0 +1,54 @@
+# Fixture for the mock-regeneration wiring (TOOLS-21): an application with
+# goat_tests + an ogen_client transport is exactly the case where the generator
+# writes mock scaffolding under tests/{app}/mocks/{transport}/, so the generated
+# `generate` aggregator must regenerate those mocks after the ogen interfaces
+# they mirror.
+main:
+  name: mocktest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/mocktest.git
+  module_path: github.com/test/mocktest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+  goat_version: v0.5.0
+  goat_services_version: v0.2.2
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  # External API the tests mock out — the source of tests/api/mocks/billing/.
+  - name: billing
+    path:
+      - ./billing.swagger.yml
+    version: "v1"
+    generator_type: ogen_client
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    goat_tests: true
+    transport:
+      - name: api
+      - name: billing
+      - name: sys
