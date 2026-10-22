@@ -3,7 +3,8 @@ run:
   # Default concurrency is a available CPU number.
   concurrency: 4
   # Timeout for analysis. e.g. 30s, default is 1m.
-  deadline: 2m
+  # `deadline` was removed in golangci-lint v1.57; use `timeout`.
+  timeout: 5m
   # Exit code when at least one issue was found, default is 1.
   issues-exit-code: 10
   # Include test files, default is true.
@@ -210,7 +211,9 @@ linters-settings:
     disable-dec-num-check: true
 
   # Go linter that checks if package imports are in a list of acceptable packages [fast: true, auto-fix: false]
-  depguard:
+  # The linter itself is disabled above, and an empty `rules:` is rejected by
+  # `golangci-lint config verify`, so the whole block is kept as documentation.
+  # depguard:
     # Rules to apply.
     #
     # Variables:
@@ -226,7 +229,7 @@ linters-settings:
     #  `$gostd` - matches all of go's standard library (Pulled from `GOROOT`)
     #
     # Default: no rules.
-    rules:
+    # rules:
     # # Name of a rule.
     # main:
     #   # List of file globs that will match this list of settings to compare against.
@@ -398,12 +401,6 @@ linters-settings:
       - operation
       - return
       - assign
-
-    # Detects Go structs that would take less memory if their fields were sorted.
-  maligned:
-    # Print struct with more effective memory layout, false by default.
-    suggest-new: true
-    #    auto-fix: true
 
     # Reports deeply nested if statements.
   nestif:

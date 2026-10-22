@@ -62,6 +62,21 @@ type RunsOnSpec struct {
 	Labels []string
 }
 
+// DoctlMode selects how the doctl CLI becomes available in the generated
+// DigitalOcean Container Registry login jobs.
+type DoctlMode string
+
+// Doctl mode constants of the github_ci.doctl parameter.
+const (
+	// DoctlModeInstall installs doctl with digitalocean/action-doctl in every
+	// job that logs in to the registry. It is the default and the zero value.
+	DoctlModeInstall DoctlMode = "install"
+	// DoctlModeImage takes doctl from the runner image: no install step is
+	// generated at all, and the login step prints `doctl version` first so a
+	// runner image without doctl turns the job red instead of installing one.
+	DoctlModeImage DoctlMode = "image"
+)
+
 // GithubCIConfig holds settings applied to every job of the generated GitHub
 // Actions workflows (.github/workflows/ci_cd.yml, go-version-check.yml).
 type GithubCIConfig struct {
@@ -72,8 +87,11 @@ type GithubCIConfig struct {
 	JobTimeoutMinutes int
 	// DoctlVersion pins the doctl version installed by
 	// digitalocean/action-doctl. Empty means the action installs the latest
-	// release.
+	// release. Only meaningful in DoctlModeInstall.
 	DoctlVersion string
+	// DoctlMode selects how doctl becomes available in the DigitalOcean
+	// registry login jobs. The zero value means DoctlModeInstall.
+	DoctlMode DoctlMode
 }
 
 // DefaultRunsOn is the runner used by the generated workflows when
@@ -126,6 +144,13 @@ func (c GithubCIConfig) JobHeader() string {
 	}
 
 	return header
+}
+
+// DoctlFromImage reports whether the generated DigitalOcean registry login
+// jobs must take doctl from the runner image instead of installing it. The
+// templates branch on it, so the zero value keeps the install step.
+func (c GithubCIConfig) DoctlFromImage() bool {
+	return c.DoctlMode == DoctlModeImage
 }
 
 // DocsDeployType represents documentation deployment type
@@ -281,7 +306,7 @@ type JSONSchema struct {
 	// indices align with Schemas.
 	SchemaTargetFiles []string
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
-	// target schema directory after CopySchemas.
+	// target schema directory after the schemas are copied.
 	RewriteRefs bool
 }
 
@@ -713,7 +738,7 @@ type Transport struct {
 	Instantiation   string // "static" (default) or "dynamic" - only for ogen_client
 	Optional        bool   // true = optional dependency for this app
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
-	// target spec directory after CopySpecs.
+	// target spec directory after the specs are copied.
 	RewriteRefs bool
 }
 

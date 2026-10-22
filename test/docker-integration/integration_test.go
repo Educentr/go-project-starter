@@ -148,6 +148,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 		"rest-shared-spec-rewrite-refs", "rest-client-basic-auth",
+		"rest-envs-goat",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -812,6 +813,70 @@ func TestIntegrationRESTClientBasicAuth(t *testing.T) {
 				require.Equal(t, 0, code, "expected dev-stand config to seed auth_params/%s for billing", leaf)
 			}
 		})
+}
+
+// TestIntegrationRESTEnvsGoat covers generation of a goat_tests project that
+// pins Go 1.24, with go_mod_tidy in post_generate — the combination that used
+// to abort generation outright (TOOLS-51).
+//
+// goat-services imports testcontainers-go, whose docker/client is tested by
+// docker/testutil, which imports otlptrace. `go mod tidy` must resolve those
+// test-only imports of dependencies as well, and since no module in the graph
+// requires them it reaches for @latest, which needs Go >= 1.26. go.mod.tmpl
+// pins the otlptrace line for goat projects so that tidy stays resolvable on
+// Go 1.24; this test is what fails if the pin is dropped or goes stale.
+//
+// Only reproduces inside the golang image because it ships GOTOOLCHAIN=local
+// — with the default `auto`, tidy would silently download Go 1.26 and pass.
+// assertGoatTidyPreconditions asserts that, so the test cannot quietly become
+// vacuous. No Docker stage: the regression is in generation, not at runtime.
+func TestIntegrationRESTEnvsGoat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-envs-goat", "rest-envs-goat",
+		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+			t.Helper()
+			assertGoatTidyPreconditions(ctx, t, container, outputDir)
+		})
+}
+
+// assertGoatTidyPreconditions verifies that the goat fixture still exercises
+// the TOOLS-51 regression, and that tidy kept the otlptrace pin.
+//
+// The first two checks guard the test itself: the defect only reproduces on a
+// project pinned below Go 1.26 running under a toolchain that refuses to
+// upgrade. If either precondition silently changes — the fixture gets bumped,
+// or the image stops setting GOTOOLCHAIN=local — generation would pass for
+// reasons unrelated to the fix, and the regression would be unguarded again.
+func assertGoatTidyPreconditions(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	// Precondition 1: the toolchain may not upgrade itself past the pin.
+	code, outputReader, err := container.Exec(ctx, []string{"go", "env", "GOTOOLCHAIN"})
+	require.NoError(t, err, "go env GOTOOLCHAIN")
+	require.Equal(t, 0, code, "go env GOTOOLCHAIN failed")
+	require.Contains(t, readOutput(outputReader), "local",
+		"test image must keep GOTOOLCHAIN=local, otherwise tidy auto-upgrades and this test proves nothing")
+
+	// Precondition 2: the generated module still targets Go 1.24.
+	goMod := outputDir + "/go.mod"
+	code, _, err = container.Exec(ctx, []string{"grep", "-qE", `^go 1\.24`, goMod})
+	require.NoError(t, err, "grep go directive")
+	require.Equal(t, 0, code,
+		"fixture must stay pinned to Go 1.24 in %s, otherwise it no longer reproduces TOOLS-51", goMod)
+
+	// The pin itself must still be there. The version is deliberately not
+	// asserted: reaching this point already means tidy resolved the graph
+	// under the two preconditions above, so whatever version survived is
+	// Go 1.24-compatible by construction — pinning the exact string here
+	// would only mean editing two places on every otel bump.
+	code, _, err = container.Exec(ctx, []string{"grep", "-qF",
+		"go.opentelemetry.io/otel/exporters/otlp/otlptrace", goMod})
+	require.NoError(t, err, "grep otlptrace requirement")
+	require.Equal(t, 0, code,
+		"expected an otlptrace requirement in %s — without it tidy resolves @latest and breaks on Go 1.24", goMod)
 }
 
 // runTestWithExtraAssertions is runTest with an extra assertion hook fired

@@ -1394,6 +1394,235 @@ func TestGetUserCodeFromFilesWithManifest(t *testing.T) {
 	})
 }
 
+// TestGetUserCodeFromFilesConflicts covers the manifest-mode guard against
+// overwriting a file the generator never wrote: a new generator version starts
+// to claim a path where the user already keeps a file of their own.
+func TestGetUserCodeFromFilesConflicts(t *testing.T) {
+	disclaimerLine := "// " + disclaimer
+
+	// otherRecord keeps the manifest non-empty (manifest mode) without
+	// claiming any of the paths under test.
+	otherRecord := func(t *testing.T) meta.Manifest {
+		t.Helper()
+
+		return meta.Manifest{genRecord(t, "psg_other_gen.go", "package main\n\n"+disclaimerLine+"\n")}
+	}
+
+	assertConflict := func(t *testing.T, err error, paths ...string) {
+		t.Helper()
+
+		if err == nil {
+			t.Fatal("expected a conflict error, got nil")
+		}
+
+		if !errors.Is(err, ErrTargetConflict) {
+			t.Errorf("error should be ErrTargetConflict, got: %v", err)
+		}
+
+		var conflict *TargetConflictError
+		if !errors.As(err, &conflict) {
+			t.Fatalf("error should be *TargetConflictError, got %T: %v", err, err)
+		}
+
+		if len(conflict.Paths) != len(paths) {
+			t.Errorf("Paths = %v, want %v", conflict.Paths, paths)
+		}
+
+		for _, path := range paths {
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("error should mention %s, got: %v", path, err)
+			}
+		}
+	}
+
+	t.Run("user file with disclaimer is a conflict, not a silent overwrite", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Hand-written file that happens to carry the marker: before the
+		// manifest everything above it was rewritten without a word.
+		userFile := filepath.Join(tmpDir, "pkg", "app", "psg_handler_gen.go")
+		content := "package app\n\n// hand written\n\n" + disclaimerLine + "\n\nfunc userCode() {}\n"
+		writeFile(t, userFile, content)
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, userFile)
+
+		if got, rerr := os.ReadFile(userFile); rerr != nil || string(got) != content {
+			t.Errorf("user file must be left untouched, got %q (err %v)", got, rerr)
+		}
+	})
+
+	t.Run("user file without disclaimer is a conflict, not a split error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		userFile := filepath.Join(tmpDir, "pkg", "app", "psg_handler_gen.go")
+		writeFile(t, userFile, "package app\n\nfunc Handler() {}\n")
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, userFile)
+
+		if strings.Contains(err.Error(), "split disclaimer") {
+			t.Errorf("a foreign file must not be reported as a broken marker, got: %v", err)
+		}
+	})
+
+	t.Run("user JSON file is a conflict", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// JSON carries no marker, so the old behavior replaced the file whole.
+		userFile := filepath.Join(tmpDir, "configs", "dashboard.json")
+		writeFile(t, userFile, `{"title":"my dashboard"}`)
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, userFile)
+	})
+
+	t.Run("every conflicting path is reported at once", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		first := filepath.Join(tmpDir, "pkg", "app", "psg_a_gen.go")
+		second := filepath.Join(tmpDir, "configs", "b.json")
+
+		writeFile(t, first, "package app\n")
+		writeFile(t, second, "{}")
+
+		files := []ds.Files{
+			{DestName: first, OldDestName: first},
+			{DestName: second, OldDestName: second},
+		}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, first, second)
+	})
+
+	t.Run("user-owned paths are not conflicts", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		goMod := filepath.Join(tmpDir, "go.mod")
+		writeFile(t, goMod, "module example.com/project\n")
+
+		asset := filepath.Join(tmpDir, "static", "app.js")
+		writeFile(t, asset, "console.log('mine')\n")
+
+		files := []ds.Files{
+			{DestName: goMod, OldDestName: goMod},
+			{DestName: asset, OldDestName: asset},
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t), "static/")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		for _, path := range []string{goMod, asset} {
+			if _, ok := filesDiff.IgnoreFiles[path]; !ok {
+				t.Errorf("expected %s in IgnoreFiles, got %v", path, filesDiff.IgnoreFiles)
+			}
+		}
+	})
+
+	t.Run("pending rename recorded under the old name is not a conflict", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genContent := "package main\n\n" + disclaimerLine + "\n"
+		oldFile := filepath.Join(tmpDir, "tests", "psg_config_gen.go")
+		newFile := filepath.Join(tmpDir, "tests", "api", "psg_config_gen.go")
+
+		writeFile(t, oldFile, genContent+"\nfunc userCode() {}\n")
+
+		files := []ds.Files{{DestName: newFile, OldDestName: oldFile}}
+		prev := meta.Manifest{genRecord(t, "tests/psg_config_gen.go", genContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := filesDiff.RenameFiles[oldFile]; got != newFile {
+			t.Errorf("expected rename %s -> %s, got %q", oldFile, newFile, got)
+		}
+
+		if got := string(filesDiff.UserContent[newFile]); got != "\nfunc userCode() {}\n" {
+			t.Errorf("user code must be carried over to the new name, got %q", got)
+		}
+	})
+
+	t.Run("a foreign file on the old name of a rename is a conflict", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		oldFile := filepath.Join(tmpDir, "tests", "psg_config_gen.go")
+		newFile := filepath.Join(tmpDir, "tests", "api", "psg_config_gen.go")
+
+		writeFile(t, oldFile, "package tests\n")
+
+		files := []ds.Files{{DestName: newFile, OldDestName: oldFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, oldFile)
+	})
+
+	t.Run("manifest record without a hash still counts as ours", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genFile := filepath.Join(tmpDir, "psg_handler_gen.go")
+		writeFile(t, genFile, "package main\n\n"+disclaimerLine+"\n")
+
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{{Path: "psg_handler_gen.go", Kind: meta.KindGenerated}}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(filesDiff.DriftFiles) != 0 {
+			t.Errorf("a record without a hash cannot drift, got %v", filesDiff.DriftFiles)
+		}
+	})
+
+	t.Run("without a manifest the old behavior is kept", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Same JSON file as in the conflict case above: a project that predates
+		// meta.yaml v5 has nothing to compare against, so the run goes on.
+		userFile := filepath.Join(tmpDir, "configs", "dashboard.json")
+		writeFile(t, userFile, `{"title":"my dashboard"}`)
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		if _, err := GetUserCodeFromFiles(tmpDir, files, nil); err != nil {
+			t.Fatalf("unexpected error without a manifest: %v", err)
+		}
+	})
+}
+
+func TestTargetConflictErrorMessage(t *testing.T) {
+	if err := NewTargetConflictError(nil); err != nil {
+		t.Errorf("no paths means no error, got: %v", err)
+	}
+
+	single := NewTargetConflictError([]string{"api/rest/svc/v1/svc.yaml"})
+	wantSingle := "conflict: api/rest/svc/v1/svc.yaml exists and was not written by the generator — rename or remove it"
+
+	if single.Error() != wantSingle {
+		t.Errorf("Error() = %q, want %q", single.Error(), wantSingle)
+	}
+
+	// Paths are sorted so the message does not depend on traversal order.
+	many := NewTargetConflictError([]string{"b.json", "a.go"})
+	for _, want := range []string{"2 files exist", "\n  - a.go\n  - b.json"} {
+		if !strings.Contains(many.Error(), want) {
+			t.Errorf("Error() = %q, want it to contain %q", many.Error(), want)
+		}
+	}
+}
+
 func TestIsUserOwned(t *testing.T) {
 	tests := []struct {
 		name    string

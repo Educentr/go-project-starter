@@ -208,7 +208,9 @@ jobs:
 
       - name: Checkout repository
         if: steps.vars_enabled.outputs.ENABLE_BUILD == 'true'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: "Version and containers"
         id: vers_and_containers
@@ -300,7 +302,9 @@ jobs:
       packages: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -316,6 +320,14 @@ jobs:
           username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
           password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
       {{ else if eq $.RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+      - name: Log in to DO Container Registry
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
@@ -326,6 +338,7 @@ jobs:
 
       - name: Log in to DO Container Registry
         run: doctl registry login
+{{- end }}
       {{ else if eq $.RegistryType "aws" }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -385,9 +398,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       {{ if eq .RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+      - name: Log in to DO Container Registry
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
@@ -398,6 +421,7 @@ jobs:
 
       - name: Log in to DO Container Registry
         run: doctl registry login
+{{- end }}
       {{ else if eq .RegistryType "github" }}
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
@@ -464,7 +488,9 @@ jobs:
       (needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'success' || needs.run-goat-tests-{{ $a.Name | ReplaceDash }}.result == 'skipped'){{ end }}{{ end }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -597,9 +623,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-{{- if .Documentation.IsGitHubPages }}
         with:
+{{- if .Documentation.IsGitHubPages }}
+          # The checkout token is kept on purpose: `mkdocs gh-deploy` pushes to
+          # the gh-pages branch, which is what `permissions: contents: write`
+          # above is granted for.
           fetch-depth: 0
+{{- else }}
+          persist-credentials: false
 {{- end }}
 {{- if .Documentation.IsS3 }}
 

@@ -28,6 +28,13 @@ const MinRuntimeVersion = "v0.15.0"
 // Go modules when git.private_repos_token_secret is not set in project.yaml.
 const DefaultPrivateReposTokenSecret = "GH_PAT"
 
+// DefaultStarterVersion is the generator pin written into a project when the
+// running binary cannot name its own version and the config does not pin one
+// either (a local build from an untagged tree). "latest" keeps `make
+// regenerate` working; it is deliberately not a version number, because an
+// invented pin would claim a provenance the tree does not have.
+const DefaultStarterVersion = "latest"
+
 type GeneratorParams struct {
 	AppInfo         string
 	Logger          ds.Logger
@@ -57,10 +64,13 @@ type GeneratorParams struct {
 	GoJSONSchemaVersion     string
 	GoatVersion             string
 	GoatServicesVersion     string
-	Drivers                 ds.Drivers
-	Workers                 ds.Workers
-	JSONSchemas             ds.JSONSchemas
-	Kafka                   ds.KafkaConfigs
+	// StarterVersion is the go-project-starter version this tree was generated
+	// with; the Makefile calls exactly it to regenerate.
+	StarterVersion string
+	Drivers        ds.Drivers
+	Workers        ds.Workers
+	JSONSchemas    ds.JSONSchemas
+	Kafka          ds.KafkaConfigs
 	// GRPCVersion   string
 	// Transports ds.Transtorts
 	// Models ???
@@ -70,9 +80,13 @@ type GeneratorParams struct {
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
 	OnlineConf    ds.OnlineConfConfig
-	// GithubCI carries the runner, job timeout and doctl version applied to
+	// GithubCI carries the runner, job timeout and doctl setup applied to
 	// every job of the generated GitHub Actions workflows.
 	GithubCI ds.GithubCIConfig
+	// CustomGenerators are the project's own generators (the `generator`
+	// section), with their commands already rendered per contract. Empty when
+	// the project declares none, and then the generated Makefile is unchanged.
+	CustomGenerators ds.CustomGenerators
 }
 
 // PrivateReposTokenSecretName returns the name of the CI secret that holds the
@@ -329,6 +343,13 @@ func hasAnyPrefix(path string, prefixes []string) bool {
 // replacing it. In the fallback tree walk the remaining non-regular entries are
 // recorded in OtherFiles and their contents are not read; with a manifest they
 // are not visited at all unless they are part of the output set.
+//
+// With a manifest, a path of the output set that exists on disk but has no
+// record in prev was not written by us: the diff fails with
+// ErrTargetConflict (*TargetConflictError, every offending path at once)
+// instead of overwriting a file of the user's. User-owned paths (IsUserOwned,
+// extraIgnore) and pending renames are exempt; without a manifest there is
+// nothing to compare against, so the fallback keeps the old behavior.
 func GetUserCodeFromFiles(targetDir string, files []ds.Files, prev meta.Manifest, extraIgnore ...string) (ds.FilesDiff, error) {
 	filesDiff := ds.FilesDiff{
 		NewFiles:       make(map[string]struct{}),
@@ -416,6 +437,7 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 
 	prevIdx := prev.Index()
 	curSet := make(map[string]struct{}, len(files))
+	conflicts := []string{}
 
 	for _, file := range files {
 		rel, err := meta.RelPath(absTarget, file.DestName)
@@ -423,11 +445,32 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 			return errors.Wrap(err, "error resolve relative path of "+file.DestName)
 		}
 
+		relOld := rel
+		if file.OldDestName != "" && file.OldDestName != file.DestName {
+			relOld, err = meta.RelPath(absTarget, file.OldDestName)
+			if err != nil {
+				return errors.Wrap(err, "error resolve relative path of "+file.OldDestName)
+			}
+		}
+
 		curSet[rel] = struct{}{}
 
-		if err := diffExpectedFile(filesDiff, file, rel, prevIdx, extraIgnore); err != nil {
+		if err := diffExpectedFile(filesDiff, file, rel, relOld, prevIdx, extraIgnore); err != nil {
+			// Conflicts are collected instead of returned: the user should see
+			// every path they have to move out of the way, not one per run.
+			var conflict *TargetConflictError
+			if errors.As(err, &conflict) {
+				conflicts = append(conflicts, conflict.Paths...)
+
+				continue
+			}
+
 			return err
 		}
+	}
+
+	if err := NewTargetConflictError(conflicts); err != nil {
+		return err
 	}
 
 	// Existing directories are not "new" — keeps the dry-run report honest.
@@ -442,13 +485,19 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 
 // diffExpectedFile classifies one file of the current output set against its
 // on-disk state: user code below the marker is preserved, hand edits above the
-// marker are reported as drift, and files that must not be touched once they
-// exist are moved to IgnoreFiles.
-func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevIdx map[string]meta.FileRecord, extraIgnore []string) error {
-	// A pending rename means the content still lives under the old name.
-	srcPath := file.DestName
+// marker are reported as drift, a path occupied by a file we never wrote is a
+// conflict, and files that must not be touched once they exist are moved to
+// IgnoreFiles.
+//
+// rel is the project-relative path of file.DestName, relOld that of
+// file.OldDestName (equal to rel when nothing is being renamed).
+func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel, relOld string, prevIdx map[string]meta.FileRecord, extraIgnore []string) error {
+	// A pending rename means the content still lives under the old name — and
+	// that is the name the previous run recorded in the manifest, so the record
+	// lookup below has to follow the same path.
+	srcPath, relSrc := file.DestName, rel
 	if file.OldDestName != "" && file.OldDestName != file.DestName && !regularFileExists(file.DestName) && regularFileExists(file.OldDestName) {
-		srcPath = file.OldDestName
+		srcPath, relSrc = file.OldDestName, relOld
 	}
 
 	if isFileIgnore(rel) || hasAnyPrefix(rel, extraIgnore) {
@@ -483,6 +532,17 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		return errors.Wrap(ErrNonRegularTarget, srcPath)
 	}
 
+	// The manifest is the only authority on "did we write this": a file that is
+	// not in it belongs to the user, even when it carries a disclaimer marker or
+	// sits on a path a newer generator version has just started to claim.
+	// Overwriting it would destroy content the user cannot get back, so the run
+	// stops. A record with an empty hash still counts as ours — it says the file
+	// was written, only its content was not hashed.
+	rec, ours := prevIdx[relSrc]
+	if !ours {
+		return NewTargetConflictError([]string{srcPath})
+	}
+
 	delete(filesDiff.NewFiles, file.DestName)
 
 	fileContent, err := os.ReadFile(srcPath)
@@ -503,8 +563,7 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel string, prevId
 		}
 	}
 
-	rec, ok := prevIdx[rel]
-	if !ok || rec.Hash == "" {
+	if rec.Hash == "" {
 		return nil
 	}
 

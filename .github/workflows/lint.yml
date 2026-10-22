@@ -1,0 +1,52 @@
+name: Lint
+
+on:
+  # Diff mode only: `make lint` reports issues introduced relative to
+  # origin/main, which is empty by definition on a push to main. `make
+  # lint-full` is red on main (~600 pre-existing issues), so a full-mode gate
+  # cannot be turned on before that debt is cleaned up — tracked separately.
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `make lint` diffs against origin/main; the default shallow clone has
+          # neither that ref nor the history to compute a diff against it.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Make origin/main available for diff-mode lint
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+      # make install-lint builds the version pinned in GOLANGCI_TAG from source,
+      # so the linter is compiled with the same Go as the project. A binary built
+      # with an older Go refuses to type-check sources that declare a newer
+      # language version, which is why a prebuilt release is not used here.
+      # The key covers both GOLANGCI_TAG (Makefile) and the Go version (go.mod).
+      # The job only runs on pull_request, so this cache is branch scoped: it
+      # saves the rebuild on every push after the first one in a pull request.
+      - name: Cache golangci-lint binary
+        uses: actions/cache@v4
+        with:
+          path: bin/golangci-lint
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+
+      - name: Install linter
+        run: make install-lint
+
+      # `make lint-config-verify` is deliberately not a step here: it downloads
+      # the config schema from golangci-lint.run, and that site being down must
+      # not turn every pull request red. It is a local check for whoever bumps
+      # GOLANGCI_TAG.
+      - name: Lint changed code
+        run: make lint

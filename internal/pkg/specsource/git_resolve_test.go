@@ -265,3 +265,78 @@ func TestResolveGit_OverriddenAndPinnedShareOneClone(t *testing.T) {
 		t.Errorf("expected 1 cached clone, got %d", len(r.cache.entries))
 	}
 }
+
+func TestResolveGit_RecordsEffectiveRefAndCommit(t *testing.T) {
+	repo := newTestRepo(t)
+
+	// Not pinned, so the override applies: the provenance must name the ref
+	// actually fetched, not the "HEAD" written in the config.
+	src := GitSource{Repo: repo.path, Ref: "HEAD", Subpath: "api.yaml"}
+
+	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+		SourceRefs: mustSourceRefs(t, branchA),
+		LogStderr:  io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("new resolver: %v", err)
+	}
+
+	defer r.Close()
+
+	res, err := r.Resolve(t.Context(), src)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	git, ok := res.Source.(GitSource)
+	if !ok {
+		t.Fatalf("resolved source is %T, want GitSource", res.Source)
+	}
+
+	if git.Ref != branchA {
+		t.Errorf("effective ref = %q, want %q", git.Ref, branchA)
+	}
+
+	want := gitRevParse(t, repo.path, branchA)
+	if res.Commit != want {
+		t.Errorf("commit = %q, want %q", res.Commit, want)
+	}
+}
+
+func TestResolveLocal_HasNoCommit(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "api.yaml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := NewResolver(dir, t.TempDir(), ResolverOptions{SkipGitCheck: true, LogStderr: io.Discard})
+	if err != nil {
+		t.Fatalf("new resolver: %v", err)
+	}
+
+	defer r.Close()
+
+	res, err := r.Resolve(t.Context(), LocalSource{RawPath: "api.yaml"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	if res.Commit != "" {
+		t.Errorf("local source commit = %q, want empty", res.Commit)
+	}
+}
+
+// gitRevParse returns the SHA ref points at in the repository at dir.
+func gitRevParse(t *testing.T, dir, ref string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", "-C", dir, "rev-parse", ref)
+
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse %s: %v", ref, err)
+	}
+
+	return strings.TrimSpace(string(out))
+}

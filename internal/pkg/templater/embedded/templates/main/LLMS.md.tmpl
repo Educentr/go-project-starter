@@ -72,8 +72,14 @@ make lint                     # Lint diffs against main branch
 make lint-full                # Lint entire codebase
 make lint-fix                 # Auto-fix linting issues
 make generate                 # Run all code generators (ogen, protobuf, mocks{{ if .UseActiveRecord }}, argen{{ end }})
-make regenerate               # Full project regeneration via go-project-starter
+make regenerate               # Full project regeneration via go-project-starter $(GPSVERSION)
+make update-starter STARTER_VERSION=vX.Y.Z  # Regenerate with another generator version and record it
 ```
+
+The generator is pinned in the Makefile as `GPSVERSION` — the version that produced this tree.
+`make regenerate` fetches exactly it, so no pre-installed `go-project-starter` is required, and
+regenerating is expected to leave the tree unchanged. Never edit that line by hand: it is written
+by the generator, and `make update-starter` is what raises it.
 
 ## Code Generation
 

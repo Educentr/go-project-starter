@@ -11,9 +11,10 @@
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
-- [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
+- [GitHub CI](github-ci.md) — раннер, timeout и установка doctl в GitHub Actions
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 - [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
+- [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки
 
 ## Базовая структура
 
@@ -59,6 +60,7 @@ applications:
 
 grafana:
   datasources: []           # Datasources для Grafana
+  annotations: []           # Записи аннотаций в .annotations.list[] дашборда
 
 artifacts:
   - docker                  # Типы артефактов
@@ -117,6 +119,7 @@ applications:
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
-- [GitHub CI](github-ci.md) — раннер, timeout и версия doctl в GitHub Actions
+- [GitHub CI](github-ci.md) — раннер, timeout и установка doctl в GitHub Actions
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 - [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
+- [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки

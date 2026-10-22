@@ -99,10 +99,11 @@ go-project-starter setup --help
 
 ### --version
 
-Показать версию генератора.
+Показать версию генератора, коммит и время сборки. Работает в любой позиции, в том числе после подкоманды. Эквивалент — подкоманда `version`.
 
 ```bash
 go-project-starter --version
+go-project-starter version
 ```
 
 ## Примеры использования
