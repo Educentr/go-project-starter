@@ -1,13 +1,54 @@
 package templater
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+)
+
+// makefileNodeKind classifies one element of a parsed make target line.
+type makefileNodeKind int
+
+// makefilePrereqNode is one element of a parsed make target line, built by
+// parseMakefilePrereqLine at the bottom of this file.
+type makefilePrereqNode struct {
+	kind makefileNodeKind
+	// src is the span of the line this node was parsed from, quoted back in
+	// the failure message so it names the offending groups.
+	src      string
+	children []makefilePrereqNode
+	// isRange marks a group whose body repeats once per element.
+	isRange bool
+}
+
+// makefileTmplPath is the embedded template backing the generated Makefile,
+// read directly by the prerequisite-list tests at the bottom of this file.
+const makefileTmplPath = "embedded/templates/main/Makefile.tmpl"
+
+const (
+	// makefileLiteral is plain text between template actions.
+	makefileLiteral makefileNodeKind = iota
+	// makefileEmit is an action printing a value, e.g. {{ $a.Name }}.
+	makefileEmit
+	// makefileGroup is {{ if }} / {{ range }} / {{ with }} … {{ end }}, holding
+	// the nodes it emits when taken.
+	makefileGroup
+)
+
+var (
+	// makefileTargetLineRe matches a target line, as opposed to a variable
+	// assignment (`FOO:=bar`) or a recipe line (tab-indented).
+	makefileTargetLineRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+:[^=]`)
+	makefileActionRe     = regexp.MustCompile(`\{\{-?\s*(.*?)\s*-?\}\}`)
 )
 
 func TestIsFileIgnored(t *testing.T) {
@@ -973,6 +1014,130 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 			t.Errorf("file in template set should NOT be in ObsoleteFiles")
 		}
 	})
+
+	t.Run("symlink to a directory outside the tree goes to OtherFiles", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		// The link target lives outside the walked tree, as a build/tool cache would
+		outsideDir := filepath.Join(baseDir, "outside", "cache")
+		if err := os.MkdirAll(outsideDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		link := filepath.Join(tmpDir, "cache")
+		if err := os.Symlink(outsideDir, link); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.OtherFiles[link]; !ok {
+			t.Errorf("expected %s in OtherFiles, got OtherFiles=%v, OtherDirectory=%v",
+				link, filesDiff.OtherFiles, filesDiff.OtherDirectory)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[link]; ok {
+			t.Errorf("symlink should NOT be in ObsoleteFiles")
+		}
+	})
+
+	t.Run("symlink to a regular file goes to OtherFiles and is not read", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// A link to a generated-looking file: before the fix its content was read and
+		// the disclaimer made it a deletion candidate
+		target := filepath.Join(tmpDir, "real.go")
+		content := "package main\n\n" + disclaimerLine + "\n"
+		if err := os.WriteFile(target, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		link := filepath.Join(tmpDir, "psg_link_gen.go")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.OtherFiles[link]; !ok {
+			t.Errorf("expected %s in OtherFiles, got OtherFiles=%v", link, filesDiff.OtherFiles)
+		}
+
+		if _, ok := filesDiff.ObsoleteFiles[link]; ok {
+			t.Errorf("symlink should NOT be in ObsoleteFiles — removing it is not the generator's business")
+		}
+	})
+
+	t.Run("symlink on a generated path returns ErrNonRegularTarget", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		outsideFile := filepath.Join(baseDir, "outside.go")
+		if err := os.WriteFile(outsideFile, []byte("package main\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		destName := filepath.Join(tmpDir, "psg_handler_gen.go")
+		if err := os.Symlink(outsideFile, destName); err != nil {
+			t.Fatal(err)
+		}
+
+		files := []ds.Files{
+			{DestName: destName, OldDestName: destName},
+		}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, nil)
+		if err == nil {
+			t.Fatal("expected error for symlink on a generated path, got nil")
+		}
+
+		if !errors.Is(err, ErrNonRegularTarget) {
+			t.Errorf("error should be ErrNonRegularTarget, got: %v", err)
+		}
+
+		if !strings.Contains(err.Error(), destName) {
+			t.Errorf("error should mention the offending path %s, got: %v", destName, err)
+		}
+	})
+
+	t.Run("ignored non-regular entry stays ignored", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// .gitignore is in ignoreIfExistsFiles: the ignore branch runs before the
+		// non-regular check, so a link there is neither read nor an error
+		link := filepath.Join(tmpDir, ".gitignore")
+		if err := os.Symlink(filepath.Join(tmpDir, "missing-target"), link); err != nil {
+			t.Fatal(err)
+		}
+
+		files := []ds.Files{
+			{DestName: link, OldDestName: link},
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, ok := filesDiff.IgnoreFiles[link]; !ok {
+			t.Errorf("expected %s in IgnoreFiles, got IgnoreFiles=%v", link, filesDiff.IgnoreFiles)
+		}
+	})
 }
 
 // writeFile creates path with content, making parent directories as needed.
@@ -1232,6 +1397,270 @@ func TestGetUserCodeFromFilesWithManifest(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+
+	t.Run("symlink on a generated path returns ErrNonRegularTarget", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		outsideFile := filepath.Join(baseDir, "outside.go")
+		writeFile(t, outsideFile, "package main\n")
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Same invariant as in the fallback walk: the generator must not write
+		// through a link, so the manifest path reports the same sentinel.
+		destName := filepath.Join(tmpDir, "psg_handler_gen.go")
+		if err := os.Symlink(outsideFile, destName); err != nil {
+			t.Fatal(err)
+		}
+
+		files := []ds.Files{{DestName: destName, OldDestName: destName}}
+		prev := meta.Manifest{genRecord(t, "psg_handler_gen.go", "package main\n\n"+disclaimerLine+"\n")}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err == nil {
+			t.Fatal("expected error for symlink on a generated path, got nil")
+		}
+
+		if !errors.Is(err, ErrNonRegularTarget) {
+			t.Errorf("error should be ErrNonRegularTarget, got: %v", err)
+		}
+
+		if !strings.Contains(err.Error(), destName) {
+			t.Errorf("error should mention the offending path %s, got: %v", destName, err)
+		}
+	})
+}
+
+// TestGetUserCodeFromFilesConflicts covers the manifest-mode guard against
+// overwriting a file the generator never wrote: a new generator version starts
+// to claim a path where the user already keeps a file of their own.
+func TestGetUserCodeFromFilesConflicts(t *testing.T) {
+	disclaimerLine := "// " + disclaimer
+
+	// otherRecord keeps the manifest non-empty (manifest mode) without
+	// claiming any of the paths under test.
+	otherRecord := func(t *testing.T) meta.Manifest {
+		t.Helper()
+
+		return meta.Manifest{genRecord(t, "psg_other_gen.go", "package main\n\n"+disclaimerLine+"\n")}
+	}
+
+	assertConflict := func(t *testing.T, err error, paths ...string) {
+		t.Helper()
+
+		if err == nil {
+			t.Fatal("expected a conflict error, got nil")
+		}
+
+		if !errors.Is(err, ErrTargetConflict) {
+			t.Errorf("error should be ErrTargetConflict, got: %v", err)
+		}
+
+		var conflict *TargetConflictError
+		if !errors.As(err, &conflict) {
+			t.Fatalf("error should be *TargetConflictError, got %T: %v", err, err)
+		}
+
+		if len(conflict.Paths) != len(paths) {
+			t.Errorf("Paths = %v, want %v", conflict.Paths, paths)
+		}
+
+		for _, path := range paths {
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("error should mention %s, got: %v", path, err)
+			}
+		}
+	}
+
+	t.Run("user file with disclaimer is a conflict, not a silent overwrite", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Hand-written file that happens to carry the marker: before the
+		// manifest everything above it was rewritten without a word.
+		userFile := filepath.Join(tmpDir, "pkg", "app", "psg_handler_gen.go")
+		content := "package app\n\n// hand written\n\n" + disclaimerLine + "\n\nfunc userCode() {}\n"
+		writeFile(t, userFile, content)
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, userFile)
+
+		if got, rerr := os.ReadFile(userFile); rerr != nil || string(got) != content {
+			t.Errorf("user file must be left untouched, got %q (err %v)", got, rerr)
+		}
+	})
+
+	t.Run("user file without disclaimer is a conflict, not a split error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		userFile := filepath.Join(tmpDir, "pkg", "app", "psg_handler_gen.go")
+		writeFile(t, userFile, "package app\n\nfunc Handler() {}\n")
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, userFile)
+
+		if strings.Contains(err.Error(), "split disclaimer") {
+			t.Errorf("a foreign file must not be reported as a broken marker, got: %v", err)
+		}
+	})
+
+	t.Run("user JSON file is a conflict", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// JSON carries no marker, so the old behavior replaced the file whole.
+		userFile := filepath.Join(tmpDir, "configs", "dashboard.json")
+		writeFile(t, userFile, `{"title":"my dashboard"}`)
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, userFile)
+	})
+
+	t.Run("every conflicting path is reported at once", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		first := filepath.Join(tmpDir, "pkg", "app", "psg_a_gen.go")
+		second := filepath.Join(tmpDir, "configs", "b.json")
+
+		writeFile(t, first, "package app\n")
+		writeFile(t, second, "{}")
+
+		files := []ds.Files{
+			{DestName: first, OldDestName: first},
+			{DestName: second, OldDestName: second},
+		}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, first, second)
+	})
+
+	t.Run("user-owned paths are not conflicts", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		goMod := filepath.Join(tmpDir, "go.mod")
+		writeFile(t, goMod, "module example.com/project\n")
+
+		asset := filepath.Join(tmpDir, "static", "app.js")
+		writeFile(t, asset, "console.log('mine')\n")
+
+		files := []ds.Files{
+			{DestName: goMod, OldDestName: goMod},
+			{DestName: asset, OldDestName: asset},
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t), "static/")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		for _, path := range []string{goMod, asset} {
+			if _, ok := filesDiff.IgnoreFiles[path]; !ok {
+				t.Errorf("expected %s in IgnoreFiles, got %v", path, filesDiff.IgnoreFiles)
+			}
+		}
+	})
+
+	t.Run("pending rename recorded under the old name is not a conflict", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genContent := "package main\n\n" + disclaimerLine + "\n"
+		oldFile := filepath.Join(tmpDir, "tests", "psg_config_gen.go")
+		newFile := filepath.Join(tmpDir, "tests", "api", "psg_config_gen.go")
+
+		writeFile(t, oldFile, genContent+"\nfunc userCode() {}\n")
+
+		files := []ds.Files{{DestName: newFile, OldDestName: oldFile}}
+		prev := meta.Manifest{genRecord(t, "tests/psg_config_gen.go", genContent)}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := filesDiff.RenameFiles[oldFile]; got != newFile {
+			t.Errorf("expected rename %s -> %s, got %q", oldFile, newFile, got)
+		}
+
+		if got := string(filesDiff.UserContent[newFile]); got != "\nfunc userCode() {}\n" {
+			t.Errorf("user code must be carried over to the new name, got %q", got)
+		}
+	})
+
+	t.Run("a foreign file on the old name of a rename is a conflict", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		oldFile := filepath.Join(tmpDir, "tests", "psg_config_gen.go")
+		newFile := filepath.Join(tmpDir, "tests", "api", "psg_config_gen.go")
+
+		writeFile(t, oldFile, "package tests\n")
+
+		files := []ds.Files{{DestName: newFile, OldDestName: oldFile}}
+
+		_, err := GetUserCodeFromFiles(tmpDir, files, otherRecord(t))
+		assertConflict(t, err, oldFile)
+	})
+
+	t.Run("manifest record without a hash still counts as ours", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		genFile := filepath.Join(tmpDir, "psg_handler_gen.go")
+		writeFile(t, genFile, "package main\n\n"+disclaimerLine+"\n")
+
+		files := []ds.Files{{DestName: genFile, OldDestName: genFile}}
+		prev := meta.Manifest{{Path: "psg_handler_gen.go", Kind: meta.KindGenerated}}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, files, prev)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(filesDiff.DriftFiles) != 0 {
+			t.Errorf("a record without a hash cannot drift, got %v", filesDiff.DriftFiles)
+		}
+	})
+
+	t.Run("without a manifest the old behavior is kept", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Same JSON file as in the conflict case above: a project that predates
+		// meta.yaml v5 has nothing to compare against, so the run goes on.
+		userFile := filepath.Join(tmpDir, "configs", "dashboard.json")
+		writeFile(t, userFile, `{"title":"my dashboard"}`)
+
+		files := []ds.Files{{DestName: userFile, OldDestName: userFile}}
+
+		if _, err := GetUserCodeFromFiles(tmpDir, files, nil); err != nil {
+			t.Fatalf("unexpected error without a manifest: %v", err)
+		}
+	})
+}
+
+func TestTargetConflictErrorMessage(t *testing.T) {
+	if err := NewTargetConflictError(nil); err != nil {
+		t.Errorf("no paths means no error, got: %v", err)
+	}
+
+	single := NewTargetConflictError([]string{"api/rest/svc/v1/svc.yaml"})
+	wantSingle := "conflict: api/rest/svc/v1/svc.yaml exists and was not written by the generator — rename or remove it"
+
+	if single.Error() != wantSingle {
+		t.Errorf("Error() = %q, want %q", single.Error(), wantSingle)
+	}
+
+	// Paths are sorted so the message does not depend on traversal order.
+	many := NewTargetConflictError([]string{"b.json", "a.go"})
+	for _, want := range []string{"2 files exist", "\n  - a.go\n  - b.json"} {
+		if !strings.Contains(many.Error(), want) {
+			t.Errorf("Error() = %q, want it to contain %q", many.Error(), want)
+		}
+	}
 }
 
 func TestIsUserOwned(t *testing.T) {
@@ -1309,6 +1738,513 @@ func TestGeneratedRegionHash(t *testing.T) {
 			t.Error("expected error for content without disclaimer")
 		}
 	})
+}
+
+// ogenClientAuthParams builds the render params the ogen_client templates
+// expect for a single client transport with the given auth_params.
+func ogenClientAuthParams(authTransport, authType, instantiation string) GeneratorHandlerParams {
+	const projectPath = "github.com/test/authproj"
+
+	return GeneratorHandlerParams{
+		GeneratorParams: GeneratorParams{
+			ProjectName: "authproj",
+			ProjectPath: projectPath,
+			AppInfo:     "test",
+			Applications: ds.Apps{
+				{Name: "api", Transports: ds.Transports{"billing": ds.Transport{Name: "billing"}}},
+			},
+		},
+		Transport: ds.Transport{
+			Name:          "billing",
+			PkgName:       "billing_v1",
+			ApiVersion:    "v1",
+			Type:          ds.RestTransportType,
+			GeneratorType: "ogen_client",
+			Instantiation: instantiation,
+			AuthParams:    ds.AuthParams{Transport: authTransport, Type: authType},
+			Import: []string{
+				`billing_v1 "` + projectPath + `/pkg/rest/billing/v1"`,
+				`"` + projectPath + `/internal/app/transport/rest/billing/v1"`,
+			},
+			WrapperImport: `"` + projectPath + `/internal/app/transport/rest/billing/v1"`,
+		},
+	}
+}
+
+func renderOgenClientTmpl(t *testing.T, name string, params GeneratorHandlerParams) (string, error) {
+	t.Helper()
+
+	tmpl, err := GetTemplate("embedded/templates/transport/rest/ogen_client/files/" + name)
+	if err != nil {
+		t.Fatalf("GetTemplate(%s) unexpected error: %v", name, err)
+	}
+
+	buf, err := GenerateByTmpl(tmpl, params, nil, "/project/internal/app/transport/rest/billing/v1/psg_gen.go")
+	if err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+// TestOgenClientAuthTemplate covers the SecuritySource wrapper the
+// ogen_client templates emit per auth_params type: the method name must match
+// the ogen security scheme (AuthHeader / BearerAuth / BasicAuth) and the
+// credentials must be read from the documented OnlineConf paths.
+func TestOgenClientAuthTemplate(t *testing.T) {
+	tests := []struct {
+		name         string
+		authType     string
+		wantMethod   string
+		wantOCLeaves []string
+	}{
+		{
+			name:         "apikey",
+			authType:     "apikey",
+			wantMethod:   "func (ak *SecuritySource) AuthHeader(",
+			wantOCLeaves: []string{`"auth_params", "apikey"`},
+		},
+		{
+			name:         "bearer",
+			authType:     "bearer",
+			wantMethod:   "func (s *SecuritySource) BearerAuth(",
+			wantOCLeaves: []string{`"auth_params", "token"`},
+		},
+		{
+			name:         "basic",
+			authType:     "basic",
+			wantMethod:   "func (s *SecuritySource) BasicAuth(",
+			wantOCLeaves: []string{`"auth_params", "username"`, `"auth_params", "password"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("header", tt.authType, "static"))
+			if err != nil {
+				t.Fatalf("rendering auth.go.tmpl for %s failed: %v", tt.authType, err)
+			}
+
+			if !strings.Contains(content, tt.wantMethod) {
+				t.Errorf("auth.go for %s should contain %q, got:\n%s", tt.authType, tt.wantMethod, content)
+			}
+
+			for _, leaf := range tt.wantOCLeaves {
+				if !strings.Contains(content, leaf) {
+					t.Errorf("auth.go for %s should read OnlineConf leaf %s", tt.authType, leaf)
+				}
+			}
+
+			// The wrapper lives in internal/app/transport/rest/billing/v1
+			// itself — importing that path here is a self-import and makes
+			// the generated project fail with an import cycle.
+			if strings.Contains(content, "/internal/app/transport/rest/billing/v1") {
+				t.Errorf("auth.go for %s must not import its own package, got:\n%s", tt.authType, content)
+			}
+		})
+	}
+}
+
+// TestOgenClientAuthTemplateUnsupportedType asserts the template still fails
+// loudly for auth types that have no SecuritySource branch, instead of
+// emitting a wrapper that cannot compile.
+func TestOgenClientAuthTemplateUnsupportedType(t *testing.T) {
+	_, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("header", "oauth2", "static"))
+	if err == nil {
+		t.Fatal("rendering auth.go.tmpl with an unsupported auth type should fail")
+	}
+
+	if !strings.Contains(err.Error(), "Unsupported auth type") {
+		t.Errorf("error should mention the unsupported auth type, got: %v", err)
+	}
+}
+
+// TestOgenClientPassesSecuritySource verifies that both instantiation modes
+// hand the generated SecuritySource to ogen's NewClient for every supported
+// auth type — a client that skips it does not compile against a spec with a
+// security scheme.
+func TestOgenClientPassesSecuritySource(t *testing.T) {
+	for _, instantiation := range []string{"static", "dynamic"} {
+		for _, authType := range []string{"apikey", "bearer", "basic"} {
+			t.Run(instantiation+"/"+authType, func(t *testing.T) {
+				content, err := renderOgenClientTmpl(t, "client.go.tmpl", ogenClientAuthParams("header", authType, instantiation))
+				if err != nil {
+					t.Fatalf("rendering client.go.tmpl failed: %v", err)
+				}
+
+				if !strings.Contains(content, "&SecuritySource{},") {
+					t.Errorf("%s client with %s auth should pass &SecuritySource{} to NewClient, got:\n%s",
+						instantiation, authType, content)
+				}
+			})
+		}
+	}
+
+	t.Run("no auth params", func(t *testing.T) {
+		content, err := renderOgenClientTmpl(t, "client.go.tmpl", ogenClientAuthParams("", "", "static"))
+		if err != nil {
+			t.Fatalf("rendering client.go.tmpl failed: %v", err)
+		}
+
+		if strings.Contains(content, "&SecuritySource{}") {
+			t.Errorf("client without auth params must not reference SecuritySource, got:\n%s", content)
+		}
+	})
+}
+
+func TestPrivateReposTokenSecretName(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{
+			name:       "unset falls back to the historical default",
+			configured: "",
+			want:       DefaultPrivateReposTokenSecret,
+		},
+		{
+			name:       "configured value wins",
+			configured: "GO_MODULES_TOKEN",
+			want:       "GO_MODULES_TOKEN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := GeneratorParams{PrivateReposTokenSecret: tt.configured}
+
+			if got := params.PrivateReposTokenSecretName(); got != tt.want {
+				t.Errorf("PrivateReposTokenSecretName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	// The fallback is what keeps already-generated workflows unchanged, so the
+	// constant itself is pinned: changing it silently rewrites every project
+	// that never configured the field.
+	if DefaultPrivateReposTokenSecret != "GH_PAT" {
+		t.Errorf("DefaultPrivateReposTokenSecret = %q, want %q", DefaultPrivateReposTokenSecret, "GH_PAT")
+	}
+
+	// Params structs embed GeneratorParams; templates rendered with them must
+	// resolve the method through the embedded value.
+	appParams := GeneratorAppParams{GeneratorParams: GeneratorParams{PrivateReposTokenSecret: "GO_MODULES_TOKEN"}}
+	if got := appParams.PrivateReposTokenSecretName(); got != "GO_MODULES_TOKEN" {
+		t.Errorf("GeneratorAppParams.PrivateReposTokenSecretName() = %q, want %q", got, "GO_MODULES_TOKEN")
+	}
+}
+
+func makefileTmplSource(t *testing.T) string {
+	t.Helper()
+
+	src, err := templates.ReadFile(makefileTmplPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", makefileTmplPath, err)
+	}
+
+	return string(src)
+}
+
+// makefileTmplLine returns the single template line declaring the given make
+// target, so a test can exercise one prerequisite list without rendering the
+// whole Makefile.
+func makefileTmplLine(t *testing.T, target string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(makefileTmplSource(t), "\n") {
+		if strings.HasPrefix(line, target+":") {
+			return line
+		}
+	}
+
+	t.Fatalf("no %q target line in %s", target, makefileTmplPath)
+
+	return ""
+}
+
+// TestMakefileGenerateAggregatorSeparatesPrereqs renders the `generate:`
+// aggregator with every optional generator switched on and checks that each
+// one lands as its own prerequisite.
+//
+// The sqlc switch ($pg/$sqlc) is still a literal false in the template
+// ("ToDo work with databases"), so no project config can turn it on and a
+// full-generation test cannot reach the sqlc + ActiveRecord combination,
+// nor the sqlc + custom generator one.
+// Rendering the line standalone with the switches forced on is what exercises
+// it: before TOOLS-49 the sqlc group carried no trailing separator and the two
+// prerequisites fused into `sqlcgenerate-argen`, a target that does not exist.
+func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
+	// The line itself only reads $ogen, $sqlc and $jsonschema; $proto is
+	// already a plain literal prerequisite.
+	src := "{{- $ogen := true }}{{- $sqlc := true }}{{- $jsonschema := true }}" +
+		makefileTmplLine(t, "generate")
+
+	tmpl, err := template.New("generate").Parse(src)
+	if err != nil {
+		t.Fatalf("parse generate line: %v", err)
+	}
+
+	var rendered strings.Builder
+
+	data := struct {
+		UseActiveRecord  bool
+		CustomGenerators ds.CustomGenerators
+	}{
+		UseActiveRecord:  true,
+		CustomGenerators: ds.CustomGenerators{{Name: "runtime_limits_ts"}},
+	}
+
+	if err := tmpl.Execute(&rendered, data); err != nil {
+		t.Fatalf("render generate line: %v", err)
+	}
+
+	prereqs := strings.Fields(strings.TrimPrefix(rendered.String(), "generate:"))
+
+	for _, want := range []string{
+		"proto", "generate-ogen", "sqlc", "generate-argen",
+		"generate-jsonschema", "generate-runtime_limits_ts",
+	} {
+		if !slices.Contains(prereqs, want) {
+			t.Errorf("generate: prerequisites %q must contain %q as a separate target", prereqs, want)
+		}
+	}
+}
+
+// parseMakefilePrereqLine splits one template line into literals, emitting
+// actions and nested conditional groups. The template never spreads a group
+// across lines inside a prerequisite list; an unbalanced line is folded back
+// flat rather than reported, since the caller only looks for missing
+// separators.
+func parseMakefilePrereqLine(line string) []makefilePrereqNode {
+	// stack[0] collects the top level; an opener pushes a frame and {{ end }}
+	// pops it into a group node on the frame below.
+	stack := [][]makefilePrereqNode{nil}
+
+	var (
+		openVerbs []string
+		openAt    []int
+		pos       int
+	)
+
+	push := func(n makefilePrereqNode) {
+		top := len(stack) - 1
+		stack[top] = append(stack[top], n)
+	}
+
+	for _, m := range makefileActionRe.FindAllStringSubmatchIndex(line, -1) {
+		if m[0] > pos {
+			push(makefilePrereqNode{kind: makefileLiteral, src: line[pos:m[0]]})
+		}
+
+		action := line[m[0]:m[1]]
+		pos = m[1]
+
+		verb, _, _ := strings.Cut(line[m[2]:m[3]], " ")
+
+		switch verb {
+		case "if", "range", "with":
+			stack = append(stack, nil)
+			openVerbs = append(openVerbs, verb)
+			openAt = append(openAt, m[0])
+		case "end":
+			if len(openVerbs) == 0 {
+				continue
+			}
+
+			verb, at := openVerbs[len(openVerbs)-1], openAt[len(openAt)-1]
+			openVerbs, openAt = openVerbs[:len(openVerbs)-1], openAt[:len(openAt)-1]
+
+			children := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			push(makefilePrereqNode{
+				kind:     makefileGroup,
+				src:      line[at:pos],
+				children: children,
+				isRange:  verb == "range",
+			})
+		default:
+			// Anything else prints a value whose text is unknown here:
+			// {{ $a.Name }}, or {{ else }}, which this template never puts in
+			// a prerequisite list.
+			push(makefilePrereqNode{kind: makefileEmit, src: action})
+		}
+	}
+
+	if pos < len(line) {
+		push(makefilePrereqNode{kind: makefileLiteral, src: line[pos:]})
+	}
+
+	for len(stack) > 1 {
+		children := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		top := len(stack) - 1
+		stack[top] = append(stack[top], children...)
+	}
+
+	return stack[0]
+}
+
+// makefileStartsWithSep reports whether the text a node sequence emits always
+// begins with something make takes as a prerequisite separator. An emitting
+// action prints an unknown value, so it never separates; a group delegates to
+// its own body.
+func makefileStartsWithSep(nodes []makefilePrereqNode) bool {
+	if len(nodes) == 0 {
+		return false
+	}
+
+	switch n := nodes[0]; n.kind {
+	case makefileGroup:
+		return makefileStartsWithSep(n.children)
+	case makefileLiteral:
+		return strings.TrimLeft(n.src, " \t") != n.src
+	default:
+		return false
+	}
+}
+
+// makefileEndsWithSep is makefileStartsWithSep for the other end of the
+// sequence.
+func makefileEndsWithSep(nodes []makefilePrereqNode) bool {
+	if len(nodes) == 0 {
+		return false
+	}
+
+	switch n := nodes[len(nodes)-1]; n.kind {
+	case makefileGroup:
+		return makefileEndsWithSep(n.children)
+	case makefileLiteral:
+		// The colon closing the target name separates the first prerequisite
+		// just as whitespace does: `target:prereq` is valid make.
+		return strings.TrimRight(n.src, " \t") != n.src || strings.HasSuffix(n.src, ":")
+	default:
+		return false
+	}
+}
+
+// makefilePrereqSepIssues reports every junction on a make target line where
+// two prerequisites can fuse into one.
+//
+// A prerequisite list is whitespace-separated, so a conditional group has to
+// carry its own separator: the group's targets appear only when the group is
+// taken, and so must the space next to them. Either side does the job — a
+// leading separator ({{ if $x }} foo{{ end }}) and a trailing one
+// ({{ if $x }}foo {{ end }}) are both correct and the template uses both — as
+// long as every junction ends up with one. Where none does, the group's
+// outermost target fuses with its neighbor's and make fails with "No rule to
+// make target": TOOLS-49 dropped the separator after `sqlc`, turning
+// `sqlc` + `generate-argen` into `sqlcgenerate-argen`.
+func makefilePrereqSepIssues(line string) []string {
+	var (
+		issues []string
+		walk   func(nodes []makefilePrereqNode)
+	)
+
+	walk = func(nodes []makefilePrereqNode) {
+		for i, n := range nodes {
+			// Only a conditional group can make a junction disappear; two
+			// adjacent leaves are text that is always there to be read.
+			if i > 0 && (n.kind == makefileGroup || nodes[i-1].kind == makefileGroup) &&
+				!makefileEndsWithSep(nodes[i-1:i]) && !makefileStartsWithSep(nodes[i:]) {
+				issues = append(issues, fmt.Sprintf("%q meets %q with no separator between them",
+					nodes[i-1].src, n.src))
+			}
+
+			if n.kind != makefileGroup {
+				continue
+			}
+
+			// A range body repeats, so its own tail meets its own head.
+			if n.isRange && !makefileEndsWithSep(n.children) && !makefileStartsWithSep(n.children) {
+				issues = append(issues,
+					fmt.Sprintf("%q repeats with no separator between iterations", n.src))
+			}
+
+			walk(n.children)
+		}
+	}
+
+	walk(parseMakefilePrereqLine(line))
+
+	return issues
+}
+
+// TestMakefilePrereqSeparators guards the whole class of the TOOLS-49 bug
+// instead of the one line that happened to be broken: every conditional group
+// in a prerequisite list must keep its targets apart from their neighbors.
+// These chains keep growing — each new optional generator appends one more
+// group — so the invariant is checked on every target line of the template.
+func TestMakefilePrereqSeparators(t *testing.T) {
+	for i, line := range strings.Split(makefileTmplSource(t), "\n") {
+		if !makefileTargetLineRe.MatchString(line) || !strings.Contains(line, "{{") {
+			continue
+		}
+
+		for _, issue := range makefilePrereqSepIssues(line) {
+			t.Errorf("%s:%d: prerequisites fuse into one target: %s\n\t%s",
+				makefileTmplPath, i+1, issue, line)
+		}
+	}
+}
+
+// TestMakefilePrereqSepIssues covers the checker behind
+// TestMakefilePrereqSeparators on both conventions and on the fusing shapes
+// the template does not currently contain.
+func TestMakefilePrereqSepIssues(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		// want is true when the line must be reported as fusing.
+		want bool
+	}{
+		{
+			name: "separator trails each group",
+			line: `generate: proto {{ if $sqlc }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}`,
+		},
+		{
+			name: "separator leads the group",
+			line: `lint: install-lint{{ if $cg }} lint-custom{{ end }}`,
+		},
+		{
+			name: "colon separates the first prerequisite",
+			line: `proto:{{ if $bufLocal }} ensure-buf ensure-protoc-plugins{{ end }}`,
+		},
+		{
+			name: "nested group supplies the separator",
+			line: `docker: {{ range $_, $a := .Apps }}{{ if $a.HasDocker }}docker-{{ $a.Name }} {{ end }}{{ end }}`,
+		},
+		{
+			name: "TOOLS-49: group carries no separator at all",
+			line: `generate: proto {{ if $sqlc }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}`,
+			want: true,
+		},
+		{
+			name: "leading group ahead of a trailing group fuses",
+			line: `lint: base{{ if $a }} first{{ end }}{{ if $b }}second {{ end }}`,
+			want: true,
+		},
+		{
+			name: "range body unseparated fuses between iterations",
+			line: `build: {{ range $_, $a := .Apps }}build-{{ $a.Name }}{{ end }}`,
+			want: true,
+		},
+		{
+			name: "group fuses with the literal behind it",
+			line: `install-tools: base {{ if $a }}install-a{{ end }}install-goimports`,
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := makefilePrereqSepIssues(tt.line)
+			if got := len(issues) > 0; got != tt.want {
+				t.Errorf("makefilePrereqSepIssues(%q) = %v, want any issue = %v", tt.line, issues, tt.want)
+			}
+		})
+	}
 }
 
 func TestYAMLQuote(t *testing.T) {

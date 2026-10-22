@@ -98,7 +98,10 @@ func TestGithubCIConfig_ValidateChecks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotOK, gotMsg := GithubCIConfig{Checks: tt.checks}.IsValid()
+			// The checks are validated independently of the registry: the
+			// registry type only gates the doctl parameters, which these
+			// cases leave unset.
+			gotOK, gotMsg := GithubCIConfig{Checks: tt.checks}.IsValid(registryTypeDigitalOcean)
 
 			if gotOK != tt.wantOK {
 				t.Errorf("GithubCIConfig.IsValid() ok = %v, want %v (msg: %q)", gotOK, tt.wantOK, gotMsg)

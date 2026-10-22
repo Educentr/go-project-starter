@@ -2,14 +2,37 @@ package config
 
 import (
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/loggers"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 	"github.com/pkg/errors"
 )
+
+// secretNameRe matches names accepted by CI secret stores (GitHub Actions
+// among them): a leading letter or underscore, then letters, digits and
+// underscores.
+var secretNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// validateSecretName checks that name is usable as a CI secret identifier.
+// An empty name is accepted — callers treat it as "not configured" and fall
+// back to their own default.
+func validateSecretName(field, name string) (bool, string) {
+	if name == "" {
+		return true, ""
+	}
+
+	if !secretNameRe.MatchString(name) {
+		return false, field + " must match [A-Za-z_][A-Za-z0-9_]*, got: " + name
+	}
+
+	return true, ""
+}
 
 // validateSpecPath checks that p is a syntactically valid spec source. For
 // local sources it also verifies that the referenced file exists on disk
@@ -137,17 +160,70 @@ type (
 
 	// GrafanaDatasource represents a single Grafana datasource configuration
 	GrafanaDatasource struct {
-		Name      string `mapstructure:"name"`
-		Type      string `mapstructure:"type"`   // prometheus, loki
-		Access    string `mapstructure:"access"` // proxy, direct
-		URL       string `mapstructure:"url"`
+		Name   string `mapstructure:"name"`
+		Type   string `mapstructure:"type"`   // prometheus, loki
+		Access string `mapstructure:"access"` // proxy, direct
+		URL    string `mapstructure:"url"`
+		// UID overrides the uid the datasource is provisioned with. Empty means
+		// "ds-" + lowercase(name). Set it when the generated dashboard is served
+		// by a shared Grafana where the datasource is provisioned centrally
+		// under its own uid.
+		UID       string `mapstructure:"uid"`
 		IsDefault bool   `mapstructure:"isDefault"`
 		Editable  bool   `mapstructure:"editable"`
+	}
+
+	// GrafanaAnnotation declares one annotation query in the generated
+	// dashboard. The events themselves are posted by the service at runtime
+	// (POST /api/annotations); this declaration is what makes the dashboard
+	// query and draw them.
+	//
+	// YAML example:
+	//
+	//	grafana:
+	//	  annotations:
+	//	    - name: "Deploys / Restarts / Crashes"
+	//	      icon_color: yellow
+	//	      tags: deploy, restart, crash
+	//	      match_any: true
+	//
+	// See docs/configuration/infrastructure.md for full documentation.
+	GrafanaAnnotation struct {
+		// Name labels the toggle in the dashboard header. Required.
+		Name string `mapstructure:"name"`
+		// IconColor is the marker colour as Grafana accepts it ("yellow",
+		// "rgba(0, 211, 255, 1)", ...). Empty means
+		// grafana.DefaultAnnotationIconColor.
+		IconColor string `mapstructure:"icon_color"`
+		// Datasource names the annotation store to query. Empty or "grafana"
+		// — the built-in store (uid "-- Grafana --"); nothing else is
+		// supported, see grafana.AnnotationDatasourceGrafana.
+		Datasource string `mapstructure:"datasource"`
+		// Tags selects which events the query pulls in. At least one is
+		// required. Accepts a YAML list or a comma-separated string
+		// ("deploy, restart, crash").
+		Tags []string `mapstructure:"tags"`
+		// MatchAny selects OR over Tags (an event carrying one of them is
+		// drawn) instead of Grafana's default AND.
+		MatchAny bool `mapstructure:"match_any"`
+		// Hide hides the toggle in the dashboard header. The query still runs,
+		// so the markers are drawn and just cannot be switched off from the UI.
+		Hide bool `mapstructure:"hide"`
+		// Limit caps how many events a single query pulls into the view.
+		// 0 means grafana.DefaultAnnotationLimit.
+		Limit int `mapstructure:"limit"`
+		// Enable is the initial state of the toggle. Pointer so that an
+		// explicit `enable: false` (declared but off by default) is
+		// distinguishable from an omitted field, which means enabled.
+		Enable *bool `mapstructure:"enable"`
 	}
 
 	// Grafana represents global Grafana configuration
 	Grafana struct {
 		Datasources []GrafanaDatasource `mapstructure:"datasources"`
+		// Annotations are emitted into .annotations.list[] of every generated
+		// dashboard, next to the stock builtIn entry.
+		Annotations []GrafanaAnnotation `mapstructure:"annotations"`
 	}
 
 	// AppGrafana represents per-application Grafana settings
@@ -167,6 +243,7 @@ type (
 	//	  repo: https://github.com/org/repo
 	//	  module_path: github.com/org/repo
 	//	  private_repos: github.com/myorg/*
+	//	  private_repos_token_secret: GO_MODULES_TOKEN
 	//
 	// See docs/configuration/main.md for full documentation.
 	Git struct {
@@ -176,6 +253,10 @@ type (
 		ModulePath string `mapstructure:"module_path"`
 		// PrivateRepos is a comma-separated list of private modules for GOPRIVATE.
 		PrivateRepos string `mapstructure:"private_repos"`
+		// PrivateReposTokenSecret is the name of the CI secret holding the token
+		// used to fetch private Go modules. Empty means the generator default
+		// (GH_PAT). Must be a valid secret name: [A-Za-z_][A-Za-z0-9_]*.
+		PrivateReposTokenSecret string `mapstructure:"private_repos_token_secret"`
 	}
 
 	// Tools contains version settings for tools used during generation and build.
@@ -214,6 +295,13 @@ type (
 		LintExcludePaths []string `mapstructure:"lint_exclude_paths"`
 		// GoatServicesVersion is the GOAT services version. Auto-set.
 		GoatServicesVersion string `mapstructure:"goat_services_version"`
+		// StarterVersion is the go-project-starter version the generated
+		// Makefile calls to regenerate the project. Auto-set: the generator
+		// writes the version of the binary that produced the tree, so the pin
+		// is provenance and not a choice. A value here is read only when that
+		// binary cannot name its own version (a local build from an untagged
+		// tree) — it is the fallback pin for such environments.
+		StarterVersion string `mapstructure:"starter_version"`
 	}
 
 	AuthParams struct {
@@ -274,7 +362,7 @@ type (
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
 		Instantiation string `mapstructure:"instantiation"`
-		// RewriteRefs enables local $ref rewriting after CopySpecs.
+		// RewriteRefs enables local $ref rewriting after the specs are copied.
 		// When true, cross-directory $ref values like
 		// '../common/foo.yaml#/X' are rewritten to './foo.yaml#/X' if
 		// 'foo.yaml' is among the copied sibling specs. Default: false.
@@ -362,8 +450,28 @@ type (
 		Schemas []JSONSchemaItem `mapstructure:"schemas"`
 		// Package overrides the Go package name. Optional, defaults to Name.
 		Package string `mapstructure:"package"`
-		// RewriteRefs enables local $ref rewriting after CopySchemas. See Rest.RewriteRefs.
+		// RewriteRefs enables local $ref rewriting after the schemas are copied. See Rest.RewriteRefs.
 		RewriteRefs bool `mapstructure:"rewrite_refs"`
+	}
+
+	// Metrics points at the service's metrics map — the declaration of every
+	// Prometheus metric the service is allowed to emit. The map is a contract
+	// artifact, so `path` takes the same URI forms as `rest[].path`: a local
+	// path, an https URL, or a git+ssh/git+https URI.
+	//
+	// YAML example:
+	//
+	//	metrics:
+	//	  path: "git+https://github.com/org/contracts.git@v1#common/metrics-map.yaml"
+	//
+	// Omitting the section keeps the previous behavior: no collector package,
+	// no metrics validator, no metric panels on the dashboard.
+	//
+	// See docs/configuration/metrics-map.md for full documentation.
+	Metrics struct {
+		// Path is the URI of the metrics map. Required when the section is
+		// present.
+		Path string `mapstructure:"path"`
 	}
 
 	// KafkaEvent represents a Kafka event with typed messages.
@@ -685,7 +793,12 @@ type (
 		Artifacts      []ArtifactType      `mapstructure:"artifacts"`
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
+		Metrics        Metrics             `mapstructure:"metrics"`
 		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
+		// GeneratorList declares code generators the project brings itself.
+		GeneratorList CustomGeneratorList `mapstructure:"generator"`
+		// ContractList declares specs fetched for those generators.
+		ContractList ContractList `mapstructure:"contract"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc
@@ -1338,16 +1451,150 @@ func (d GrafanaDatasource) IsValid() (bool, string) {
 		return false, "Empty URL for datasource " + d.Name
 	}
 
+	if d.UID != "" && !grafana.ValidateDatasourceUID(d.UID) {
+		return false, "Invalid uid for datasource " + d.Name + ": " + d.UID +
+			" (expected 1-" + strconv.Itoa(grafana.MaxDatasourceUIDLen) + " characters of a-z, A-Z, 0-9, '-', '_')"
+	}
+
 	return true, ""
+}
+
+// ResolvedUID returns the uid this datasource is provisioned with: the explicit
+// uid from project.yaml, or the one derived from the name when uid is omitted.
+func (d GrafanaDatasource) ResolvedUID() string {
+	return grafana.ResolveDatasourceUID(d.UID, d.Name)
+}
+
+// ResolvedTags returns the tags the annotation query runs with: trimmed, with
+// empty entries dropped. Viper splits a comma-separated scalar
+// ("deploy, restart, crash") on "," without trimming, so the spaces of that
+// form would otherwise end up inside the tag values and match nothing.
+func (a GrafanaAnnotation) ResolvedTags() []string {
+	tags := make([]string, 0, len(a.Tags))
+
+	for _, tag := range a.Tags {
+		if trimmed := strings.TrimSpace(tag); trimmed != "" {
+			tags = append(tags, trimmed)
+		}
+	}
+
+	return tags
+}
+
+// ResolvedIconColor returns the marker colour, applying the default when
+// icon_color is omitted.
+func (a GrafanaAnnotation) ResolvedIconColor() string {
+	if a.IconColor == "" {
+		return grafana.DefaultAnnotationIconColor
+	}
+
+	return a.IconColor
+}
+
+// ResolvedLimit returns the event cap, applying the default when limit is
+// omitted.
+func (a GrafanaAnnotation) ResolvedLimit() int {
+	if a.Limit == 0 {
+		return grafana.DefaultAnnotationLimit
+	}
+
+	return a.Limit
+}
+
+// ResolvedEnable returns the initial state of the toggle: enabled unless the
+// config says otherwise. An annotation nobody asked to be off is one the
+// author wants to see.
+func (a GrafanaAnnotation) ResolvedEnable() bool {
+	return a.Enable == nil || *a.Enable
+}
+
+// IsValid validates a Grafana annotation declaration
+func (a GrafanaAnnotation) IsValid() (bool, string) {
+	if len(a.Name) == 0 {
+		return false, "Empty annotation name"
+	}
+
+	if a.Name == grafana.BuiltInAnnotationName {
+		return false, "Annotation name " + a.Name + " is reserved for the built-in entry"
+	}
+
+	if a.Datasource != "" && a.Datasource != grafana.AnnotationDatasourceGrafana {
+		return false, "Invalid annotation datasource: " + a.Datasource +
+			" for " + a.Name + " (supported: " + grafana.AnnotationDatasourceGrafana + ")"
+	}
+
+	// A tag query with no tags matches every annotation in the org, which is
+	// never what a dashboard-scoped declaration means.
+	if len(a.ResolvedTags()) == 0 {
+		return false, "No tags for annotation " + a.Name
+	}
+
+	if a.Limit < 0 {
+		return false, "Negative limit for annotation " + a.Name + ": " + strconv.Itoa(a.Limit)
+	}
+
+	// These land inside JSON string literals in the dashboard. The template
+	// escapes quotes and backslashes but not control characters, which would
+	// produce an invalid dashboard file — and a dashboard Grafana refuses to
+	// load fails as quietly as the missing annotation this section exists to fix.
+	//
+	// Ordered, not a map: which field gets reported must not depend on map
+	// iteration order.
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"name", a.Name},
+		{"icon_color", a.IconColor},
+	} {
+		if hasControlChar(field.value) {
+			return false, "Control character in " + field.name + " of annotation " + a.Name
+		}
+	}
+
+	for _, tag := range a.ResolvedTags() {
+		if hasControlChar(tag) {
+			return false, "Control character in tag of annotation " + a.Name
+		}
+	}
+
+	return true, ""
+}
+
+// hasControlChar reports whether s contains a character that would have to be
+// escaped to survive a JSON string literal and that the templates' escapeJSON
+// helper does not escape.
+func hasControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+
+	return false
 }
 
 // IsValid validates Grafana configuration
 func (g Grafana) IsValid() (bool, string) {
 	if len(g.Datasources) == 0 {
+		// Dashboards are generated only for applications that reference a
+		// datasource, so annotations declared without one have nowhere to be
+		// emitted. Saying so beats generating no dashboard in silence.
+		if len(g.Annotations) > 0 {
+			return false, "Annotations declared without any datasource: no dashboard is generated to hold them"
+		}
+
 		return true, "" // Empty grafana config is valid
 	}
 
+	if ok, msg := g.validateAnnotations(); !ok {
+		return false, msg
+	}
+
 	seenNames := make(map[string]struct{})
+	// Keyed by resolved uid so an explicit uid colliding with another
+	// datasource's generated uid is caught too.
+	seenUIDs := make(map[string]string)
 	hasDefault := false
 
 	for _, ds := range g.Datasources {
@@ -1360,12 +1607,41 @@ func (g Grafana) IsValid() (bool, string) {
 		}
 		seenNames[ds.Name] = struct{}{}
 
+		uid := ds.ResolvedUID()
+
+		if owner, exists := seenUIDs[uid]; exists {
+			return false, "Duplicate datasource uid " + uid + ": used by " + owner + " and " + ds.Name
+		}
+
+		seenUIDs[uid] = ds.Name
+
 		if ds.IsDefault {
 			if hasDefault {
 				return false, "Only one datasource can be default"
 			}
 			hasDefault = true
 		}
+	}
+
+	return true, ""
+}
+
+// validateAnnotations checks every annotation declaration and rejects
+// duplicate names: two toggles labelled the same in the dashboard header are
+// indistinguishable to whoever reads the board.
+func (g Grafana) validateAnnotations() (bool, string) {
+	seenNames := make(map[string]struct{}, len(g.Annotations))
+
+	for _, ann := range g.Annotations {
+		if ok, msg := ann.IsValid(); !ok {
+			return false, msg
+		}
+
+		if _, exists := seenNames[ann.Name]; exists {
+			return false, "Duplicate annotation name: " + ann.Name
+		}
+
+		seenNames[ann.Name] = struct{}{}
 	}
 
 	return true, ""
@@ -1413,6 +1689,29 @@ func (d DocumentationConfig) IsValid() (bool, string) {
 
 	if len(d.Headers) > 0 && d.Type != DocumentationMinio {
 		return false, "documentation.headers is only supported for type 'minio'"
+	}
+
+	return true, ""
+}
+
+// IsEnabled reports whether a metrics map is configured. When it is not, the
+// whole feature stays off: no collector package, no validator, no metric
+// panels (see §2.3 of the request — a transitional half-on mode would leave
+// traces in generated code that nobody cleans up later).
+func (m Metrics) IsEnabled() bool {
+	return m.Path != ""
+}
+
+// IsValid validates the metrics section. The map itself is parsed and
+// validated later, at generation time, because a remote map has to be fetched
+// first; here only the reference is checked.
+func (m Metrics) IsValid(baseConfigDir string) (bool, string) {
+	if !m.IsEnabled() {
+		return true, ""
+	}
+
+	if ok, msg := validateSpecPath(baseConfigDir, m.Path); !ok {
+		return false, "metrics.path: " + msg
 	}
 
 	return true, ""

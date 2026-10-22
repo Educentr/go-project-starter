@@ -147,7 +147,8 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 	configDirs := []string{
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
-		"rest-shared-spec-rewrite-refs",
+		"rest-shared-spec-rewrite-refs", "rest-client-basic-auth",
+		"rest-envs-goat",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -338,10 +339,12 @@ func runDockerTest(ctx context.Context, t *testing.T, container *GolangBuilderCo
 	// Include essential onlineconf values for transport initialization.
 	// REST port envs default to the {api_v1: 8080, sys_v1: 8085} layout; tests
 	// with non-default transport names override via cfg.restPorts.
+	// The process logger reads its level at /{svc}/default/log_level — the
+	// prefix of a process-wide logger is the service root (see TOOLS-65).
 	envFlags := fmt.Sprintf(
 		"-e ONLINECONFIG_FROM_ENV=true "+
 			"-e OC_%s__devstand=1 "+
-			"-e OC_%s__log__default__log_level=debug",
+			"-e OC_%s__default__log_level=debug",
 		cfg.serviceName, cfg.serviceName,
 	)
 
@@ -731,6 +734,134 @@ func TestIntegrationRESTRemoteSpecGit(t *testing.T) {
 		t.Helper()
 		assertSpecDownloaded(ctx, t, container, outputDir, "example.swagger.yml")
 	})
+}
+
+// TestIntegrationRESTClientBasicAuth covers auth_params {transport: header,
+// type: basic} on ogen_client: a spec that declares HTTP Basic the standard
+// way (a scheme named BasicAuth) must yield a wrapper implementing ogen's
+// SecuritySource.BasicAuth, in both instantiation modes, that compiles with
+// no post-generation patching.
+//
+// The assertion hook inspects the wrapper the generator writes; the generic
+// stage-1 pipeline (make generate + go mod tidy + go build) is what proves
+// the result actually compiles against the ogen-generated SecuritySource
+// interface. No Docker stage: starting the binary would only re-check boot,
+// not the credentials path.
+func TestIntegrationRESTClientBasicAuth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-client-basic-auth", "rest-client-basic-auth",
+		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+			t.Helper()
+
+			for _, client := range []string{"billing", "audit"} {
+				authFile := fmt.Sprintf("%s/internal/app/transport/rest/%s/v1/psg_auth_gen.go", outputDir, client)
+
+				grepMethod := fmt.Sprintf("grep -F 'func (s *SecuritySource) BasicAuth(' %s", authFile)
+				code, _, err := container.Exec(ctx, []string{"sh", "-c", grepMethod})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected a BasicAuth SecuritySource method in %s", authFile)
+
+				// Credentials come from OnlineConf, one node each, under the
+				// client's auth_params subtree.
+				for _, leaf := range []string{"username", "password"} {
+					grepLeaf := fmt.Sprintf(`grep -F '"auth_params", "%s"' %s`, leaf, authFile)
+					code, _, err = container.Exec(ctx, []string{"sh", "-c", grepLeaf})
+					require.NoError(t, err)
+					require.Equal(t, 0, code, "expected %s to be read from auth_params/%s", authFile, leaf)
+				}
+
+				// The wrapper lives in this very package — importing it here
+				// is a self-import and breaks the build with an import cycle.
+				grepSelfImport := fmt.Sprintf("grep -F '/internal/app/transport/rest/%s/v1\"' %s", client, authFile)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", grepSelfImport})
+				require.NoError(t, err)
+				require.NotEqual(t, 0, code, "%s must not import its own package", authFile)
+
+				// Both static and dynamic clients must pass the wrapper to ogen.
+				clientFile := fmt.Sprintf("%s/internal/app/transport/rest/%s/v1/psg_client_gen.go", outputDir, client)
+				grepSource := fmt.Sprintf("grep -F '&SecuritySource{},' %s", clientFile)
+				code, _, err = container.Exec(ctx, []string{"sh", "-c", grepSource})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected &SecuritySource{} to be passed to NewClient in %s", clientFile)
+			}
+
+			// dev_stand seeds the OnlineConf nodes the wrapper reads: a basic
+			// auth client needs username/password, not the apikey node.
+			devSQL := fmt.Sprintf("%s/etc/onlineconf/dev/init-config.sql", outputDir)
+			for _, leaf := range []string{"username", "password"} {
+				grepSeed := fmt.Sprintf("grep -F \"VALUES ('%s', @rest_client_billing_v1_auth_id\" %s", leaf, devSQL)
+				code, _, err := container.Exec(ctx, []string{"sh", "-c", grepSeed})
+				require.NoError(t, err)
+				require.Equal(t, 0, code, "expected dev-stand config to seed auth_params/%s for billing", leaf)
+			}
+		})
+}
+
+// TestIntegrationRESTEnvsGoat covers generation of a goat_tests project that
+// pins Go 1.24, with go_mod_tidy in post_generate — the combination that used
+// to abort generation outright (TOOLS-51).
+//
+// goat-services imports testcontainers-go, whose docker/client is tested by
+// docker/testutil, which imports otlptrace. `go mod tidy` must resolve those
+// test-only imports of dependencies as well, and since no module in the graph
+// requires them it reaches for @latest, which needs Go >= 1.26. go.mod.tmpl
+// pins the otlptrace line for goat projects so that tidy stays resolvable on
+// Go 1.24; this test is what fails if the pin is dropped or goes stale.
+//
+// Only reproduces inside the golang image because it ships GOTOOLCHAIN=local
+// — with the default `auto`, tidy would silently download Go 1.26 and pass.
+// assertGoatTidyPreconditions asserts that, so the test cannot quietly become
+// vacuous. No Docker stage: the regression is in generation, not at runtime.
+func TestIntegrationRESTEnvsGoat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTestWithExtraAssertions(t, "rest-envs-goat", "rest-envs-goat",
+		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+			t.Helper()
+			assertGoatTidyPreconditions(ctx, t, container, outputDir)
+		})
+}
+
+// assertGoatTidyPreconditions verifies that the goat fixture still exercises
+// the TOOLS-51 regression, and that tidy kept the otlptrace pin.
+//
+// The first two checks guard the test itself: the defect only reproduces on a
+// project pinned below Go 1.26 running under a toolchain that refuses to
+// upgrade. If either precondition silently changes — the fixture gets bumped,
+// or the image stops setting GOTOOLCHAIN=local — generation would pass for
+// reasons unrelated to the fix, and the regression would be unguarded again.
+func assertGoatTidyPreconditions(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	// Precondition 1: the toolchain may not upgrade itself past the pin.
+	code, outputReader, err := container.Exec(ctx, []string{"go", "env", "GOTOOLCHAIN"})
+	require.NoError(t, err, "go env GOTOOLCHAIN")
+	require.Equal(t, 0, code, "go env GOTOOLCHAIN failed")
+	require.Contains(t, readOutput(outputReader), "local",
+		"test image must keep GOTOOLCHAIN=local, otherwise tidy auto-upgrades and this test proves nothing")
+
+	// Precondition 2: the generated module still targets Go 1.24.
+	goMod := outputDir + "/go.mod"
+	code, _, err = container.Exec(ctx, []string{"grep", "-qE", `^go 1\.24`, goMod})
+	require.NoError(t, err, "grep go directive")
+	require.Equal(t, 0, code,
+		"fixture must stay pinned to Go 1.24 in %s, otherwise it no longer reproduces TOOLS-51", goMod)
+
+	// The pin itself must still be there. The version is deliberately not
+	// asserted: reaching this point already means tidy resolved the graph
+	// under the two preconditions above, so whatever version survived is
+	// Go 1.24-compatible by construction — pinning the exact string here
+	// would only mean editing two places on every otel bump.
+	code, _, err = container.Exec(ctx, []string{"grep", "-qF",
+		"go.opentelemetry.io/otel/exporters/otlp/otlptrace", goMod})
+	require.NoError(t, err, "grep otlptrace requirement")
+	require.Equal(t, 0, code,
+		"expected an otlptrace requirement in %s — without it tidy resolves @latest and breaks on Go 1.24", goMod)
 }
 
 // runTestWithExtraAssertions is runTest with an extra assertion hook fired

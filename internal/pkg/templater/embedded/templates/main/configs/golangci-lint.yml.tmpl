@@ -20,6 +20,9 @@ linters:
     - errname
     - errorlint
     - exhaustive
+{{- if .Metrics.IsEnabled }}
+    - forbidigo
+{{- end }}
     - forcetypeassert
     - funlen
     - ginkgolinter
@@ -92,6 +95,20 @@ linters:
         - switch
         - map
       default-signifies-exhaustive: true
+{{- if .Metrics.IsEnabled }}
+    # Metrics validator: metric constructors belong in the generated collector
+    # package only. See configs/golangci-metrics.yml and `make metrics-validate`.
+    forbidigo:
+      # Match on the resolved package, not on the spelling at the call site —
+      # otherwise an import alias defeats the rule. See
+      # configs/golangci-metrics.yml for the full reasoning.
+      analyze-types: true
+      forbid:
+{{- range $_, $rule := .Metrics.ForbiddenConstructors }}
+        - pattern: '{{ $rule.Pattern }}'
+          msg: "{{ $rule.Msg }}"
+{{- end }}
+{{- end }}
     funlen:
       lines: -1
       statements: 40
@@ -165,6 +182,15 @@ linters:
       - linters:
           - goconst
         path: (.+)_test\.go
+{{- if .Metrics.IsEnabled }}
+      # The generated collector package is where metrics ARE constructed, and
+      # the generated Kafka producer driver needs its own per-producer
+      # collectors (the producer name is a ConstLabel). Both are generated in
+      # full from the declaration — they are not hand-written escape hatches.
+      - linters:
+          - forbidigo
+        path: ({{ .Metrics.GetPackagePath }}/|pkg/drivers/kafka/)
+{{- end }}
     paths:
       - third_party$
       - builtin$

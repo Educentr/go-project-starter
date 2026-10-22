@@ -1,0 +1,5 @@
+# Resource limits contract. Owned by the contract repository; the copy inside
+# the project is a fetch artifact and is never edited in place.
+limits:
+  cpu_millis: 500
+  memory_mb: 512

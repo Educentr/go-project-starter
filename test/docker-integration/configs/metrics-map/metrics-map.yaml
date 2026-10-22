@@ -1,0 +1,46 @@
+# A service's metrics map. In a real project this file lives in the contract
+# repository and project.yaml points at it with a git+https URI; here it sits
+# next to the config so the test needs no network.
+metrics:
+  - name: spawn_errors_total
+    type: CounterVec
+    labels: reason, stage
+    help: >-
+      Spawn attempts that failed, by reason and stage.
+
+  - name: queue_depth
+    type: Gauge
+    help: Number of tasks currently waiting in the queue.
+
+  - name: task_duration_seconds
+    type: HistogramVec
+    labels:
+      - kind
+      - outcome
+    help: Wall-clock duration of a task, by kind and outcome.
+    buckets: [0.05, 0.25, 1, 5, 30]
+
+  - name: batch_size
+    type: Summary
+    help: Number of records in a processed batch.
+    objectives: {0.5: 0.05, 0.99: 0.001}
+
+  - name: restarts_total
+    type: Counter
+    help: Supervisor restarts since process start.
+
+  # Help written as a YAML literal block, so the newlines survive. Both places
+  # the prose lands have to cope: the Go string literal and the doc comment.
+  - name: multiline_help_total
+    type: Counter
+    help: |
+      First line of the help text.
+      Second line of the help text.
+
+  # Declared but not constructed here: the OTEL SDK emits it. Present so that
+  # the service cannot shadow the name and so the dashboard can chart it.
+  - name: otel_sdk_exporter_spans_total
+    type: CounterVec
+    labels: outcome
+    help: Spans handed to the OTLP exporter, by outcome.
+    external: true

@@ -95,6 +95,21 @@ type RunsOnSpec struct {
 	Labels []string
 }
 
+// DoctlMode selects how the doctl CLI becomes available in the generated
+// DigitalOcean Container Registry login jobs.
+type DoctlMode string
+
+// Doctl mode constants of the github_ci.doctl parameter.
+const (
+	// DoctlModeInstall installs doctl with digitalocean/action-doctl in every
+	// job that logs in to the registry. It is the default and the zero value.
+	DoctlModeInstall DoctlMode = "install"
+	// DoctlModeImage takes doctl from the runner image: no install step is
+	// generated at all, and the login step prints `doctl version` first so a
+	// runner image without doctl turns the job red instead of installing one.
+	DoctlModeImage DoctlMode = "image"
+)
+
 // GithubCIConfig holds settings applied to every job of the generated GitHub
 // Actions workflows (.github/workflows/ci_cd.yml, go-version-check.yml).
 type GithubCIConfig struct {
@@ -105,8 +120,11 @@ type GithubCIConfig struct {
 	JobTimeoutMinutes int
 	// DoctlVersion pins the doctl version installed by
 	// digitalocean/action-doctl. Empty means the action installs the latest
-	// release.
+	// release. Only meaningful in DoctlModeInstall.
 	DoctlVersion string
+	// DoctlMode selects how doctl becomes available in the DigitalOcean
+	// registry login jobs. The zero value means DoctlModeInstall.
+	DoctlMode DoctlMode
 	// Checks carries the declared checks and their shared settings. The zero
 	// value disables the checks job, leaving the CI graph as it was.
 	Checks ChecksConfig
@@ -162,6 +180,13 @@ func (c GithubCIConfig) JobHeader() string {
 	}
 
 	return header
+}
+
+// DoctlFromImage reports whether the generated DigitalOcean registry login
+// jobs must take doctl from the runner image instead of installing it. The
+// templates branch on it, so the zero value keeps the install step.
+func (c GithubCIConfig) DoctlFromImage() bool {
+	return c.DoctlMode == DoctlModeImage
 }
 
 // DocsDeployType represents documentation deployment type
@@ -317,7 +342,7 @@ type JSONSchema struct {
 	// indices align with Schemas.
 	SchemaTargetFiles []string
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
-	// target schema directory after CopySchemas.
+	// target schema directory after the schemas are copied.
 	RewriteRefs bool
 }
 
@@ -698,6 +723,20 @@ type Driver struct {
 	Optional         bool   // true = optional dependency for this app
 }
 
+// Supported auth_params.transport values for ogen_client.
+const (
+	AuthTransportHeader = "header"
+)
+
+// Supported auth_params.type values for ogen_client. Each one has a
+// corresponding branch in transport/rest/ogen_client/files/auth.go.tmpl that
+// implements the matching ogen SecuritySource method.
+const (
+	AuthTypeAPIKey = "apikey" // ogen scheme name: AuthHeader
+	AuthTypeBearer = "bearer" // ogen scheme name: BearerAuth
+	AuthTypeBasic  = "basic"  // ogen scheme name: BasicAuth
+)
+
 type AuthParams struct {
 	Transport string
 	Type      string
@@ -714,9 +753,15 @@ type Transport struct {
 	Type              TransportType
 	GeneratorType     string
 	GeneratorTemplate string
-	AuthParams        AuthParams
-	GeneratorParams   map[string]string
-	SpecPath          []string
+	// WrapperImport is the import line for the generated client wrapper
+	// package (internal/app/transport/...). Set for ogen_client, whose
+	// Import holds two entries (the ogen package alias plus the wrapper)
+	// because the service layer needs both. Templates that only construct
+	// the wrapper use this one to avoid emitting an unused ogen alias.
+	WrapperImport   string
+	AuthParams      AuthParams
+	GeneratorParams map[string]string
+	SpecPath        []string
 	// SpecTargetFiles, when non-empty, holds the basename under which each
 	// SpecPath[i] should be saved into api/. Populated when sources are
 	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
@@ -729,7 +774,7 @@ type Transport struct {
 	Instantiation   string // "static" (default) or "dynamic" - only for ogen_client
 	Optional        bool   // true = optional dependency for this app
 	// RewriteRefs, when true, triggers refrewrite.RewriteLocalRefs on the
-	// target spec directory after CopySpecs.
+	// target spec directory after the specs are copied.
 	RewriteRefs bool
 }
 
@@ -741,6 +786,24 @@ func (t Transport) IsDynamic() bool {
 // HasAuthParams returns true if transport has authentication parameters configured
 func (t Transport) HasAuthParams() bool {
 	return t.AuthParams.Type != ""
+}
+
+// UsesSecuritySource reports whether the ogen_client wrapper emits a
+// SecuritySource implementation for this transport. Only the auth_params
+// shapes that auth.go.tmpl knows how to render qualify; for any other value
+// no SecuritySource type exists, so it must not be passed to ogen's
+// NewClient (the client templates branch on this).
+func (t Transport) UsesSecuritySource() bool {
+	if t.AuthParams.Transport != AuthTransportHeader {
+		return false
+	}
+
+	switch t.AuthParams.Type {
+	case AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic:
+		return true
+	default:
+		return false
+	}
 }
 
 // QueueField represents a single field in a queue definition

@@ -1,0 +1,68 @@
+openapi: 3.0.2
+servers:
+  - url: http://billing.invalid/v1
+    description: External billing provider
+info:
+  version: 1.0.0
+  title: Billing Partner API
+tags:
+  - name: invoices
+    description: Invoice endpoints
+# HTTP Basic the standard way: ogen emits SecuritySource.BasicAuth from this.
+# The scheme must be named BasicAuth — same naming convention the generator
+# relies on for AuthHeader (apikey) and BearerAuth (bearer).
+security:
+  - BasicAuth: []
+paths:
+  /invoices/{id}:
+    get:
+      tags:
+        - invoices
+      summary: Get an invoice
+      operationId: getInvoice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic
+  schemas:
+    Invoice:
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        amount:
+          type: integer
+          format: int64
+      type: object
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object

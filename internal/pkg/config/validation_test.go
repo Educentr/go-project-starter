@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -863,6 +864,49 @@ func TestGrafanaDatasource_IsValid(t *testing.T) {
 			wantOK:  false,
 			wantMsg: "Empty URL for datasource prometheus",
 		},
+		{
+			name: "valid explicit uid",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://victoriametrics:8428",
+				UID:  "victoriametrics",
+			},
+			wantOK: true,
+		},
+		{
+			name: "uid with dash and underscore",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://prometheus:9090",
+				UID:  "shared_metrics-1",
+			},
+			wantOK: true,
+		},
+		{
+			name: "uid with forbidden character",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://prometheus:9090",
+				UID:  "victoria.metrics",
+			},
+			wantOK:  false,
+			wantMsg: "Invalid uid for datasource Prometheus: victoria.metrics (expected 1-40 characters of a-z, A-Z, 0-9, '-', '_')",
+		},
+		{
+			name: "uid longer than 40 characters",
+			ds: GrafanaDatasource{
+				Name: "Prometheus",
+				Type: "prometheus",
+				URL:  "http://prometheus:9090",
+				UID:  "01234567890123456789012345678901234567890",
+			},
+			wantOK: false,
+			wantMsg: "Invalid uid for datasource Prometheus: 01234567890123456789012345678901234567890 " +
+				"(expected 1-40 characters of a-z, A-Z, 0-9, '-', '_')",
+		},
 	}
 
 	for _, tt := range tests {
@@ -953,6 +997,63 @@ func TestGrafana_IsValid(t *testing.T) {
 			wantOK:  false,
 			wantMsg: "Only one datasource can be default",
 		},
+		{
+			name: "explicit uid alongside a generated one",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://victoriametrics:8428", UID: "victoriametrics"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100"},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name: "duplicate explicit uids",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090", UID: "shared"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100", UID: "shared"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid shared: used by Prometheus and Loki",
+		},
+		{
+			// The collision that only shows up after resolution: Loki's explicit
+			// uid is exactly what Prometheus' name generates.
+			name: "explicit uid collides with another datasource's generated uid",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100", UID: "ds-prometheus"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid ds-prometheus: used by Prometheus and Loki",
+		},
+		{
+			// Mirror of the case above with the explicit uid declared first, to
+			// pin that detection does not depend on declaration order.
+			name: "generated uid collides with an earlier explicit uid",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Loki", Type: "loki", URL: "http://loki:3100", UID: "ds-prometheus"},
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate datasource uid ds-prometheus: used by Loki and Prometheus",
+		},
+		{
+			name: "invalid uid is reported from the datasource check",
+			grafana: Grafana{
+				Datasources: []GrafanaDatasource{
+					{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090", UID: "bad uid"},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Invalid uid for datasource Prometheus: bad uid (expected 1-40 characters of a-z, A-Z, 0-9, '-', '_')",
+		},
 	}
 
 	for _, tt := range tests {
@@ -969,6 +1070,249 @@ func TestGrafana_IsValid(t *testing.T) {
 		})
 	}
 }
+
+func TestGrafanaAnnotation_IsValid(t *testing.T) {
+	tests := []struct {
+		name    string
+		ann     GrafanaAnnotation
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name:   "minimal annotation",
+			ann:    GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}},
+			wantOK: true,
+		},
+		{
+			name: "every field spelled out",
+			ann: GrafanaAnnotation{
+				Name:       "Deploys / Restarts / Crashes",
+				IconColor:  "rgba(0, 211, 255, 1)",
+				Datasource: "grafana",
+				Tags:       []string{"deploy", "restart", "crash"},
+				MatchAny:   true,
+				Hide:       true,
+				Limit:      50,
+				Enable:     boolPtr(false),
+			},
+			wantOK: true,
+		},
+		{
+			name: "comma-separated tags arrive with spaces viper does not trim",
+			ann:  GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy", " restart", " crash"}},
+
+			wantOK: true,
+		},
+		{
+			name:    "empty name",
+			ann:     GrafanaAnnotation{Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Empty annotation name",
+		},
+		{
+			name:    "name of the built-in entry is reserved",
+			ann:     GrafanaAnnotation{Name: "Annotations & Alerts", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Annotation name Annotations & Alerts is reserved for the built-in entry",
+		},
+		{
+			name:    "no tags",
+			ann:     GrafanaAnnotation{Name: "Deploys"},
+			wantOK:  false,
+			wantMsg: "No tags for annotation Deploys",
+		},
+		{
+			name:    "tags that are blank after trimming count as none",
+			ann:     GrafanaAnnotation{Name: "Deploys", Tags: []string{"  ", ""}},
+			wantOK:  false,
+			wantMsg: "No tags for annotation Deploys",
+		},
+		{
+			name:    "unsupported datasource",
+			ann:     GrafanaAnnotation{Name: "Deploys", Datasource: "prometheus", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Invalid annotation datasource: prometheus for Deploys (supported: grafana)",
+		},
+		{
+			name:    "negative limit",
+			ann:     GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}, Limit: -1},
+			wantOK:  false,
+			wantMsg: "Negative limit for annotation Deploys: -1",
+		},
+		{
+			name:    "control character in name would break the dashboard JSON",
+			ann:     GrafanaAnnotation{Name: "Dep\nloys", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Control character in name of annotation Dep\nloys",
+		},
+		{
+			name:    "control character in icon_color would break the dashboard JSON",
+			ann:     GrafanaAnnotation{Name: "Deploys", IconColor: "yel\tlow", Tags: []string{"deploy"}},
+			wantOK:  false,
+			wantMsg: "Control character in icon_color of annotation Deploys",
+		},
+		{
+			name:    "control character in a tag would break the dashboard JSON",
+			ann:     GrafanaAnnotation{Name: "Deploys", Tags: []string{"dep\rloy"}},
+			wantOK:  false,
+			wantMsg: "Control character in tag of annotation Deploys",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.ann.IsValid()
+
+			if gotOK != tt.wantOK {
+				t.Errorf("GrafanaAnnotation.IsValid() ok = %v, want %v (msg %q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("GrafanaAnnotation.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+// TestGrafanaAnnotation_Resolved covers the defaults applied between
+// project.yaml and the dashboard: an omitted field must not render as an empty
+// colour or a zero limit, both of which Grafana treats as "draw nothing".
+func TestGrafanaAnnotation_Resolved(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		ann := GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}}
+
+		if got := ann.ResolvedIconColor(); got != "yellow" {
+			t.Errorf("ResolvedIconColor() = %q, want %q", got, "yellow")
+		}
+
+		if got := ann.ResolvedLimit(); got != 100 {
+			t.Errorf("ResolvedLimit() = %d, want 100", got)
+		}
+
+		if !ann.ResolvedEnable() {
+			t.Error("ResolvedEnable() = false, want true for an omitted enable")
+		}
+	})
+
+	t.Run("explicit values win", func(t *testing.T) {
+		ann := GrafanaAnnotation{
+			Name:      "Deploys",
+			IconColor: "red",
+			Limit:     7,
+			Enable:    boolPtr(false),
+			Tags:      []string{"deploy"},
+		}
+
+		if got := ann.ResolvedIconColor(); got != "red" {
+			t.Errorf("ResolvedIconColor() = %q, want %q", got, "red")
+		}
+
+		if got := ann.ResolvedLimit(); got != 7 {
+			t.Errorf("ResolvedLimit() = %d, want 7", got)
+		}
+
+		if ann.ResolvedEnable() {
+			t.Error("ResolvedEnable() = true, want false for an explicit enable: false")
+		}
+	})
+
+	// Viper splits a comma-separated scalar on "," and leaves the spaces in
+	// place; untrimmed, " restart" would match no event at all.
+	t.Run("tags are trimmed and blanks dropped", func(t *testing.T) {
+		ann := GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy", " restart", "", "  crash  ", "   "}}
+
+		want := []string{"deploy", "restart", "crash"}
+		got := ann.ResolvedTags()
+
+		if len(got) != len(want) {
+			t.Fatalf("ResolvedTags() = %q, want %q", got, want)
+		}
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("ResolvedTags()[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+}
+
+func TestGrafana_IsValid_Annotations(t *testing.T) {
+	datasources := []GrafanaDatasource{
+		{Name: "Prometheus", Type: "prometheus", URL: "http://prometheus:9090"},
+	}
+
+	tests := []struct {
+		name    string
+		grafana Grafana
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name: "annotations alongside a datasource",
+			grafana: Grafana{
+				Datasources: datasources,
+				Annotations: []GrafanaAnnotation{
+					{Name: "Deploys", Tags: []string{"deploy"}},
+					{Name: "Migrations", Tags: []string{"migration"}},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name: "duplicate annotation name",
+			grafana: Grafana{
+				Datasources: datasources,
+				Annotations: []GrafanaAnnotation{
+					{Name: "Deploys", Tags: []string{"deploy"}},
+					{Name: "Deploys", Tags: []string{"restart"}},
+				},
+			},
+			wantOK:  false,
+			wantMsg: "Duplicate annotation name: Deploys",
+		},
+		{
+			name: "invalid annotation is reported from the annotation check",
+			grafana: Grafana{
+				Datasources: datasources,
+				Annotations: []GrafanaAnnotation{{Name: "Deploys"}},
+			},
+			wantOK:  false,
+			wantMsg: "No tags for annotation Deploys",
+		},
+		{
+			// No datasource means no dashboard is generated, so the
+			// annotations would be dropped without a word — the exact silent
+			// failure this section exists to remove.
+			name: "annotations without a datasource have nowhere to go",
+			grafana: Grafana{
+				Annotations: []GrafanaAnnotation{{Name: "Deploys", Tags: []string{"deploy"}}},
+			},
+			wantOK:  false,
+			wantMsg: "Annotations declared without any datasource: no dashboard is generated to hold them",
+		},
+		{
+			name:    "no datasources and no annotations stays valid",
+			grafana: Grafana{},
+			wantOK:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.grafana.IsValid()
+
+			if gotOK != tt.wantOK {
+				t.Errorf("Grafana.IsValid() ok = %v, want %v (msg %q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("Grafana.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 func TestPackageUploadConfig_IsValid(t *testing.T) {
 	tests := []struct {
@@ -1452,6 +1796,86 @@ func TestRest_IsValid(t *testing.T) {
 
 			if !tt.wantOK && gotMsg != tt.wantMsg {
 				t.Errorf("Rest.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestValidateSecretName(t *testing.T) {
+	const field = "git.private_repos_token_secret"
+
+	tests := []struct {
+		name   string
+		secret string
+		wantOK bool
+	}{
+		{
+			name:   "empty means not configured, caller applies its default",
+			secret: "",
+			wantOK: true,
+		},
+		{
+			name:   "upper snake case",
+			secret: "GO_MODULES_TOKEN",
+			wantOK: true,
+		},
+		{
+			name:   "legacy default",
+			secret: "GH_PAT",
+			wantOK: true,
+		},
+		{
+			name:   "leading underscore",
+			secret: "_TOKEN",
+			wantOK: true,
+		},
+		{
+			name:   "digits after the first character",
+			secret: "TOKEN_V2",
+			wantOK: true,
+		},
+		{
+			name:   "lowercase is accepted",
+			secret: "go_modules_token",
+			wantOK: true,
+		},
+		{
+			name:   "leading digit is rejected",
+			secret: "2TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "dash is rejected",
+			secret: "GO-MODULES-TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "dot is rejected",
+			secret: "secrets.TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "whitespace is rejected",
+			secret: "GO MODULES TOKEN",
+			wantOK: false,
+		},
+		{
+			name:   "expression injection is rejected",
+			secret: "TOKEN }} ${{ secrets.OTHER",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := validateSecretName(field, tt.secret)
+
+			if gotOK != tt.wantOK {
+				t.Errorf("validateSecretName(%q) ok = %v, want %v (msg=%q)", tt.secret, gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && !strings.Contains(gotMsg, field) {
+				t.Errorf("validateSecretName(%q) msg = %q, want it to name the field %q", tt.secret, gotMsg, field)
 			}
 		})
 	}

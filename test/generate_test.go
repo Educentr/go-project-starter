@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -289,6 +290,242 @@ func TestLintTargetsFlags(t *testing.T) {
 			t.Errorf("generated Makefile must contain lint invocation %q", cmd)
 		}
 	}
+}
+
+// TestMakefilePinsGeneratorVersion verifies that the generated Makefile calls
+// the generator the same way it calls every other generator it drives — by a
+// pinned version it fetches itself — instead of a bare `go-project-starter`
+// that has to be pre-installed in the environment (issue #49).
+func TestMakefilePinsGeneratorVersion(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for starter pin test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefileContent, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	pkg := "GPSPKG = github.com/Educentr/go-project-starter/cmd/go-project-starter"
+	if !strings.Contains(makefile, pkg) {
+		t.Errorf("generated Makefile must declare %q", pkg)
+	}
+
+	// This generator ran as `go run main.go`, i.e. from no published version,
+	// and the config pins none — so the pin degrades to the documented
+	// default rather than to something unresolvable like "dev".
+	pin := "GPSVERSION = " + templater.DefaultStarterVersion
+	if !strings.Contains(makefile, pin) {
+		t.Errorf("generated Makefile must pin the generator as %q", pin)
+	}
+
+	regenerate := "go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}"
+	if !strings.Contains(makefile, regenerate) {
+		t.Errorf("regenerate target must fetch the pinned generator: %q", regenerate)
+	}
+
+	if strings.Contains(makefile, "\tgo-project-starter --target") {
+		t.Error("regenerate target must not call a pre-installed go-project-starter binary (issue #49)")
+	}
+
+	// Without a way out, the pin is a trap: the only path to regeneration is
+	// fixed on the recorded version, which writes itself back on every run.
+	update := "go run $(GPSPKG)@$(STARTER_VERSION) --target ${PWD}"
+	if !strings.Contains(makefile, update) {
+		t.Errorf("update-starter target must run the requested version: %q", update)
+	}
+
+	if !strings.Contains(makefile, "update-starter:") {
+		t.Error("generated Makefile must expose an update-starter target")
+	}
+}
+
+// buildFakeGolangciLint builds a binary at dst that mimics the `--version`
+// output of golangci-lint v2 for the given version. It has to be a real Go
+// binary, because the generated Makefile also probes the Go toolchain the
+// binary was built with via `go version -m`.
+func buildFakeGolangciLint(t *testing.T, dst, version string) {
+	t.Helper()
+
+	srcDir := t.TempDir()
+	src := fmt.Sprintf(`package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("golangci-lint has version %s built with go1.26.0 from (unknown, modified: ?, mono repo: ?) on (unknown)")
+}
+`, version)
+
+	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte(src), 0o600); err != nil {
+		t.Fatalf("Error writing fake golangci-lint source: %v", err)
+	}
+
+	if out, err := ExecCommand(srcDir, "go", []string{"mod", "init", "fakelint"}, "init fake golangci-lint module"); err != nil {
+		t.Fatalf("Error running go mod init: %s\n%s", err, out)
+	}
+
+	if out, err := ExecCommand(srcDir, "go", []string{"build", "-o", dst, "."}, "build fake golangci-lint"); err != nil {
+		t.Fatalf("Error building fake golangci-lint: %s\n%s", err, out)
+	}
+}
+
+// TestGolangciLintInstallToolchain verifies the lint-install logic of the
+// generated Makefile (TOOLS-13 / issue #29):
+//   - install-lint builds golangci-lint with the Go version the project targets,
+//     not with the base toolchain (a binary built by an older toolchain refuses
+//     to load a config targeting a newer Go);
+//   - version detection understands the golangci-lint v2 `--version` format, so
+//     an up-to-date binary is not rebuilt on every run, while an outdated one
+//     (by version or by build toolchain) still is.
+func TestGolangciLintInstallToolchain(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "rest-only")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project for golangci-lint toolchain test ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	makefilePath := filepath.Join(tmpDir, "Makefile")
+
+	makefileContent, err := os.ReadFile(makefilePath)
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	makefile := string(makefileContent)
+
+	// install-lint must pin the build toolchain to the project's Go version
+	if !strings.Contains(makefile, "go mod edit -go=$(GOLANGCI_BUILD_GO_VERSION)") {
+		t.Error("install-lint must set the temp module go directive to the project's Go version, " +
+			"otherwise golangci-lint is built with the base toolchain (issue #29, bug A)")
+	}
+
+	// The legacy detection regex only matched the golangci-lint v1 format
+	if strings.Contains(makefile, "built from .* on .*") {
+		t.Error("version detection must not rely on the v1-only 'built from ... on ...' format (issue #29, bug B)")
+	}
+
+	// `go get -d` is a no-op since Go 1.22
+	if strings.Contains(makefile, "go get -d github.com/golangci/golangci-lint") {
+		t.Error("install-lint should not use the obsolete 'go get -d' flag")
+	}
+
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not available, skipping behavioral checks")
+	}
+
+	tagMatch := regexp.MustCompile(`(?m)^GOLANGCI_TAG:=(\S+)$`).FindStringSubmatch(makefile)
+	if tagMatch == nil {
+		t.Fatal("GOLANGCI_TAG not found in generated Makefile")
+	}
+
+	tag := tagMatch[1]
+	binPath := filepath.Join(tmpDir, "bin", "golangci-lint")
+	goModPath := filepath.Join(tmpDir, "go.mod")
+
+	if err := os.MkdirAll(filepath.Dir(binPath), 0o750); err != nil {
+		t.Fatalf("Error creating bin directory: %v", err)
+	}
+
+	// GOLANGCI_GLOBAL_BIN is cleared so the result does not depend on a
+	// golangci-lint that happens to be installed on the machine running tests.
+	dryRunInstall := func(t *testing.T) string {
+		t.Helper()
+
+		out, err := ExecCommand(tmpDir, "make", []string{"-n", "install-lint", "GOLANGCI_GLOBAL_BIN="}, "make -n install-lint")
+		if err != nil {
+			t.Fatalf("Error running make -n install-lint: %s\n%s", err, out)
+		}
+
+		return out
+	}
+
+	const rebuildMarker = "Downloading golangci-lint"
+
+	t.Run("binary matching the pinned tag is kept", func(t *testing.T) {
+		buildFakeGolangciLint(t, binPath, tag)
+
+		if out := dryRunInstall(t); strings.Contains(out, rebuildMarker) {
+			t.Errorf("golangci-lint v%s must not be rebuilt, make output:\n%s", tag, out)
+		}
+	})
+
+	t.Run("binary built with an older toolchain is rebuilt", func(t *testing.T) {
+		goMod, err := os.ReadFile(goModPath)
+		if err != nil {
+			t.Fatalf("Error reading go.mod: %v", err)
+		}
+
+		// Target a Go version no toolchain in existence was built with, so the
+		// fake binary is guaranteed to look stale.
+		patched := regexp.MustCompile(`(?m)^go .*$`).ReplaceAllString(string(goMod), "go 1.99.0")
+		if err := os.WriteFile(goModPath, []byte(patched), 0o600); err != nil {
+			t.Fatalf("Error patching go.mod: %v", err)
+		}
+
+		defer func() {
+			if err := os.WriteFile(goModPath, goMod, 0o600); err != nil {
+				t.Fatalf("Error restoring go.mod: %v", err)
+			}
+		}()
+
+		buildFakeGolangciLint(t, binPath, tag)
+
+		out := dryRunInstall(t)
+		if !strings.Contains(out, rebuildMarker) {
+			t.Errorf("golangci-lint built with a toolchain older than go.mod must be rebuilt, make output:\n%s", out)
+		}
+
+		if !strings.Contains(out, "go mod edit -go=1.99.0") {
+			t.Errorf("rebuild must target the Go version from go.mod, make output:\n%s", out)
+		}
+	})
+
+	t.Run("binary older than the pinned tag is rebuilt", func(t *testing.T) {
+		buildFakeGolangciLint(t, binPath, "1.0.0")
+
+		if out := dryRunInstall(t); !strings.Contains(out, rebuildMarker) {
+			t.Errorf("golangci-lint older than v%s must be rebuilt, make output:\n%s", tag, out)
+		}
+	})
+
+	t.Run("missing binary is built", func(t *testing.T) {
+		if err := os.Remove(binPath); err != nil {
+			t.Fatalf("Error removing fake golangci-lint: %v", err)
+		}
+
+		if out := dryRunInstall(t); !strings.Contains(out, rebuildMarker) {
+			t.Errorf("missing golangci-lint must be built, make output:\n%s", out)
+		}
+	})
 }
 
 // TestGenerateRESTLogrus tests that REST project with logrus logger generates correctly.
@@ -1326,6 +1563,289 @@ func TestGenerateLintExcludePaths(t *testing.T) {
 	}
 }
 
+// TestGenerateGrafanaDatasourceUID — grafana.datasources[].uid задаёт uid, с которым
+// datasource попадает и в provisioning, и в каждую панель дашборда. Без него uid всегда
+// вычислялся как ds-<name>, и сгенерированную доску нельзя было отдать в общую Grafana,
+// где datasource провижинится централизованно под своим uid: панели падали с
+// «Datasource ... was not found». Ручная правка uid в копии доски стиралась при
+// следующей синхронизации сгенерированного файла.
+//
+// Фикстура configs/grafana покрывает обе ветки одной генерацией: у Prometheus uid задан
+// явно, у Loki — нет.
+func TestGenerateGrafanaDatasourceUID(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	read := func(t *testing.T, relPath string) string {
+		t.Helper()
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		return string(content)
+	}
+
+	const (
+		datasourcesFile = "configs/grafana/provisioning/datasources/datasources.yaml"
+		dashboardFile   = "configs/grafana/dashboards/api.json"
+	)
+
+	datasources := read(t, datasourcesFile)
+	for _, exp := range []string{"uid: victoriametrics", "uid: ds-loki"} {
+		if !strings.Contains(datasources, exp) {
+			t.Errorf("%s should contain %q", datasourcesFile, exp)
+		}
+	}
+
+	// Панели дашборда ссылаются на datasource по uid — значение обязано совпадать с
+	// provisioning, иначе доска ссылается на несуществующий datasource.
+	dashboard := read(t, dashboardFile)
+	for _, exp := range []string{`"uid": "victoriametrics"`, `"uid": "ds-loki"`} {
+		if !strings.Contains(dashboard, exp) {
+			t.Errorf("%s should contain %q", dashboardFile, exp)
+		}
+	}
+
+	// Сгенерированный ds-<name> не должен остаться нигде, где uid задан явно: иначе
+	// часть панелей смотрела бы на старый uid.
+	for file, content := range map[string]string{datasourcesFile: datasources, dashboardFile: dashboard} {
+		if strings.Contains(content, "ds-prometheus") {
+			t.Errorf("%s must not contain the generated ds-prometheus uid — uid is set explicitly", file)
+		}
+	}
+}
+
+// TestGenerateGrafanaDatasourceUIDDefault — обратная совместимость: конфиг без uid
+// генерируется как до появления поля, uid остаётся ds-<name>. Фикстура копируется с
+// вырезанной строкой uid, чтобы проверка не зависела от того, что в ней стоит сейчас.
+func TestGenerateGrafanaDatasourceUIDDefault(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	srcConfigDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	configDir := t.TempDir()
+
+	entries, err := os.ReadDir(srcConfigDir)
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", srcConfigDir, err)
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join(srcConfigDir, e.Name()))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", e.Name(), err)
+		}
+
+		if e.Name() == "project.yaml" {
+			var (
+				kept     []string
+				stripped int
+			)
+
+			for _, line := range strings.Split(string(content), "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "uid:") {
+					stripped++
+
+					continue
+				}
+
+				kept = append(kept, line)
+			}
+
+			if stripped == 0 {
+				t.Fatalf("fixture %s is expected to declare an explicit uid to strip", srcConfigDir)
+			}
+
+			content = []byte(strings.Join(kept, "\n"))
+		}
+
+		if err := os.WriteFile(filepath.Join(configDir, e.Name()), content, 0644); err != nil {
+			t.Fatalf("Error writing %s: %v", e.Name(), err)
+		}
+	}
+
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project without uid ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	datasources, err := os.ReadFile(filepath.Join(tmpDir, "configs/grafana/provisioning/datasources/datasources.yaml"))
+	if err != nil {
+		t.Fatalf("Error reading datasources.yaml: %v", err)
+	}
+
+	dashboard, err := os.ReadFile(filepath.Join(tmpDir, "configs/grafana/dashboards/api.json"))
+	if err != nil {
+		t.Fatalf("Error reading dashboard: %v", err)
+	}
+
+	for _, exp := range []string{"uid: ds-prometheus", "uid: ds-loki"} {
+		if !strings.Contains(string(datasources), exp) {
+			t.Errorf("datasources.yaml without explicit uid should contain %q", exp)
+		}
+	}
+
+	for _, exp := range []string{`"uid": "ds-prometheus"`, `"uid": "ds-loki"`} {
+		if !strings.Contains(string(dashboard), exp) {
+			t.Errorf("dashboard without explicit uid should contain %q", exp)
+		}
+	}
+}
+
+// TestGenerateGrafanaAnnotations — grafana.annotations[] объявляет записи-запросы в
+// .annotations.list[] дашборда. Без них события, которые сервис постит в
+// /api/annotations (деплой, рестарт, краш), складываются в Grafana, но ни на одном
+// графике не рисуются: блок был литералом шаблона с единственной стоковой записью
+// builtIn, а дописанная руками запись стиралась следующим `make regenerate`.
+//
+// Отказ при этом тихий — JSON остаётся валидным, дашборд открывается, панели работают,
+// поэтому тест разбирает файл как JSON и проверяет сами записи, а не вхождение строк.
+//
+// Фикстура configs/grafana покрывает обе формы одной генерацией: у первой записи теги
+// заданы строкой через запятую и все опциональные поля проставлены, у второй — списком
+// YAML и всё опциональное оставлено на дефолтах.
+func TestGenerateGrafanaAnnotations(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "grafana")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate grafana project with annotations ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	const dashboardFile = "configs/grafana/dashboards/api.json"
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, dashboardFile))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", dashboardFile, err)
+	}
+
+	// Весь дашборд обязан остаться валидным JSON: записи вставляются в литерал
+	// шаблона, и лишняя/пропущенная запятая ломает файл целиком.
+	var dashboard struct {
+		Annotations struct {
+			List []struct {
+				BuiltIn    int    `json:"builtIn"`
+				Name       string `json:"name"`
+				IconColor  string `json:"iconColor"`
+				Enable     bool   `json:"enable"`
+				Hide       bool   `json:"hide"`
+				Type       string `json:"type"`
+				Datasource struct {
+					Type string `json:"type"`
+					UID  string `json:"uid"`
+				} `json:"datasource"`
+				Target struct {
+					Limit    int      `json:"limit"`
+					MatchAny bool     `json:"matchAny"`
+					Tags     []string `json:"tags"`
+					Type     string   `json:"type"`
+				} `json:"target"`
+			} `json:"list"`
+		} `json:"annotations"`
+	}
+
+	if err := json.Unmarshal(content, &dashboard); err != nil {
+		t.Fatalf("%s is not valid JSON: %v", dashboardFile, err)
+	}
+
+	list := dashboard.Annotations.List
+	if len(list) != 3 {
+		t.Fatalf("%s should hold the builtIn entry plus 2 declared annotations, got %d", dashboardFile, len(list))
+	}
+
+	// Стоковая запись builtIn остаётся на месте: объявленные добавляются рядом с ней,
+	// а не вместо неё.
+	if list[0].BuiltIn != 1 || list[0].Name != "Annotations & Alerts" {
+		t.Errorf("%s: first entry should stay the builtIn one, got %+v", dashboardFile, list[0])
+	}
+
+	deploys, migrations := list[1], list[2]
+
+	if deploys.Name != "Deploys / Restarts / Crashes" {
+		t.Errorf("declared annotation name = %q, want %q", deploys.Name, "Deploys / Restarts / Crashes")
+	}
+
+	// Теги из строки `deploy, restart, crash` должны приехать без пробелов: с ними
+	// Grafana не нашла бы ни одного события.
+	wantTags := []string{"deploy", "restart", "crash"}
+	if strings.Join(deploys.Target.Tags, ",") != strings.Join(wantTags, ",") {
+		t.Errorf("declared annotation tags = %q, want %q", deploys.Target.Tags, wantTags)
+	}
+
+	if deploys.Target.Limit != 50 || !deploys.Target.MatchAny {
+		t.Errorf("declared annotation target = %+v, want limit 50 and matchAny true", deploys.Target)
+	}
+
+	if deploys.IconColor != "yellow" || !deploys.Enable || deploys.Hide {
+		t.Errorf("declared annotation = %+v, want iconColor yellow, enable true, hide false", deploys)
+	}
+
+	// Запрос должен быть тегового типа и адресован встроенному хранилищу аннотаций —
+	// иначе Grafana ничего не вытянет.
+	if deploys.Type != "tags" || deploys.Target.Type != "tags" {
+		t.Errorf("declared annotation types = (%q, %q), want both %q", deploys.Type, deploys.Target.Type, "tags")
+	}
+
+	if deploys.Datasource.Type != "grafana" || deploys.Datasource.UID != "-- Grafana --" {
+		t.Errorf("declared annotation datasource = %+v, want the built-in grafana store", deploys.Datasource)
+	}
+
+	// Вторая запись проверяет дефолты: ни один опциональный knob не задан, но пустой
+	// цвет или limit 0 Grafana трактует как «не рисовать».
+	if migrations.Name != "Migrations" {
+		t.Errorf("second declared annotation name = %q, want %q", migrations.Name, "Migrations")
+	}
+
+	if migrations.IconColor != "yellow" || migrations.Target.Limit != 100 {
+		t.Errorf("second declared annotation = %+v, want default iconColor yellow and limit 100", migrations)
+	}
+
+	if !migrations.Enable || migrations.Target.MatchAny {
+		t.Errorf("second declared annotation = %+v, want default enable true and matchAny false", migrations)
+	}
+}
+
 // generateExample runs the generator into targetDir using the example/ config.
 func generateExample(t *testing.T, targetDir, msg string) (string, error) {
 	t.Helper()
@@ -1341,6 +1861,130 @@ func generateExample(t *testing.T, targetDir, msg string) (string, error) {
 		"--configDir", filepath.Join(curDir, "..", "example"),
 		"--config", "project.yaml",
 	}, msg+" ("+targetDir+")")
+}
+
+// readProjectFile reads a project-relative file out of a generated tree.
+func readProjectFile(t *testing.T, targetDir, rel string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", rel, err)
+	}
+
+	return string(data)
+}
+
+// appendToProjectFile appends a line to a project-relative file and returns the
+// new content, imitating a hand edit made inside the generated project.
+func appendToProjectFile(t *testing.T, targetDir, rel, line string) string {
+	t.Helper()
+
+	path := filepath.Join(targetDir, filepath.FromSlash(rel))
+	content := readProjectFile(t, targetDir, rel) + line
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", rel, err)
+	}
+
+	return content
+}
+
+// TestCopiedSpecDriftAbortsRun covers the rule that specs live in the contract
+// repository: a spec or JSON schema edited inside the project tree stops the
+// generator instead of being silently overwritten. The run must be refused
+// before anything is written, so the tree is left exactly as the author left
+// it — including the edit they can still salvage.
+func TestCopiedSpecDriftAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for copied spec drift test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		specRel   = "api/rest/example/v1/example.swagger.yml"
+		schemaRel = "api/schema/models/user.schema.json"
+	)
+
+	editedSpec := appendToProjectFile(t, tmpDir, specRel, "\n# hand edit inside the project\n")
+	editedSchema := appendToProjectFile(t, tmpDir, schemaRel, "\n")
+
+	metaRel := filepath.Join(".project-config", "meta.yaml")
+	metaBefore := readProjectFile(t, tmpDir, metaRel)
+	mainBefore := readProjectFile(t, tmpDir, "cmd/publicApi/psg_main_gen.go")
+
+	out, err = generateExample(t, tmpDir, "Regenerate project with edited specs")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on an edited copied spec:\n%s", out)
+	}
+
+	// The message has to name both the file in the project and the source to
+	// fix instead — the `path` entry from project.yaml.
+	for _, want := range []string{
+		specRel, "./example.swagger.yml",
+		schemaRel, "./user.schema.json",
+		"restore the files from version control",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Error must mention %q:\n%s", want, out)
+		}
+	}
+
+	if got := readProjectFile(t, tmpDir, specRel); got != editedSpec {
+		t.Errorf("Edited spec must be left untouched, got:\n%s", got)
+	}
+
+	if got := readProjectFile(t, tmpDir, schemaRel); got != editedSchema {
+		t.Errorf("Edited schema must be left untouched, got:\n%s", got)
+	}
+
+	if readProjectFile(t, tmpDir, metaRel) != metaBefore {
+		t.Error("meta.yaml must not be rewritten when the run is refused")
+	}
+
+	if readProjectFile(t, tmpDir, "cmd/publicApi/psg_main_gen.go") != mainBefore {
+		t.Error("generated files must not be rewritten when the run is refused")
+	}
+}
+
+// TestGeneratedDriftStaysWarning is the regression half of
+// TestCopiedSpecDriftAbortsRun: a hand edit above the disclaimer marker of a
+// generated file keeps the old behavior — a warning, and the edit is
+// overwritten. Only copied files escalate to an error.
+func TestGeneratedDriftStaysWarning(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for generated drift test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		genRel  = "cmd/publicApi/psg_main_gen.go"
+		handTag = "// hand edit above the marker"
+	)
+
+	genFile := filepath.Join(tmpDir, filepath.FromSlash(genRel))
+	content := readProjectFile(t, tmpDir, genRel)
+
+	if err := os.WriteFile(genFile, []byte(handTag+"\n"+content), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", genRel, err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate project with edited generated file")
+	if err != nil {
+		t.Fatalf("Hand edit above the marker must not fail the run: %s\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "generated part was changed") {
+		t.Errorf("Hand edit above the marker must be reported as a warning:\n%s", out)
+	}
+
+	if strings.Contains(readProjectFile(t, tmpDir, genRel), handTag) {
+		t.Error("Hand edit above the marker must be overwritten")
+	}
 }
 
 // TestObsoleteFileCleanup verifies that a generated file which dropped out of
@@ -1628,6 +2272,265 @@ func TestGenerateRESTEnvsGoat(t *testing.T) {
 		if strings.HasPrefix(line, "run-api:") && strings.Contains(line, "onlineconf-update") {
 			t.Errorf("run-api must not depend on onlineconf-update when use_envs=true: %q", line)
 		}
+	}
+}
+
+// TestGeneratePrivateReposTokenSecret covers git.private_repos_token_secret:
+// the name of the CI secret the generated GitHub workflow reads to fetch
+// private Go modules.
+//
+// Both cases render from the same fixture, so the configured secret name is
+// the only difference between them: unset must keep the historical GH_PAT
+// (existing projects regenerate unchanged), and a configured name must replace
+// every occurrence.
+func TestGeneratePrivateReposTokenSecret(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	fixtureDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "private-token-secret")
+
+	// generate renders the fixture, optionally dropping the
+	// private_repos_token_secret line to exercise the default, and returns the
+	// generated workflow.
+	generate := func(t *testing.T, withTokenSecret bool) string {
+		t.Helper()
+
+		configDir := t.TempDir()
+
+		entries, err := os.ReadDir(fixtureDir)
+		if err != nil {
+			t.Fatalf("Error reading fixture dir: %v", err)
+		}
+
+		const tokenSecretKey = "private_repos_token_secret:"
+
+		droppedLine := false
+
+		for _, e := range entries {
+			content, err := os.ReadFile(filepath.Join(fixtureDir, e.Name()))
+			if err != nil {
+				t.Fatalf("Error reading fixture %s: %v", e.Name(), err)
+			}
+
+			if !withTokenSecret && e.Name() == "project.yaml" {
+				lines := strings.Split(string(content), "\n")
+				kept := make([]string, 0, len(lines))
+
+				for _, l := range lines {
+					if strings.Contains(l, tokenSecretKey) {
+						droppedLine = true
+
+						continue
+					}
+
+					kept = append(kept, l)
+				}
+
+				content = []byte(strings.Join(kept, "\n"))
+			}
+
+			if err := os.WriteFile(filepath.Join(configDir, e.Name()), content, 0o644); err != nil {
+				t.Fatalf("Error writing config %s: %v", e.Name(), err)
+			}
+		}
+
+		// Guards the default case against a fixture that silently stopped
+		// setting the field — without this the test would pass vacuously.
+		if !withTokenSecret && !droppedLine {
+			t.Fatalf("fixture %s/project.yaml no longer contains %q", fixtureDir, tokenSecretKey)
+		}
+
+		tmpDir := t.TempDir()
+
+		out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+			"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+			"--target", tmpDir,
+			"--configDir", configDir,
+			"--config", "project.yaml",
+		}, "Generate project for private repos token secret tests ("+tmpDir+")")
+		if err != nil {
+			t.Fatalf("Error creating project: %s\n%s", err, out)
+		}
+
+		workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
+		if err != nil {
+			t.Fatalf("Error reading generated workflow: %v", err)
+		}
+
+		return string(workflow)
+	}
+
+	// The fixture enables goat tests plus docker and deb artifacts so that
+	// every job referencing the token is rendered. Pinning the count keeps a
+	// newly added reference from escaping the check.
+	const wantRefs = 4
+
+	t.Run("configured name replaces every occurrence", func(t *testing.T) {
+		workflow := generate(t, true)
+
+		if got := strings.Count(workflow, "secrets.GO_MODULES_TOKEN"); got != wantRefs {
+			t.Errorf("workflow references secrets.GO_MODULES_TOKEN %d times, want %d", got, wantRefs)
+		}
+
+		if strings.Contains(workflow, "GH_PAT") {
+			t.Error("workflow should NOT contain GH_PAT when private_repos_token_secret is set")
+		}
+	})
+
+	t.Run("unset keeps the default GH_PAT", func(t *testing.T) {
+		workflow := generate(t, false)
+
+		if got := strings.Count(workflow, "secrets.GH_PAT"); got != wantRefs {
+			t.Errorf("workflow references secrets.GH_PAT %d times, want %d", got, wantRefs)
+		}
+
+		// An unset field must never render as an empty secret reference.
+		if strings.Contains(workflow, "secrets. ") || strings.Contains(workflow, "secrets.}}") {
+			t.Error("workflow contains an empty secret reference")
+		}
+	})
+}
+
+// dropManifestRecord removes the record of relPath from meta.yaml, simulating
+// the state a project is in when a newer generator version starts to write a
+// path the previous version never wrote.
+func dropManifestRecord(t *testing.T, metaPath, relPath string) {
+	t.Helper()
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	kept := []string{}
+	dropped := false
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "path: "+relPath+",") {
+			dropped = true
+
+			continue
+		}
+
+		kept = append(kept, line)
+	}
+
+	if !dropped {
+		t.Fatalf("meta.yaml has no record for %s:\n%s", relPath, data)
+	}
+
+	if err := os.WriteFile(metaPath, []byte(strings.Join(kept, "\n")), 0644); err != nil {
+		t.Fatalf("Error writing meta.yaml: %v", err)
+	}
+}
+
+// TestConflictWithUserFileAbortsRun covers the data-loss case the manifest
+// makes detectable: the generator starts to write a path where the user keeps a
+// file of their own. The run has to stop with a conflict instead of
+// overwriting it — the file carries no disclaimer marker, so there would be
+// nothing left to recover.
+func TestConflictWithUserFileAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for conflict test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	genRel := "internal/app/constant/psg_constant_gen.go"
+	genFile := filepath.Join(tmpDir, filepath.FromSlash(genRel))
+	userContent := "package constant\n\n// written by hand, no marker in sight\nconst Mine = true\n"
+
+	dropManifestRecord(t, metaPath, genRel)
+
+	if err := os.WriteFile(genFile, []byte(userContent), 0644); err != nil {
+		t.Fatalf("Error writing user file: %v", err)
+	}
+
+	t.Run("dry run reports the conflict", func(t *testing.T) {
+		curDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Error getting current directory: %v", err)
+		}
+
+		out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+			"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+			"--target", tmpDir,
+			"--configDir", filepath.Join(curDir, "..", "example"),
+			"--config", "project.yaml",
+			"--dry-run",
+		}, "Dry run against a conflicting user file ("+tmpDir+")")
+		if err == nil {
+			t.Fatalf("Dry run must fail on a conflict:\n%s", out)
+		}
+
+		if !strings.Contains(out, "conflict: ") || !strings.Contains(out, genRel) {
+			t.Errorf("Dry run must name the conflicting path:\n%s", out)
+		}
+	})
+
+	out, err = generateExample(t, tmpDir, "Regenerate project over a conflicting user file")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on a conflict:\n%s", out)
+	}
+
+	if !strings.Contains(out, "conflict: ") || !strings.Contains(out, genRel) {
+		t.Errorf("Error must name the conflicting path:\n%s", out)
+	}
+
+	got, err := os.ReadFile(genFile)
+	if err != nil {
+		t.Fatalf("Error reading user file: %v", err)
+	}
+
+	if string(got) != userContent {
+		t.Errorf("User file must be left untouched, got:\n%s", got)
+	}
+}
+
+// TestConflictWithUserSpecAbortsRun is the same guard for copied files: specs
+// and schemas have no marker at all, so a hand-written spec on a path the
+// config has only now started to claim would be replaced whole.
+func TestConflictWithUserSpecAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for spec conflict test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	specRel := "api/rest/example/v1/example.swagger.yml"
+	specFile := filepath.Join(tmpDir, filepath.FromSlash(specRel))
+	userContent := "openapi: 3.0.0\n# my own spec, never copied by the generator\n"
+
+	dropManifestRecord(t, metaPath, specRel)
+
+	if err := os.WriteFile(specFile, []byte(userContent), 0644); err != nil {
+		t.Fatalf("Error writing user spec: %v", err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate project over a conflicting user spec")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on a spec conflict:\n%s", out)
+	}
+
+	if !strings.Contains(out, "conflict: ") || !strings.Contains(out, specRel) {
+		t.Errorf("Error must name the conflicting spec:\n%s", out)
+	}
+
+	got, err := os.ReadFile(specFile)
+	if err != nil {
+		t.Fatalf("Error reading user spec: %v", err)
+	}
+
+	if string(got) != userContent {
+		t.Errorf("User spec must be left untouched, got:\n%s", got)
 	}
 }
 

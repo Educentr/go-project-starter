@@ -18,12 +18,13 @@ import (
 	{{ range $_, $imp := .Application.TransportImports }}
 	{{ $imp }}
 	{{- end }}
-	{{- /* Client imports for ogen_client (static only) and buf_client */ -}}
+	{{- /* Client imports for ogen_client (static only) and buf_client.
+	       main only constructs the wrapper (<name>.NewClient()), so it takes
+	       WrapperImport — emitting the whole Import list would add an unused
+	       ogen package alias. */ -}}
 	{{ range $_, $tr := .Application.GetRestTransport }}
 	{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
-	{{ range $_, $imp := $tr.Import }}
-	{{ $imp }}
-	{{- end }}
+	{{ $tr.WrapperImport }}
 	{{- end }}
 	{{- end }}
 	{{ range $_, $tr := .Application.GetGrpcTransport }}
@@ -43,6 +44,9 @@ import (
 	{{ $imp }}
 	{{- end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
+{{- if and .Application.HasSysTransport .Metrics.IsEnabled .Metrics.HasGenerated }}
+	"{{ .ProjectPath }}/{{ .Metrics.GetPackagePath }}"
+{{- end }}
 	"github.com/Educentr/go-project-starter-runtime/pkg/app"
 	"github.com/Educentr/go-project-starter-runtime/pkg/ds"
 {{ if ne (.Logger.FilesToGenerate) "logrus" }}	runtimelogger "github.com/Educentr/go-project-starter-runtime/pkg/logger"
@@ -133,6 +137,17 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize metrics" }}
 		os.Exit(ExitCodeErrorApp)
 	}
+{{- if and .Metrics.IsEnabled .Metrics.HasGenerated }}
+
+	// Register the collectors generated from the service's metrics map.
+	// The registerer is explicit: tests use a throwaway registry, and several
+	// applications can share one binary.
+	err = metrics.Register(application.GetMetrics())
+	if err != nil {
+		{{ .Logger.ErrorMsg "mainCtx" "err" "can't register declared metrics" }}
+		os.Exit(ExitCodeErrorApp)
+	}
+{{- end }}
 {{- end }}
 
 	// initializing graceful stop for application

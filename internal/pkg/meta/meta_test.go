@@ -196,3 +196,72 @@ func TestHashContent(t *testing.T) {
 		t.Errorf("hash length = %d, want 64 (sha256 hex)", got)
 	}
 }
+
+func TestSaveManifestProvenanceOmittedWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+
+	m := GetDefaultMeta(filepath.Join(dir, "meta.yaml"))
+	m.SetManifest(Manifest{
+		{Path: "a.go", Kind: KindGenerated, Hash: "aaa"},
+		{
+			Path:   "api/contract/limits.yaml",
+			Kind:   KindCopied,
+			Hash:   "ccc",
+			Source: "ssh://git@github.com/org/contracts.git@main#limits/limits.yaml",
+			Ref:    "main",
+			Commit: "0123456789abcdef",
+		},
+		{Path: "api/contract/local.yaml", Kind: KindCopied, Hash: "ddd", Source: "./local.yaml"},
+	})
+
+	if err := m.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "meta.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A generated file keeps exactly the shape it had before contracts
+	// existed; an https/local contract gets a source but no ref or commit,
+	// because it has none.
+	want := "version: 5\nmanifest:\n" +
+		"    - {path: a.go, kind: generated, hash: aaa}\n" +
+		"    - {path: api/contract/limits.yaml, kind: copied, hash: ccc, " +
+		"source: 'ssh://git@github.com/org/contracts.git@main#limits/limits.yaml', ref: main, commit: 0123456789abcdef}\n" +
+		"    - {path: api/contract/local.yaml, kind: copied, hash: ddd, source: ./local.yaml}\n"
+
+	if string(data) != want {
+		t.Errorf("meta.yaml =\n%s\nwant\n%s", data, want)
+	}
+}
+
+func TestManifestProvenanceRoundTrip(t *testing.T) {
+	rec := FileRecord{
+		Path:   "api/contract/limits.yaml",
+		Kind:   KindCopied,
+		Hash:   "h",
+		Source: "https://example.com/limits.yaml",
+		Ref:    "release/2026.10",
+		Commit: "abc123",
+	}
+
+	data, err := yaml.Marshal(Manifest{rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Count(string(data), "\n") != 1 {
+		t.Errorf("record must stay on a single line, got:\n%s", data)
+	}
+
+	var back Manifest
+	if err := yaml.Unmarshal(data, &back); err != nil {
+		t.Fatalf("unmarshal %s: %v", data, err)
+	}
+
+	if len(back) != 1 || back[0] != rec {
+		t.Errorf("round trip = %+v, want %+v", back, rec)
+	}
+}

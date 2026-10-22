@@ -218,8 +218,20 @@ INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summa
 VALUES ('auth_params', @rest_client_{{ $t.PkgName | ReplaceDash }}_id, NULL, 'application/x-null', 'Auth configuration');
 SET @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id = LAST_INSERT_ID();
 
+{{- /* Seed the node names the wrapper actually reads for this auth type. */}}
+{{- if eq $t.AuthParams.Type "bearer" }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('token', @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id, '', 'text/plain', 'Bearer token (set manually)');
+{{- else if eq $t.AuthParams.Type "basic" }}
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('username', @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id, '', 'text/plain', 'Basic auth username (set manually)');
+
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('password', @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id, '', 'text/plain', 'Basic auth password (set manually)');
+{{- else }}
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
 VALUES ('apikey', @rest_client_{{ $t.PkgName | ReplaceDash }}_auth_id, '', 'text/plain', 'API key (set manually)');
+{{- end }}
 {{- end }}
 
 {{- end }}
