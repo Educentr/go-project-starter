@@ -1863,6 +1863,130 @@ func generateExample(t *testing.T, targetDir, msg string) (string, error) {
 	}, msg+" ("+targetDir+")")
 }
 
+// readProjectFile reads a project-relative file out of a generated tree.
+func readProjectFile(t *testing.T, targetDir, rel string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", rel, err)
+	}
+
+	return string(data)
+}
+
+// appendToProjectFile appends a line to a project-relative file and returns the
+// new content, imitating a hand edit made inside the generated project.
+func appendToProjectFile(t *testing.T, targetDir, rel, line string) string {
+	t.Helper()
+
+	path := filepath.Join(targetDir, filepath.FromSlash(rel))
+	content := readProjectFile(t, targetDir, rel) + line
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", rel, err)
+	}
+
+	return content
+}
+
+// TestCopiedSpecDriftAbortsRun covers the rule that specs live in the contract
+// repository: a spec or JSON schema edited inside the project tree stops the
+// generator instead of being silently overwritten. The run must be refused
+// before anything is written, so the tree is left exactly as the author left
+// it — including the edit they can still salvage.
+func TestCopiedSpecDriftAbortsRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for copied spec drift test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		specRel   = "api/rest/example/v1/example.swagger.yml"
+		schemaRel = "api/schema/models/user.schema.json"
+	)
+
+	editedSpec := appendToProjectFile(t, tmpDir, specRel, "\n# hand edit inside the project\n")
+	editedSchema := appendToProjectFile(t, tmpDir, schemaRel, "\n")
+
+	metaRel := filepath.Join(".project-config", "meta.yaml")
+	metaBefore := readProjectFile(t, tmpDir, metaRel)
+	mainBefore := readProjectFile(t, tmpDir, "cmd/publicApi/psg_main_gen.go")
+
+	out, err = generateExample(t, tmpDir, "Regenerate project with edited specs")
+	if err == nil {
+		t.Fatalf("Regeneration must fail on an edited copied spec:\n%s", out)
+	}
+
+	// The message has to name both the file in the project and the source to
+	// fix instead — the `path` entry from project.yaml.
+	for _, want := range []string{
+		specRel, "./example.swagger.yml",
+		schemaRel, "./user.schema.json",
+		"restore the files from version control",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Error must mention %q:\n%s", want, out)
+		}
+	}
+
+	if got := readProjectFile(t, tmpDir, specRel); got != editedSpec {
+		t.Errorf("Edited spec must be left untouched, got:\n%s", got)
+	}
+
+	if got := readProjectFile(t, tmpDir, schemaRel); got != editedSchema {
+		t.Errorf("Edited schema must be left untouched, got:\n%s", got)
+	}
+
+	if readProjectFile(t, tmpDir, metaRel) != metaBefore {
+		t.Error("meta.yaml must not be rewritten when the run is refused")
+	}
+
+	if readProjectFile(t, tmpDir, "cmd/publicApi/psg_main_gen.go") != mainBefore {
+		t.Error("generated files must not be rewritten when the run is refused")
+	}
+}
+
+// TestGeneratedDriftStaysWarning is the regression half of
+// TestCopiedSpecDriftAbortsRun: a hand edit above the disclaimer marker of a
+// generated file keeps the old behavior — a warning, and the edit is
+// overwritten. Only copied files escalate to an error.
+func TestGeneratedDriftStaysWarning(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for generated drift test")
+	if err != nil {
+		t.Fatalf("First generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		genRel  = "cmd/publicApi/psg_main_gen.go"
+		handTag = "// hand edit above the marker"
+	)
+
+	genFile := filepath.Join(tmpDir, filepath.FromSlash(genRel))
+	content := readProjectFile(t, tmpDir, genRel)
+
+	if err := os.WriteFile(genFile, []byte(handTag+"\n"+content), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", genRel, err)
+	}
+
+	out, err = generateExample(t, tmpDir, "Regenerate project with edited generated file")
+	if err != nil {
+		t.Fatalf("Hand edit above the marker must not fail the run: %s\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "generated part was changed") {
+		t.Errorf("Hand edit above the marker must be reported as a warning:\n%s", out)
+	}
+
+	if strings.Contains(readProjectFile(t, tmpDir, genRel), handTag) {
+		t.Error("Hand edit above the marker must be overwritten")
+	}
+}
+
 // TestObsoleteFileCleanup verifies that a generated file which dropped out of
 // the template set is removed on regeneration — but only because the manifest
 // in .project-config/meta.yaml says the generator wrote it.

@@ -1314,6 +1314,25 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error target path")
 	}
 
+	// Specs are copied into the project from their contract source, so a hand
+	// edit here is a change the next run overwrites — a lost change, not a
+	// customization point. Unlike drift above a disclaimer marker (a warning:
+	// the marker gives the author a place to move the code to), there is no
+	// such place in a copied file, so this aborts the run.
+	//
+	// Checked here for two reasons: nothing has been written yet, so a drifted
+	// tree is left exactly as it was; and SpecPath still holds the `path`
+	// values from project.yaml, which is what the message has to name.
+	copiedTargets, err := g.copiedSpecTargets(targetPath)
+	if err != nil {
+		return errors.Wrap(err, "Error collect copied specs")
+	}
+
+	// Dry-run is checked too: it previews a real run, and a real run stops here.
+	if err = g.Meta.Manifest.CheckCopiedDrift(targetPath, copiedTargets); err != nil {
+		return err
+	}
+
 	dirs, files, err := g.collectFiles(targetPath)
 	if err != nil {
 		return errors.Wrap(err, "Error collect files")
