@@ -13,6 +13,25 @@
         "name": "Annotations & Alerts",
         "type": "dashboard"
       }
+{{- range $ann := $.Grafana.Annotations }},
+      {
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": {{ $ann.Enable }},
+        "hide": {{ $ann.Hide }},
+        "iconColor": "{{ $ann.IconColor | escapeJSON }}",
+        "name": "{{ $ann.Name | escapeJSON }}",
+        "target": {
+          "limit": {{ $ann.Limit }},
+          "matchAny": {{ $ann.MatchAny }},
+          "tags": [{{ range $ti, $tag := $ann.Tags }}{{ if $ti }}, {{ end }}"{{ $tag | escapeJSON }}"{{ end }}],
+          "type": "tags"
+        },
+        "type": "tags"
+      }
+{{- end }}
     ]
   },
   "editable": true,

@@ -173,9 +173,57 @@ type (
 		Editable  bool   `mapstructure:"editable"`
 	}
 
+	// GrafanaAnnotation declares one annotation query in the generated
+	// dashboard. The events themselves are posted by the service at runtime
+	// (POST /api/annotations); this declaration is what makes the dashboard
+	// query and draw them.
+	//
+	// YAML example:
+	//
+	//	grafana:
+	//	  annotations:
+	//	    - name: "Deploys / Restarts / Crashes"
+	//	      icon_color: yellow
+	//	      tags: deploy, restart, crash
+	//	      match_any: true
+	//
+	// See docs/configuration/infrastructure.md for full documentation.
+	GrafanaAnnotation struct {
+		// Name labels the toggle in the dashboard header. Required.
+		Name string `mapstructure:"name"`
+		// IconColor is the marker colour as Grafana accepts it ("yellow",
+		// "rgba(0, 211, 255, 1)", ...). Empty means
+		// grafana.DefaultAnnotationIconColor.
+		IconColor string `mapstructure:"icon_color"`
+		// Datasource names the annotation store to query. Empty or "grafana"
+		// — the built-in store (uid "-- Grafana --"); nothing else is
+		// supported, see grafana.AnnotationDatasourceGrafana.
+		Datasource string `mapstructure:"datasource"`
+		// Tags selects which events the query pulls in. At least one is
+		// required. Accepts a YAML list or a comma-separated string
+		// ("deploy, restart, crash").
+		Tags []string `mapstructure:"tags"`
+		// MatchAny selects OR over Tags (an event carrying one of them is
+		// drawn) instead of Grafana's default AND.
+		MatchAny bool `mapstructure:"match_any"`
+		// Hide hides the toggle in the dashboard header. The query still runs,
+		// so the markers are drawn and just cannot be switched off from the UI.
+		Hide bool `mapstructure:"hide"`
+		// Limit caps how many events a single query pulls into the view.
+		// 0 means grafana.DefaultAnnotationLimit.
+		Limit int `mapstructure:"limit"`
+		// Enable is the initial state of the toggle. Pointer so that an
+		// explicit `enable: false` (declared but off by default) is
+		// distinguishable from an omitted field, which means enabled.
+		Enable *bool `mapstructure:"enable"`
+	}
+
 	// Grafana represents global Grafana configuration
 	Grafana struct {
 		Datasources []GrafanaDatasource `mapstructure:"datasources"`
+		// Annotations are emitted into .annotations.list[] of every generated
+		// dashboard, next to the stock builtIn entry.
+		Annotations []GrafanaAnnotation `mapstructure:"annotations"`
 	}
 
 	// AppGrafana represents per-application Grafana settings
@@ -1354,10 +1402,130 @@ func (d GrafanaDatasource) ResolvedUID() string {
 	return grafana.ResolveDatasourceUID(d.UID, d.Name)
 }
 
+// ResolvedTags returns the tags the annotation query runs with: trimmed, with
+// empty entries dropped. Viper splits a comma-separated scalar
+// ("deploy, restart, crash") on "," without trimming, so the spaces of that
+// form would otherwise end up inside the tag values and match nothing.
+func (a GrafanaAnnotation) ResolvedTags() []string {
+	tags := make([]string, 0, len(a.Tags))
+
+	for _, tag := range a.Tags {
+		if trimmed := strings.TrimSpace(tag); trimmed != "" {
+			tags = append(tags, trimmed)
+		}
+	}
+
+	return tags
+}
+
+// ResolvedIconColor returns the marker colour, applying the default when
+// icon_color is omitted.
+func (a GrafanaAnnotation) ResolvedIconColor() string {
+	if a.IconColor == "" {
+		return grafana.DefaultAnnotationIconColor
+	}
+
+	return a.IconColor
+}
+
+// ResolvedLimit returns the event cap, applying the default when limit is
+// omitted.
+func (a GrafanaAnnotation) ResolvedLimit() int {
+	if a.Limit == 0 {
+		return grafana.DefaultAnnotationLimit
+	}
+
+	return a.Limit
+}
+
+// ResolvedEnable returns the initial state of the toggle: enabled unless the
+// config says otherwise. An annotation nobody asked to be off is one the
+// author wants to see.
+func (a GrafanaAnnotation) ResolvedEnable() bool {
+	return a.Enable == nil || *a.Enable
+}
+
+// IsValid validates a Grafana annotation declaration
+func (a GrafanaAnnotation) IsValid() (bool, string) {
+	if len(a.Name) == 0 {
+		return false, "Empty annotation name"
+	}
+
+	if a.Name == grafana.BuiltInAnnotationName {
+		return false, "Annotation name " + a.Name + " is reserved for the built-in entry"
+	}
+
+	if a.Datasource != "" && a.Datasource != grafana.AnnotationDatasourceGrafana {
+		return false, "Invalid annotation datasource: " + a.Datasource +
+			" for " + a.Name + " (supported: " + grafana.AnnotationDatasourceGrafana + ")"
+	}
+
+	// A tag query with no tags matches every annotation in the org, which is
+	// never what a dashboard-scoped declaration means.
+	if len(a.ResolvedTags()) == 0 {
+		return false, "No tags for annotation " + a.Name
+	}
+
+	if a.Limit < 0 {
+		return false, "Negative limit for annotation " + a.Name + ": " + strconv.Itoa(a.Limit)
+	}
+
+	// These land inside JSON string literals in the dashboard. The template
+	// escapes quotes and backslashes but not control characters, which would
+	// produce an invalid dashboard file — and a dashboard Grafana refuses to
+	// load fails as quietly as the missing annotation this section exists to fix.
+	//
+	// Ordered, not a map: which field gets reported must not depend on map
+	// iteration order.
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"name", a.Name},
+		{"icon_color", a.IconColor},
+	} {
+		if hasControlChar(field.value) {
+			return false, "Control character in " + field.name + " of annotation " + a.Name
+		}
+	}
+
+	for _, tag := range a.ResolvedTags() {
+		if hasControlChar(tag) {
+			return false, "Control character in tag of annotation " + a.Name
+		}
+	}
+
+	return true, ""
+}
+
+// hasControlChar reports whether s contains a character that would have to be
+// escaped to survive a JSON string literal and that the templates' escapeJSON
+// helper does not escape.
+func hasControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+
+	return false
+}
+
 // IsValid validates Grafana configuration
 func (g Grafana) IsValid() (bool, string) {
 	if len(g.Datasources) == 0 {
+		// Dashboards are generated only for applications that reference a
+		// datasource, so annotations declared without one have nowhere to be
+		// emitted. Saying so beats generating no dashboard in silence.
+		if len(g.Annotations) > 0 {
+			return false, "Annotations declared without any datasource: no dashboard is generated to hold them"
+		}
+
 		return true, "" // Empty grafana config is valid
+	}
+
+	if ok, msg := g.validateAnnotations(); !ok {
+		return false, msg
 	}
 
 	seenNames := make(map[string]struct{})
@@ -1390,6 +1558,27 @@ func (g Grafana) IsValid() (bool, string) {
 			}
 			hasDefault = true
 		}
+	}
+
+	return true, ""
+}
+
+// validateAnnotations checks every annotation declaration and rejects
+// duplicate names: two toggles labelled the same in the dashboard header are
+// indistinguishable to whoever reads the board.
+func (g Grafana) validateAnnotations() (bool, string) {
+	seenNames := make(map[string]struct{}, len(g.Annotations))
+
+	for _, ann := range g.Annotations {
+		if ok, msg := ann.IsValid(); !ok {
+			return false, msg
+		}
+
+		if _, exists := seenNames[ann.Name]; exists {
+			return false, "Duplicate annotation name: " + ann.Name
+		}
+
+		seenNames[ann.Name] = struct{}{}
 	}
 
 	return true, ""

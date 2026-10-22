@@ -58,6 +58,7 @@ applications:
 
 grafana:
   datasources: []           # Datasources для Grafana
+  annotations: []           # Записи аннотаций в .annotations.list[] дашборда
 
 artifacts:
   - docker                  # Типы артефактов

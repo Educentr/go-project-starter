@@ -406,6 +406,21 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		})
 	}
 
+	// Process Grafana annotation queries. They are dashboard-level and
+	// declared once for the whole service, so every generated dashboard gets
+	// the same set — an app does not reference them the way it does datasources.
+	for _, cfgAnn := range config.Grafana.Annotations {
+		g.Grafana.Annotations = append(g.Grafana.Annotations, grafana.Annotation{
+			Name:      cfgAnn.Name,
+			IconColor: cfgAnn.ResolvedIconColor(),
+			Tags:      cfgAnn.ResolvedTags(),
+			MatchAny:  cfgAnn.MatchAny,
+			Hide:      cfgAnn.Hide,
+			Enable:    cfgAnn.ResolvedEnable(),
+			Limit:     cfgAnn.ResolvedLimit(),
+		})
+	}
+
 	// Process JSON Schema configurations
 	for _, js := range config.JSONSchemaList {
 		if js.Name == "" {

@@ -24,15 +24,61 @@ type Datasource struct {
 	UID       string // resolved: explicit uid from config, or "ds-" + lowercase(name)
 }
 
+// Annotation is a resolved annotation query for the dashboard template. It
+// renders into an entry of the dashboard's .annotations.list[] and is what
+// makes the events a service posts to Grafana's /api/annotations actually show
+// up as vertical lines across the panels: without a matching query the events
+// are stored but never drawn.
+//
+// Only tag queries against the built-in annotation store are modelled — see
+// AnnotationDatasourceGrafana.
+type Annotation struct {
+	// Name labels the toggle in the dashboard header.
+	Name string
+	// IconColor is the colour of the marker line, in the form Grafana accepts
+	// it ("yellow", "rgba(0, 211, 255, 1)", ...).
+	IconColor string
+	// Tags selects which events the query pulls in.
+	Tags []string
+	// MatchAny selects OR over Tags instead of AND.
+	MatchAny bool
+	// Hide hides the toggle in the dashboard header (the query still runs).
+	Hide bool
+	// Enable is the initial state of the toggle.
+	Enable bool
+	// Limit caps how many events a single query pulls into the view.
+	Limit int
+}
+
 // Config holds resolved Grafana configuration.
 type Config struct {
 	Datasources []Datasource
+	Annotations []Annotation
 }
 
 // Datasource type constants.
 const (
 	DatasourcePrometheus = "prometheus"
 	DatasourceLoki       = "loki"
+)
+
+// Annotation query constants.
+const (
+	// AnnotationDatasourceGrafana is the only datasource an annotation query
+	// may name: Grafana's built-in annotation store (uid "-- Grafana --"), the
+	// one a service posts events to via /api/annotations. Querying prometheus
+	// or loki for annotations needs a wholly different, expression-based
+	// target, so it is not another value of the same field.
+	AnnotationDatasourceGrafana = "grafana"
+	// BuiltInAnnotationName is the name of the stock builtIn entry the
+	// dashboard template always emits; a declared annotation cannot reuse it.
+	BuiltInAnnotationName = "Annotations & Alerts"
+	// DefaultAnnotationIconColor is the marker colour used when icon_color is
+	// omitted — Grafana draws nothing for an empty iconColor.
+	DefaultAnnotationIconColor = "yellow"
+	// DefaultAnnotationLimit is the event cap used when limit is omitted. It
+	// matches the default Grafana's own UI writes into a tag query.
+	DefaultAnnotationLimit = 100
 )
 
 // MaxDatasourceUIDLen is the longest datasource uid Grafana accepts.
