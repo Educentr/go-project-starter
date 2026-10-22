@@ -17,7 +17,10 @@ tools:
   lint_exclude_paths:
     - etc/vendored
   protobuf_version: 1.7.0
-  golang_version: "1.27"
+  # Deliberately below Go 1.26 and NOT tracking the generator default: the
+  # TOOLS-51 tidy regression only reproduces on a project pinned under 1.26.
+  # assertGoatTidyPreconditions in integration_test.go fails if this is bumped.
+  golang_version: "1.24"
   ogen_version: v1.18.0
   golangci_version: 1.64.8
   goat_version: v0.5.0
