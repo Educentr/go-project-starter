@@ -602,7 +602,7 @@ OnlineConf provides runtime configuration without redeploy.
 
 ```
 /{{ .ProjectName }}/devstand                                    # 0 or 1
-/{{ .ProjectName }}/log/level                                   # info, debug, error
+/{{ .ProjectName }}/default/log_level                           # info, debug, error (process logger)
 /{{ .ProjectName }}/transport/rest/{name}/ip                    # bind address
 /{{ .ProjectName }}/transport/rest/{name}/port                  # listen port
 /{{ .ProjectName }}/transport/rest/{name}/timeout_read          # read timeout
@@ -614,6 +614,22 @@ OnlineConf provides runtime configuration without redeploy.
 /{{ .ProjectName }}/db/main/password                            # DB password
 {{- end }}
 ```
+
+### Log level
+
+Every logger reads its level under the subtree that owns it. The prefix is the
+absolute path of that subtree, the level node is `log_level`:
+
+```
+<prefix>/default/log_level          # baseline for this logger
+<prefix>/{endpoint|job}/log_level   # override for one endpoint / job
+```
+
+| Logger | `<prefix>` |
+|---|---|
+| process-wide (created on start) | `/{{ .ProjectName }}` |
+| REST request | `/{{ .ProjectName }}/transport/rest/{transport_name}/{app_name}/mw/metrics` |
+| worker job | `/{{ .ProjectName }}/worker/{worker_name}` |
 
 ### Environment variable override
 
