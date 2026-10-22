@@ -103,7 +103,7 @@ func splitRefFromPath(p string) (repoPath, ref string) {
 
 func defaultRef(ref string) string {
 	if ref == "" {
-		return "HEAD"
+		return defaultGitRef
 	}
 	return ref
 }

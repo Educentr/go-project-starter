@@ -8,6 +8,8 @@ LOCAL_BIN:=$(CURDIR)/bin
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 # Minimal Golang version
 MIN_GO_VERSION = 1.20.0
+# Go language version this repo targets (the "go" directive of go.mod)
+GO_MOD_VERSION := $(shell awk '$$1 == "go" { print $$2; exit }' go.mod 2>/dev/null)
 BIN_NAME = go-project-starter
 
 # Version info from git
@@ -24,29 +26,41 @@ INTEGRATION_PARAMS_FILE := test/docker-integration/.image-params
 INTEGRATION_CURRENT_PARAMS := $(INTEGRATION_GO_VERSION)-$(INTEGRATION_BUF_VERSION)-$(GITHUB_TOKEN)
 
 ##################### Checks to run golang-ci #####################
+# GOLANGCI_TAG above is the single source of truth for the linter version, and
+# configs/golangci.yml is written in the config format of that major version —
+# a binary of another major version either rejects the config or silently drops
+# most of it. So, unlike the Makefile of a generated project (which accepts
+# anything at or above the tag), the checks below require an *exact* match and
+# otherwise build the pinned version into ./bin (see install-lint).
+#
+# Version of a golangci-lint binary, empty when it cannot be determined.
+# Matching the leading semver tolerates both release formats:
+#   v1: "golangci-lint has version 1.64.8 built from <commit> on <date>"
+#   v2: "golangci-lint has version 2.5.0 built with go1.26.0 from (...) on (...)"
+golangci_version = $(shell $(1) --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1)
+# Go toolchain a binary was built with ("<path>: go1.26.0" -> "1.26.0"), empty
+# if unknown. GOTOOLCHAIN=local keeps the probe from switching toolchains.
+golangci_go_version = $(shell GOTOOLCHAIN=local go version -m $(1) 2>/dev/null | awk 'NR==1 { sub(/^go/, "", $$2); print $$2 }')
+# Non-empty when version $(2) is known and lower than required version $(1);
+# an unknown $(2) is left alone so a failing probe never forces a rebuild loop.
+version_older = $(if $(1),$(if $(2),$(filter-out $(1),$(word 1, $(sort $(1) $(2))))))
+# A binary is unusable when its version is not exactly GOLANGCI_TAG, or when it
+# was built with a toolchain older than the Go version this repo targets — the
+# latter panics while type-checking ("file requires newer Go version goX.Y").
+golangci_unusable = $(if $(filter $(GOLANGCI_TAG),$(call golangci_version,$(1))),,version)$(call version_older,$(GO_MOD_VERSION),$(call golangci_go_version,$(1)))
+
 # Local bin version check
 ifneq ($(wildcard $(GOLANGCI_BIN)),)
-GOLANGCI_BIN_VERSION:=$(shell $(GOLANGCI_BIN) --version)
-ifneq ($(GOLANGCI_BIN_VERSION),)
-GOLANGCI_BIN_VERSION_SHORT:=$(shell echo "$(GOLANGCI_BIN_VERSION)" | sed -E 's/.* version (.*) built from .* on .*/\1/g')
-else
-GOLANGCI_BIN_VERSION_SHORT:=0
-endif
-ifneq "$(GOLANGCI_TAG)" "$(word 1, $(sort $(GOLANGCI_TAG) $(GOLANGCI_BIN_VERSION_SHORT)))"
+ifneq ($(call golangci_unusable,$(GOLANGCI_BIN)),)
 GOLANGCI_BIN:=
 endif
 endif
 
 # Global bin version check
-ifneq (, $(shell which golangci-lint))
-GOLANGCI_VERSION:=$(shell golangci-lint --version 2> /dev/null )
-ifneq ($(GOLANGCI_VERSION),)
-GOLANGCI_VERSION_SHORT:=$(shell echo "$(GOLANGCI_VERSION)"|sed -E 's/.* version (.*) built from .* on .*/\1/g')
-else
-GOLANGCI_VERSION_SHORT:=0
-endif
-ifeq "$(GOLANGCI_TAG)" "$(word 1, $(sort $(GOLANGCI_TAG) $(GOLANGCI_VERSION_SHORT)))"
-GOLANGCI_BIN:=$(shell which golangci-lint)
+GOLANGCI_GLOBAL_BIN:=$(shell which golangci-lint)
+ifneq ($(GOLANGCI_GLOBAL_BIN),)
+ifeq ($(call golangci_unusable,$(GOLANGCI_GLOBAL_BIN)),)
+GOLANGCI_BIN:=$(GOLANGCI_GLOBAL_BIN)
 endif
 endif
 ##################### End of golang-ci checks #####################
@@ -72,12 +86,22 @@ test:
 
 .PHONY: build
 build:
-	go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" $(PWD)
+	go build -o $(BIN_NAME) -ldflags="$(LD_FLAGS)" ./cmd/go-project-starter
 
 # Linter will check only diffs with main branch (default)
 .PHONY: lint
 lint: install-lint
 	$(GOLANGCI_BIN) run --config=./configs/golangci.yml ./... --new-from-rev=origin/main --build-tags=$(SERVICE_NAME)
+
+# Check configs/golangci.yml against the config schema of the pinned linter
+# version. `golangci-lint run` ignores unknown keys, so a config left behind by
+# another major version keeps "working" while its settings are silently dropped
+# — this target is what notices. Run it whenever GOLANGCI_TAG changes.
+# Not part of the CI gate: the schema is fetched from golangci-lint.run, and a
+# docs-site outage must not turn every pull request red.
+.PHONY: lint-config-verify
+lint-config-verify: install-lint
+	$(GOLANGCI_BIN) config verify --config=./configs/golangci.yml
 
 # Run full code lint
 .PHONY: lint-full
@@ -92,7 +116,7 @@ lint-fix: lint
 # Install config to your home directory.
 .PHONY: install-config
 install-config:
-	@cp .golangci.yml $(HOME)/.golangci.yaml
+	@cp ./configs/golangci.yml $(HOME)/.golangci.yaml
 	@echo "Golangci config installed to $(HOME)/.golangci.yaml"
 
 # Create test coverage report
@@ -101,9 +125,13 @@ coverage:
 	@go tool cover -html=.cover -o coverage.html
 	@go tool cover -func .cover | grep "total:"
 
+# Unit tests with the race detector. This is the CI gate (unit-test.yml), so
+# -count=1 keeps the test cache from masking a failure on a re-run.
+# ./test/docker-integration is excluded: it needs a prebuilt image and has its
+# own job (make integration-test).
 .PHONY: race
 race:
-	@go test $$(go list ./... | grep -v /test/docker-integration) -race -parallel=10
+	@go test $$(go list ./... | grep -v /test/docker-integration) -race -parallel=10 -count=1
 
 .PHONY: local-install
 local-install:
@@ -166,7 +194,11 @@ integration-test-combined: buildfortest build-test-image
 integration-test-grafana: buildfortest build-test-image
 	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGrafana ./test/docker-integration/...
 
+.PHONY: integration-test-goat
+integration-test-goat: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationRESTEnvsGoat ./test/docker-integration/...
+
 # Run documentation server locally
 .PHONY: docs
 docs:
-	docker run --rm -p 8000:8000 -v $(PWD):/docs squidfunk/mkdocs-material serve --dev-addr=0.0.0.0:8000 --watch-theme
+	docker run --rm -p 8000:8000 -v $(CURDIR):/docs squidfunk/mkdocs-material serve --dev-addr=0.0.0.0:8000 --watch-theme

@@ -188,8 +188,15 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	}
 
 	// Validate GitHub CI configuration
-	if ok, msg := config.GithubCI.IsValid(); !ok {
+	if ok, msg := config.GithubCI.IsValid(config.Main.RegistryType); !ok {
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
+	}
+
+	// Validate the custom generators together with the contracts they consume:
+	// a dangling generator_name or a command reading a variable the contract
+	// does not set has to fail here, not halfway through a generation run.
+	if ok, msg := ValidateGenerators(baseDir, config.GeneratorList, config.ContractList); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config generator/contract section: "+msg)
 	}
 
 	for i := range config.Applications {
