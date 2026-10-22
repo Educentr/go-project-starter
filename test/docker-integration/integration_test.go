@@ -762,12 +762,29 @@ func TestIntegrationRESTClientBasicAuth(t *testing.T) {
 				require.Equal(t, 0, code, "expected a BasicAuth SecuritySource method in %s", authFile)
 
 				// Credentials come from OnlineConf, one node each, under the
-				// client's auth_params subtree.
-				for _, leaf := range []string{"username", "password"} {
-					grepLeaf := fmt.Sprintf(`grep -F '"auth_params", "%s"' %s`, leaf, authFile)
+				// client's auth_params subtree — read through the generated
+				// accessor package, which is the only place the library is
+				// called from (see configs/golangci-onlineconf.yml).
+				clientPkg := fmt.Sprintf("%s_v1", client)
+
+				for _, leaf := range []string{"Username", "Password"} {
+					grepLeaf := fmt.Sprintf(`grep -F 'occonf.RESTClient%s(ctx, "%s")' %s`, leaf, clientPkg, authFile)
 					code, _, err = container.Exec(ctx, []string{"sh", "-c", grepLeaf})
 					require.NoError(t, err)
-					require.Equal(t, 0, code, "expected %s to be read from auth_params/%s", authFile, leaf)
+					require.Equal(t, 0, code, "expected %s to read %s through the accessor package", authFile, leaf)
+				}
+
+				// And the path those accessors build is still the auth_params
+				// subtree of this client: the move behind the accessors must
+				// not move the keys.
+				occonfFile := fmt.Sprintf("%s/internal/pkg/occonf/psg_occonf_gen.go", outputDir)
+
+				for _, leaf := range []string{"username", "password"} {
+					grepPath := fmt.Sprintf(`grep -F '"transport", "rest", transport, "auth_params", "%s"' %s`,
+						leaf, occonfFile)
+					code, _, err = container.Exec(ctx, []string{"sh", "-c", grepPath})
+					require.NoError(t, err)
+					require.Equal(t, 0, code, "expected the accessor of auth_params/%s to keep its path", leaf)
 				}
 
 				// The wrapper lives in this very package — importing it here
