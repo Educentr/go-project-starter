@@ -63,6 +63,14 @@ endif
 LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)' -X 'main.BuildTime=$(BUILD_DATE)' -X 'main.BuildOS=$(OSNAME)'
 # GOPATH
 GOPATH = $(shell go env GOPATH)
+# Directory the install-* targets write tool binaries into: both `go install`
+# and the curl-based install-buf land here.
+GOBIN_DIR := $(GOPATH)/bin
+# CI containers and freshly provisioned machines usually do not have GOBIN_DIR
+# on PATH, so a tool an install-* target just installed would still not be
+# callable by name. Append it — after the caller's PATH, so a binary baked into
+# a toolchain image keeps priority over a copy in GOBIN_DIR.
+export PATH := $(PATH):$(GOBIN_DIR)
 GOPROXY ?=https://proxy.golang.org,direct
 GOPRIVATE ?=github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}
 PACKAGE = $(shell go list -m)
@@ -507,10 +515,10 @@ build: {{ range $_, $a := .Applications }}build-{{ $a.Name }} {{ end }}
 
 .PHONE: build-for-test
 build-for-test: {{ range $_, $a := .Applications }}build_for_test-{{ $a.Name }} {{ end }}
-
+{{ $bufLocal := false }}{{ range $_, $h := .Applications.GetGrpcTransport }}{{ if $h.BufLocalPlugins }}{{ $bufLocal = true }}{{ end }}{{ end }}
 # Generate pb files from proto description
 .PHONY: proto
-proto:
+proto:{{ if $bufLocal }} ensure-buf ensure-protoc-plugins{{ end }}
 {{ $proto := false }}
 {{- range $_, $h := .Applications.GetGrpcTransport }}
 	{{ $proto = true }}
@@ -574,7 +582,7 @@ install-argen:
 {{ $jsonschema = true }}
 # Generate Go structs from JSON Schema files
 .PHONY: generate-jsonschema
-generate-jsonschema:
+generate-jsonschema: ensure-go-jsonschema
 {{- range $name, $schema := .JSONSchemas }}
 	@echo "Generating Go code from JSON Schema for {{ $name }}..."
 	@mkdir -p {{ $schema.GetTargetGeneratePath "" }}
@@ -587,6 +595,13 @@ generate-jsonschema:
 .PHONY: install-go-jsonschema
 install-go-jsonschema:
 	go install github.com/atombender/go-jsonschema@$(GO_JSONSCHEMA_VERSION)
+
+# Guard, not an unconditional "install-go-jsonschema" prerequisite: toolchain
+# images bake the binary on the same pin, and installing it on every run would
+# both hit the network and shadow the baked binary with a copy in GOBIN_DIR.
+.PHONY: ensure-go-jsonschema
+ensure-go-jsonschema:
+	@command -v go-jsonschema >/dev/null 2>&1 || $(MAKE) --no-print-directory install-go-jsonschema
 {{- end }}
 
 {{ if eq $ogen true }}
@@ -621,11 +636,11 @@ release-tag:
 # Install dependencies for protobuf generator
 .PHONY: install-buf
 install-buf:
-	mkdir -p "$(shell go env GOPATH)/bin"
+	mkdir -p "$(GOBIN_DIR)"
 	curl -sSL \
     	"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(shell uname -s)-$(shell uname -m)" \
-    	-o "$(shell go env GOPATH)/bin/buf" && \
-  	chmod +x "$(shell go env GOPATH)/bin/buf"
+    	-o "$(GOBIN_DIR)/buf" && \
+  	chmod +x "$(GOBIN_DIR)/buf"
 
 # Install protoc-gen-go and protoc-gen-go-grpc
 # Pin protoc-gen-go-grpc: v1.6.2 bumped the required Go version to 1.25.0,
@@ -635,6 +650,21 @@ install-buf:
 install-protoc-gen-go-grpc:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+{{- if $bufLocal }}
+
+# buf and the local protoc plugins it shells out to (buf.gen.yaml uses
+# "local: protoc-gen-go" / "local: protoc-gen-go-grpc") have to be on PATH for
+# the `buf generate` in the proto target. Guarded rather than an unconditional
+# prerequisite: toolchain images bake these binaries, and installing them on
+# every run would both hit the network and shadow the baked ones via GOBIN_DIR.
+.PHONY: ensure-buf
+ensure-buf:
+	@command -v buf >/dev/null 2>&1 || $(MAKE) --no-print-directory install-buf
+
+.PHONY: ensure-protoc-plugins
+ensure-protoc-plugins:
+	@{ command -v protoc-gen-go && command -v protoc-gen-go-grpc; } >/dev/null 2>&1 || $(MAKE) --no-print-directory install-protoc-gen-go-grpc
+{{- end }}
 {{- end }}
 
 # Install local git hooks
@@ -669,7 +699,7 @@ tidy: get-runtime
 
 
 .PHONY: clean-import
-clean-import:
+clean-import: ensure-goimports
 	@echo "cleaning imports..."
 	@goimports -w .
 
@@ -697,6 +727,13 @@ install-goimports:
 	# Pin: golang.org/x/tools@v0.43.0+ requires Go 1.25.0. v0.42.0 is the
 	# last release still compatible with generated projects pinned to Go 1.24.
 	go install golang.org/x/tools/cmd/goimports@v0.42.0
+
+# Guard, not an unconditional "install-goimports" prerequisite: toolchain
+# images bake the binary on the same pin, and installing it on every run would
+# both hit the network and shadow the baked binary with a copy in GOBIN_DIR.
+.PHONY: ensure-goimports
+ensure-goimports:
+	@command -v goimports >/dev/null 2>&1 || $(MAKE) --no-print-directory install-goimports
 
 .PHONY: install-onlineconf-updater
 install-onlineconf-updater:
