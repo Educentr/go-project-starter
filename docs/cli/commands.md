@@ -191,6 +191,20 @@ go-project-starter migrate --configDir=.project-config
 2. Применение миграций для устаревших полей
 3. Сохранение обновлённой конфигурации
 
+## version
+
+Версия генератора, коммит сборки и время сборки.
+
+```bash
+go-project-starter version
+```
+
+Флаг `--version` — та же команда, вывод одинаковый:
+
+```bash
+go-project-starter --version
+```
+
 ## Общие флаги
 
 Флаги, доступные для всех команд:
@@ -198,4 +212,4 @@ go-project-starter migrate --configDir=.project-config
 | Флаг | Описание |
 |------|----------|
 | `--help`, `-h` | Показать справку |
-| `--version` | Показать версию |
+| `--version` | Показать версию (эквивалент подкоманды `version`) |

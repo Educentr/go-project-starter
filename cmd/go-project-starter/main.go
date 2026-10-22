@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -26,6 +27,8 @@ const (
 	cmdInit           = "init"
 	cmdMigrate        = "migrate"
 	cmdVersion        = "version"
+	argVersion        = "--version"
+	argEndOfFlags     = "--"
 	defaultConfigDir  = ".project-config"
 	defaultConfigFile = "project.yaml"
 	flagConfig        = "config"
@@ -47,6 +50,7 @@ const (
 	layoutFailedToInit            = "failed to run init: %v"
 	layoutFailedToMigrate         = "failed to migrate config: %v"
 	layoutInvalidSourceRef        = "invalid --%s: %v"
+	layoutVersion                 = "go-project-starter %s\ncommit: %s\nbuilt: %s\n"
 )
 
 var (
@@ -56,6 +60,15 @@ var (
 )
 
 func main() {
+	// Answered before the subcommand dispatch: --version is documented as a
+	// flag common to every command, and each subcommand hands pflag only its
+	// own arguments, so no single flag set can see it.
+	if versionRequested(os.Args[1:]) {
+		printVersion(os.Stdout)
+
+		return
+	}
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case cmdSetup:
@@ -70,14 +83,40 @@ func main() {
 			runMigrate()
 
 			return
-		case cmdVersion:
-			fmt.Printf("go-project-starter %s\ncommit: %s\nbuilt: %s\n", version, commit, buildDate)
-
-			return
 		}
 	}
 
 	runGenerator()
+}
+
+// versionRequested reports whether args — the process arguments without the
+// program name — ask for the version of the generator. Both documented forms
+// count: the `version` subcommand, and the --version flag in any position,
+// including after a subcommand of its own. Past the end-of-flags terminator
+// everything is an operand, so a literal `--version` there is not a request.
+func versionRequested(args []string) bool {
+	if len(args) > 0 && args[0] == cmdVersion {
+		return true
+	}
+
+	for _, arg := range args {
+		switch arg {
+		case argEndOfFlags:
+			return false
+		case argVersion:
+			return true
+		}
+	}
+
+	return false
+}
+
+// printVersion writes the build identity of the binary: the version it was
+// built from, the commit and the build time, all three stamped by the linker
+// (LD_FLAGS in the Makefile). Both request forms print exactly this, so a
+// script may parse the output of either one.
+func printVersion(w io.Writer) {
+	fmt.Fprintf(w, layoutVersion, version, commit, buildDate)
 }
 
 func runSetup() {
