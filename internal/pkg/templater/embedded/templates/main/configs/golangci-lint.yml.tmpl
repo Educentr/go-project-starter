@@ -25,6 +25,10 @@ linters:
     - funlen
     - ginkgolinter
     - gocheckcompilerdirectives
+    # init() — неявный side-effect при импорте, зависящий от порядка инициализации
+    # пакетов. Точки расширения сгенерированного кода объявлены так, что init() для
+    # них не нужен, поэтому линтер включён и НЕ исключён для _test.go (TOOLS-30).
+    - gochecknoinits
     - goconst
     - gocritic
     - gocyclo
@@ -175,7 +179,6 @@ linters:
           - forcetypeassert
           - funlen
           - gochecknoglobals
-          - gochecknoinits
           - goconst
           - gocritic
           - gocyclo
