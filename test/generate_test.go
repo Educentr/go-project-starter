@@ -1443,8 +1443,11 @@ func TestGenerateQueueWorker(t *testing.T) {
 	})
 }
 
-// TestGenerateDaemonWorker tests that daemon worker generates correctly and exposes
-// loop timers (NewCycleTimeout, ErrorTimeout) as env-var-overridable variables.
+// TestGenerateDaemonWorker tests that daemon worker generates correctly and that
+// its loop timers stay overridable through env vars — as worker fields read in
+// Create, not as package-level variables reading the environment in their own
+// initializers (TOOLS-31). The read now happens at a point main can be seen to
+// reach, instead of as a side effect of importing the package.
 func TestGenerateDaemonWorker(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
@@ -1487,9 +1490,30 @@ func TestGenerateDaemonWorker(t *testing.T) {
 		"func durationFromEnv(key string, def time.Duration) time.Duration",
 		`durationFromEnv("WORKER_DAEMON_ERROR_TIMEOUT"`,
 		`durationFromEnv("WORKER_DAEMON_NEW_CYCLE_TIMEOUT"`,
+		// Read in the constructor, into fields, with the defaults behind
+		// accessors so a worker built as &Worker{} does not spin on a zero timer.
+		"loopErrorTimeout:    durationFromEnv(",
+		"loopNewCycleTimeout: durationFromEnv(",
+		"func (w *Worker) errorTimeout() time.Duration",
+		"func (w *Worker) newCycleTimeout() time.Duration",
+		"timer = time.NewTimer(w.errorTimeout())",
+		"timer = time.NewTimer(w.newCycleTimeout())",
+	})
+
+	daemon, err := os.ReadFile(filepath.Join(tmpDir, "internal/app/worker/daemon/psg_daemon_gen.go"))
+	if err != nil {
+		t.Fatalf("Error reading psg_daemon_gen.go: %v", err)
+	}
+
+	for _, gone := range []string{
 		"ErrorTimeout    = durationFromEnv(",
 		"NewCycleTimeout = durationFromEnv(",
-	})
+	} {
+		if strings.Contains(string(daemon), gone) {
+			t.Errorf("psg_daemon_gen.go still reads the environment in a package-level "+
+				"var initializer (%q): gochecknoglobals is enabled in the generated config", gone)
+		}
+	}
 }
 
 // TestGenerateTelegramWorkerGoVersion tests that a project with a telegram worker is
@@ -1582,11 +1606,17 @@ func goDirective(goMod string) (int, int, error) {
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
 // are automatically removed during regeneration.
 // TestGenerateTelegramWorkerHooks — шаблон telegram-воркера оставляет проекту точки
-// расширения, которые можно переназначить ниже маркера пользовательской секции:
-// разбор апдейтов (updateHandler + updateHandlerIdle для GracefulStop) и реакция на
-// неизвестную команду (unknownCommandHandler). Без них проект правит Run() руками, и
-// regenerate эти правки стирает. Заодно: лог JobStarter не пишет апдейт целиком —
-// в сообщении бота может лежать токен или пароль.
+// расширения: разбор апдейтов (с idle-половиной для GracefulStop), реакция на
+// неизвестную команду и ответы на свои ошибки авторизации. Без них проект правит
+// Run() руками, и regenerate эти правки стирает.
+//
+// Точки — поля воркера с сеттерами, которые зовутся из customize, а не
+// package-level переменные, которым проект присваивал новое значение (TOOLS-31):
+// два воркера в одном процессе больше не делят один набор хуков, а подмена видна
+// вызовом, а не записью в переменную чужого пакета.
+//
+// Заодно: лог JobStarter не пишет апдейт целиком — в сообщении бота может лежать
+// токен или пароль.
 func TestGenerateTelegramWorkerHooks(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
@@ -1619,14 +1649,33 @@ func TestGenerateTelegramWorkerHooks(t *testing.T) {
 
 	worker := read(t, "internal/app/worker/telegrambot/psg_telegram_gen.go")
 	for _, exp := range []string{
-		"var updateHandler = (*Worker).handleUpdate",
-		"var updateHandlerIdle = func() bool { return true }",
+		// Поля, сеттеры и дефолты внутри одного воркера.
+		"updateHandler         func(ctx context.Context, update tgbotapi.Update)",
+		"updateHandlerIdle     func() bool",
+		"unknownCommandHandler func(ctx context.Context, w *Worker, rd telegram.RequestData)",
+		"func (w *Worker) SetUpdateHandler(h func(ctx context.Context, update tgbotapi.Update), idle func() bool)",
+		"func (w *Worker) SetUnknownCommandHandler(h func(ctx context.Context, w *Worker, rd telegram.RequestData))",
+		"func (w *Worker) AddErrorHandler(target error, handler func(ctx context.Context) (telegram.Response, error))",
 		"func (w *Worker) handleUpdate(ctx context.Context, update tgbotapi.Update)",
-		"updateHandler(w, ctx, update)",
-		"== 0 && updateHandlerIdle()",
+		"func (w *Worker) invokeUpdateHandler(ctx context.Context, update tgbotapi.Update)",
+		"func (w *Worker) updateHandlerIsIdle() bool",
+		// Run и GracefulStop читают точку расширения через воркер.
+		"w.invokeUpdateHandler(ctx, update)",
+		"== 0 && w.updateHandlerIsIdle()",
 	} {
 		if !strings.Contains(worker, exp) {
 			t.Errorf("psg_telegram_gen.go should contain %q", exp)
+		}
+	}
+
+	// Прежние package-level хуки: присваивание им из кода проекта должно
+	// перестать компилироваться, а не продолжать работать рядом с полями.
+	for _, gone := range []string{
+		"var updateHandler =",
+		"var updateHandlerIdle =",
+	} {
+		if strings.Contains(worker, gone) {
+			t.Errorf("psg_telegram_gen.go still declares the package-level hook %q", gone)
 		}
 	}
 
@@ -1635,14 +1684,23 @@ func TestGenerateTelegramWorkerHooks(t *testing.T) {
 	}
 
 	router := read(t, "internal/app/worker/telegrambot/psg_router_gen.go")
-	if !strings.Contains(router, "var unknownCommandHandler = func(ctx context.Context, w *Worker, rd telegram.RequestData) {}") {
-		t.Error("psg_router_gen.go should declare the unknownCommandHandler hook")
+	if strings.Contains(router, "var unknownCommandHandler =") {
+		t.Error("psg_router_gen.go still declares the package-level unknownCommandHandler hook")
 	}
 
-	if got := strings.Count(router, "unknownCommandHandler(ctx, w, requestData)"); got != 3 {
-		t.Errorf("unknownCommandHandler should be called on every unknown-command branch (callback, text, document): got %d calls", got)
+	if got := strings.Count(router, "w.handleUnknownCommand(ctx, requestData)"); got != 3 {
+		t.Errorf("the unknown-command hook should be reached on every branch (callback, text, document): got %d calls", got)
 	}
 
+	// CustomError был экспортированной мутабельной картой пакета; реестр стал полем.
+	workerFile := read(t, "internal/app/worker/telegrambot/psg_worker_gen.go")
+	if strings.Contains(workerFile, "var CustomError =") {
+		t.Error("psg_worker_gen.go still declares the package-level CustomError registry")
+	}
+
+	if !strings.Contains(workerFile, "for _, ce := range w.customErrors {") {
+		t.Error("HandleAuthError should walk the worker's own error handlers")
+	}
 }
 
 // TestGenerateTelegramClientTimeout — HTTP-клиент бота обязан иметь таймаут.

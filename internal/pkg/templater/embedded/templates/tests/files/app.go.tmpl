@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 
 {{ if .Application.UseActiveRecord }}
 	"github.com/Educentr/go-activerecord/v3/pkg/activerecord"
@@ -19,56 +18,28 @@ import (
 	"github.com/Educentr/goat/testutil"
 )
 
-var (
-	env             *gtt.Env
-	appConfig       testutil.TestAppConfig
-	testEnvInitOnce sync.Once
-{{ if .Application.UseActiveRecord }}
-	activeRecordInitOnce sync.Once
-{{ end }}
-)
-
-// ensureTestEnvInitialized ensures the test environment is initialized.
-// Uses sync.Once to guarantee initialization happens exactly once, lazily on
-// first use — by then package variable initialization (including the
-// SetTestEnvInitializer call in the project's init.go) has completed.
-func ensureTestEnvInitialized() {
-	testEnvInitOnce.Do(func() {
-		// Initialize test environment using TestEnvInitializer interface
-		// This calls the implementation from psg_init_gen.go or user's init.go
-		appConfig, env = testEnvInit.InitTestEnv()
-
-		if appConfig == nil {
-			panic("TestEnvInitializer.InitTestEnv() returned nil appConfig. Implement InitTestEnv in init.go")
-		}
-		if env == nil {
-			panic("TestEnvInitializer.InitTestEnv() returned nil env. Implement InitTestEnv in init.go")
-		}
-	})
-}
-
-// NewTestApp delegates Executor creation to appConfig
+// NewTestApp delegates Executor creation to the app config
 func NewTestApp(e *gtt.Env) *gtt.Executor {
-	ensureTestEnvInitialized()
-	return appConfig.NewExecutor(e, HTTPMockAddress)
+	testEnv.ensure()
+	return testEnv.appConfig.NewExecutor(e, HTTPMockAddress)
 }
 
 // GetEnv returns the initialized test environment
 func GetEnv() *gtt.Env {
-	ensureTestEnvInitialized()
-	return env
+	testEnv.ensure()
+	return testEnv.env
 }
 
 // GetAppConfig returns the initialized app config
 func GetAppConfig() testutil.TestAppConfig {
-	ensureTestEnvInitialized()
-	return appConfig
+	testEnv.ensure()
+	return testEnv.appConfig
 }
 
 {{ if .Application.UseActiveRecord }}
 // InitTestDatabase initializes the database through appConfig
 func InitTestDatabase(ctx context.Context, e *gtt.Env) error {
-	ensureTestEnvInitialized()
+	testEnv.ensure()
 	pg := services.MustGetTyped[*psql.Env](e.Manager(), "postgres")
 	sql, err := pg.SQL()
 	if err != nil {
@@ -76,7 +47,7 @@ func InitTestDatabase(ctx context.Context, e *gtt.Env) error {
 	}
 
 	// Apply migrations through interface
-	if err := appConfig.ApplyMigrations(ctx, sql); err != nil {
+	if err := testEnv.appConfig.ApplyMigrations(ctx, sql); err != nil {
 		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
@@ -85,10 +56,10 @@ func InitTestDatabase(ctx context.Context, e *gtt.Env) error {
 
 // InitActiveRecordForTest initializes ActiveRecord through appConfig
 func InitActiveRecordForTest(ctx context.Context, e *gtt.Env) error {
-	ensureTestEnvInitialized()
-	activeRecordInitOnce.Do(func() {
+	testEnv.ensure()
+	testEnv.activeRecordOnce.Do(func() {
 		pg := services.MustGetTyped[*psql.Env](e.Manager(), "postgres")
-		configMap := appConfig.ConfigMap(pg.DBHost, pg.DBPort, pg.DBUser, pg.DBPass, pg.DBName)
+		configMap := testEnv.appConfig.ConfigMap(pg.DBHost, pg.DBPort, pg.DBUser, pg.DBPass, pg.DBName)
 
 		activerecord.InitActiveRecord(
 			activerecord.WithConfig(func(ctx context.Context) activerecord.ConfigInterface {
@@ -102,7 +73,7 @@ func InitActiveRecordForTest(ctx context.Context, e *gtt.Env) error {
 
 // CleanupTestDatabase cleans up the database after tests
 func CleanupTestDatabase(ctx context.Context, e *gtt.Env) error {
-	ensureTestEnvInitialized()
+	testEnv.ensure()
 	pg := services.MustGetTyped[*psql.Env](e.Manager(), "postgres")
 	sql, err := pg.SQL()
 	if err != nil {
@@ -120,7 +91,7 @@ func CleanupTestDatabase(ctx context.Context, e *gtt.Env) error {
 
 // CleanupTestData cleans up test data through appConfig
 func CleanupTestData(ctx context.Context, e *gtt.Env) error {
-	ensureTestEnvInitialized()
+	testEnv.ensure()
 	pg := services.MustGetTyped[*psql.Env](e.Manager(), "postgres")
 	sql, err := pg.SQL()
 	if err != nil {
@@ -128,7 +99,7 @@ func CleanupTestData(ctx context.Context, e *gtt.Env) error {
 	}
 
 	// Cleanup tables through interface
-	if err := appConfig.CleanupTables(ctx, sql); err != nil {
+	if err := testEnv.appConfig.CleanupTables(ctx, sql); err != nil {
 		return fmt.Errorf("failed to cleanup tables: %w", err)
 	}
 
@@ -152,7 +123,7 @@ func GetAPIURL(port string) string {
 {{ range $_, $tr := .Application.GetRestTransport }}{{ if ne $tr.GeneratorType "ogen_client" }}
 // {{ $tr.Name | Capitalize }}Port returns the {{ $tr.Name }} transport port
 func {{ $tr.Name | Capitalize }}Port() string {
-	ensureTestEnvInitialized()
-	return appConfig.TransportPort("{{ $tr.Name }}")
+	testEnv.ensure()
+	return testEnv.appConfig.TransportPort("{{ $tr.Name }}")
 }
 {{ end }}{{ end }}

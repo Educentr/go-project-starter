@@ -76,12 +76,14 @@ const (
 	onlineconfDirEnvVar    = "ONLINECONF_DIR"
 )
 
-// ldflags
+// Заполняются линковщиком: `go build -ldflags "-X main.Version=..."` (см. LD_FLAGS
+// в Makefile). Константами быть не могут — значение подставляется в собранный
+// объектный файл, а не в исходник, и другого механизма для этого в Go нет.
 var (
-	Version     string
-	BuildTime   string
-	BuildOS     string
-	BuildCommit string
+	Version     string //nolint:gochecknoglobals // -X main.Version
+	BuildTime   string //nolint:gochecknoglobals // -X main.BuildTime
+	BuildOS     string //nolint:gochecknoglobals // -X main.BuildOS
+	BuildCommit string //nolint:gochecknoglobals // -X main.BuildCommit
 )
 
 type UserSetFunc struct {

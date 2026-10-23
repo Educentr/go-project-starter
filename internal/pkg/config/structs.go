@@ -927,7 +927,7 @@ func (m Main) IsValid() (bool, string) {
 		return false, "Empty name"
 	}
 
-	_, ex := loggers.LoggerMapping[m.Logger]
+	_, ex := loggers.Get(m.Logger)
 	if !ex {
 		return false, "invalid logger"
 	}

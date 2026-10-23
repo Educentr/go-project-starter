@@ -298,8 +298,10 @@ git submodule update --init --recursive
 
 **Решение:** Создайте файл с реализацией интерфейса и зарегистрируйте её инициализатором
 переменной — `var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})` (см.
-[GOAT](testing/goat.md)). Присваивание `testEnvInit` из `init()` в сгенерированных
-проектах запрещено линтером `gochecknoinits`.
+[GOAT](testing/goat.md)). Присваивание из `init()` в сгенерированных проектах запрещено
+линтером `gochecknoinits`, а подменяемой package-level переменной, которой можно было бы
+присвоить, больше нет: состояние окружения держит `testEnvState`, и подменяется оно
+только через `SetTestEnvInitializer`.
 
 ## CI/CD
 

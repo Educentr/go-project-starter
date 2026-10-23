@@ -22,6 +22,8 @@ import (
 // {{ $m.VarName }} — {{ $m.Help | GoComment }}
 //
 // Metric: {{ $m.Name }} ({{ $m.Type }}){{ if $m.Labels }}, labels: {{ range $i, $l := $m.Labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}{{ end }}
+//
+//nolint:gochecknoglobals // коллектор процессный по устройству Prometheus: его регистрируют один раз и эмитят из любого места сервиса
 var {{ $m.VarName }} = {{ $m.Constructor }}(
 	{{ $m.OptsType }}{
 		Name: "{{ $m.Name }}",
