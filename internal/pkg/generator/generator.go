@@ -58,7 +58,7 @@ type Generator struct {
 	StarterVersion          string
 	TargetDir               string
 	ConfigPath              string // Source config file path for copying to target
-	DockerImagePrefix       string
+	Docker                  ds.DockerConfig
 	SkipInitService         bool
 	PostGenerate            []ExecCmd
 	Transports              ds.Transports
@@ -204,7 +204,6 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.ProjectName = config.Main.Name
 	g.RegistryType = config.Main.RegistryType
 	g.Author = config.Main.Author
-	g.DockerImagePrefix = config.Docker.ImagePrefix
 	g.SkipInitService = config.Main.SkipServiceInit
 	g.ProjectPath = config.Git.ModulePath
 	g.UseActiveRecord = config.Main.UseActiveRecord
@@ -603,6 +602,13 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		})
 	}
 
+	// Process the docker section. Config validation already rejected malformed
+	// build args and labels, so this only normalizes them.
+	g.Docker, err = config.Docker.Parse()
+	if err != nil {
+		return errors.Wrap(err, "invalid docker configuration")
+	}
+
 	for _, app := range config.Applications {
 		// Вычисляем use_active_record для приложения
 		// Default из main, override может быть только false
@@ -898,7 +904,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Repo:                    g.Repo,
 		PrivateRepos:            g.PrivateRepos,
 		PrivateReposTokenSecret: g.PrivateReposTokenSecret,
-		DockerImagePrefix:       g.DockerImagePrefix,
+		Docker:                  g.Docker,
 		SkipServiceInit:         g.SkipInitService,
 		GoLangVersion:           g.GoLangVersion,
 		OgenVersion:             g.OgenVersion,

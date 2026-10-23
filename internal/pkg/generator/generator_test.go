@@ -91,7 +91,7 @@ func TestGenerator_GetTmplParams(t *testing.T) {
 		DevStand:            true,
 		Repo:                "https://github.com/test/project",
 		PrivateRepos:        "github.com/private/*",
-		DockerImagePrefix:   "ghcr.io/test",
+		Docker:              ds.DockerConfig{ImagePrefix: "ghcr.io/test"},
 		SkipInitService:     false,
 		GoLangVersion:       "1.23",
 		OgenVersion:         "v1.0.0",
@@ -330,7 +330,7 @@ func TestGeneratorStruct_Fields(t *testing.T) {
 		GoatServicesVersion: "v0.2.0",
 		TargetDir:           "/target",
 		ConfigPath:          "/config/project.yaml",
-		DockerImagePrefix:   "ghcr.io/my",
+		Docker:              ds.DockerConfig{ImagePrefix: "ghcr.io/my"},
 		SkipInitService:     true,
 	}
 
@@ -455,19 +455,19 @@ func TestMinRuntimeVersion(t *testing.T) {
 func TestGeneratorParamsTypes(t *testing.T) {
 	t.Run("GeneratorParams fields", func(t *testing.T) {
 		params := templater.GeneratorParams{
-			AppInfo:           "info",
-			ProjectName:       "project",
-			RegistryType:      "onlineconf",
-			Author:            "author",
-			Year:              "2024",
-			ProjectPath:       "path",
-			UseActiveRecord:   true,
-			DevStand:          true,
-			Repo:              "repo",
-			PrivateRepos:      "private",
-			DockerImagePrefix: "prefix",
-			SkipServiceInit:   true,
-			GoLangVersion:     "1.23",
+			AppInfo:         "info",
+			ProjectName:     "project",
+			RegistryType:    "onlineconf",
+			Author:          "author",
+			Year:            "2024",
+			ProjectPath:     "path",
+			UseActiveRecord: true,
+			DevStand:        true,
+			Repo:            "repo",
+			PrivateRepos:    "private",
+			Docker:          ds.DockerConfig{ImagePrefix: "prefix"},
+			SkipServiceInit: true,
+			GoLangVersion:   "1.23",
 		}
 
 		if params.AppInfo != "info" {

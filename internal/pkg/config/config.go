@@ -186,6 +186,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
 	}
 
+	// Validate docker build args and labels
+	if ok, msg := config.Docker.IsValid(); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config docker section: "+msg)
+	}
+
 	// Validate the custom generators together with the contracts they consume:
 	// a dangling generator_name or a command reading a variable the contract
 	// does not set has to fail here, not halfway through a generation run.
