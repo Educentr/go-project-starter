@@ -30,12 +30,12 @@ type Datasource struct {
 // up as vertical lines across the panels: without a matching query the events
 // are stored but never drawn.
 //
-// Only tag queries against the built-in annotation store are modelled — see
+// Only tag queries against the built-in annotation store are modeled — see
 // AnnotationDatasourceGrafana.
 type Annotation struct {
 	// Name labels the toggle in the dashboard header.
 	Name string
-	// IconColor is the colour of the marker line, in the form Grafana accepts
+	// IconColor is the color of the marker line, in the form Grafana accepts
 	// it ("yellow", "rgba(0, 211, 255, 1)", ...).
 	IconColor string
 	// Tags selects which events the query pulls in.
@@ -73,7 +73,7 @@ const (
 	// BuiltInAnnotationName is the name of the stock builtIn entry the
 	// dashboard template always emits; a declared annotation cannot reuse it.
 	BuiltInAnnotationName = "Annotations & Alerts"
-	// DefaultAnnotationIconColor is the marker colour used when icon_color is
+	// DefaultAnnotationIconColor is the marker color used when icon_color is
 	// omitted — Grafana draws nothing for an empty iconColor.
 	DefaultAnnotationIconColor = "yellow"
 	// DefaultAnnotationLimit is the event cap used when limit is omitted. It

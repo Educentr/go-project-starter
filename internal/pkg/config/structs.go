@@ -251,7 +251,7 @@ type (
 	GrafanaAnnotation struct {
 		// Name labels the toggle in the dashboard header. Required.
 		Name string `mapstructure:"name"`
-		// IconColor is the marker colour as Grafana accepts it ("yellow",
+		// IconColor is the marker color as Grafana accepts it ("yellow",
 		// "rgba(0, 211, 255, 1)", ...). Empty means
 		// grafana.DefaultAnnotationIconColor.
 		IconColor string `mapstructure:"icon_color"`
@@ -1561,7 +1561,7 @@ func (a GrafanaAnnotation) ResolvedTags() []string {
 	return tags
 }
 
-// ResolvedIconColor returns the marker colour, applying the default when
+// ResolvedIconColor returns the marker color, applying the default when
 // icon_color is omitted.
 func (a GrafanaAnnotation) ResolvedIconColor() string {
 	if a.IconColor == "" {
@@ -1707,7 +1707,7 @@ func (g Grafana) IsValid() (bool, string) {
 }
 
 // validateAnnotations checks every annotation declaration and rejects
-// duplicate names: two toggles labelled the same in the dashboard header are
+// duplicate names: two toggles labeled the same in the dashboard header are
 // indistinguishable to whoever reads the board.
 func (g Grafana) validateAnnotations() (bool, string) {
 	seenNames := make(map[string]struct{}, len(g.Annotations))

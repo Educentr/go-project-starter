@@ -675,7 +675,7 @@ func assertCLIHelpBehavior(ctx context.Context, t *testing.T, container *GolangB
 	}
 }
 
-// assertSpecDownloaded verifies that the named OpenAPI spec was materialised
+// assertSpecDownloaded verifies that the named OpenAPI spec was materialized
 // at api/rest/api/v1/<basename> inside the generated project AND that ogen
 // produced server code from it. This is the assertion that distinguishes
 // remote-spec tests from the plain rest-only flow: we want to see that
@@ -738,7 +738,7 @@ func TestIntegrationRESTOnlyRewriteRefs(t *testing.T) {
 // guard prefixes the second occurrence with `1-`; before the
 // SpecTargetFiles propagation fix that prefix leaked into the per-service
 // target dir, refrewrite's whitelist (built from canonical basenames) did
-// not recognise the prefixed sibling, and ogen failed on the unresolved
+// not recognize the prefixed sibling, and ogen failed on the unresolved
 // `../common/common.swagger.yml` $ref.
 //
 // After the fix BOTH services must land at the canonical basename in their

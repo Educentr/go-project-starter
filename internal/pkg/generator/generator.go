@@ -124,6 +124,10 @@ const (
 	// the generator itself declares.
 	errOnlineConfPathCtx = "onlineconf.path"
 
+	// errResolveFmt wraps a failure to resolve the reference a config key
+	// points at: `<config key>: resolve <reference as written>`.
+	errResolveFmt = "%s: resolve %s"
+
 	// Worker templates whose generated code reads its own OnlineConf subtree.
 	workerTemplateDaemon   = "daemon"
 	workerTemplateTelegram = "telegram"
@@ -1104,7 +1108,7 @@ func (g *Generator) processLintConfig(config cfg.Config) error {
 		context.Background(), config.BasePath, lintCfg.Overrides, g.SourceRefs,
 	)
 	if err != nil {
-		return errors.Wrapf(err, "%s: resolve %s", errLintOverridesCtx, lintCfg.Overrides)
+		return errors.Wrapf(err, errResolveFmt, errLintOverridesCtx, lintCfg.Overrides)
 	}
 
 	overrides, err := os.ReadFile(overridesPath)
@@ -1174,7 +1178,7 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 			context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
 		)
 		if err != nil {
-			return errors.Wrapf(err, "%s: resolve %s", errOnlineConfPathCtx, config.OnlineConf.Path)
+			return errors.Wrapf(err, errResolveFmt, errOnlineConfPathCtx, config.OnlineConf.Path)
 		}
 
 		keyMap, err := ockeymap.Load(mapPath)

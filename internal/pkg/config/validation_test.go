@@ -1176,7 +1176,7 @@ func TestGrafanaAnnotation_IsValid(t *testing.T) {
 
 // TestGrafanaAnnotation_Resolved covers the defaults applied between
 // project.yaml and the dashboard: an omitted field must not render as an empty
-// colour or a zero limit, both of which Grafana treats as "draw nothing".
+// color or a zero limit, both of which Grafana treats as "draw nothing".
 func TestGrafanaAnnotation_Resolved(t *testing.T) {
 	t.Run("defaults", func(t *testing.T) {
 		ann := GrafanaAnnotation{Name: "Deploys", Tags: []string{"deploy"}}

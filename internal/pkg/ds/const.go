@@ -68,6 +68,24 @@ type ChecksConfig struct {
 	FailFast bool // true = cancel the remaining checks after the first failure
 }
 
+// DoctlMode selects how the doctl CLI becomes available in the generated
+// DigitalOcean Container Registry login jobs. Declared here, above the first
+// func of the file, because decorder requires type and const declarations to
+// precede funcs (desired order: type,const,var,func); the type it configures
+// is GithubCIConfig below.
+type DoctlMode string
+
+// Doctl mode constants of the github_ci.doctl parameter.
+const (
+	// DoctlModeInstall installs doctl with digitalocean/action-doctl in every
+	// job that logs in to the registry. It is the default and the zero value.
+	DoctlModeInstall DoctlMode = "install"
+	// DoctlModeImage takes doctl from the runner image: no install step is
+	// generated at all, and the login step prints `doctl version` first so a
+	// runner image without doctl turns the job red instead of installing one.
+	DoctlModeImage DoctlMode = "image"
+)
+
 // Enabled reports whether at least one check is declared. When false the checks
 // job is not generated and the CI graph stays exactly as it was.
 func (c ChecksConfig) Enabled() bool {
@@ -94,21 +112,6 @@ type RunsOnSpec struct {
 	Group  string
 	Labels []string
 }
-
-// DoctlMode selects how the doctl CLI becomes available in the generated
-// DigitalOcean Container Registry login jobs.
-type DoctlMode string
-
-// Doctl mode constants of the github_ci.doctl parameter.
-const (
-	// DoctlModeInstall installs doctl with digitalocean/action-doctl in every
-	// job that logs in to the registry. It is the default and the zero value.
-	DoctlModeInstall DoctlMode = "install"
-	// DoctlModeImage takes doctl from the runner image: no install step is
-	// generated at all, and the login step prints `doctl version` first so a
-	// runner image without doctl turns the job red instead of installing one.
-	DoctlModeImage DoctlMode = "image"
-)
 
 // GithubCIConfig holds settings applied to every job of the generated GitHub
 // Actions workflows (.github/workflows/ci_cd.yml, go-version-check.yml).

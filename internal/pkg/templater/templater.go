@@ -353,7 +353,7 @@ func hasAnyPrefix(path string, prefixes []string) bool {
 // user-provided static assets.
 //
 // Non-regular entries (symlinks, sockets, devices, fifos) are never generator
-// artefacts. A path from the generated file set occupied by one fails the diff
+// artifacts. A path from the generated file set occupied by one fails the diff
 // with ErrNonRegularTarget — writing there would follow the entry instead of
 // replacing it. In the fallback tree walk the remaining non-regular entries are
 // recorded in OtherFiles and their contents are not read; with a manifest they
