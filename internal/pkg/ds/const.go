@@ -68,11 +68,13 @@ type ChecksConfig struct {
 	FailFast bool // true = cancel the remaining checks after the first failure
 }
 
+// Declared above the first func of the file, away from the GithubCIConfig it
+// configures, because decorder wants every type and const ahead of the funcs
+// (order: type,const,var,func).
+
 // DoctlMode selects how the doctl CLI becomes available in the generated
-// DigitalOcean Container Registry login jobs. Declared here, above the first
-// func of the file, because decorder requires type and const declarations to
-// precede funcs (desired order: type,const,var,func); the type it configures
-// is GithubCIConfig below.
+// DigitalOcean Container Registry login jobs. It configures GithubCIConfig
+// below.
 type DoctlMode string
 
 // Doctl mode constants of the github_ci.doctl parameter.
