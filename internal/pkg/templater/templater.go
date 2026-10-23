@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
@@ -23,6 +24,10 @@ import (
 // MinRuntimeVersion is the minimum supported version of go-project-starter-runtime.
 // This should be updated when new runtime version is released.
 const MinRuntimeVersion = "v0.15.0"
+
+// goTypeDuration is the Go type the CLI flag helpers emit for a `duration`
+// flag declared in a CLI spec.
+const goTypeDuration = "time.Duration"
 
 // DefaultPrivateReposTokenSecret is the CI secret name used to fetch private
 // Go modules when git.private_repos_token_secret is not set in project.yaml.
@@ -53,17 +58,22 @@ type GeneratorParams struct {
 	PrivateRepos    string
 	// Read via PrivateReposTokenSecretName, which applies the default.
 	PrivateReposTokenSecret string
-	DockerImagePrefix       string
-	SkipServiceInit         bool
-	GoLangVersion           string
-	OgenVersion             string
-	ArgenVersion            string
-	GolangciVersion         string
-	LintExcludePaths        []string
-	RuntimeVersion          string
-	GoJSONSchemaVersion     string
-	GoatVersion             string
-	GoatServicesVersion     string
+	// Docker carries the docker section of project.yaml: the image prefix plus
+	// the build args and labels of the generated Dockerfile and Makefile.
+	Docker           ds.DockerConfig
+	SkipServiceInit  bool
+	GoLangVersion    string
+	OgenVersion      string
+	ArgenVersion     string
+	GolangciVersion  string
+	LintExcludePaths []string
+	// LintConfigOwn mirrors tools.lint_config.own: the project maintains
+	// configs/golangci-lint.yml itself and the generator does not write it.
+	LintConfigOwn       bool
+	RuntimeVersion      string
+	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
 	// StarterVersion is the go-project-starter version this tree was generated
 	// with; the Makefile calls exactly it to regenerate.
 	StarterVersion string
@@ -80,7 +90,8 @@ type GeneratorParams struct {
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
 	// GithubCI carries the runner, job timeout and doctl setup applied to
-	// every job of the generated GitHub Actions workflows.
+	// every job of the generated GitHub Actions workflows, plus the checks that
+	// gate build.
 	GithubCI ds.GithubCIConfig
 	// CustomGenerators are the project's own generators (the `generator`
 	// section), with their commands already rendered per contract. Empty when
@@ -479,7 +490,7 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 		}
 	}
 
-	return diffOrphans(filesDiff, absTarget, prev, curSet)
+	return diffOrphans(filesDiff, absTarget, prev, curSet, extraIgnore)
 }
 
 // diffExpectedFile classifies one file of the current output set against its
@@ -580,9 +591,21 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel, relOld string
 
 // diffOrphans walks the previous manifest and decides what to do with the
 // files that dropped out of the current output set.
-func diffOrphans(filesDiff *ds.FilesDiff, absTarget string, prev meta.Manifest, curSet map[string]struct{}) error {
+//
+// extraIgnore holds the paths that became user-owned since the manifest was
+// written — a project that turned on tools.lint_config.own keeps a
+// configs/golangci-lint.yml the previous run had generated. Such a file
+// dropping out of the output set is the point of the setting, not an orphan:
+// it is handed over, not deleted.
+func diffOrphans(
+	filesDiff *ds.FilesDiff, absTarget string, prev meta.Manifest, curSet map[string]struct{}, extraIgnore []string,
+) error {
 	for _, rec := range prev {
 		if _, ex := curSet[rec.Path]; ex {
+			continue
+		}
+
+		if IsUserOwned(rec.Path, extraIgnore...) {
 			continue
 		}
 
@@ -788,7 +811,42 @@ func splitDisclaimer(fileContent string) (string, string, error) {
 
 const bufferSizeStep = 1024
 
+// BodyTransform rewrites the rendered template body — the generated region
+// with the disclaimer blocks cut off — before the file is assembled. It exists
+// for the golangci-lint config: folding the project's override layer in
+// requires the YAML the template produced, not the comment blocks wrapped
+// around it.
+//
+//nolint:decorder // follows existing pattern - types after consts
+type BodyTransform func(body []byte) ([]byte, error)
+
+// disclaimers holds the two raw (still unrendered) disclaimer blocks of a
+// file, so that a body transform can cut them back off the rendered output.
+//
+//nolint:decorder // follows existing pattern - types after consts
+type disclaimers struct {
+	start  string
+	finish string
+}
+
+// YAMLQuote renders s as a single-quoted YAML scalar. Used for values that come
+// verbatim from project.yaml (CI check names and commands) and may contain
+// characters a plain scalar cannot carry — ':', '#', leading '*' and so on.
+func YAMLQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
 func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string) (*bytes.Buffer, error) {
+	return GenerateByTmplWithTransform(tmpl, params, userCode, destPath, nil)
+}
+
+// GenerateByTmplWithTransform renders a template and, when transform is
+// non-nil, hands the rendered body to it before the disclaimer blocks and the
+// preserved user code are assembled back around it. A nil transform produces
+// byte-for-byte what GenerateByTmpl produces.
+func GenerateByTmplWithTransform(
+	tmpl Template, params any, userCode []byte, destPath string, transform BodyTransform,
+) (*bytes.Buffer, error) {
 	startDisclaimer, err := makeStartDisclaimer(destPath)
 	if err != nil {
 		return nil, err
@@ -799,7 +857,53 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		return nil, err
 	}
 
-	var funcs = template.FuncMap{
+	funcs := templateFuncs()
+
+	buf := &bytes.Buffer{}
+
+	buf.Grow(len(userCode) + bufferSizeStep*((len(startDisclaimer)+len(tmpl.Tmpl)+len(finishDisclaimer))/bufferSizeStep) + 1)
+
+	templatePackage, err := template.New(destPath).Funcs(funcs).Parse(startDisclaimer + tmpl.Tmpl + "\n" + finishDisclaimer)
+	if err != nil {
+		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
+		if errGetLine != nil {
+			tmplLines = errGetLine.Error()
+		}
+
+		return nil, errors.New("error parse template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	}
+
+	if err = templatePackage.Execute(buf, params); err != nil {
+		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
+		if errGetLine != nil {
+			tmplLines = errGetLine.Error()
+		}
+
+		return nil, errors.New("error execute template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	}
+
+	if transform != nil {
+		d := disclaimers{start: startDisclaimer, finish: finishDisclaimer}
+
+		if err := applyBodyTransform(buf, d, params, funcs, transform); err != nil {
+			return nil, errors.Wrap(err, "error transform body of `"+destPath+"`")
+		}
+	}
+
+	if len(userCode) > 0 {
+		buf.Write(userCode)
+	}
+
+	return buf, nil
+}
+
+// templateFuncs returns the function map available to every template. The
+// entries are pure functions of their arguments, so one map serves the
+// template body and the disclaimer blocks of the same file.
+//
+//nolint:gocyclo // one map literal of independent one-liner helpers
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
 		"ToLower":     strings.ToLower,
 		"ToUpper":     strings.ToUpper,
 		"ReplaceDash": func(s string) string { return strings.ReplaceAll(s, "-", "_") },
@@ -823,8 +927,10 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		// Returning (string, error) makes text/template abort execution with
 		// this error. Returning only an error would render its message into
 		// the output file instead, leaving a broken artifact behind.
-		"errorf": func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
-		"add":    func(a, b int) int { return a + b },
+		//nolint:err113 // the format comes from the template, so there is no static error to wrap
+		"errorf":    func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
+		"add":       func(a, b int) int { return a + b },
+		"YAMLQuote": YAMLQuote,
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string
 			s = strings.ReplaceAll(s, `\`, `\\`)
@@ -849,12 +955,31 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			re := regexp.MustCompile(`\$\{([^}]+)\}`)
 			return re.ReplaceAllString(s, `${{ secrets.$1 }}`)
 		},
+		// goQuote renders s as a syntactically valid Go string literal
+		// (quotes included). Every value that comes from a user-supplied spec
+		// and ends up inside generated Go source must go through it —
+		// descriptions may legitimately contain quotes, backslashes or
+		// newlines, which would otherwise terminate the literal and produce
+		// code that does not compile.
+		"goQuote": strconv.Quote,
 		// CLI template helpers for flag handling
 		"flagDefault": func(goType, defaultVal string) string {
 			if defaultVal != "" {
 				switch goType {
 				case "string":
-					return `"` + defaultVal + `"`
+					return strconv.Quote(defaultVal)
+				case goTypeDuration:
+					// flag.Duration takes a time.Duration, not the "5s" the
+					// spec spells it with. Spec defaults are validated at load
+					// time, so a parse failure here can only mean the
+					// validation and this helper disagree — fall back to the
+					// zero value instead of emitting broken source.
+					d, err := time.ParseDuration(defaultVal)
+					if err != nil {
+						return "0"
+					}
+
+					return "time.Duration(" + strconv.FormatInt(int64(d), 10) + ")"
 				case "bool":
 					return defaultVal
 				default:
@@ -870,7 +995,7 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 				return "false"
 			case "float64":
 				return "0"
-			case "time.Duration":
+			case goTypeDuration:
 				return "0"
 			default:
 				return `""`
@@ -886,7 +1011,7 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 				return "*" + varName + " == 0"
 			case "bool":
 				return "!*" + varName
-			case "time.Duration":
+			case goTypeDuration:
 				return "*" + varName + " == 0"
 			default:
 				return "*" + varName + ` == ""`
@@ -956,35 +1081,70 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			}
 		},
 	}
+}
 
-	buf := &bytes.Buffer{}
-
-	buf.Grow(len(userCode) + bufferSizeStep*((len(startDisclaimer)+len(tmpl.Tmpl)+len(finishDisclaimer))/bufferSizeStep) + 1)
-
-	templatePackage, err := template.New(destPath).Funcs(funcs).Parse(startDisclaimer + tmpl.Tmpl + "\n" + finishDisclaimer)
+// applyBodyTransform cuts the rendered disclaimer blocks off buf, hands the
+// remaining body to transform and reassembles buf in place.
+//
+// The blocks are located by rendering them on their own with the same funcs
+// and params the combined template got: both are deterministic functions of
+// the file name, so the rendered output is an exact prefix and suffix of buf.
+// A mismatch means the assumption broke (e.g. the template body now starts
+// with a `{{-` that trims into the disclaimer) and is reported rather than
+// patched over, because guessing the boundary would corrupt the marker the
+// next regeneration looks for.
+func applyBodyTransform(
+	buf *bytes.Buffer, d disclaimers, params any, funcs template.FuncMap, transform BodyTransform,
+) error {
+	start, err := renderRaw("disclaimer:start", d.start, params, funcs)
 	if err != nil {
-		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
-		if errGetLine != nil {
-			tmplLines = errGetLine.Error()
-		}
-
-		return nil, errors.New("error parse template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+		return err
 	}
 
-	if err = templatePackage.Execute(buf, params); err != nil {
-		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
-		if errGetLine != nil {
-			tmplLines = errGetLine.Error()
-		}
-
-		return nil, errors.New("error execute template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	finish, err := renderRaw("disclaimer:finish", d.finish, params, funcs)
+	if err != nil {
+		return err
 	}
 
-	if len(userCode) > 0 {
-		buf.Write(userCode)
+	body, ok := strings.CutPrefix(buf.String(), start)
+	if !ok {
+		return errors.New("rendered output does not start with the disclaimer block")
 	}
 
-	return buf, nil
+	body, ok = strings.CutSuffix(body, "\n"+finish)
+	if !ok {
+		return errors.New("rendered output does not end with the disclaimer block")
+	}
+
+	newBody, err := transform([]byte(body))
+	if err != nil {
+		return err
+	}
+
+	buf.Reset()
+	buf.WriteString(start)
+	buf.Write(newBody)
+	buf.WriteString("\n")
+	buf.WriteString(finish)
+
+	return nil
+}
+
+// renderRaw executes a standalone template snippet (a disclaimer block) and
+// returns its output.
+func renderRaw(name, text string, params any, funcs template.FuncMap) (string, error) {
+	tmpl, err := template.New(name).Funcs(funcs).Parse(text)
+	if err != nil {
+		return "", errors.Wrap(err, "error parse "+name)
+	}
+
+	var buf bytes.Buffer
+
+	if err := tmpl.Execute(&buf, params); err != nil {
+		return "", errors.Wrap(err, "error execute "+name)
+	}
+
+	return buf.String(), nil
 }
 
 func getTmplErrorLine(lines []string, tmplErr string) (string, error) {

@@ -1,0 +1,7 @@
+# One metric is enough here: the fixture exists to show that the metrics gate
+# (configs/golangci-metrics.yml + `make metrics-validate`) is generated
+# independently of who owns configs/golangci-lint.yml.
+metrics:
+  - name: restarts_total
+    type: Counter
+    help: Supervisor restarts since process start.

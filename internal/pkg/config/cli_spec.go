@@ -3,7 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -47,6 +50,54 @@ var validFlagTypes = map[string]bool{
 	"duration": true,
 }
 
+// validName matches command, subcommand and flag names that are safe both as
+// a shell token and as part of a generated Go identifier. Descriptions and
+// defaults are free text (they are escaped on the way into generated source),
+// but names are not: they become method names, flag names and map keys.
+var validName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
+
+// ErrInvalidName is returned for a command, subcommand or flag name that
+// cannot be used both as a CLI token and as part of a Go identifier.
+var ErrInvalidName = errors.New("invalid name: expected letters, digits, '_' or '-', starting with a letter")
+
+// validateName checks that a command/subcommand/flag name can be turned into
+// a Go identifier and used as a CLI token.
+func validateName(kind, name string) error {
+	if !validName.MatchString(name) {
+		return errors.Wrapf(ErrInvalidName, "%s %q", kind, name)
+	}
+
+	return nil
+}
+
+// validateFlagDefault checks that a default value is parseable as its flag
+// type. An unparseable default used to reach the templates verbatim and emit
+// Go source that does not compile (e.g. `fs.Int("limit", many, ...)`).
+func validateFlagDefault(flagType, defaultVal string) error {
+	if defaultVal == "" {
+		return nil
+	}
+
+	var err error
+
+	switch flagType {
+	case "int":
+		_, err = strconv.Atoi(defaultVal)
+	case "bool":
+		_, err = strconv.ParseBool(defaultVal)
+	case "float64":
+		_, err = strconv.ParseFloat(defaultVal, 64)
+	case "duration":
+		_, err = time.ParseDuration(defaultVal)
+	}
+
+	if err != nil {
+		return fmt.Errorf("default %q is not a valid %s: %w", defaultVal, flagType, err)
+	}
+
+	return nil
+}
+
 // ParseCLISpec reads and parses a CLI spec YAML file
 func ParseCLISpec(path string) (*CLISpec, error) {
 	data, err := os.ReadFile(path)
@@ -79,6 +130,10 @@ func (s *CLISpec) Validate() error {
 			return errors.New("command name is empty")
 		}
 
+		if err := validateName("command", cmd.Name); err != nil {
+			return err
+		}
+
 		if _, exists := seenCommands[cmd.Name]; exists {
 			return fmt.Errorf("duplicate command name: %s", cmd.Name)
 		}
@@ -103,6 +158,10 @@ func (s *CLISpec) Validate() error {
 				return fmt.Errorf("command '%s' has a subcommand with empty name", cmd.Name)
 			}
 
+			if err := validateName("subcommand", sub.Name); err != nil {
+				return errors.Wrapf(err, "command '%s'", cmd.Name)
+			}
+
 			if _, exists := seenSubs[sub.Name]; exists {
 				return fmt.Errorf("command '%s': duplicate subcommand name: %s", cmd.Name, sub.Name)
 			}
@@ -125,6 +184,10 @@ func validateFlags(flags []CLISpecFlag) error {
 			return errors.New("flag name is empty")
 		}
 
+		if err := validateName("flag", f.Name); err != nil {
+			return err
+		}
+
 		if _, exists := seenFlags[f.Name]; exists {
 			return fmt.Errorf("duplicate flag name: %s", f.Name)
 		}
@@ -137,6 +200,10 @@ func validateFlags(flags []CLISpecFlag) error {
 
 		if !validFlagTypes[flagType] {
 			return fmt.Errorf("flag '%s': invalid type '%s' (valid: string, int, bool, float64, duration)", f.Name, flagType)
+		}
+
+		if err := validateFlagDefault(flagType, f.Default); err != nil {
+			return errors.Wrapf(err, "flag '%s'", f.Name)
 		}
 	}
 

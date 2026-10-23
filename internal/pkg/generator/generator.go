@@ -15,6 +15,7 @@ import (
 	cfg "github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+	"github.com/Educentr/go-project-starter/internal/pkg/lintconfig"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
 	"github.com/Educentr/go-project-starter/internal/pkg/refrewrite"
@@ -51,27 +52,34 @@ type Generator struct {
 	ArgenVersion            string
 	GolangciVersion         string
 	LintExcludePaths        []string
-	RuntimeVersion          string
-	GoJSONSchemaVersion     string
-	GoatVersion             string
-	GoatServicesVersion     string
-	StarterVersion          string
-	TargetDir               string
-	ConfigPath              string // Source config file path for copying to target
-	DockerImagePrefix       string
-	SkipInitService         bool
-	PostGenerate            []ExecCmd
-	Transports              ds.Transports
-	Workers                 ds.Workers
-	Drivers                 ds.Drivers
-	JSONSchemas             ds.JSONSchemas
-	Kafka                   ds.KafkaConfigs
-	Applications            ds.Apps
-	Grafana                 grafana.Config
-	Artifacts               ds.ArtifactsConfig
-	Documentation           ds.DocsConfig
-	Metrics                 ds.MetricsConfig
-	GithubCI                ds.GithubCIConfig
+	// LintConfigOwn mirrors tools.lint_config.own: configs/golangci-lint.yml
+	// belongs to the project and the generator neither writes nor deletes it.
+	LintConfigOwn bool
+	// LintOverrides is the project's lint override document, already fetched
+	// and read (tools.lint_config.overrides). Nil means no override layer, in
+	// which case the lint config is rendered exactly as before.
+	LintOverrides       []byte
+	RuntimeVersion      string
+	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
+	StarterVersion      string
+	TargetDir           string
+	ConfigPath          string // Source config file path for copying to target
+	Docker              ds.DockerConfig
+	SkipInitService     bool
+	PostGenerate        []ExecCmd
+	Transports          ds.Transports
+	Workers             ds.Workers
+	Drivers             ds.Drivers
+	JSONSchemas         ds.JSONSchemas
+	Kafka               ds.KafkaConfigs
+	Applications        ds.Apps
+	Grafana             grafana.Config
+	Artifacts           ds.ArtifactsConfig
+	Documentation       ds.DocsConfig
+	Metrics             ds.MetricsConfig
+	GithubCI            ds.GithubCIConfig
 	// CustomGenerators are the project's own generators with their commands
 	// rendered per contract — what the Makefile targets are built from.
 	CustomGenerators ds.CustomGenerators
@@ -101,6 +109,10 @@ const (
 
 	// errMetricsMapCtx prefixes failures of the metrics map merge.
 	errMetricsMapCtx = "metrics map"
+
+	// errLintOverridesCtx prefixes failures of the lint override layer, naming
+	// the config key the operator has to look at.
+	errLintOverridesCtx = "tools.lint_config.overrides"
 
 	// errRelPathFmt wraps a failure to make a generator-written path
 	// project-relative for the manifest.
@@ -204,7 +216,6 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	g.ProjectName = config.Main.Name
 	g.RegistryType = config.Main.RegistryType
 	g.Author = config.Main.Author
-	g.DockerImagePrefix = config.Docker.ImagePrefix
 	g.SkipInitService = config.Main.SkipServiceInit
 	g.ProjectPath = config.Git.ModulePath
 	g.UseActiveRecord = config.Main.UseActiveRecord
@@ -261,6 +272,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 	}
 
 	if err := g.processGenerators(config); err != nil {
+		return err
+	}
+
+	if err := g.processLintConfig(config); err != nil {
 		return err
 	}
 
@@ -588,6 +603,26 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
 		DoctlVersion:      config.GithubCI.DoctlVersion,
 		DoctlMode:         config.GithubCI.DoctlMode(),
+		Checks: ds.ChecksConfig{
+			// No checks declared — no checks job, CI graph unchanged.
+			Checks:   make([]ds.Check, 0, len(config.GithubCI.Checks)),
+			FailFast: config.GithubCI.ChecksConfig.FailFast,
+		},
+	}
+
+	for _, check := range config.GithubCI.Checks {
+		g.GithubCI.Checks.Checks = append(g.GithubCI.Checks.Checks, ds.Check{
+			Name:          check.Name,
+			Run:           check.Run,
+			RegistryLogin: check.RegistryLogin,
+		})
+	}
+
+	// Process the docker section. Config validation already rejected malformed
+	// build args and labels, so this only normalizes them.
+	g.Docker, err = config.Docker.Parse()
+	if err != nil {
+		return errors.Wrap(err, "invalid docker configuration")
 	}
 
 	for _, app := range config.Applications {
@@ -885,13 +920,14 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Repo:                    g.Repo,
 		PrivateRepos:            g.PrivateRepos,
 		PrivateReposTokenSecret: g.PrivateReposTokenSecret,
-		DockerImagePrefix:       g.DockerImagePrefix,
+		Docker:                  g.Docker,
 		SkipServiceInit:         g.SkipInitService,
 		GoLangVersion:           g.GoLangVersion,
 		OgenVersion:             g.OgenVersion,
 		ArgenVersion:            g.ArgenVersion,
 		GolangciVersion:         g.GolangciVersion,
 		LintExcludePaths:        g.LintExcludePaths,
+		LintConfigOwn:           g.LintConfigOwn,
 		RuntimeVersion:          g.RuntimeVersion,
 		GoJSONSchemaVersion:     g.GoJSONSchemaVersion,
 		GoatVersion:             g.GoatVersion,
@@ -1008,6 +1044,95 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	}
 
 	return nil
+}
+
+// processLintConfig resolves who owns configs/golangci-lint.yml and, when the
+// project declares an override layer, fetches and parses it.
+//
+// Like the metrics map the override document is materialized inline: it is
+// consumed during generation and no copy lands in the project, so nothing
+// downstream has to read it. It honors --sourceRef for the same reason every
+// other channel does — a lint policy shared across repositories is fetched
+// from the same state of the contracts as the specs.
+//
+// Overrides are parsed here rather than at merge time so that a malformed
+// document fails before any file has been written.
+func (g *Generator) processLintConfig(config cfg.Config) error {
+	lintCfg := config.Tools.LintConfig
+
+	g.LintConfigOwn = lintCfg.Own
+
+	if lintCfg.Own && len(config.Tools.LintExcludePaths) > 0 {
+		// Not an error: an existing project turning ownership on should not have
+		// to clean up its config in the same step. But a silently dead key is a
+		// trap, so it is reported.
+		log.Printf(
+			"warning: tools.lint_exclude_paths is ignored because tools.lint_config.own is set — "+
+				"%s belongs to the project, add the paths to its exclusions.paths yourself",
+			lintconfig.ConfigPath,
+		)
+	}
+
+	if !lintCfg.HasOverrides() {
+		return nil
+	}
+
+	overridesPath, cleanup, err := resolveInlineSpec(
+		context.Background(), config.BasePath, lintCfg.Overrides, g.SourceRefs,
+	)
+	if err != nil {
+		return errors.Wrapf(err, "%s: resolve %s", errLintOverridesCtx, lintCfg.Overrides)
+	}
+
+	overrides, err := os.ReadFile(overridesPath)
+
+	cleanup()
+
+	if err != nil {
+		return errors.Wrap(err, errLintOverridesCtx)
+	}
+
+	if err := lintconfig.Validate(overrides); err != nil {
+		return errors.Wrap(err, errLintOverridesCtx)
+	}
+
+	g.LintOverrides = overrides
+
+	return nil
+}
+
+// lintBodyTransform returns the body transform that folds the project's lint
+// overrides into the rendered golangci-lint config, or nil for every other
+// file and whenever no override layer is configured. A nil transform keeps the
+// rendered output byte-for-byte identical to what the generator produced
+// before this feature existed.
+func (g *Generator) lintBodyTransform(targetPath, destName string) templater.BodyTransform {
+	if len(g.LintOverrides) == 0 {
+		return nil
+	}
+
+	rel, err := meta.RelPath(targetPath, destName)
+	if err != nil || rel != lintconfig.ConfigPath {
+		return nil
+	}
+
+	return func(body []byte) ([]byte, error) {
+		return lintconfig.Merge(body, g.LintOverrides)
+	}
+}
+
+// userOwnedPaths lists the project-relative paths whose existing contents the
+// generator must never read, rewrite or delete: user-provided static assets
+// plus configs/golangci-lint.yml when the project owns it. Passed to the
+// regeneration diff and used to keep such files out of the manifest.
+func (g *Generator) userOwnedPaths() []string {
+	paths := g.staticIgnorePaths()
+
+	if g.LintConfigOwn {
+		paths = append(paths, lintconfig.ConfigPath)
+	}
+
+	return paths
 }
 
 // resolveInlineSpec materializes a spec source into a local file for
@@ -1314,12 +1439,31 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error target path")
 	}
 
+	// Specs are copied into the project from their contract source, so a hand
+	// edit here is a change the next run overwrites — a lost change, not a
+	// customization point. Unlike drift above a disclaimer marker (a warning:
+	// the marker gives the author a place to move the code to), there is no
+	// such place in a copied file, so this aborts the run.
+	//
+	// Checked here for two reasons: nothing has been written yet, so a drifted
+	// tree is left exactly as it was; and SpecPath still holds the `path`
+	// values from project.yaml, which is what the message has to name.
+	copiedTargets, err := g.copiedSpecTargets(targetPath)
+	if err != nil {
+		return errors.Wrap(err, "Error collect copied specs")
+	}
+
+	// Dry-run is checked too: it previews a real run, and a real run stops here.
+	if err = g.Meta.Manifest.CheckCopiedDrift(targetPath, copiedTargets); err != nil {
+		return err
+	}
+
 	dirs, files, err := g.collectFiles(targetPath)
 	if err != nil {
 		return errors.Wrap(err, "Error collect files")
 	}
 
-	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.Manifest, g.staticIgnorePaths()...)
+	filesDiff, err := templater.GetUserCodeFromFiles(g.TargetDir, files, g.Meta.Manifest, g.userOwnedPaths()...)
 	if err != nil {
 		// A conflict message already names every path and the action to take;
 		// wrapping it in "Error get user code" would only bury the lede.
@@ -1340,7 +1484,13 @@ func (g *Generator) Generate() error {
 			return fmt.Errorf("failed to get template %s: %w", files[i].SourceName, err)
 		}
 
-		files[i].Code, err = templater.GenerateByTmpl(tmpl, files[i].ParamsTmpl, filesDiff.UserContent[files[i].DestName], files[i].DestName)
+		files[i].Code, err = templater.GenerateByTmplWithTransform(
+			tmpl,
+			files[i].ParamsTmpl,
+			filesDiff.UserContent[files[i].DestName],
+			files[i].DestName,
+			g.lintBodyTransform(targetPath, files[i].DestName),
+		)
 		if err != nil {
 			return errors.Wrap(err, "Error generate")
 		}
@@ -1413,7 +1563,7 @@ func (g *Generator) Generate() error {
 	// Manifest of the current run: every file we write, so that the next run
 	// knows exactly which files are ours instead of guessing from content.
 	manifest := make(meta.Manifest, 0, len(files))
-	ignorePaths := g.staticIgnorePaths()
+	ignorePaths := g.userOwnedPaths()
 
 	for _, file := range files {
 		if _, ex := filesDiff.IgnoreFiles[file.DestName]; ex {

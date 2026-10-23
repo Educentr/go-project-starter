@@ -138,6 +138,8 @@ func TestMakefileToolGuardsBehavior(t *testing.T) {
 		t.Skip("cannot hide the installed goimports without losing go/make/git from PATH")
 	}
 
+	goModCache := hostGoModCache(t)
+
 	tmpDir := generateFromConfig(t, "worker-telegram", "Generate project for guard behavior test")
 
 	// Called with "goimports -w ." by clean-import; records the call so the
@@ -155,7 +157,20 @@ func TestMakefileToolGuardsBehavior(t *testing.T) {
 		}
 
 		// GOPATH is read back by the Makefile via `go env GOPATH`.
-		env := append(os.Environ(), "GOPATH="+gopath, "PATH="+path, "GUARD_MARKER="+marker)
+		//
+		// GOMODCACHE is kept out of that throwaway GOPATH on purpose. Only
+		// GOPATH/bin is under test; pkg/mod would just inherit it. When the
+		// generated go.mod targets a Go newer than the host toolchain, the go
+		// command materializes the matching toolchain there, and a module
+		// cache is written read-only — t.TempDir cleanup then fails with
+		// "permission denied". Reusing the real cache also avoids
+		// re-downloading that toolchain for every subtest.
+		env := append(os.Environ(),
+			"GOPATH="+gopath,
+			"GOMODCACHE="+goModCache,
+			"PATH="+path,
+			"GUARD_MARKER="+marker,
+		)
 
 		cmd := exec.Command("make", "clean-import")
 		cmd.Dir = tmpDir
@@ -207,6 +222,25 @@ func TestMakefileToolGuardsBehavior(t *testing.T) {
 			t.Errorf("GOPATH/bin must stay empty when the tool is already on PATH, got %v", gopathBin)
 		}
 	})
+}
+
+// hostGoModCache reports the module cache of the host toolchain, so a test
+// running the go command under a throwaway GOPATH can keep writing there
+// instead of filling (and then failing to clean up) its temporary directory.
+func hostGoModCache(t *testing.T) string {
+	t.Helper()
+
+	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatalf("Error reading GOMODCACHE: %v", err)
+	}
+
+	cache := strings.TrimSpace(string(out))
+	if cache == "" {
+		t.Fatal("go env GOMODCACHE is empty")
+	}
+
+	return cache
 }
 
 // pathWithoutTool returns PATH with every directory containing an executable

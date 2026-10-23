@@ -35,7 +35,7 @@ make integration-test-combined
 Параметры задаются в `Makefile`:
 
 ```makefile
-INTEGRATION_GO_VERSION := 1.24.4
+INTEGRATION_GO_VERSION := 1.27.2
 INTEGRATION_BUF_VERSION := 1.47.2
 INTEGRATION_IMAGE_NAME := go-project-starter-test
 ```

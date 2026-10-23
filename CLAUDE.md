@@ -215,6 +215,31 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## Docker Build Args и Labels
+
+Секция `docker:` помимо `image_prefix` несёт `build_args` (объявление build-аргументов образа) и `labels` (OCI-лейблы финальной стадии). Нужна потому, что `LABEL` статичен и не умеет вызвать `git`: версия/ревизия обязаны приехать через `--build-arg`, а стадия, которая их использует, обязана объявить `ARG` — а builder-стадия Dockerfile целиком генерируемая, и дописанный туда руками `ARG` стирался на каждом `make regenerate`.
+
+Элемент `build_args` — либо имя (`IMAGE_VERSION`), либо объект `{name, default, stages}`. Из каждого аргумента генерируются четыре вещи: `ARG <name>` в перечисленных стадиях Dockerfile, `--build-arg <name>="$(<name>)"` в рецепте `docker-<app>`, `<name> ?= <default>` в Makefile (`?=` — приоритет за env/CLI, так переопределяет CI) и `<name>=${<name>:-}` в `build.args` приложения в `docker-compose-dev.yaml`.
+
+`stages` по умолчанию `[final]`: `ARG` обесценивает build-кеш слоёв **после** себя, а версия меняется на каждом коммите; в финальной стадии `ARG`-блок генерируется в самом её конце (после `COPY`/`CMD`/`EXPOSE`). `[builder, final]` — только когда значение реально нужно при сборке бинарника.
+
+Валидация на загрузке конфига (`config.Docker.Parse`): имя не может совпасть с `ARG`-ами шаблона (`binary`, `GOPROXY`) и переменными сгенерированного Makefile (`DOCKER_TAG`, `RELEASE`, …); ссылка `${NAME}` в значении лейбла требует аргумента, объявленного в стадии `final` (иначе лейбл молча отрендерился бы пустым). Ключи лейблов — только нижний регистр: viper приводит ключи конфига к нижнему регистру, а дотовые ключи (`org.opencontainers.image.version`) он разбивает в вложенные map'ы, которые `Parse` собирает обратно.
+
+Реализация: `internal/pkg/config/docker.go` (парсинг/валидация), `internal/pkg/ds/docker.go` (`ds.DockerConfig` + хелперы шаблонов `BuilderArgs`/`FinalArgs`/`LabelDirective`/`BuildArgFlags`/`ComposeBuildArgs`), шаблоны `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`, `main/docker-compose-dev.yaml.tmpl`. Полная документация: [docs/configuration/docker.md](docs/configuration/docker.md).
+
+## Lint Config
+
+Секция `tools.lint_config` в `project.yaml` решает, кто владеет `configs/golangci-lint.yml` — файлом, чьи правила формируют вердикт merge-гейта. Два взаимоисключающих ключа (оба сразу — ошибка конфига), по умолчанию ни одного и поведение прежнее (генератор пишет файл целиком):
+
+- `own: true` — файл принадлежит проекту. Генератор его **не пишет, не читает, не диффит и не удаляет**: путь уходит в `Generator.userOwnedPaths()`, то есть в тот же класс, что `go.mod`/`.gitignore`, и выпадает из манифеста. Включение в существующем проекте файл с диска не трогает — ровно поэтому `diffOrphans` проверяет `IsUserOwned` перед тем, как считать выпавший из вывода файл сиротой.
+- `overrides: <URI>` — слой переопределений. Мерж идёт **во время генерации**: генератор рендерит шаблон, вливает документ проекта и пишет результат. Итоговый файл по-прежнему сгенерированный (правки выше disclaimer-маркера перезаписываются), в манифест попадает как `generated`; документ переопределений — проектный, в проект не копируется. URI — те же формы, что у `rest[].path`, с учётом `--sourceRef`.
+
+Правила слияния: мапы сливаются рекурсивно, скаляры и списки заменяются, явный `null` удаляет ключ. Исключение — списки имён линтеров (`linters.enable/disable`, `formatters.enable/disable`): это операции над множеством, `enable` добавляет, `disable` убирает. `disable` разрешается на этапе генерации: линтер, который генератор включает явно, вычитается из `enable` (golangci-lint отвергает конфиг, где линтер одновременно в `enable` и `disable`), а имя, которого в `enable` нет, — это дефолт golangci-lint и оно уезжает в итоговый `disable`, иначе выключить дефолт нечем.
+
+Без обоих ключей мерж не запускается вовсе и вывод побайтно совпадает с прежним. `configs/golangci-metrics.yml` и `make metrics-validate` (гейт карты метрик) генерируются независимо от секции. `tools.lint_exclude_paths` при `own: true` ни на что не влияет — генерация печатает warning, ключ остаётся валидным.
+
+Реализация: `internal/pkg/lintconfig/` (правила слияния, `ConfigPath`), `Generator.processLintConfig()` / `lintBodyTransform()` / `userOwnedPaths()`, фильтр own-режима в `templater.GetMainTemplates()`, хук `templater.GenerateByTmplWithTransform()` (отдаёт трансформу тело шаблона без disclaimer-блоков — мерж парсит YAML, а блоки это комментарии вокруг него). Полная документация: [docs/configuration/lint-config.md](docs/configuration/lint-config.md).
+
 ## Grafana Annotations
 
 Секция `grafana.annotations[]` в `project.yaml` объявляет записи-запросы, которые эмитятся в `.annotations.list[]` **каждого** сгенерированного дашборда рядом со стоковой записью builtIn. Сами события (деплой, рестарт, краш) постит сервис в рантайме через `POST /api/annotations`; без записи-запроса они складываются в Grafana, но ни на одном графике не рисуются.
@@ -274,15 +299,16 @@ manifest:
   `.gitignore`, `README.md`, `LICENSE.txt`, `CLAUDE.md`, `static/**`), в манифест **не**
   попадают.
 
-Манифест даёт три вещи:
+Манифест даёт четыре вещи:
 
 1. **Точную orphan-детекцию.** Удаляются только файлы, которые есть в предыдущем манифесте и
    выпали из текущего вывода. Посторонние файлы в дереве (`*_gen.go.orig` от merge-конфликта,
    бэкап сгенерированного файла, индекс code-intelligence инструмента) больше **не читаются** —
    и, значит, не роняют прогон и не удаляются, даже если содержат строку disclaimer.
-2. **Детекцию ручных правок выше маркера.** Если хеш на диске не совпадает с манифестом,
-   генератор печатает `warning: <путь>: generated part was changed …`. Это предупреждение, а не
-   ошибка: правки выше маркера перезаписываются (force-режим — отдельная задача).
+2. **Детекцию ручных правок выше маркера** (`kind: generated`). Если хеш на диске не совпадает с
+   манифестом, генератор печатает `warning: <путь>: generated part was changed …`. Это
+   предупреждение, а не ошибка: правки выше маркера перезаписываются (force-режим — отдельная
+   задача).
 3. **Отказ перезаписать чужой файл (конфликт).** Файл из текущего вывода, который лежит на диске,
    но **записи в предыдущем манифесте не имеет**, генератор не писал — значит он пользовательский.
    Прогон падает **до записи чего-либо**, перечисляя все такие пути сразу:
@@ -301,6 +327,8 @@ manifest:
    предыдущий прогон) и проект без манифеста. Запись с пустым `hash` считается «нашей».
    Сентинел — `templater.ErrTargetConflict` (конкретный тип `*templater.TargetConflictError`
    со списком путей); `--dry-run` сообщает о конфликте так же.
+4. **Запрет правки скопированных спек** (`kind: copied`). Расхождение хеша на диске с манифестом —
+   **ошибка генерации**, ненулевой код выхода (см. ниже).
 
 Хеши обновляются по диску после `post_generate` (goimports, `go mod tidy`, `make generate`
 переписывают только что сгенерированные файлы) — иначе каждый следующий прогон сообщал бы о
@@ -311,6 +339,47 @@ manifest:
 со второго — точный путь.
 Реализация: `internal/pkg/meta/meta.go`, `templater.GetUserCodeFromFiles()`,
 `internal/pkg/templater/conflict.go`, `generator.checkCopyTargetConflicts()`.
+
+### Скопированные спеки не правятся внутри проекта (`kind: copied`)
+
+Спеки (`rest[]`/`grpc` → `api/rest/<svc>/<ver>/`, `api/grpc/<svc>/`; `jsonschema[]` →
+`api/schema/<name>/`) копируются в проект из контрактного источника. Править их **внутри проекта**
+бессмысленно: править надо в контрактном репозитории, на который указывает `path`. Поэтому в
+отличие от правки выше disclaimer-маркера (там warning — у автора есть куда перенести код, ниже
+маркера) здесь генератор **останавливается**:
+
+```text
+failed to generate: a file copied by the generator was edited inside the project tree:
+  api/rest/example/v1/example.swagger.yml (source: ./example.swagger.yml)
+files copied by the generator are not an edit point: change them at the source (the contract
+repository the path points to) and re-run the generator. To drop the local edits, restore the
+files from version control.
+```
+
+Свойства проверки:
+
+- **Идёт pre-pass'ом до любой записи** (первым делом в `Generate()`), поэтому при ошибке дерево
+  проекта остаётся нетронутым — правку ещё можно вытащить и перенести в контрактный репозиторий.
+  `--dry-run` тоже падает: это предпросмотр прогона, а прогон не состоится.
+- **Сравнивается диск с записанным хешем**, а не с источником: контракт мог законно уехать вперёд
+  в своём репозитории, и это не дрейф.
+- **В тексте — исходный `path` из `project.yaml`** (для remote — URI с именем token-переменной, без
+  значения), а не staging-путь: pre-pass специально выполняется **до** `resolveAllSources`, который
+  подменяет `SpecPath` на временный staging.
+- **Нет записи — нет ошибки.** Проект до `version: 5` (манифеста нет) и канал, добавленный в
+  `project.yaml` после прошлого прогона, проходят молча. Отсутствующий на диске файл тоже не дрейф —
+  копирование его создаст.
+- **Force-флага нет намеренно.** Выход из ошибки — `git restore` либо удаление файла (удаление —
+  не правка: терять нечего, файл скопируется из источника заново). Перенос правки в локальный
+  источник — два шага: скопировать в источник **и** вернуть/удалить файл в проекте (проверка
+  сравнивает с хешем, не с источником). Для контрактного репо — ветка + `SOURCE_REF`. Пошагово —
+  [docs/workflow/regeneration.md](docs/workflow/regeneration.md#спеки-правятся-в-контрактном-репозитории-не-в-проекте).
+
+Реализация: `Manifest.CheckCopiedDrift` + `CopiedDriftError`/`CopiedFileDriftHint`
+(`internal/pkg/meta/drift.go`), сбор целей — `Generator.copiedSpecTargets()`
+(`internal/pkg/generator/copy.go`), вызов — в начале `Generator.Generate()`. Формулировка
+ошибки и подсказка лежат в `meta`, чтобы другие каналы, копирующие файлы в проект, переиспользовали
+их, а не придумывали свои.
 
 ## Test Files
 

@@ -69,6 +69,66 @@ type DocumentationConfig struct {
 	Headers  []string          `mapstructure:"headers"`   // custom HTTP headers for mc (minio type only)
 }
 
+// LintConfig decides who owns configs/golangci-lint.yml — the file whose
+// rules form the verdict of the project's lint gate.
+//
+// Three states, and they are mutually exclusive:
+//
+//   - Neither field set — the generator writes the whole file and rewrites it
+//     on every regeneration. This is the default and the previous behavior.
+//   - Own — the file belongs to the project. The generator does not write it,
+//     does not read it and does not delete it; enabling this in an existing
+//     project leaves the file that is already on disk in place. The project
+//     then owns the rules the generator would otherwise keep adding.
+//   - Overrides — the project declares an override layer and the generator
+//     folds it into its own template during generation. The written file stays
+//     generator-owned (hand edits above the disclaimer are overwritten); the
+//     override file is the project's.
+//
+// YAML example:
+//
+//	tools:
+//	  lint_config:
+//	    overrides: ./configs/golangci-overrides.yml
+//
+// Overrides takes the same URI forms as rest[].path: a local path, an https
+// URL, or a git+ssh/git+https URI — a lint policy shared across repositories
+// is as much a contract artifact as a spec.
+//
+// See docs/configuration/lint-config.md for the merge rules.
+//
+//nolint:decorder // follows existing pattern - types after vars
+type LintConfig struct {
+	// Own declares that the project maintains configs/golangci-lint.yml itself.
+	Own bool `mapstructure:"own"`
+	// Overrides is the URI of the project's override document. Empty means no
+	// override layer.
+	Overrides string `mapstructure:"overrides"`
+}
+
+// HasOverrides reports whether the project declares an override layer.
+func (l LintConfig) HasOverrides() bool {
+	return l.Overrides != ""
+}
+
+// IsValid validates the tools.lint_config section. The override document
+// itself is fetched and parsed later, at generation time (it may be remote);
+// here only the reference and the combination of fields are checked.
+func (l LintConfig) IsValid(baseConfigDir string) (bool, string) {
+	if l.Own && l.HasOverrides() {
+		return false, "tools.lint_config: own and overrides are mutually exclusive — " +
+			"either the project maintains the whole file or it overrides the generated one"
+	}
+
+	if l.HasOverrides() {
+		if ok, msg := validateSpecPath(baseConfigDir, l.Overrides); !ok {
+			return false, "tools.lint_config.overrides: " + msg
+		}
+	}
+
+	return true, ""
+}
+
 // PackageUploadConfig contains package upload configuration.
 // Connection details (endpoint, bucket, credentials) are passed via CI/CD variables.
 type PackageUploadConfig struct {
@@ -264,7 +324,7 @@ type (
 	// YAML example:
 	//
 	//	tools:
-	//	  golang_version: "1.24"
+	//	  golang_version: "1.27"
 	//	  ogen_version: "v0.78.0"
 	//	  argen_version: "v1.0.0"
 	//	  golangci_version: "2.1.6"
@@ -275,7 +335,7 @@ type (
 	Tools struct {
 		// ProtobufVersion is the protoc-gen-go version. Default: 1.7.0
 		ProtobufVersion string `mapstructure:"protobuf_version"`
-		// GolangVersion is the Go version. Default: 1.24
+		// GolangVersion is the Go version. Default: 1.27
 		GolangVersion string `mapstructure:"golang_version"`
 		// OgenVersion is the ogen version. Default: v1.20.1
 		OgenVersion string `mapstructure:"ogen_version"`
@@ -295,6 +355,9 @@ type (
 		LintExcludePaths []string `mapstructure:"lint_exclude_paths"`
 		// GoatServicesVersion is the GOAT services version. Auto-set.
 		GoatServicesVersion string `mapstructure:"goat_services_version"`
+		// LintConfig decides who owns configs/golangci-lint.yml. Omitted, the
+		// generator writes the whole file as before.
+		LintConfig LintConfig `mapstructure:"lint_config"`
 		// StarterVersion is the go-project-starter version the generated
 		// Makefile calls to regenerate the project. Auto-set: the generator
 		// writes the version of the binary that produced the tree, so the pin
@@ -636,6 +699,52 @@ type (
 		BinaryPath string `mapstructure:"binary_path"` // Path to test binary (default: /tmp/{app_name})
 	}
 
+	// Check declares a single CI check — a named command the generated workflow
+	// runs before build. The generator does not interpret Run: name and command
+	// are enough, so a project keeps its own guards while the CI graph stays in
+	// one generated file.
+	//
+	// Checks live in the github_ci section, next to the other settings of the
+	// generated GitHub workflows, and apply to the whole project: lint and unit
+	// tests belong to the module, not to a particular application.
+	//
+	// YAML example:
+	//
+	//	github_ci:
+	//	  checks:
+	//	    - name: lint
+	//	      run: make lint
+	//	    - name: unit-tests
+	//	      run: make unit-tests
+	//	    - name: guards
+	//	      run: make lint-guards
+	//	      registry_login: true   # default false — a linter needs no registry
+	//
+	// See docs/configuration/github-ci.md for full documentation.
+	Check struct {
+		// Name is the check name, unique within the project. Required.
+		Name string `mapstructure:"name"`
+		// Run is the shell command the check executes. Required.
+		Run string `mapstructure:"run"`
+		// RegistryLogin enables container registry login for this check. Optional.
+		RegistryLogin bool `mapstructure:"registry_login"`
+	}
+
+	// ChecksConfig holds settings shared by every declared check.
+	//
+	// YAML example:
+	//
+	//	github_ci:
+	//	  checks_config:
+	//	    fail_fast: false
+	ChecksConfig struct {
+		// FailFast cancels the remaining checks once one of them fails.
+		// Default false: one push reports every violation, not just the first.
+		FailFast bool `mapstructure:"fail_fast"`
+	}
+
+	CheckList []Check
+
 	// AppTransportConfig holds per-application transport configuration overrides
 	AppTransportConfig struct {
 		Instantiation string `mapstructure:"instantiation"` // "static" or "dynamic" - overrides REST-level setting
@@ -709,10 +818,6 @@ type (
 		Artifacts []ArtifactType `mapstructure:"artifacts"`
 	}
 
-	Docker struct {
-		ImagePrefix string `mapstructure:"image_prefix"`
-	}
-
 	LogCollector struct {
 		Type       string            `mapstructure:"type"`
 		Parameters map[string]string `mapstructure:"parameters"`
@@ -772,7 +877,7 @@ type (
 )
 
 const (
-	defaultGolangVersion       = "1.24"
+	defaultGolangVersion       = "1.27"
 	defaultProtobufVersion     = "1.7.0"
 	defaultGolangciVersion     = "2.1.6"
 	defaultOgenVersion         = "v1.20.1"
@@ -1216,6 +1321,19 @@ func (c CLI) IsValid() (bool, string) {
 	if len(c.Name) == 0 {
 		return false, "Empty name"
 	}
+	return true, ""
+}
+
+// IsValid validates a single CI check declaration.
+func (c Check) IsValid() (bool, string) {
+	if len(c.Name) == 0 {
+		return false, "github_ci.checks: empty name"
+	}
+
+	if len(c.Run) == 0 {
+		return false, "github_ci.checks: empty run command in check '" + c.Name + "'"
+	}
+
 	return true, ""
 }
 

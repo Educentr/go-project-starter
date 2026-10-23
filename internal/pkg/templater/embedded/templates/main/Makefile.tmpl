@@ -20,7 +20,7 @@ GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 # Дополнительные аргументы линтера (точка расширения, напр. LINT_ARGS='--build-tags=integration')
 LINT_ARGS ?=
 # Minimal Golang version
-MIN_GO_VERSION = 1.23.8
+MIN_GO_VERSION = 1.27.0
 # Go language version targeted by the project (the "go" directive of go.mod)
 GO_MOD_VERSION := $(shell awk '$$1 == "go" { print $$2; exit }' go.mod 2>/dev/null)
 # Go version golangci-lint must be built with: a binary built by an older
@@ -90,8 +90,16 @@ else ifeq ($(COMMIT_BRANCH), beta)
 endif
 
 # Docker variables
-REGISTRY_SERVER ?= {{ .DockerImagePrefix }}
+REGISTRY_SERVER ?= {{ .Docker.ImagePrefix }}
 DOCKER_TAG ?= $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+{{- if .Docker.BuildArgs }}
+# Docker build arguments (docker.build_args in project.yaml). Each is passed to
+# `docker build` as --build-arg; `?=` keeps an environment or command line
+# value, so CI overrides the default without editing the Makefile.
+{{- range $_, $arg := .Docker.BuildArgs }}
+{{ $arg.Name }} ?={{ with $arg.Default }} {{ . }}{{ end }}
+{{- end }}
+{{- end }}
 
 # by default 'make' will build the service
 default: build
@@ -284,7 +292,7 @@ build_in_docker-{{ $a.Name }}:
 # Build docker image for service {{ $a.Name }}
 .PHONY: docker-{{ $a.Name }}
 docker-{{ $a.Name }}:
-	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
 
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:
@@ -643,13 +651,10 @@ install-buf:
   	chmod +x "$(GOBIN_DIR)/buf"
 
 # Install protoc-gen-go and protoc-gen-go-grpc
-# Pin protoc-gen-go-grpc: v1.6.2 bumped the required Go version to 1.25.0,
-# which breaks generated projects pinned to Go 1.24. v1.6.1 is the last
-# release still compatible.
 .PHONY: install-protoc-gen-go-grpc
 install-protoc-gen-go-grpc:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 {{- if $bufLocal }}
 
 # buf and the local protoc plugins it shells out to (buf.gen.yaml uses
@@ -744,9 +749,7 @@ ToDo select driver for PG
 
 .PHONY: install-goimports
 install-goimports:
-	# Pin: golang.org/x/tools@v0.43.0+ requires Go 1.25.0. v0.42.0 is the
-	# last release still compatible with generated projects pinned to Go 1.24.
-	go install golang.org/x/tools/cmd/goimports@v0.42.0
+	go install golang.org/x/tools/cmd/goimports@latest
 
 # Guard, not an unconditional "install-goimports" prerequisite: toolchain
 # images bake the binary on the same pin, and installing it on every run would
@@ -786,7 +789,7 @@ install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $p
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc{{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}{{ if .Applications.HasMocks }}generate-mocks{{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}{{ if .Applications.HasMocks }}generate-mocks{{ end }}
 
 .PHONY: download
 download:

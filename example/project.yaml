@@ -41,12 +41,49 @@ git:
   module_path: gitlab.educentr.info/golang/projects/example
   private_repos: "github.com/myorg/*"
 
+# Docker image settings: registry prefix, build args and OCI labels.
+# A build arg is declared as ARG in the listed stages, passed by the
+# docker-<app> recipe and gets a Makefile default, so the image can carry its
+# own version/revision. See docs/configuration/docker.md
+# docker:
+#   image_prefix: registry.example/org
+#   build_args:
+#     - IMAGE_VERSION                         # short form: name only
+#     - name: IMAGE_REVISION                  # full form
+#       default: $(shell git rev-parse HEAD)   # Makefile default
+#       stages: [builder, final]               # default: [final]
+#   labels:
+#     org.opencontainers.image.version: ${IMAGE_VERSION}
+#     org.opencontainers.image.revision: ${IMAGE_REVISION}
+
 tools:
   protobuf_version: 1.7.0
   golang_version: 1.21
   ogen_version: v0.78.0
   golangci_version: 2.1.6
   go_jsonschema_version: v0.16.0
+
+# GitHub Actions settings, applied to every job of the generated workflows.
+# Omit the section and the workflows keep the historical output.
+# See docs/configuration/github-ci.md
+github_ci:
+  # runs_on: self-hosted          # label, [labels] or {group, labels}; default ubuntu-latest
+  # job_timeout_minutes: 30       # timeout-minutes on every job; default not emitted
+  # doctl_version: 1.170.0        # version input of action-doctl; default latest
+
+  # CI checks - one matrix job in the generated workflow; build and
+  # build-packages are gated on its aggregated result. Omit the key and no job
+  # is generated (the CI graph stays as it was).
+  checks:
+    - name: lint
+      run: make lint
+    - name: unit-tests
+      run: make unit-tests
+    # registry_login: true logs in to the container registry for this check only
+    # (default false - a linter needs no registry)
+
+  checks_config:
+    fail_fast: false  # false: one push reports every violation, not just the first
 
 # JSON Schema - generates Go structs with validation from JSON Schema files
 # Output: pkg/schema/{name}/ - generated Go code

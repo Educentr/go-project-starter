@@ -8,7 +8,9 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 )
@@ -58,16 +60,7 @@ func (g *Generator) schemaCopyTargets() ([]copyTarget, error) {
 	for _, schema := range g.JSONSchemas {
 		targetDir := schema.GetTargetSpecDir(g.TargetDir)
 
-		// Collect paths from both legacy Path[] and new Schemas[]
-		var paths []string
-
-		if len(schema.Schemas) > 0 {
-			for _, item := range schema.Schemas {
-				paths = append(paths, item.Path)
-			}
-		} else {
-			paths = schema.Path
-		}
+		paths := schemaSourcePaths(schema)
 
 		for i, schemaPath := range paths {
 			if _, err := os.Stat(schemaPath); err != nil {
@@ -84,6 +77,89 @@ func (g *Generator) schemaCopyTargets() ([]copyTarget, error) {
 				dest:   filepath.Join(targetDir, fileName),
 				kind:   "schema",
 			})
+		}
+	}
+
+	return targets, nil
+}
+
+// schemaSourcePaths returns the schema source paths of one jsonschema entry,
+// preferring the Schemas[] form over the legacy Path[] one.
+func schemaSourcePaths(schema ds.JSONSchema) []string {
+	if len(schema.Schemas) == 0 {
+		return schema.Path
+	}
+
+	paths := make([]string, 0, len(schema.Schemas))
+	for _, item := range schema.Schemas {
+		paths = append(paths, item.Path)
+	}
+
+	return paths
+}
+
+// copiedSpecTargets lists every file the copy pass (specCopyTargets /
+// schemaCopyTargets) will write into the project, paired with the source it
+// comes from. targetPath must be absolute.
+//
+// It MUST be called before resolveAllSources: afterwards SpecPath points into
+// the per-run staging directory, and a staging path in a drift message tells
+// the reader nothing about where to actually fix the contract. Destination
+// names are derived exactly the way the resolve pre-pass derives
+// SpecTargetFiles (SpecSource.TargetFilename), so they match the files the copy
+// pass goes on to write.
+func (g *Generator) copiedSpecTargets(targetPath string) ([]meta.CopiedFile, error) {
+	targets := []meta.CopiedFile{}
+	seen := map[string]struct{}{}
+
+	add := func(dir, raw string) error {
+		src, err := specsource.ParseSpecSource(raw)
+		if err != nil {
+			// Reporting a malformed source is not this pre-pass's job: the
+			// resolve pass fails on it anyway, with the transport or schema
+			// name and the entry index attached.
+			return nil //nolint:nilerr // malformed sources are the resolve pass's error to report
+		}
+
+		dest := filepath.Join(dir, src.TargetFilename())
+
+		rel, err := meta.RelPath(targetPath, dest)
+		if err != nil {
+			return fmt.Errorf(errRelPathFmt, dest, err)
+		}
+
+		// A transport is snapshotted into every application that serves it, so
+		// the same destination is reached more than once.
+		if _, dup := seen[rel]; dup {
+			return nil
+		}
+
+		seen[rel] = struct{}{}
+
+		targets = append(targets, meta.CopiedFile{Path: rel, Source: src.Describe()})
+
+		return nil
+	}
+
+	for _, app := range g.Applications {
+		for _, transport := range app.Transports {
+			dir := transport.GetTargetSpecDir(targetPath)
+
+			for _, raw := range transport.SpecPath {
+				if err := add(dir, raw); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	for _, schema := range g.JSONSchemas {
+		dir := schema.GetTargetSpecDir(targetPath)
+
+		for _, raw := range schemaSourcePaths(schema) {
+			if err := add(dir, raw); err != nil {
+				return nil, err
+			}
 		}
 	}
 

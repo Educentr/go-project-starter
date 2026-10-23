@@ -1,0 +1,43 @@
+main:
+  name: lintovr
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/lintovr.git
+  module_path: github.com/test/lintovr
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+  # The generator still writes configs/golangci-lint.yml, but folds the
+  # project's override document into its template while doing so.
+  lint_config:
+    overrides: ./golangci-overrides.yml
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys

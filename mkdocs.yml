@@ -81,9 +81,11 @@ nav:
     - Applications: configuration/applications.md
     - Инфраструктура: configuration/infrastructure.md
     - Rewrite refs: configuration/rewrite-refs.md
+    - Docker: configuration/docker.md
     - GitHub CI: configuration/github-ci.md
     - Карта метрик: configuration/metrics-map.md
     - Свои генераторы: configuration/custom-generators.md
+    - Конфиг линтера: configuration/lint-config.md
   - Рабочий процесс:
     - workflow/index.md
     - Регенерация: workflow/regeneration.md

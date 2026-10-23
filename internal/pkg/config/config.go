@@ -181,9 +181,20 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config metrics section: "+msg)
 	}
 
+	// Validate the lint config ownership. The override document's own contents
+	// are checked at generation time, once a remote document has been fetched.
+	if ok, msg := config.Tools.LintConfig.IsValid(baseDir); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config tools section: "+msg)
+	}
+
 	// Validate GitHub CI configuration
 	if ok, msg := config.GithubCI.IsValid(config.Main.RegistryType); !ok {
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config github_ci section: "+msg)
+	}
+
+	// Validate docker build args and labels
+	if ok, msg := config.Docker.IsValid(); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config docker section: "+msg)
 	}
 
 	// Validate the custom generators together with the contracts they consume:

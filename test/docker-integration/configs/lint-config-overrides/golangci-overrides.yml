@@ -1,0 +1,23 @@
+# The project's lint policy. In a real project this may live in a contract
+# repository and be referenced with a git+https URI; here it sits next to the
+# config so the test needs no network.
+linters:
+  # Added on top of the generator's set.
+  enable:
+    - gochecknoinits
+  # dupl is enabled explicitly by the generator, so it is subtracted from
+  # linters.enable. errcheck is a golangci-lint default that the generator
+  # never names, so it has to reach golangci-lint as a real disable entry.
+  disable:
+    - dupl
+    - errcheck
+  settings:
+    # The case this feature exists for: a word the project must spell the way
+    # an external contract spells it, kept next to the generator's locale.
+    misspell:
+      ignore-rules:
+        - cancelled
+    lll:
+      line-length: 200
+    # An explicit null drops the generator's whole settings block.
+    wsl: ~

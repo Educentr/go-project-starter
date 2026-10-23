@@ -70,7 +70,7 @@ git:
 
 ```yaml
 tools:
-  golang_version: "1.24"           # [optional] Версия Go (default: 1.24)
+  golang_version: "1.27"           # [optional] Версия Go (default: 1.27)
   ogen_version: "v0.78.0"          # [optional] Версия ogen (default: v0.78.0)
   argen_version: "v1.0.0"          # [optional] Версия argen/ActiveRecord (default: v1.0.0)
   golangci_version: "1.55.2"       # [optional] Версия golangci-lint (default: 1.55.2)
@@ -479,7 +479,16 @@ Docker настройки.
 ```yaml
 docker:
   image_prefix: string          # [optional] Префикс для Docker образов
+  build_args:                   # [optional] Build-аргументы образа
+    - string                    # Короткая форма: только имя
+    - name: string              # Полная форма
+      default: string           # [optional] Значение по умолчанию в Makefile
+      stages: [string]          # [optional] Стадии с ARG: builder|final (по умолчанию [final])
+  labels:                       # [optional] LABEL финальной стадии
+    key: value                  # Значение может ссылаться на build-аргумент: ${NAME}
 ```
+
+Подробности: [Docker](../configuration/docker.md).
 
 ---
 
