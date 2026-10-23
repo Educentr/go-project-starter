@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 )
@@ -93,7 +95,10 @@ const (
 	hintNotRegular = "a generated path is occupied by a symlink or another non-regular entry: " +
 		"remove it and regenerate."
 
-	layoutStatFailed = "stat %s: %w"
+	// layoutReadFailed wraps an I/O failure. A file the manifest names that
+	// cannot be read is a failure of the check, not a verdict about the tree,
+	// so it travels as an error and never as a Finding.
+	layoutReadFailed = "read %s: %w"
 )
 
 // Sentinels for the conditions that stop the check from running at all. They
@@ -128,25 +133,10 @@ func (r Result) OK() bool { return len(r.Findings) == 0 }
 // files nor meta.yaml itself.
 func Run(targetDir string) (Result, error) {
 	relMeta := filepath.ToSlash(filepath.Join(meta.DirName, meta.FileName))
-	metaDir := filepath.Join(targetDir, meta.DirName)
-	metaPath := filepath.Join(metaDir, meta.FileName)
 
-	// Checked before reading: meta.GetMeta answers a missing file with a
-	// default, manifest-less Meta, which here would be indistinguishable from a
-	// project predating manifests — a different diagnosis and a different fix.
-	if _, err := os.Stat(metaPath); err != nil {
-		if os.IsNotExist(err) {
-			return Result{}, fmt.Errorf("%w: %s does not exist. "+
-				"It is written by every generator run and is expected to be committed with the project",
-				ErrMetaNotFound, relMeta)
-		}
-
-		return Result{}, fmt.Errorf(layoutStatFailed, relMeta, err)
-	}
-
-	m, err := meta.GetMeta(metaDir, meta.FileName)
+	m, err := loadMeta(filepath.Join(targetDir, meta.DirName, meta.FileName), relMeta)
 	if err != nil {
-		return Result{}, fmt.Errorf("parse %s: %w", relMeta, err)
+		return Result{}, err
 	}
 
 	if m.Version > meta.CurrentVersion {
@@ -198,6 +188,35 @@ func Run(targetDir string) (Result, error) {
 	return res, nil
 }
 
+// loadMeta reads the metadata file at path, which relMeta names the way the
+// operator sees it. relMeta is also what every message quotes, so an absolute
+// temp path from a test never leaks into the wording.
+//
+// Read and parsed here rather than through meta.GetMeta: that one answers any
+// read failure with a default, manifest-less Meta, which this caller would then
+// report as "the project predates manifests" — the wrong diagnosis and the
+// wrong advice for a file that is merely unreadable. Each failure gets its own.
+func loadMeta(path, relMeta string) (meta.Meta, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return meta.Meta{}, fmt.Errorf("%w: %s does not exist. "+
+				"It is written by every generator run and is expected to be committed with the project",
+				ErrMetaNotFound, relMeta)
+		}
+
+		return meta.Meta{}, fmt.Errorf(layoutReadFailed, relMeta, err)
+	}
+
+	var m meta.Meta
+
+	if err := yaml.Unmarshal(content, &m); err != nil {
+		return meta.Meta{}, fmt.Errorf("parse %s: %w", relMeta, err)
+	}
+
+	return m, nil
+}
+
 // checkRecord compares one manifest record against the file on disk. An empty
 // reason means the file still matches; actual is the hash found in the tree,
 // and is empty whenever there was nothing to hash.
@@ -217,7 +236,7 @@ func checkRecord(targetDir string, rec meta.FileRecord) (reason Reason, actual s
 			return ReasonMissing, "", nil
 		}
 
-		return "", "", fmt.Errorf(layoutStatFailed, rec.Path, err)
+		return "", "", fmt.Errorf("stat %s: %w", rec.Path, err)
 	}
 
 	if !st.Mode().IsRegular() {
@@ -226,7 +245,7 @@ func checkRecord(targetDir string, rec meta.FileRecord) (reason Reason, actual s
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", "", fmt.Errorf("read %s: %w", rec.Path, err)
+		return "", "", fmt.Errorf(layoutReadFailed, rec.Path, err)
 	}
 
 	// The same split as the generator records: the whole file for a copied one,

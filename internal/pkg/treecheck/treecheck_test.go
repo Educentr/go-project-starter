@@ -555,6 +555,31 @@ func TestRunUncheckableTree(t *testing.T) {
 	}
 }
 
+// A meta.yaml that cannot be parsed is its own diagnosis — not "the project
+// predates manifests", which is what reading it through meta.GetMeta would
+// have produced (it answers every read failure with a default, empty Meta).
+func TestRunUnparsableMeta(t *testing.T) {
+	p := cleanProject(t)
+
+	if err := os.WriteFile(filepath.Join(p.dir, meta.DirName, meta.FileName),
+		[]byte("version: 5\nmanifest: [: not yaml\n"), 0644); err != nil {
+		t.Fatalf("write meta.yaml: %v", err)
+	}
+
+	_, err := Run(p.dir)
+	if err == nil {
+		t.Fatal("Run() must fail on an unparsable meta.yaml")
+	}
+
+	if errors.Is(err, ErrNoManifest) || errors.Is(err, ErrMetaNotFound) {
+		t.Errorf("a parse failure must not be reported as a missing manifest: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "parse "+meta.DirName+"/"+meta.FileName) {
+		t.Errorf("error must name the file it could not parse: %v", err)
+	}
+}
+
 // Each reason gets its own advice, and only the ones actually present.
 func TestReportHints(t *testing.T) {
 	tests := []struct {
