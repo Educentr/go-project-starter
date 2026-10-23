@@ -85,7 +85,8 @@ type GeneratorParams struct {
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
 	// GithubCI carries the runner, job timeout and doctl setup applied to
-	// every job of the generated GitHub Actions workflows.
+	// every job of the generated GitHub Actions workflows, plus the checks that
+	// gate build.
 	GithubCI ds.GithubCIConfig
 	// CustomGenerators are the project's own generators (the `generator`
 	// section), with their commands already rendered per contract. Empty when
@@ -793,6 +794,13 @@ func splitDisclaimer(fileContent string) (string, string, error) {
 
 const bufferSizeStep = 1024
 
+// YAMLQuote renders s as a single-quoted YAML scalar. Used for values that come
+// verbatim from project.yaml (CI check names and commands) and may contain
+// characters a plain scalar cannot carry — ':', '#', leading '*' and so on.
+func YAMLQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
 func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string) (*bytes.Buffer, error) {
 	startDisclaimer, err := makeStartDisclaimer(destPath)
 	if err != nil {
@@ -828,8 +836,10 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		// Returning (string, error) makes text/template abort execution with
 		// this error. Returning only an error would render its message into
 		// the output file instead, leaving a broken artifact behind.
-		"errorf": func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
-		"add":    func(a, b int) int { return a + b },
+		//nolint:err113 // the format comes from the template, so there is no static error to wrap
+		"errorf":    func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
+		"add":       func(a, b int) int { return a + b },
+		"YAMLQuote": YAMLQuote,
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string
 			s = strings.ReplaceAll(s, `\`, `\\`)

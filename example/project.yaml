@@ -48,6 +48,28 @@ tools:
   golangci_version: 2.1.6
   go_jsonschema_version: v0.16.0
 
+# GitHub Actions settings, applied to every job of the generated workflows.
+# Omit the section and the workflows keep the historical output.
+# See docs/configuration/github-ci.md
+github_ci:
+  # runs_on: self-hosted          # label, [labels] or {group, labels}; default ubuntu-latest
+  # job_timeout_minutes: 30       # timeout-minutes on every job; default not emitted
+  # doctl_version: 1.170.0        # version input of action-doctl; default latest
+
+  # CI checks - one matrix job in the generated workflow; build and
+  # build-packages are gated on its aggregated result. Omit the key and no job
+  # is generated (the CI graph stays as it was).
+  checks:
+    - name: lint
+      run: make lint
+    - name: unit-tests
+      run: make unit-tests
+    # registry_login: true logs in to the container registry for this check only
+    # (default false - a linter needs no registry)
+
+  checks_config:
+    fail_fast: false  # false: one push reports every violation, not just the first
+
 # JSON Schema - generates Go structs with validation from JSON Schema files
 # Output: pkg/schema/{name}/ - generated Go code
 # Specs:  api/schema/{name}/ - schema files are copied here

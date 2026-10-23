@@ -2765,3 +2765,102 @@ func TestConflictWithUserSpecAbortsRun(t *testing.T) {
 		t.Errorf("User spec must be left untouched, got:\n%s", got)
 	}
 }
+
+// TestGenerateCIChecks verifies that checks declared in github_ci produce a
+// single matrix job in the generated workflow and that build/build-packages are
+// gated on it.
+func TestGenerateCIChecks(t *testing.T) {
+	tmpDir := generateProject(t, "ci-checks")
+
+	workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
+	if err != nil {
+		t.Fatalf("Error reading .github/workflows/ci_cd.yml: %v", err)
+	}
+
+	wf := string(workflow)
+
+	expected := []string{
+		// One matrix job, not a job per check.
+		"\n  checks:\n",
+		"fail-fast: false",
+		"- name: 'lint'\n            run: 'make lint'",
+		"- name: 'unit-tests'\n            run: 'make unit-tests'",
+		"- name: 'guards'\n            run: 'make lint-guards'",
+		"registry_login: true",
+		// `make lint` diffs against origin/main, so history must be complete.
+		"fetch-depth: 0",
+		// Escape hatch mirroring the existing SKIP_GOAT_TESTS one.
+		"vars.SKIP_CHECKS != 'true'",
+		// Gate: one needs entry aggregating every matrix leg.
+		"(needs.checks.result == 'success' || needs.checks.result == 'skipped')",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(wf, exp) {
+			t.Errorf("ci_cd.yml should contain %q", exp)
+		}
+	}
+
+	// Registry login is guarded per matrix leg, not run for every check.
+	if !strings.Contains(wf, "if: ${{ matrix.registry_login }}") {
+		t.Error("ci_cd.yml should guard the registry login step with matrix.registry_login")
+	}
+
+	// Both build and build-packages must list checks in needs.
+	for _, job := range []string{"  build:", "  build-packages:"} {
+		idx := strings.Index(wf, "\n"+job)
+		if idx < 0 {
+			t.Fatalf("ci_cd.yml should contain job %q", job)
+		}
+
+		head := wf[idx:]
+		if end := strings.Index(head, "    steps:"); end > 0 {
+			head = head[:end]
+		}
+
+		if !strings.Contains(head, "      - checks\n") {
+			t.Errorf("job %q should list checks in needs, got:\n%s", job, head)
+		}
+	}
+
+	// Nesting the checks under github_ci means they are not a separate world:
+	// the runner and the job timeout of the section apply to the checks job
+	// like to any other. Parsing also asserts the generated YAML is valid.
+	parsed := parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml")
+
+	checksJob, ok := parsed.Jobs["checks"]
+	if !ok {
+		t.Fatalf("ci_cd.yml has no checks job, got jobs %v", parsed.Jobs)
+	}
+
+	// Mirrors ci-checks/project.yaml.
+	if checksJob.RunsOn != "self-hosted" {
+		t.Errorf("checks job runs-on = %#v, want \"self-hosted\"", checksJob.RunsOn)
+	}
+
+	if checksJob.TimeoutMinutes == nil || *checksJob.TimeoutMinutes != 25 {
+		t.Errorf("checks job timeout-minutes = %v, want 25", checksJob.TimeoutMinutes)
+	}
+}
+
+// TestGenerateWithoutCIChecks verifies the backward-compatible path: no
+// `github_ci.checks` key means no checks job and an unchanged CI graph.
+// github-ci-defaults has no github_ci section at all, so it covers both the
+// missing section and the missing key.
+func TestGenerateWithoutCIChecks(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci-defaults")
+
+	for _, relPath := range []string{filepath.Join(".github", "workflows", "ci_cd.yml"), ".gitlab-ci.yml"} {
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, unexp := range []string{"checks:", "SKIP_CHECKS", "needs.checks"} {
+			if strings.Contains(s, unexp) {
+				t.Errorf("%s should NOT contain %q when no checks are declared", relPath, unexp)
+			}
+		}
+	}
+}

@@ -636,6 +636,52 @@ type (
 		BinaryPath string `mapstructure:"binary_path"` // Path to test binary (default: /tmp/{app_name})
 	}
 
+	// Check declares a single CI check — a named command the generated workflow
+	// runs before build. The generator does not interpret Run: name and command
+	// are enough, so a project keeps its own guards while the CI graph stays in
+	// one generated file.
+	//
+	// Checks live in the github_ci section, next to the other settings of the
+	// generated GitHub workflows, and apply to the whole project: lint and unit
+	// tests belong to the module, not to a particular application.
+	//
+	// YAML example:
+	//
+	//	github_ci:
+	//	  checks:
+	//	    - name: lint
+	//	      run: make lint
+	//	    - name: unit-tests
+	//	      run: make unit-tests
+	//	    - name: guards
+	//	      run: make lint-guards
+	//	      registry_login: true   # default false — a linter needs no registry
+	//
+	// See docs/configuration/github-ci.md for full documentation.
+	Check struct {
+		// Name is the check name, unique within the project. Required.
+		Name string `mapstructure:"name"`
+		// Run is the shell command the check executes. Required.
+		Run string `mapstructure:"run"`
+		// RegistryLogin enables container registry login for this check. Optional.
+		RegistryLogin bool `mapstructure:"registry_login"`
+	}
+
+	// ChecksConfig holds settings shared by every declared check.
+	//
+	// YAML example:
+	//
+	//	github_ci:
+	//	  checks_config:
+	//	    fail_fast: false
+	ChecksConfig struct {
+		// FailFast cancels the remaining checks once one of them fails.
+		// Default false: one push reports every violation, not just the first.
+		FailFast bool `mapstructure:"fail_fast"`
+	}
+
+	CheckList []Check
+
 	// AppTransportConfig holds per-application transport configuration overrides
 	AppTransportConfig struct {
 		Instantiation string `mapstructure:"instantiation"` // "static" or "dynamic" - overrides REST-level setting
@@ -1216,6 +1262,19 @@ func (c CLI) IsValid() (bool, string) {
 	if len(c.Name) == 0 {
 		return false, "Empty name"
 	}
+	return true, ""
+}
+
+// IsValid validates a single CI check declaration.
+func (c Check) IsValid() (bool, string) {
+	if len(c.Name) == 0 {
+		return false, "github_ci.checks: empty name"
+	}
+
+	if len(c.Run) == 0 {
+		return false, "github_ci.checks: empty run command in check '" + c.Name + "'"
+	}
+
 	return true, ""
 }
 

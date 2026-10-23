@@ -17,6 +17,13 @@ tools:
 github_ci:
   doctl: image
 
+  # A check that logs in to the registry: the checks job must take doctl from
+  # the runner image like every other job, not install it with action-doctl.
+  checks:
+    - name: guards
+      run: make lint-guards
+      registry_login: true
+
 rest:
   - name: api
     path:

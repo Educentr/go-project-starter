@@ -8,10 +8,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-// GithubCIConfig contains settings applied to every job of the generated
-// GitHub Actions workflows (.github/workflows/ci_cd.yml and
-// go-version-check.yml). All fields are optional; omitting the whole section
-// keeps the historical output (ubuntu-latest, no job timeout, latest doctl).
+// GithubCIConfig contains the settings of the generated GitHub Actions
+// workflows (.github/workflows/ci_cd.yml and go-version-check.yml): the runner,
+// the job timeout and the doctl version applied to every job, plus the list of
+// checks that gate build. All fields are optional; omitting the whole section
+// keeps the historical output (ubuntu-latest, no job timeout, latest doctl, no
+// check job).
 //
 // YAML example:
 //
@@ -22,6 +24,13 @@ import (
 //	  job_timeout_minutes: 30     # timeout-minutes for every job
 //	  doctl_version: 1.170.0      # version input of digitalocean/action-doctl
 //	  doctl: install              # install (default) or image
+//	  checks:                     # matrix job gating build and build-packages
+//	    - name: lint
+//	      run: make lint
+//	    - name: unit-tests
+//	      run: make unit-tests
+//	  checks_config:
+//	    fail_fast: false
 //
 // See docs/configuration/github-ci.md for full documentation.
 type GithubCIConfig struct {
@@ -44,6 +53,12 @@ type GithubCIConfig struct {
 	// "image" takes it from the runner image and generates no install step.
 	// Omitted means "install", the historical output.
 	Doctl string `mapstructure:"doctl"`
+	// Checks declares the checks run by the `checks` matrix job, which gates
+	// build and build-packages. Names must be non-empty and unique. Omitted
+	// means no check job is generated.
+	Checks CheckList `mapstructure:"checks"`
+	// ChecksConfig holds the settings shared by every entry of Checks.
+	ChecksConfig ChecksConfig `mapstructure:"checks_config"`
 }
 
 // registryTypeDigitalOcean is the main.registry_type value whose login jobs
@@ -209,7 +224,32 @@ func (g GithubCIConfig) IsValid(registryType string) (bool, string) {
 		return false, "github_ci.doctl_version must be a version string, got: " + g.DoctlVersion
 	}
 
+	if ok, msg := g.validateChecks(); !ok {
+		return false, msg
+	}
+
 	return g.validateDoctlMode(registryType)
+}
+
+// validateChecks verifies the declared checks. Names become workflow matrix leg
+// names, so they must be present and unique; a check without a command would
+// generate a job step that does nothing.
+func (g GithubCIConfig) validateChecks() (bool, string) {
+	seen := make(map[string]bool, len(g.Checks))
+
+	for _, check := range g.Checks {
+		if ok, msg := check.IsValid(); !ok {
+			return false, msg
+		}
+
+		if seen[check.Name] {
+			return false, "github_ci.checks: duplicate check name: " + check.Name
+		}
+
+		seen[check.Name] = true
+	}
+
+	return true, ""
 }
 
 // validateDoctlMode checks github_ci.doctl against the known modes, the
