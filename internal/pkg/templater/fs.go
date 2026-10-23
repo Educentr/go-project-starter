@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
+	"github.com/Educentr/go-project-starter/internal/pkg/lintconfig"
 	"github.com/pkg/errors"
 )
 
@@ -174,6 +175,28 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 
 		for _, f := range files {
 			if f.DestName == metricsLintConfigPath {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
+	}
+
+	// tools.lint_config.own: the project maintains configs/golangci-lint.yml
+	// itself, so the file drops out of the output set entirely. It is declared
+	// user-owned alongside this (see Generator.userOwnedPaths), which is what
+	// keeps an existing file from being deleted as an orphan.
+	//
+	// configs/golangci-metrics.yml is a separate file and is NOT affected: the
+	// metrics gate runs through `make metrics-validate` and stays intact
+	// whoever owns the main lint config.
+	if params.LintConfigOwn {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			if f.DestName == filepath.FromSlash(lintconfig.ConfigPath) {
 				continue
 			}
 

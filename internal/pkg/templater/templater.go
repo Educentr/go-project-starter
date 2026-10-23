@@ -65,10 +65,13 @@ type GeneratorParams struct {
 	ArgenVersion            string
 	GolangciVersion         string
 	LintExcludePaths        []string
-	RuntimeVersion          string
-	GoJSONSchemaVersion     string
-	GoatVersion             string
-	GoatServicesVersion     string
+	// LintConfigOwn mirrors tools.lint_config.own: the project maintains
+	// configs/golangci-lint.yml itself and the generator does not write it.
+	LintConfigOwn       bool
+	RuntimeVersion      string
+	GoJSONSchemaVersion string
+	GoatVersion         string
+	GoatServicesVersion string
 	// StarterVersion is the go-project-starter version this tree was generated
 	// with; the Makefile calls exactly it to regenerate.
 	StarterVersion string
@@ -485,7 +488,7 @@ func diffAgainstManifest(filesDiff *ds.FilesDiff, targetDir string, files []ds.F
 		}
 	}
 
-	return diffOrphans(filesDiff, absTarget, prev, curSet)
+	return diffOrphans(filesDiff, absTarget, prev, curSet, extraIgnore)
 }
 
 // diffExpectedFile classifies one file of the current output set against its
@@ -586,9 +589,21 @@ func diffExpectedFile(filesDiff *ds.FilesDiff, file ds.Files, rel, relOld string
 
 // diffOrphans walks the previous manifest and decides what to do with the
 // files that dropped out of the current output set.
-func diffOrphans(filesDiff *ds.FilesDiff, absTarget string, prev meta.Manifest, curSet map[string]struct{}) error {
+//
+// extraIgnore holds the paths that became user-owned since the manifest was
+// written — a project that turned on tools.lint_config.own keeps a
+// configs/golangci-lint.yml the previous run had generated. Such a file
+// dropping out of the output set is the point of the setting, not an orphan:
+// it is handed over, not deleted.
+func diffOrphans(
+	filesDiff *ds.FilesDiff, absTarget string, prev meta.Manifest, curSet map[string]struct{}, extraIgnore []string,
+) error {
 	for _, rec := range prev {
 		if _, ex := curSet[rec.Path]; ex {
+			continue
+		}
+
+		if IsUserOwned(rec.Path, extraIgnore...) {
 			continue
 		}
 
@@ -794,6 +809,24 @@ func splitDisclaimer(fileContent string) (string, string, error) {
 
 const bufferSizeStep = 1024
 
+// BodyTransform rewrites the rendered template body — the generated region
+// with the disclaimer blocks cut off — before the file is assembled. It exists
+// for the golangci-lint config: folding the project's override layer in
+// requires the YAML the template produced, not the comment blocks wrapped
+// around it.
+//
+//nolint:decorder // follows existing pattern - types after consts
+type BodyTransform func(body []byte) ([]byte, error)
+
+// disclaimers holds the two raw (still unrendered) disclaimer blocks of a
+// file, so that a body transform can cut them back off the rendered output.
+//
+//nolint:decorder // follows existing pattern - types after consts
+type disclaimers struct {
+	start  string
+	finish string
+}
+
 // YAMLQuote renders s as a single-quoted YAML scalar. Used for values that come
 // verbatim from project.yaml (CI check names and commands) and may contain
 // characters a plain scalar cannot carry — ':', '#', leading '*' and so on.
@@ -802,6 +835,16 @@ func YAMLQuote(s string) string {
 }
 
 func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string) (*bytes.Buffer, error) {
+	return GenerateByTmplWithTransform(tmpl, params, userCode, destPath, nil)
+}
+
+// GenerateByTmplWithTransform renders a template and, when transform is
+// non-nil, hands the rendered body to it before the disclaimer blocks and the
+// preserved user code are assembled back around it. A nil transform produces
+// byte-for-byte what GenerateByTmpl produces.
+func GenerateByTmplWithTransform(
+	tmpl Template, params any, userCode []byte, destPath string, transform BodyTransform,
+) (*bytes.Buffer, error) {
 	startDisclaimer, err := makeStartDisclaimer(destPath)
 	if err != nil {
 		return nil, err
@@ -812,7 +855,53 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 		return nil, err
 	}
 
-	var funcs = template.FuncMap{
+	funcs := templateFuncs()
+
+	buf := &bytes.Buffer{}
+
+	buf.Grow(len(userCode) + bufferSizeStep*((len(startDisclaimer)+len(tmpl.Tmpl)+len(finishDisclaimer))/bufferSizeStep) + 1)
+
+	templatePackage, err := template.New(destPath).Funcs(funcs).Parse(startDisclaimer + tmpl.Tmpl + "\n" + finishDisclaimer)
+	if err != nil {
+		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
+		if errGetLine != nil {
+			tmplLines = errGetLine.Error()
+		}
+
+		return nil, errors.New("error parse template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	}
+
+	if err = templatePackage.Execute(buf, params); err != nil {
+		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
+		if errGetLine != nil {
+			tmplLines = errGetLine.Error()
+		}
+
+		return nil, errors.New("error execute template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	}
+
+	if transform != nil {
+		d := disclaimers{start: startDisclaimer, finish: finishDisclaimer}
+
+		if err := applyBodyTransform(buf, d, params, funcs, transform); err != nil {
+			return nil, errors.Wrap(err, "error transform body of `"+destPath+"`")
+		}
+	}
+
+	if len(userCode) > 0 {
+		buf.Write(userCode)
+	}
+
+	return buf, nil
+}
+
+// templateFuncs returns the function map available to every template. The
+// entries are pure functions of their arguments, so one map serves the
+// template body and the disclaimer blocks of the same file.
+//
+//nolint:gocyclo // one map literal of independent one-liner helpers
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
 		"ToLower":     strings.ToLower,
 		"ToUpper":     strings.ToUpper,
 		"ReplaceDash": func(s string) string { return strings.ReplaceAll(s, "-", "_") },
@@ -990,35 +1079,70 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			}
 		},
 	}
+}
 
-	buf := &bytes.Buffer{}
-
-	buf.Grow(len(userCode) + bufferSizeStep*((len(startDisclaimer)+len(tmpl.Tmpl)+len(finishDisclaimer))/bufferSizeStep) + 1)
-
-	templatePackage, err := template.New(destPath).Funcs(funcs).Parse(startDisclaimer + tmpl.Tmpl + "\n" + finishDisclaimer)
+// applyBodyTransform cuts the rendered disclaimer blocks off buf, hands the
+// remaining body to transform and reassembles buf in place.
+//
+// The blocks are located by rendering them on their own with the same funcs
+// and params the combined template got: both are deterministic functions of
+// the file name, so the rendered output is an exact prefix and suffix of buf.
+// A mismatch means the assumption broke (e.g. the template body now starts
+// with a `{{-` that trims into the disclaimer) and is reported rather than
+// patched over, because guessing the boundary would corrupt the marker the
+// next regeneration looks for.
+func applyBodyTransform(
+	buf *bytes.Buffer, d disclaimers, params any, funcs template.FuncMap, transform BodyTransform,
+) error {
+	start, err := renderRaw("disclaimer:start", d.start, params, funcs)
 	if err != nil {
-		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
-		if errGetLine != nil {
-			tmplLines = errGetLine.Error()
-		}
-
-		return nil, errors.New("error parse template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+		return err
 	}
 
-	if err = templatePackage.Execute(buf, params); err != nil {
-		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
-		if errGetLine != nil {
-			tmplLines = errGetLine.Error()
-		}
-
-		return nil, errors.New("error execute template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
+	finish, err := renderRaw("disclaimer:finish", d.finish, params, funcs)
+	if err != nil {
+		return err
 	}
 
-	if len(userCode) > 0 {
-		buf.Write(userCode)
+	body, ok := strings.CutPrefix(buf.String(), start)
+	if !ok {
+		return errors.New("rendered output does not start with the disclaimer block")
 	}
 
-	return buf, nil
+	body, ok = strings.CutSuffix(body, "\n"+finish)
+	if !ok {
+		return errors.New("rendered output does not end with the disclaimer block")
+	}
+
+	newBody, err := transform([]byte(body))
+	if err != nil {
+		return err
+	}
+
+	buf.Reset()
+	buf.WriteString(start)
+	buf.Write(newBody)
+	buf.WriteString("\n")
+	buf.WriteString(finish)
+
+	return nil
+}
+
+// renderRaw executes a standalone template snippet (a disclaimer block) and
+// returns its output.
+func renderRaw(name, text string, params any, funcs template.FuncMap) (string, error) {
+	tmpl, err := template.New(name).Funcs(funcs).Parse(text)
+	if err != nil {
+		return "", errors.Wrap(err, "error parse "+name)
+	}
+
+	var buf bytes.Buffer
+
+	if err := tmpl.Execute(&buf, params); err != nil {
+		return "", errors.Wrap(err, "error execute "+name)
+	}
+
+	return buf.String(), nil
 }
 
 func getTmplErrorLine(lines []string, tmplErr string) (string, error) {
