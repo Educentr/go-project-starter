@@ -49,7 +49,19 @@ type Meta struct {
 	Manifest Manifest `yaml:"manifest,omitempty"`
 }
 
-const curVer = 5
+// CurrentVersion is the schema version Save writes. A meta.yaml carrying a
+// higher one was produced by a newer generator: its manifest may hold records
+// this binary cannot interpret, so readers are expected to refuse it rather
+// than draw conclusions from the part they recognize.
+const CurrentVersion = 5
+
+// Location of the metadata file inside a generated project. Exported because
+// everything that reads the manifest — generation, the tree check — has to
+// agree on it, and a second string literal is how they stop agreeing.
+const (
+	DirName  = ".project-config"
+	FileName = "meta.yaml"
+)
 
 // Kinds of files recorded in the manifest.
 const (
@@ -185,7 +197,7 @@ func (m *Meta) SetManifest(records Manifest) {
 }
 
 func (m *Meta) Save() error {
-	m.Version = curVer
+	m.Version = CurrentVersion
 
 	data, err := yaml.Marshal(m)
 	if err != nil {

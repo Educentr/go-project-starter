@@ -306,6 +306,13 @@ var (
 	// there would follow the entry instead of replacing it — possibly to a target
 	// outside the project tree — so generation stops instead.
 	ErrNonRegularTarget = errors.New("non-regular entry, generator won't overwrite")
+
+	// ErrDisclaimerNotFound is returned for a file that is expected to carry the
+	// disclaimer marker and does not: there is no way to tell its generated
+	// region from hand-written code below it. Callers that merely inspect a tree
+	// (see internal/pkg/treecheck) report it as a change of the generated area
+	// rather than as a failure, so they need to tell it apart by sentinel.
+	ErrDisclaimerNotFound = errors.New("disclaimer marker not found in file")
 )
 
 func isFileIgnore(path string) bool {
@@ -801,7 +808,7 @@ func scanTargetTree(filesDiff *ds.FilesDiff, targetDir string, genFiles map[stri
 func splitDisclaimer(fileContent string) (string, string, error) {
 	disclamerFind := strings.Index(fileContent, disclaimer)
 	if disclamerFind == -1 {
-		return fileContent, "", errors.New("end disclaimer not found in file")
+		return fileContent, "", ErrDisclaimerNotFound
 	}
 
 	newLine := strings.Index(fileContent[disclamerFind+len(disclaimer):], "\n")

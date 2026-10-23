@@ -155,6 +155,21 @@ SOURCE_REF ?=
 regenerate:
 	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
 
+# Verify that the generated area of the tree still matches the manifest in
+# .project-config/meta.yaml, without generating anything. Fails on a hand edit
+# above a disclaimer marker, on an edited copied spec and on a deleted
+# generated file; code below a marker is yours and is never compared.
+#
+# Meant as a CI gate: unlike "regenerate and diff" it reads only the manifest
+# and the tree, so it needs no access to the contract repositories and does not
+# turn red because a contract moved on there.
+#
+# Runs GPSVERSION — the hashes can only be compared against the generator that
+# wrote them. SOURCE_REF is not passed on purpose: no source is resolved.
+.PHONY: check-generated
+check-generated:
+	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD} --check
+
 # Raise the generator pin. The version given here regenerates the project and,
 # being the generator that produced the tree, writes itself into GPSVERSION
 # above — so this is the way out of the pin, which regenerate alone can never

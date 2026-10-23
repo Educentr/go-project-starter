@@ -2616,6 +2616,118 @@ func TestManifestIsIdempotent(t *testing.T) {
 	}
 }
 
+// checkExample runs the manifest check (--check) over a generated tree. The
+// error is the exit status: that is what a CI gate reads, so the test asserts
+// on it rather than on the report alone.
+func checkExample(t *testing.T, targetDir, msg string) (string, error) {
+	t.Helper()
+
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	return ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", targetDir,
+		"--check",
+	}, msg+" ("+targetDir+")")
+}
+
+// TestCheckGeneratedGate walks the gate through the states a consumer's CI will
+// see it in: a tree straight out of generation, the same tree with code added
+// below a disclaimer marker, and then each way the generated area can be
+// edited. The check is the read-only counterpart of regeneration, so unlike
+// TestCopiedSpecDriftAbortsRun it must report every mismatch at once and leave
+// the tree alone while doing it.
+func TestCheckGeneratedGate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for check-generated gate")
+	if err != nil {
+		t.Fatalf("Generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		genRel  = "cmd/publicApi/psg_main_gen.go"
+		userRel = "internal/app/constant/psg_constant_gen.go"
+		specRel = "api/rest/example/v1/example.swagger.yml"
+		goneRel = "pkg/app/logger/psg_zlog_gen.go"
+	)
+
+	out, err = checkExample(t, tmpDir, "Check freshly generated tree")
+	if err != nil {
+		t.Fatalf("A tree straight out of generation must pass the check: %s\n%s", err, out)
+	}
+
+	// Hashes are refreshed after post_generate (goimports, go mod tidy), so a
+	// green verdict here also proves those steps are accounted for.
+	if !strings.Contains(out, "matches") {
+		t.Errorf("Check of an untouched tree must report a match:\n%s", out)
+	}
+
+	// The whole point of the disclaimer marker: code below it is the user's.
+	appendToProjectFile(t, tmpDir, userRel, "\n// my own helper\nfunc Mine() string { return \"ok\" }\n")
+
+	out, err = checkExample(t, tmpDir, "Check tree with user code below the marker")
+	if err != nil {
+		t.Fatalf("Code below the marker must pass the check: %s\n%s", err, out)
+	}
+
+	// Now every way the generated area can stop matching, at once.
+	genContent := readProjectFile(t, tmpDir, genRel)
+	if err := os.WriteFile(filepath.Join(tmpDir, filepath.FromSlash(genRel)),
+		[]byte("// hand edit above the marker\n"+genContent), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", genRel, err)
+	}
+
+	appendToProjectFile(t, tmpDir, specRel, "\n# edited in place\n")
+
+	if err := os.Remove(filepath.Join(tmpDir, filepath.FromSlash(goneRel))); err != nil {
+		t.Fatalf("Error removing %s: %v", goneRel, err)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	metaBefore, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	out, err = checkExample(t, tmpDir, "Check tree with an edited generated area")
+	if err == nil {
+		t.Fatalf("An edited generated area must fail the check:\n%s", out)
+	}
+
+	for _, want := range []string{genRel, specRel, goneRel, "generated", "copied", "missing from the tree"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Report must name %q:\n%s", want, out)
+		}
+	}
+
+	// The gate runs on trees other steps are about to use: it may not write,
+	// and refreshing the manifest in particular would make it self-healing.
+	metaAfter, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	if string(metaBefore) != string(metaAfter) {
+		t.Errorf("The check must not touch meta.yaml\nbefore:\n%s\nafter:\n%s", metaBefore, metaAfter)
+	}
+
+	if !strings.Contains(readProjectFile(t, tmpDir, genRel), "// hand edit above the marker") {
+		t.Error("The check must not rewrite the files it reports")
+	}
+
+	// The target the generated project exposes has to call the pinned version:
+	// hashes are only comparable against the generator that wrote them.
+	makefile := readProjectFile(t, tmpDir, "Makefile")
+	if !strings.Contains(makefile, "check-generated:\n\tgo run $(GPSPKG)@$(GPSVERSION) --target ${PWD} --check") {
+		t.Errorf("Makefile must expose check-generated running the pinned generator:\n%s", makefile)
+	}
+}
+
 // TestGenerateRESTEnvsGoat verifies that when use_envs=true is combined with
 // goat_tests=true, the generated Makefile does NOT invoke onlineconf-update-tests
 // or generate-test-env-<app> — env-based projects don't rely on OnlineConf to
