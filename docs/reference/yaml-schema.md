@@ -479,7 +479,16 @@ Docker настройки.
 ```yaml
 docker:
   image_prefix: string          # [optional] Префикс для Docker образов
+  build_args:                   # [optional] Build-аргументы образа
+    - string                    # Короткая форма: только имя
+    - name: string              # Полная форма
+      default: string           # [optional] Значение по умолчанию в Makefile
+      stages: [string]          # [optional] Стадии с ARG: builder|final (по умолчанию [final])
+  labels:                       # [optional] LABEL финальной стадии
+    key: value                  # Значение может ссылаться на build-аргумент: ${NAME}
 ```
+
+Подробности: [Docker](../configuration/docker.md).
 
 ---
 

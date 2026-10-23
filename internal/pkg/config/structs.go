@@ -818,10 +818,6 @@ type (
 		Artifacts []ArtifactType `mapstructure:"artifacts"`
 	}
 
-	Docker struct {
-		ImagePrefix string `mapstructure:"image_prefix"`
-	}
-
 	LogCollector struct {
 		Type       string            `mapstructure:"type"`
 		Parameters map[string]string `mapstructure:"parameters"`
