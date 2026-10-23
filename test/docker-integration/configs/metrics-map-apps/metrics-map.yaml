@@ -1,0 +1,28 @@
+# A metrics map for a service that is several processes. `apps` says which of
+# them publishes a declaration; a declaration without it is published by every
+# application that exposes /metrics.
+metrics:
+  # Published by one application only — the shape the field exists for.
+  - name: spawn_errors_total
+    type: CounterVec
+    labels: reason, stage
+    help: Spawn attempts that failed, by reason and stage.
+    apps: [api]
+
+  # The comma-separated scalar form, and two applications at once.
+  - name: queue_depth
+    type: Gauge
+    help: Number of tasks currently waiting in the queue.
+    apps: api, admin
+
+  - name: admin_actions_total
+    type: Counter
+    help: Administrative actions performed.
+    apps:
+      - admin
+
+  # No `apps`: published by every application with a /metrics endpoint. This is
+  # the pre-existing behavior, and what a single-process service writes.
+  - name: restarts_total
+    type: Counter
+    help: Process restarts since start.
