@@ -69,6 +69,66 @@ type DocumentationConfig struct {
 	Headers  []string          `mapstructure:"headers"`   // custom HTTP headers for mc (minio type only)
 }
 
+// LintConfig decides who owns configs/golangci-lint.yml — the file whose
+// rules form the verdict of the project's lint gate.
+//
+// Three states, and they are mutually exclusive:
+//
+//   - Neither field set — the generator writes the whole file and rewrites it
+//     on every regeneration. This is the default and the previous behavior.
+//   - Own — the file belongs to the project. The generator does not write it,
+//     does not read it and does not delete it; enabling this in an existing
+//     project leaves the file that is already on disk in place. The project
+//     then owns the rules the generator would otherwise keep adding.
+//   - Overrides — the project declares an override layer and the generator
+//     folds it into its own template during generation. The written file stays
+//     generator-owned (hand edits above the disclaimer are overwritten); the
+//     override file is the project's.
+//
+// YAML example:
+//
+//	tools:
+//	  lint_config:
+//	    overrides: ./configs/golangci-overrides.yml
+//
+// Overrides takes the same URI forms as rest[].path: a local path, an https
+// URL, or a git+ssh/git+https URI — a lint policy shared across repositories
+// is as much a contract artifact as a spec.
+//
+// See docs/configuration/lint-config.md for the merge rules.
+//
+//nolint:decorder // follows existing pattern - types after vars
+type LintConfig struct {
+	// Own declares that the project maintains configs/golangci-lint.yml itself.
+	Own bool `mapstructure:"own"`
+	// Overrides is the URI of the project's override document. Empty means no
+	// override layer.
+	Overrides string `mapstructure:"overrides"`
+}
+
+// HasOverrides reports whether the project declares an override layer.
+func (l LintConfig) HasOverrides() bool {
+	return l.Overrides != ""
+}
+
+// IsValid validates the tools.lint_config section. The override document
+// itself is fetched and parsed later, at generation time (it may be remote);
+// here only the reference and the combination of fields are checked.
+func (l LintConfig) IsValid(baseConfigDir string) (bool, string) {
+	if l.Own && l.HasOverrides() {
+		return false, "tools.lint_config: own and overrides are mutually exclusive — " +
+			"either the project maintains the whole file or it overrides the generated one"
+	}
+
+	if l.HasOverrides() {
+		if ok, msg := validateSpecPath(baseConfigDir, l.Overrides); !ok {
+			return false, "tools.lint_config.overrides: " + msg
+		}
+	}
+
+	return true, ""
+}
+
 // PackageUploadConfig contains package upload configuration.
 // Connection details (endpoint, bucket, credentials) are passed via CI/CD variables.
 type PackageUploadConfig struct {
@@ -295,6 +355,9 @@ type (
 		LintExcludePaths []string `mapstructure:"lint_exclude_paths"`
 		// GoatServicesVersion is the GOAT services version. Auto-set.
 		GoatServicesVersion string `mapstructure:"goat_services_version"`
+		// LintConfig decides who owns configs/golangci-lint.yml. Omitted, the
+		// generator writes the whole file as before.
+		LintConfig LintConfig `mapstructure:"lint_config"`
 		// StarterVersion is the go-project-starter version the generated
 		// Makefile calls to regenerate the project. Auto-set: the generator
 		// writes the version of the binary that produced the tree, so the pin
