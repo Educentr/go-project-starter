@@ -10,8 +10,6 @@ import (
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
-var cmdMaps = make(map[telegram.CommandName]telegram.Cmd)
-
 var CustomError = map[error]func(ctx context.Context) (telegram.Response, error){}
 
 func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c telegram.Cmd, pp string) {
@@ -32,7 +30,7 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c tel
 		resp, err := c.Handler(ctx, hdl, pp)
 		if resp.InternalRedirect != nil {
 			var ok bool
-			c, ok = cmdMaps[resp.InternalRedirect.Cmd]
+			c, ok = w.cmds[resp.InternalRedirect.Cmd]
 			if !ok {
 				{{ .Logger.ErrorMsg "ctx" "nil" "Unknown command for internal redirect" "str::Cmd::resp.InternalRedirect.Cmd.String()" }}
 
