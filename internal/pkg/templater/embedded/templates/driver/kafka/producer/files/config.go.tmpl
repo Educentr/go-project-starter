@@ -5,20 +5,21 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 // getBrokers returns broker addresses from OnlineConf
 // Path: {serviceName}/kafka/{clientName}/brokers
 func getBrokers(ctx context.Context, serviceName string) ([]string, error) {
-	path := onlineconf.MakePath(serviceName, "kafka", clientName, "brokers")
-	brokers, err := onlineconf.GetString(ctx, path, "")
+	brokers, ok, err := occonf.KafkaBrokers(ctx, clientName)
 	if err != nil {
-		return nil, fmt.Errorf("get brokers from %s: %w", path, err)
+		return nil, fmt.Errorf("get brokers of %s: %w", clientName, err)
 	}
-	if brokers == "" {
-		return nil, fmt.Errorf("brokers not configured at %s", path)
+
+	if !ok || brokers == "" {
+		return nil, fmt.Errorf("brokers of %s not configured at %s", clientName, occonf.KafkaBrokersPath(clientName))
 	}
+
 	return strings.Split(brokers, ","), nil
 }
 
@@ -26,49 +27,59 @@ func getBrokers(ctx context.Context, serviceName string) ([]string, error) {
 // Path: {serviceName}/kafka/{clientName}/auth_type
 // Possible values: none, PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
 func getAuthType(ctx context.Context, serviceName string) (string, error) {
-	path := onlineconf.MakePath(serviceName, "kafka", clientName, "auth_type")
-	return onlineconf.GetString(ctx, path, "none")
+	authType, ok, err := occonf.KafkaAuthType(ctx, clientName)
+	if err != nil {
+		return "", err
+	}
+
+	if !ok {
+		return "none", nil
+	}
+
+	return authType, nil
 }
 
 // getCredentials returns SASL credentials from OnlineConf
 // Path: {serviceName}/kafka/{clientName}/username
 // Path: {serviceName}/kafka/{clientName}/password
 func getCredentials(ctx context.Context, serviceName string) (username, password string, err error) {
-	userPath := onlineconf.MakePath(serviceName, "kafka", clientName, "username")
-	passPath := onlineconf.MakePath(serviceName, "kafka", clientName, "password")
+	username, _, err = occonf.KafkaUsername(ctx, clientName)
+	if err != nil {
+		return "", "", fmt.Errorf("get username of %s: %w", clientName, err)
+	}
 
-	username, err = onlineconf.GetString(ctx, userPath, "")
+	password, _, err = occonf.KafkaPassword(ctx, clientName)
 	if err != nil {
-		return "", "", fmt.Errorf("get username from %s: %w", userPath, err)
+		return "", "", fmt.Errorf("get password of %s: %w", clientName, err)
 	}
-	password, err = onlineconf.GetString(ctx, passPath, "")
-	if err != nil {
-		return "", "", fmt.Errorf("get password from %s: %w", passPath, err)
-	}
+
 	return username, password, nil
 }
 
 // getTLSEnabled returns whether TLS is enabled from OnlineConf
 // Path: {serviceName}/kafka/{clientName}/tls_enabled
 func getTLSEnabled(ctx context.Context, serviceName string) (bool, error) {
-	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_enabled")
-	return onlineconf.GetBool(ctx, path, false)
+	enabled, _, err := occonf.KafkaTLSEnabled(ctx, clientName)
+
+	return enabled, err
 }
 
 // getTLSSkipVerify returns whether to skip TLS certificate verification
 // Path: {serviceName}/kafka/{clientName}/tls_skip_verify
 // Use only for development/testing with self-signed certificates
 func getTLSSkipVerify(ctx context.Context, serviceName string) (bool, error) {
-	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_skip_verify")
-	return onlineconf.GetBool(ctx, path, false)
+	skip, _, err := occonf.KafkaTLSSkipVerify(ctx, clientName)
+
+	return skip, err
 }
 
 // getTLSCACert returns the CA certificate content from OnlineConf
 // Path: {serviceName}/kafka/{clientName}/tls_ca_cert
 // The value should be a PEM-encoded CA certificate content
 func getTLSCACert(ctx context.Context, serviceName string) (string, error) {
-	path := onlineconf.MakePath(serviceName, "kafka", clientName, "tls_ca_cert")
-	return onlineconf.GetString(ctx, path, "")
+	cert, _, err := occonf.KafkaTLSCACert(ctx, clientName)
+
+	return cert, err
 }
 
 // loadEventTopics loads topic names for events from OnlineConf.
@@ -78,11 +89,15 @@ func loadEventTopics(ctx context.Context, serviceName string) (map[string]string
 	eventTopics := make(map[string]string)
 {{- range $_, $event := .Kafka.Events }}
 	{
-		path := onlineconf.MakePath(serviceName, "kafka", clientName, "events", "{{ $event.Name }}", "topic")
-		topic, err := onlineconf.GetString(ctx, path, "{{ $event.Name }}")
+		topic, ok, err := occonf.KafkaEventTopic(ctx, clientName, "{{ $event.Name }}")
 		if err != nil {
 			return nil, fmt.Errorf("get topic for event {{ $event.Name }}: %w", err)
 		}
+
+		if !ok {
+			topic = "{{ $event.Name }}"
+		}
+
 		eventTopics["{{ $event.Name }}"] = topic
 	}
 {{- end }}

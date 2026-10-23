@@ -9,11 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/gofrs/uuid/v5"
 	{{ .Logger.Import }}
 
-	"{{ .ProjectPath }}/internal/app/constant"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 // EmptyProducts is a default implementation of InvoiceProduct interface.
@@ -61,7 +60,7 @@ func (s *BaseAuth) HasAdminRole(ctx context.Context, tgID int64, role string) (b
 		return false, errors.New("userID is nil")
 	}
 
-	acl, exists, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath("{{ .ProjectName }}", "bot", "admins", strconv.FormatInt(tgID, 10)))
+	acl, exists, err := occonf.BotAdminACL(ctx, strconv.FormatInt(tgID, 10))
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Failed to get admin ACL from onlineconf" }}
 		return false, err
@@ -106,7 +105,7 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 	strTgID := strconv.FormatInt(tgID, 10)
 
 	if cmd.NeedAdminAccess {
-		acl, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "bot", "admins", strTgID))
+		acl, ex, err := occonf.BotAdminACL(ctx, strTgID)
 		if err != nil {
 			{{ .Logger.ErrorMsg "ctx" "err" "Get onlineconf admin" }}
 
@@ -144,13 +143,15 @@ func (s *BaseAuth) TgBotAuthorization(ctx context.Context, cmd Cmd, chatType Cha
 		return ErrAccessDenied
 	}
 
-	paths := []string{
-		onlineconf.MakePath(constant.ServiceName, "bot", "users"),
-		onlineconf.MakePath(constant.ServiceName, "bot", "users", strTgID),
+	// The blanket ACL first, the per-user one second: both are declared keys, so
+	// each is read through its own accessor, and the order stays here.
+	reads := []func(ctx context.Context) (string, bool, error){
+		func(ctx context.Context) (string, bool, error) { return occonf.BotUsersACL(ctx) },
+		func(ctx context.Context) (string, bool, error) { return occonf.BotUserACL(ctx, strTgID) },
 	}
 
-	for _, param := range paths {
-		acl, ex, err := onlineconf.GetStringIfExists(ctx, param)
+	for _, read := range reads {
+		acl, ex, err := read(ctx)
 		if err != nil {
 			{{ .Logger.ErrorMsg "ctx" "err" "Get onlineconf admin" }}
 

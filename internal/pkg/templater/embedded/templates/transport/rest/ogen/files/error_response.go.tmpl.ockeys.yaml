@@ -1,0 +1,11 @@
+# The OnlineConf keys the generated ogen error responses read.
+groups:
+  - scope: rest_server
+    keys:
+      - path: "{service}/devstand"
+        name: DevStand
+        type: bool
+        default: "false"
+        description: >-
+          Error responses then carry the internal error text, which production
+          responses withhold.

@@ -5,13 +5,13 @@ import (
 	"net/http"
 	"time"
 
-	{{ if not .Transport.IsDynamic -}}
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
-	{{- end }}
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/attribute"
 
 	"{{ .ProjectPath }}/internal/app/constant"
+	{{ if not .Transport.IsDynamic -}}
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
+	{{ end -}}
 	"{{ .ProjectPath }}/pkg/app/rest"
 	{{ .Transport.PkgName }} "{{ .ProjectPath }}/pkg/rest/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}"
 )
@@ -57,7 +57,7 @@ func (c *Client) ClientName() string {
 }
 
 func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Transport.PkgName }}.Client, error) {
-	url, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "host"))
+	url, ex, err := occonf.RESTClientHost(ctx, "{{ .Transport.PkgName }}")
 	if err != nil {
 		return nil, errors.Wrap(err, "error getting {{ .Transport.PkgName }} url")
 	}
@@ -70,9 +70,13 @@ func (c *Client) GetClient{{ .Transport.Name }}(ctx context.Context) (*{{ .Trans
 		{{- end }}
 	}
 
-	timeout, err := onlineconf.GetDuration(ctx, onlineconf.MakePath(constant.ServiceName, "transport", "rest", "{{ .Transport.PkgName }}", "timeout"), time.Second * 2)
+	timeout, ok, err := occonf.RESTClientTimeout(ctx, "{{ .Transport.PkgName }}")
 	if err != nil {
-		return nil, errors.Wrap(err, "error getting {{ .Transport.PkgName }} url")
+		return nil, errors.Wrap(err, "error getting {{ .Transport.PkgName }} timeout")
+	}
+
+	if !ok {
+		timeout = time.Second * 2
 	}
 
 	return {{ .Transport.PkgName }}.NewClient(

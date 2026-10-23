@@ -1,0 +1,65 @@
+#
+# The complete OnlineConf surface of this service: every path in the
+# /{{ .OnlineConf.TreeRoot }} tree that anything in this project reads.
+#
+# Everything here is reached through one generated package,
+# {{ .OnlineConf.GetPackagePath }} — `make onlineconf-validate` forbids reading
+# OnlineConf anywhere else. `accessor` names the function, `read_via` names it
+# when the read goes through a shared accessor whose path its caller composes.
+#
+# Two origins, and the difference matters when you change something:
+#
+#   origin: service   — declared in the service's OnlineConf key map (the
+#                       contract). To add, change or remove one, change the map.
+#   origin: generated — declared by the generator, next to the template whose
+#                       code reads it. Not declarable in the service map: a
+#                       second declaration would mean a second reader with a
+#                       second spelling, which is the thing the map exists to
+#                       prevent. `read_by` names the templates the read comes
+#                       from — all of them, including alternatives of which this
+#                       project generates one (the two loggers read the same
+#                       keys, so both are listed).
+#
+# A `<name>` segment is one the generated code computes at runtime — the url path
+# of a request, a telegram user id, an action name. `owns` then names the point
+# from which the subtree as a whole belongs to the generated code: there is no
+# single path to compare against, so the service map may not declare inside it.
+#
+# `required: true` marks a key the startup check verifies. A generated one is
+# checked only in the applications that run the component reading it.
+#
+# This file is for reading and diffing: nothing in the service loads it. It is
+# regenerated on every run, so a diff here is a change to the configuration
+# surface of the service, which is exactly the thing worth reviewing.
+#
+tree: /{{ .OnlineConf.TreeRoot }}
+
+keys:
+{{- range $_, $e := .OnlineConf.Surface }}
+  - path: {{ $e.Path }}
+    origin: {{ $e.Origin }}
+{{- if $e.Type }}
+    type: {{ $e.Type }}
+{{- end }}
+{{- if $e.Required }}
+    required: true
+{{- end }}
+{{- if $e.Accessor }}
+    accessor: {{ $e.Accessor }}
+{{- end }}
+{{- if $e.ReadVia }}
+    read_via: {{ $e.ReadVia }}
+{{- end }}
+{{- if $e.Owns }}
+    owns: {{ $e.Owns }}
+{{- end }}
+{{- if $e.HasDefault }}
+    default: {{ $e.Default | YAMLString }}
+{{- end }}
+{{- if $e.ReadBy }}
+    read_by: [{{ range $i, $t := $e.ReadBy }}{{ if $i }}, {{ end }}{{ $t | YAMLString }}{{ end }}]
+{{- end }}
+{{- if $e.Description }}
+    description: {{ $e.Description | YAMLString }}
+{{- end }}
+{{- end }}

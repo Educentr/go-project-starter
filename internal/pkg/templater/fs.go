@@ -9,6 +9,7 @@ import (
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/lintconfig"
+	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 	"github.com/pkg/errors"
 )
 
@@ -75,6 +76,14 @@ func GetTemplates(templateFS embed.FS, prefix string, params any) (dirs []ds.Fil
 				ParamsTmpl: params,
 			})
 
+			return nil
+		}
+
+		// An OnlineConf key declaration is generator input, not project output:
+		// it sits next to the template whose generated code performs the reads
+		// (see ockeymap.GenDeclSuffix) so that the two cannot drift, and it is
+		// read at generation time by LoadOnlineConfKeyDecls.
+		if strings.HasSuffix(path, ockeymap.GenDeclSuffix) {
 			return nil
 		}
 
@@ -169,28 +178,37 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 		files = filteredFiles
 	}
 
-	// The metrics validator config only makes sense alongside a metrics map.
-	if !params.Metrics.IsEnabled() {
-		filteredFiles := make([]ds.Files, 0, len(files))
+	// A validator config only makes sense alongside the map it enforces, and so
+	// does the registry of the surface the map describes. The OnlineConf map is
+	// never absent — the generated code's half of it is always there — so its
+	// two artifacts (configs/golangci-onlineconf.yml and
+	// configs/onlineconf-tree.yaml) are deliberately not listed here: generated
+	// code reads OnlineConf in every project, so the guard has to hold in every
+	// project.
+	skipMapArtifacts := map[string]bool{
+		metricsLintConfigPath: !params.Metrics.IsEnabled(),
+	}
 
-		for _, f := range files {
-			if f.DestName == metricsLintConfigPath {
-				continue
-			}
+	filteredMapFiles := make([]ds.Files, 0, len(files))
 
-			filteredFiles = append(filteredFiles, f)
+	for _, f := range files {
+		if skipMapArtifacts[f.DestName] {
+			continue
 		}
 
-		files = filteredFiles
+		filteredMapFiles = append(filteredMapFiles, f)
 	}
+
+	files = filteredMapFiles
 
 	// tools.lint_config.own: the project maintains configs/golangci-lint.yml
 	// itself, so the file drops out of the output set entirely. It is declared
 	// user-owned alongside this (see Generator.userOwnedPaths), which is what
 	// keeps an existing file from being deleted as an orphan.
 	//
-	// configs/golangci-metrics.yml is a separate file and is NOT affected: the
-	// metrics gate runs through `make metrics-validate` and stays intact
+	// configs/golangci-metrics.yml and configs/golangci-onlineconf.yml are
+	// separate files and are NOT affected: those gates run through
+	// `make metrics-validate` / `make onlineconf-validate` and stay intact
 	// whoever owns the main lint config.
 	if params.LintConfigOwn {
 		filteredFiles := make([]ds.Files, 0, len(files))
@@ -608,6 +626,33 @@ func GetMetricsTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Fi
 
 	for i := range files {
 		files[i].DestName = filepath.Join(metricsPath, files[i].DestName)
+	}
+
+	return
+}
+
+// GetOnlineConfTemplates returns the generated accessor package built from the
+// project's OnlineConf key map — the paths the generated code reads plus, when
+// project.yaml points at one, the service's own declarations.
+//
+// Every project gets it: generated code reads OnlineConf in every project, and
+// the package is the only place the library may be called from.
+func GetOnlineConfTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, "embedded/templates/occonf", params)
+	if err != nil {
+		err = errors.Wrap(err, "error while get onlineconf templates")
+
+		return
+	}
+
+	occonfPath := params.OnlineConf.GetPackagePath()
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(occonfPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(occonfPath, files[i].DestName)
 	}
 
 	return

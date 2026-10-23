@@ -1,0 +1,27 @@
+# The OnlineConf keys a generated telegram worker reads.
+#
+# The paths are the daemon worker's: both workers configure a job run under
+# /<service>/worker/<name>, and one accessor serves both.
+groups:
+  - scope: worker_telegram
+    keys:
+      - path: "{service}/worker/{worker}"
+        name: WorkerPath
+        description: >-
+          Configuration subtree of one worker. The worker hands the path to the
+          logger, which reads the log level below it keyed by the stage of an
+          update being handled, so the subtree belongs to the generated code as
+          a whole.
+
+      - path: "{service}/worker/{worker}/default/timeout"
+        name: WorkerDefaultTimeout
+        type: duration
+        default: "0 — no timeout"
+        description: >-
+          Timeout of one update being handled, used when job/timeout is unset.
+
+      - path: "{service}/worker/{worker}/job/timeout"
+        name: WorkerJobTimeout
+        type: duration
+        default: "default/timeout"
+        description: Timeout of one update being handled.

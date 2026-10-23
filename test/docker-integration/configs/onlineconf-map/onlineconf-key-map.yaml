@@ -1,0 +1,54 @@
+# A service's OnlineConf key map. In a real project this file lives in the
+# contract repository and project.yaml points at it with a git+https URI; here
+# it sits next to the config so the test needs no network.
+keys:
+  # Scalar with a default: the accessor never reports absence, it returns 5m.
+  - path: /octest/supervisor/min_lifetime
+    type: duration
+    default: 5m
+    description: >-
+      How long a spawned agent is kept before the supervisor may reap it.
+
+  # Required: the service cannot run without it, so an absent key is an error
+  # at startup rather than a zero value at the first read.
+  - path: /octest/supervisor/max_agents
+    type: int
+    required: true
+    description: Upper bound on concurrently running agents.
+
+  - path: /octest/feature/new_pipeline_enabled
+    type: bool
+    default: false
+    description: Route tasks through the new pipeline.
+
+  - path: /octest/confluence/url
+    type: string
+    required: true
+    description: Base URL of the Confluence instance the exporter writes to.
+
+  # A comma-separated list: OnlineConf reads it into []string natively.
+  - path: /octest/notify/recipients
+    type: strings
+    default: ops@example.com, oncall@example.com
+    description: Addresses that receive escalation mail.
+
+  # Neither default nor required: presence comes back alongside the value,
+  # because a zero value and an unset key are not the same answer.
+  - path: /octest/queue/name
+    type: string
+    description: Queue to consume from; unset means the built-in default queue.
+
+  # A list is ONE key with a structured value. OnlineConf has no subtree
+  # traversal, so `/octest/agent_env/<i>/name` is not a key — this is.
+  - path: /octest/agent_env
+    type: struct
+    description: >-
+      Environment variables handed to every spawned agent, as a JSON array of
+      {name, value} objects.
+
+  # The derived name would be DbDsn; the declaration overrides it.
+  - path: /octest/db/dsn
+    type: string
+    name: DatabaseDSN
+    required: true
+    description: Data source name of the primary database.

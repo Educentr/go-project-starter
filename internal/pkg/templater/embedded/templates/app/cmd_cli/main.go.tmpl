@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/joho/godotenv"
 	{{ .Logger.Import }}
 	{{ if .Application.UseActiveRecord }}
@@ -20,6 +19,7 @@ import (
 	{{ $drv.Package }} "{{ $drv.Import }}"
 	{{ end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 	"{{ .ProjectPath }}/pkg/app/logger"
 	{{ .Application.CLI.Import }}
 )
@@ -64,7 +64,7 @@ func run() int {
 	}
 
 	// Initialize onlineconf
-	mainCtx, err = onlineconf.Initialize(mainCtx, onlineconf.WithConfigDir(getOnlineconfDir()))
+	mainCtx, err = {{ .OnlineConf.GetPackageName }}.Initialize(mainCtx, getOnlineconfDir())
 	if err != nil {
 		log.Printf("failed to initialize onlineconf: %v", err)
 		return ExitCodeErrorConfig
@@ -89,7 +89,7 @@ func run() int {
 	// Initialize ActiveRecord
 	activerecord.InitActiveRecord(
 		activerecord.WithLogger(arzlog.NewARLogger(arlogger.InfoLoggerLevel)),
-		activerecord.WithConfig(func(ctx context.Context) activerecord.ConfigInterface { return onlineconf.FromContext(ctx) }),
+		activerecord.WithConfig(func(ctx context.Context) activerecord.ConfigInterface { return {{ .OnlineConf.GetPackageName }}.ActiveRecordConfig(ctx) }),
 	)
 	{{- end }}
 

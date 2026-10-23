@@ -1,0 +1,28 @@
+# The OnlineConf keys a generated REST client reads for authentication.
+#
+# Which of them is read depends on the client's auth type; all four are declared
+# because the key belongs to the client either way, and the tree surface should
+# not change shape with a project.yaml setting. None is `required` for the same
+# reason: requiring all four would demand three keys the client never reads.
+groups:
+  - scope: rest_client
+    keys:
+      - path: "{service}/transport/rest/{transport}/auth_params/apikey"
+        name: RESTClientAPIKey
+        type: string
+        description: API key sent with every request of this client.
+
+      - path: "{service}/transport/rest/{transport}/auth_params/token"
+        name: RESTClientToken
+        type: string
+        description: Bearer token sent with every request of this client.
+
+      - path: "{service}/transport/rest/{transport}/auth_params/username"
+        name: RESTClientUsername
+        type: string
+        description: Basic-auth user name of this client.
+
+      - path: "{service}/transport/rest/{transport}/auth_params/password"
+        name: RESTClientPassword
+        type: string
+        description: Basic-auth password of this client.

@@ -1,3 +1,13 @@
+{{- /* constant.ServiceName is referenced only by InitService and by the wiring
+       of a statically instantiated gRPC client, both conditional — so the import
+       is too, or a project with skip_service_init and no such client gets an
+       unused import and does not compile. */}}
+{{- $needsConstant := not .SkipServiceInit }}
+{{- range $_, $tr := .Applications.GetGrpcTransport }}
+{{- if and (eq $tr.GeneratorType "buf_client") (not $tr.IsDynamic) }}
+{{- $needsConstant = true }}
+{{- end }}
+{{- end }}
 package service
 
 import (
@@ -6,11 +16,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"{{ .ProjectPath }}/internal/app/constant"
+{{ if $needsConstant }}	"{{ .ProjectPath }}/internal/app/constant"
+{{ end }}	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 	{{ range $_, $tr := .Applications.GetRestTransport }}
 	{{ if and (eq $tr.GeneratorType "ogen_client") (not $tr.IsDynamic) }}
 	{{ range $_, $imp := $tr.Import }}
@@ -182,23 +192,18 @@ func (s *Service) BotHitInfo(ctx context.Context, processInfo reqctx.RequestProc
 }
 
 func UserEnabled(ctx context.Context, tgID int64, action ActionEnableUsers) (bool, error) {
-	enabledUsers, err := onlineconf.GetStrings(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "enabled", string(action)), []string{})
+	enabledUsers, ex, err := occonf.SettingsEnabled(ctx, string(action))
 	if err != nil {
 		return false, err
 	}
 
+	if !ex {
+		// если нету ключа значит включено для всех
+		return true, nil
+	}
+
 	if len(enabledUsers) == 0 {
-		_, ex, err := onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "enabled", string(action)))
-		if err != nil {
-			return false, err
-		}
-
-		if !ex {
-			// если нету ключа значит включено для всех
-			return true, nil
-		}
-
-		_, ex, err = onlineconf.GetStringIfExists(ctx, onlineconf.MakePath(constant.ServiceName, "settings", "enabled", string(action), strconv.FormatInt(tgID, 10)))
+		_, ex, err := occonf.SettingsEnabledUser(ctx, string(action), strconv.FormatInt(tgID, 10))
 		if err != nil {
 			return false, err
 		}
