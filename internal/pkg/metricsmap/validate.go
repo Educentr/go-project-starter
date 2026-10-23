@@ -179,6 +179,8 @@ func (m Metric) problems() []string {
 		}
 	}
 
+	problems = append(problems, m.appProblems()...)
+
 	if _, ok := knownTypes[m.Type]; !ok {
 		problems = append(problems, fmt.Sprintf("type %q is unknown, expected one of %s", m.Type, strings.Join(KnownTypes(), ", ")))
 
@@ -189,6 +191,33 @@ func (m Metric) problems() []string {
 	problems = append(problems, m.labelProblems()...)
 	problems = append(problems, m.bucketProblems()...)
 	problems = append(problems, m.objectiveProblems()...)
+
+	return problems
+}
+
+// appProblems checks the shape of the `apps` list. Whether a name matches an
+// application of the project is checked by ValidateApps, which needs the
+// project the map is being generated against.
+func (m Metric) appProblems() []string {
+	var problems []string
+
+	seen := make(map[string]struct{}, len(m.Apps))
+
+	for _, app := range m.Apps {
+		if app == "" {
+			problems = append(problems, "apps contains an empty application name")
+
+			continue
+		}
+
+		if _, dup := seen[app]; dup {
+			problems = append(problems, fmt.Sprintf("application %q is listed twice in apps", app))
+
+			continue
+		}
+
+		seen[app] = struct{}{}
+	}
 
 	return problems
 }
@@ -277,6 +306,24 @@ func (m Metric) objectiveProblems() []string {
 	}
 
 	return problems
+}
+
+// KnownOwners returns the generator components that may own a metric, sorted.
+//
+// Exported so that the code deciding which components an application runs can
+// be checked against this set: AppScope.Publishes reads an absent owner key as
+// "no application publishes this", so an owner nobody maps would make its
+// metrics vanish from every registration and every dashboard without an error.
+func KnownOwners() []string {
+	out := make([]string, 0, len(knownOwners))
+
+	for owner := range knownOwners {
+		out = append(out, owner)
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // KnownTypes returns the accepted `type` values, sorted, for error messages.

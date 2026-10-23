@@ -31,6 +31,10 @@ import (
 // original request writes `labels: reason, stage`.
 type Labels []string
 
+// Apps is the list of application names that publish a metric. Like Labels it
+// accepts both a YAML sequence and a comma-separated scalar.
+type Apps []string
+
 // Objective is a single Summary quantile target: the quantile and the allowed
 // relative error.
 type Objective struct {
@@ -78,6 +82,17 @@ type Metric struct {
 	//
 	// Reserved for the generator's internal map; rejected in a service map.
 	Requires string `yaml:"requires"`
+
+	// Apps names the applications that publish the metric. Empty means every
+	// application that exposes /metrics — the behavior from before the field
+	// existed, and the right answer for a service that is one process.
+	//
+	// The field exists because the map describes the surface of a SERVICE while
+	// a service can be several processes. A collector registered in a process
+	// that never increments it puts an always-zero series on /metrics, and an
+	// always-zero series is indistinguishable from a broken feature: the rule
+	// "zero is normal, any growth is a defect" then holds in neither direction.
+	Apps Apps `yaml:"apps"`
 }
 
 // Map is a parsed metrics map.
@@ -128,14 +143,17 @@ const (
 	CapabilityRESTClient = "rest_client"
 )
 
-const (
-	// objectivePairSize is the number of yaml.Node entries one
-	// `quantile: error` pair occupies in a mapping node's Content slice (the
-	// key and the value).
-	objectivePairSize = 2
+// objectivePairSize is the number of yaml.Node entries one `quantile: error`
+// pair occupies in a mapping node's Content slice (the key and the value).
+const objectivePairSize = 2
 
-	// errLabelsCtx wraps a decode failure of the `labels` field.
-	errLabelsCtx = "labels: %w"
+// Field names of a map entry, as they appear in error messages.
+const (
+	fieldLabels = "labels"
+	fieldApps   = "apps"
+
+	// errFieldCtx prefixes a decode failure with the field it happened in.
+	errFieldCtx = "%s: %w"
 )
 
 // metricFields is the closed set of keys a map entry may carry. Enforced
@@ -145,39 +163,80 @@ const (
 var metricFields = map[string]struct{}{
 	"name": {}, "type": {}, "labels": {}, "help": {},
 	"buckets": {}, "objectives": {}, "external": {},
-	"owner": {}, "requires": {},
+	"owner": {}, "requires": {}, "apps": {},
 }
 
 // UnmarshalYAML accepts either a sequence of strings or a single scalar holding
 // a comma-separated list.
 func (l *Labels) UnmarshalYAML(value *yaml.Node) error {
+	list, err := decodeStringList(value, fieldLabels)
+	if err != nil {
+		return err
+	}
+
+	*l = Labels(list)
+
+	return nil
+}
+
+// UnmarshalYAML accepts either a sequence of strings or a single scalar holding
+// a comma-separated list.
+//
+// A written-but-empty value (`apps: ""`, `apps: []`, `apps: ","`) is rejected
+// rather than decoded to the empty list. For `labels` empty means "no labels",
+// but for `apps` the empty list means "published by EVERY application" — the
+// opposite of the restriction the line reads as. Silently taking the opposite
+// of what is written is the always-zero-series defect this field exists to
+// remove. (A bare `apps:` is a YAML null, which yaml.v3 never routes through
+// an unmarshaler; it stays indistinguishable from an absent key.)
+func (a *Apps) UnmarshalYAML(value *yaml.Node) error {
+	list, err := decodeStringList(value, fieldApps)
+	if err != nil {
+		return err
+	}
+
+	if len(list) == 0 {
+		return fmt.Errorf("%w: %s: declared but names no application; "+
+			"remove the key to publish the metric from every application", ErrMalformedMap, fieldApps)
+	}
+
+	*a = Apps(list)
+
+	return nil
+}
+
+// decodeStringList reads the two written forms of a name list — a YAML
+// sequence and a single comma-separated scalar — into one slice. Both `labels`
+// and `apps` are written both ways, so the two forms are decoded in one place.
+//
+// The scalar form drops empty entries (a trailing comma is a typo, not a
+// nameless item); the sequence form keeps them, so that an explicit empty
+// string reaches validation and is reported by name instead of vanishing.
+func decodeStringList(value *yaml.Node, field string) ([]string, error) {
 	switch value.Kind {
 	case yaml.ScalarNode:
 		var raw string
 		if err := value.Decode(&raw); err != nil {
-			return fmt.Errorf(errLabelsCtx, err)
+			return nil, fmt.Errorf(errFieldCtx, field, err)
 		}
 
-		*l = splitLabels(raw)
-
-		return nil
+		return splitList(raw), nil
 	case yaml.SequenceNode:
 		var raw []string
 		if err := value.Decode(&raw); err != nil {
-			return fmt.Errorf(errLabelsCtx, err)
+			return nil, fmt.Errorf(errFieldCtx, field, err)
 		}
 
-		out := make(Labels, 0, len(raw))
+		out := make([]string, 0, len(raw))
 
 		for _, item := range raw {
 			out = append(out, strings.TrimSpace(item))
 		}
 
-		*l = out
-
-		return nil
+		return out, nil
 	default:
-		return fmt.Errorf("%w: labels: expected a list or a comma-separated string, got %s", ErrMalformedMap, nodeKindName(value.Kind))
+		return nil, fmt.Errorf("%w: %s: expected a list or a comma-separated string, got %s",
+			ErrMalformedMap, field, nodeKindName(value.Kind))
 	}
 }
 
@@ -224,6 +283,7 @@ func (m *Metric) UnmarshalYAML(value *yaml.Node) error {
 		External   bool      `yaml:"external"`
 		Owner      string    `yaml:"owner"`
 		Requires   string    `yaml:"requires"`
+		Apps       Apps      `yaml:"apps"`
 	}
 
 	if err := rejectUnknownFields(value, metricFields); err != nil {
@@ -243,6 +303,7 @@ func (m *Metric) UnmarshalYAML(value *yaml.Node) error {
 	m.External = p.External
 	m.Owner = p.Owner
 	m.Requires = p.Requires
+	m.Apps = p.Apps
 
 	objectives, err := decodeObjectives(&p.Objectives)
 	if err != nil {
@@ -400,11 +461,11 @@ func rejectUnknownFields(value *yaml.Node, allowed map[string]struct{}) error {
 	return nil
 }
 
-// splitLabels turns "reason, stage" into []string{"reason", "stage"}. An empty
-// or whitespace-only input yields no labels rather than one empty label.
-func splitLabels(raw string) Labels {
+// splitList turns "reason, stage" into []string{"reason", "stage"}. An empty
+// or whitespace-only input yields no entries rather than one empty entry.
+func splitList(raw string) []string {
 	parts := strings.Split(raw, ",")
-	out := make(Labels, 0, len(parts))
+	out := make([]string, 0, len(parts))
 
 	for _, p := range parts {
 		p = strings.TrimSpace(p)

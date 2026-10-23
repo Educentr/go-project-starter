@@ -7,15 +7,21 @@
 // discouraged. `make metrics-validate` enforces the other half of the rule:
 // no metric constructors outside this package.
 //
-// Register wires the collectors into a registry. It is called from the
-// generated main of each application that exposes /metrics.
+// RegisterFor wires an application's collectors into a registry. It is called
+// from the generated main of each application that exposes /metrics.
 package {{ .Metrics.GetPackageName }}
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// ErrUnknownApp reports a name that is not an application of this service, or
+// one that serves no /metrics endpoint. Registering into the wrong name would
+// otherwise leave /metrics empty and say nothing about why.
+var ErrUnknownApp = errors.New("unknown application")
 
 {{- range $_, $m := .Metrics.Generated }}
 
@@ -39,7 +45,29 @@ var {{ $m.VarName }} = {{ $m.Constructor }}(
 )
 {{- end }}
 
-// Collectors returns every generated collector, in declaration order.
+// collectorsByApp holds, for each application that exposes /metrics, the
+// collectors that application publishes — in declaration order.
+//
+// The split comes from the `apps` field of the metrics map. The map declares
+// the surface of the SERVICE, and a service can be several processes: a
+// collector registered in a process that never increments it puts an
+// always-zero series on /metrics, which is indistinguishable from a broken
+// feature. A declaration that names no application is published by all of
+// them, so a single-application service sees exactly one entry holding
+// everything.
+var collectorsByApp = map[string][]prometheus.Collector{
+{{- range $_, $a := .Metrics.CollectorsByApp }}
+	{{ $a.App | GoQuote }}: {
+	{{- range $_, $m := $a.Metrics }}
+		{{ $m.VarName }},
+	{{- end }}
+	},
+{{- end }}
+}
+
+// Collectors returns every generated collector of the service, in declaration
+// order — every application's, not one application's. Use CollectorsFor to
+// register; this is for tooling that needs the whole surface at once.
 func Collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 {{- range $_, $m := .Metrics.Generated }}
@@ -48,12 +76,43 @@ func Collectors() []prometheus.Collector {
 	}
 }
 
-// Register registers every generated collector with reg.
+// CollectorsFor returns the collectors the named application publishes, or
+// false when the name is not an application of this service with a /metrics
+// endpoint.
+func CollectorsFor(app string) ([]prometheus.Collector, bool) {
+	collectors, ok := collectorsByApp[app]
+
+	return collectors, ok
+}
+
+// RegisterFor registers the named application's collectors with reg.
 //
 // The registerer is explicit rather than the client_golang default one: tests
-// need a throwaway registry, and several applications can share one binary.
-// A nil registerer is a no-op, which is what an application without a
-// /metrics endpoint gets.
+// need a throwaway registry, and several applications can share one binary. A
+// nil registerer is a no-op; an unknown application is not, because leaving
+// /metrics empty over a typo is the failure this split exists to avoid.
+func RegisterFor(app string, reg prometheus.Registerer) error {
+	collectors, ok := CollectorsFor(app)
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownApp, app)
+	}
+
+	if reg == nil {
+		return nil
+	}
+
+	for _, collector := range collectors {
+		if err := reg.Register(collector); err != nil {
+			return fmt.Errorf("register metrics collector: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Register registers every collector of the service with reg, ignoring the
+// per-application split. It is here for a test or a tool that wants the whole
+// surface in one registry; a generated main calls RegisterFor.
 func Register(reg prometheus.Registerer) error {
 	if reg == nil {
 		return nil

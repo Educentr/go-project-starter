@@ -43,7 +43,7 @@ import (
 	{{ $imp }}
 	{{- end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
-{{- if and .Application.HasSysTransport .Metrics.IsEnabled .Metrics.HasGenerated }}
+{{- if and .Application.HasSysTransport .Metrics.IsEnabled (.Metrics.HasGeneratedFor .Application.Name) }}
 	"{{ .ProjectPath }}/{{ .Metrics.GetPackagePath }}"
 {{- end }}
 	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
@@ -150,12 +150,20 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize metrics" }}
 		os.Exit(ExitCodeErrorApp)
 	}
-{{- if and .Metrics.IsEnabled .Metrics.HasGenerated }}
+{{- if and .Metrics.IsEnabled (.Metrics.HasGeneratedFor .Application.Name) }}
 
-	// Register the collectors generated from the service's metrics map.
+	// Register the collectors this application publishes, per the `apps` field
+	// of the service's metrics map — not the whole map. A collector registered
+	// in a process that never increments it would put an always-zero series on
+	// /metrics, and an always-zero series says nothing about whether the
+	// feature behind it works.
+	//
 	// The registerer is explicit: tests use a throwaway registry, and several
 	// applications can share one binary.
-	err = metrics.Register(application.GetMetrics())
+	{{- /* GoQuote, matching the key in the collector package's collectorsByApp:
+	       the two sides have to agree character for character or RegisterFor
+	       fails at startup. */}}
+	err = metrics.RegisterFor({{ .Application.Name | GoQuote }}, application.GetMetrics())
 	if err != nil {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't register declared metrics" }}
 		os.Exit(ExitCodeErrorApp)
