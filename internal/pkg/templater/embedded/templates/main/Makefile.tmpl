@@ -90,8 +90,16 @@ else ifeq ($(COMMIT_BRANCH), beta)
 endif
 
 # Docker variables
-REGISTRY_SERVER ?= {{ .DockerImagePrefix }}
+REGISTRY_SERVER ?= {{ .Docker.ImagePrefix }}
 DOCKER_TAG ?= $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+{{- if .Docker.BuildArgs }}
+# Docker build arguments (docker.build_args in project.yaml). Each is passed to
+# `docker build` as --build-arg; `?=` keeps an environment or command line
+# value, so CI overrides the default without editing the Makefile.
+{{- range $_, $arg := .Docker.BuildArgs }}
+{{ $arg.Name }} ?={{ with $arg.Default }} {{ . }}{{ end }}
+{{- end }}
+{{- end }}
 
 # by default 'make' will build the service
 default: build
@@ -293,7 +301,7 @@ build_in_docker-{{ $a.Name }}:
 # Build docker image for service {{ $a.Name }}
 .PHONY: docker-{{ $a.Name }}
 docker-{{ $a.Name }}:
-	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
 
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:

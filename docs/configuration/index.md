@@ -11,6 +11,7 @@
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
+- [Docker](docker.md) — префикс образов, build-аргументы и OCI-лейблы
 - [GitHub CI](github-ci.md) — раннер, timeout, установка doctl и проверки, гейтящие `build`
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 - [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
@@ -119,6 +120,7 @@ applications:
 - [Инфраструктура](infrastructure.md) — Grafana, artifacts, deploy
 - [Удалённые спеки](remote-specs.md) — git/HTTPS источники в `path:`
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
+- [Docker](docker.md) — префикс образов, build-аргументы и OCI-лейблы
 - [GitHub CI](github-ci.md) — раннер, timeout, установка doctl и проверки, гейтящие `build`
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 - [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева

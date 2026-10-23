@@ -108,6 +108,13 @@ services:
       dockerfile: Dockerfile-{{ $app.Name }}
       args:
         - GOPROXY=${GOPROXY:-}
+{{- if $.Docker.BuildArgs }}
+        # docker.build_args: compose cannot evaluate the Makefile defaults, so
+        # the values come from the environment and are empty when unset.
+{{- range $_, $arg := $.Docker.ComposeBuildArgs }}
+        - {{ $arg }}
+{{- end }}
+{{- end }}
       ssh:
         - default
     image: {{ $.ProjectName }}-{{ $app.Name }}:dev

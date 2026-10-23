@@ -41,6 +41,21 @@ git:
   module_path: gitlab.educentr.info/golang/projects/example
   private_repos: "github.com/myorg/*"
 
+# Docker image settings: registry prefix, build args and OCI labels.
+# A build arg is declared as ARG in the listed stages, passed by the
+# docker-<app> recipe and gets a Makefile default, so the image can carry its
+# own version/revision. See docs/configuration/docker.md
+# docker:
+#   image_prefix: registry.example/org
+#   build_args:
+#     - IMAGE_VERSION                         # short form: name only
+#     - name: IMAGE_REVISION                  # full form
+#       default: $(shell git rev-parse HEAD)   # Makefile default
+#       stages: [builder, final]               # default: [final]
+#   labels:
+#     org.opencontainers.image.version: ${IMAGE_VERSION}
+#     org.opencontainers.image.revision: ${IMAGE_REVISION}
+
 tools:
   protobuf_version: 1.7.0
   golang_version: 1.21

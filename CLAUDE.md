@@ -226,6 +226,18 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## Docker Build Args и Labels
+
+Секция `docker:` помимо `image_prefix` несёт `build_args` (объявление build-аргументов образа) и `labels` (OCI-лейблы финальной стадии). Нужна потому, что `LABEL` статичен и не умеет вызвать `git`: версия/ревизия обязаны приехать через `--build-arg`, а стадия, которая их использует, обязана объявить `ARG` — а builder-стадия Dockerfile целиком генерируемая, и дописанный туда руками `ARG` стирался на каждом `make regenerate`.
+
+Элемент `build_args` — либо имя (`IMAGE_VERSION`), либо объект `{name, default, stages}`. Из каждого аргумента генерируются четыре вещи: `ARG <name>` в перечисленных стадиях Dockerfile, `--build-arg <name>="$(<name>)"` в рецепте `docker-<app>`, `<name> ?= <default>` в Makefile (`?=` — приоритет за env/CLI, так переопределяет CI) и `<name>=${<name>:-}` в `build.args` приложения в `docker-compose-dev.yaml`.
+
+`stages` по умолчанию `[final]`: `ARG` обесценивает build-кеш слоёв **после** себя, а версия меняется на каждом коммите; в финальной стадии `ARG`-блок генерируется в самом её конце (после `COPY`/`CMD`/`EXPOSE`). `[builder, final]` — только когда значение реально нужно при сборке бинарника.
+
+Валидация на загрузке конфига (`config.Docker.Parse`): имя не может совпасть с `ARG`-ами шаблона (`binary`, `GOPROXY`) и переменными сгенерированного Makefile (`DOCKER_TAG`, `RELEASE`, …); ссылка `${NAME}` в значении лейбла требует аргумента, объявленного в стадии `final` (иначе лейбл молча отрендерился бы пустым). Ключи лейблов — только нижний регистр: viper приводит ключи конфига к нижнему регистру, а дотовые ключи (`org.opencontainers.image.version`) он разбивает в вложенные map'ы, которые `Parse` собирает обратно.
+
+Реализация: `internal/pkg/config/docker.go` (парсинг/валидация), `internal/pkg/ds/docker.go` (`ds.DockerConfig` + хелперы шаблонов `BuilderArgs`/`FinalArgs`/`LabelDirective`/`BuildArgFlags`/`ComposeBuildArgs`), шаблоны `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`, `main/docker-compose-dev.yaml.tmpl`. Полная документация: [docs/configuration/docker.md](docs/configuration/docker.md).
+
 ## Lint Config
 
 Секция `tools.lint_config` в `project.yaml` решает, кто владеет `configs/golangci-lint.yml` — файлом, чьи правила формируют вердикт merge-гейта. Два взаимоисключающих ключа (оба сразу — ошибка конфига), по умолчанию ни одного и поведение прежнее (генератор пишет файл целиком):

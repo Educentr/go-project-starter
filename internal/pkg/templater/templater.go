@@ -62,13 +62,15 @@ type GeneratorParams struct {
 	PrivateRepos    string
 	// Read via PrivateReposTokenSecretName, which applies the default.
 	PrivateReposTokenSecret string
-	DockerImagePrefix       string
-	SkipServiceInit         bool
-	GoLangVersion           string
-	OgenVersion             string
-	ArgenVersion            string
-	GolangciVersion         string
-	LintExcludePaths        []string
+	// Docker carries the docker section of project.yaml: the image prefix plus
+	// the build args and labels of the generated Dockerfile and Makefile.
+	Docker           ds.DockerConfig
+	SkipServiceInit  bool
+	GoLangVersion    string
+	OgenVersion      string
+	ArgenVersion     string
+	GolangciVersion  string
+	LintExcludePaths []string
 	// LintConfigOwn mirrors tools.lint_config.own: the project maintains
 	// configs/golangci-lint.yml itself and the generator does not write it.
 	LintConfigOwn       bool
