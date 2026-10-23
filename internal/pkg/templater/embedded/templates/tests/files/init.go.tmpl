@@ -56,13 +56,32 @@ Create init.go with your implementation:
         return config, env
     }
 
-    func init() {
-        testEnvInit = &testEnvInitializerImpl{}
-    }
+    // 5. Register the implementation
+    var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})
 `)
 }
 
 // testEnvInit is the current TestEnvInitializer implementation.
 // By default it's defaultTestEnvInitializer with panic.
-// Override it in your init.go by assigning a new implementation.
+// Replace it from your init.go via SetTestEnvInitializer.
 var testEnvInit TestEnvInitializer = &defaultTestEnvInitializer{}
+
+// SetTestEnvInitializer подставляет реализацию TestEnvInitializer и возвращает её.
+// Вызывается из инициализатора переменной в вашем init.go:
+//
+//	var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})
+//
+// Почему инициализатор переменной, а не init(): init() в сгенерированных проектах
+// запрещён линтером (gochecknoinits) — неявный side-effect при импорте и
+// зависимость от порядка инициализации пакетов. Инициализатор переменной —
+// тот же момент времени, но с явной записью «кто кого подменяет»; именно для
+// этого функция и возвращает значение. testEnvInit инициализируется раньше
+// (SetTestEnvInitializer от него зависит), так что подмена не теряется.
+//
+// Вызов до чтения гарантирован: инициализация переменных пакета завершается до
+// TestMain, а TestMain — единственный читатель (через GetEnv).
+func SetTestEnvInitializer(i TestEnvInitializer) TestEnvInitializer {
+	testEnvInit = i
+
+	return i
+}

@@ -29,8 +29,9 @@ var (
 )
 
 // ensureTestEnvInitialized ensures the test environment is initialized.
-// Uses sync.Once to guarantee initialization happens exactly once,
-// after all init() functions have completed.
+// Uses sync.Once to guarantee initialization happens exactly once, lazily on
+// first use — by then package variable initialization (including the
+// SetTestEnvInitializer call in the project's init.go) has completed.
 func ensureTestEnvInitialized() {
 	testEnvInitOnce.Do(func() {
 		// Initialize test environment using TestEnvInitializer interface
