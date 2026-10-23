@@ -604,6 +604,19 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
 		DoctlVersion:      config.GithubCI.DoctlVersion,
 		DoctlMode:         config.GithubCI.DoctlMode(),
+		Checks: ds.ChecksConfig{
+			// No checks declared — no checks job, CI graph unchanged.
+			Checks:   make([]ds.Check, 0, len(config.GithubCI.Checks)),
+			FailFast: config.GithubCI.ChecksConfig.FailFast,
+		},
+	}
+
+	for _, check := range config.GithubCI.Checks {
+		g.GithubCI.Checks.Checks = append(g.GithubCI.Checks.Checks, ds.Check{
+			Name:          check.Name,
+			Run:           check.Run,
+			RegistryLogin: check.RegistryLogin,
+		})
 	}
 
 	for _, app := range config.Applications {

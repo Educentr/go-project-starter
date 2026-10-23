@@ -2406,3 +2406,45 @@ func TestMakefilePrereqSepIssues(t *testing.T) {
 		})
 	}
 }
+
+func TestYAMLQuote(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "plain command",
+			in:   "make lint",
+			want: "'make lint'",
+		},
+		{
+			name: "command with a colon",
+			in:   "go test ./... -run TestX:Y",
+			want: "'go test ./... -run TestX:Y'",
+		},
+		{
+			name: "command with a single quote",
+			in:   "sh -c 'make lint'",
+			want: "'sh -c ''make lint'''",
+		},
+		{
+			name: "value starting with a YAML indicator",
+			in:   "*lint",
+			want: "'*lint'",
+		},
+		{
+			name: "empty value",
+			in:   "",
+			want: "''",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := YAMLQuote(tt.in); got != tt.want {
+				t.Errorf("YAMLQuote(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

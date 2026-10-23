@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
@@ -23,6 +24,10 @@ import (
 // MinRuntimeVersion is the minimum supported version of go-project-starter-runtime.
 // This should be updated when new runtime version is released.
 const MinRuntimeVersion = "v0.15.0"
+
+// goTypeDuration is the Go type the CLI flag helpers emit for a `duration`
+// flag declared in a CLI spec.
+const goTypeDuration = "time.Duration"
 
 // DefaultPrivateReposTokenSecret is the CI secret name used to fetch private
 // Go modules when git.private_repos_token_secret is not set in project.yaml.
@@ -83,7 +88,8 @@ type GeneratorParams struct {
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
 	// GithubCI carries the runner, job timeout and doctl setup applied to
-	// every job of the generated GitHub Actions workflows.
+	// every job of the generated GitHub Actions workflows, plus the checks that
+	// gate build.
 	GithubCI ds.GithubCIConfig
 	// CustomGenerators are the project's own generators (the `generator`
 	// section), with their commands already rendered per contract. Empty when
@@ -821,6 +827,13 @@ type disclaimers struct {
 	finish string
 }
 
+// YAMLQuote renders s as a single-quoted YAML scalar. Used for values that come
+// verbatim from project.yaml (CI check names and commands) and may contain
+// characters a plain scalar cannot carry — ':', '#', leading '*' and so on.
+func YAMLQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
 func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string) (*bytes.Buffer, error) {
 	return GenerateByTmplWithTransform(tmpl, params, userCode, destPath, nil)
 }
@@ -882,15 +895,6 @@ func GenerateByTmplWithTransform(
 	return buf, nil
 }
 
-// applyBodyTransform cuts the rendered disclaimer blocks off buf, hands the
-// remaining body to transform and reassembles buf in place.
-//
-// The blocks are located by rendering them on their own with the same funcs
-// and params the combined template got: both are deterministic functions of
-// the file name, so the rendered output is an exact prefix and suffix of buf.
-// A mismatch means the assumption broke (e.g. the template body now starts
-// with a `{{-` that trims into the disclaimer) and is reported rather than
-// patched over, because guessing the boundary would corrupt the marker the
 // templateFuncs returns the function map available to every template. The
 // entries are pure functions of their arguments, so one map serves the
 // template body and the disclaimer blocks of the same file.
@@ -921,8 +925,10 @@ func templateFuncs() template.FuncMap {
 		// Returning (string, error) makes text/template abort execution with
 		// this error. Returning only an error would render its message into
 		// the output file instead, leaving a broken artifact behind.
-		"errorf": func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
-		"add":    func(a, b int) int { return a + b },
+		//nolint:err113 // the format comes from the template, so there is no static error to wrap
+		"errorf":    func(format string, args ...any) (string, error) { return "", fmt.Errorf(format, args...) },
+		"add":       func(a, b int) int { return a + b },
+		"YAMLQuote": YAMLQuote,
 		"escapeJSON": func(s string) string {
 			// Escape special characters for JSON string
 			s = strings.ReplaceAll(s, `\`, `\\`)
@@ -947,12 +953,31 @@ func templateFuncs() template.FuncMap {
 			re := regexp.MustCompile(`\$\{([^}]+)\}`)
 			return re.ReplaceAllString(s, `${{ secrets.$1 }}`)
 		},
+		// goQuote renders s as a syntactically valid Go string literal
+		// (quotes included). Every value that comes from a user-supplied spec
+		// and ends up inside generated Go source must go through it —
+		// descriptions may legitimately contain quotes, backslashes or
+		// newlines, which would otherwise terminate the literal and produce
+		// code that does not compile.
+		"goQuote": strconv.Quote,
 		// CLI template helpers for flag handling
 		"flagDefault": func(goType, defaultVal string) string {
 			if defaultVal != "" {
 				switch goType {
 				case "string":
-					return `"` + defaultVal + `"`
+					return strconv.Quote(defaultVal)
+				case goTypeDuration:
+					// flag.Duration takes a time.Duration, not the "5s" the
+					// spec spells it with. Spec defaults are validated at load
+					// time, so a parse failure here can only mean the
+					// validation and this helper disagree — fall back to the
+					// zero value instead of emitting broken source.
+					d, err := time.ParseDuration(defaultVal)
+					if err != nil {
+						return "0"
+					}
+
+					return "time.Duration(" + strconv.FormatInt(int64(d), 10) + ")"
 				case "bool":
 					return defaultVal
 				default:
@@ -968,7 +993,7 @@ func templateFuncs() template.FuncMap {
 				return "false"
 			case "float64":
 				return "0"
-			case "time.Duration":
+			case goTypeDuration:
 				return "0"
 			default:
 				return `""`
@@ -984,7 +1009,7 @@ func templateFuncs() template.FuncMap {
 				return "*" + varName + " == 0"
 			case "bool":
 				return "!*" + varName
-			case "time.Duration":
+			case goTypeDuration:
 				return "*" + varName + " == 0"
 			default:
 				return "*" + varName + ` == ""`
@@ -1056,6 +1081,15 @@ func templateFuncs() template.FuncMap {
 	}
 }
 
+// applyBodyTransform cuts the rendered disclaimer blocks off buf, hands the
+// remaining body to transform and reassembles buf in place.
+//
+// The blocks are located by rendering them on their own with the same funcs
+// and params the combined template got: both are deterministic functions of
+// the file name, so the rendered output is an exact prefix and suffix of buf.
+// A mismatch means the assumption broke (e.g. the template body now starts
+// with a `{{-` that trims into the disclaimer) and is reported rather than
+// patched over, because guessing the boundary would corrupt the marker the
 // next regeneration looks for.
 func applyBodyTransform(
 	buf *bytes.Buffer, d disclaimers, params any, funcs template.FuncMap, transform BodyTransform,

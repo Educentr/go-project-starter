@@ -19,7 +19,7 @@ BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LD_FLAGS = -X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.buildDate=$(BUILD_DATE)'
 
 # Integration test image parameters
-INTEGRATION_GO_VERSION := 1.24.4
+INTEGRATION_GO_VERSION := 1.27.2
 INTEGRATION_BUF_VERSION := 1.47.2
 INTEGRATION_IMAGE_NAME := go-project-starter-test
 INTEGRATION_PARAMS_FILE := test/docker-integration/.image-params
@@ -193,6 +193,10 @@ integration-test-combined: buildfortest build-test-image
 .PHONY: integration-test-grafana
 integration-test-grafana: buildfortest build-test-image
 	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationGrafana ./test/docker-integration/...
+
+.PHONY: integration-test-cli
+integration-test-cli: buildfortest build-test-image
+	TEST_IMAGE=$(INTEGRATION_IMAGE_NAME):latest GOAT_DISABLE_STDOUT=true go test -v -timeout 15m -run TestIntegrationCLIOnly ./test/docker-integration/...
 
 .PHONY: integration-test-goat
 integration-test-goat: buildfortest build-test-image

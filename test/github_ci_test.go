@@ -191,11 +191,18 @@ func TestGenerateGithubCIDoctlImage(t *testing.T) {
 		}
 	}
 
-	// Both jobs that push images (the GOAT tests job and the build matrix)
-	// log in to the registry.
+	// Every job that logs in to the registry does so in the image mode: the
+	// two that push images (the GOAT tests job and the build matrix) plus the
+	// checks job, which the config gives a check with registry_login: true.
+	// The checks job arrived alongside this mode, so it is the one place where
+	// a stale install step can survive unnoticed.
 	loginSteps := doRegistryLoginSteps(wf)
-	if len(loginSteps) != 2 {
-		t.Fatalf("ci_cd.yml has %d %q steps (%v), want 2", len(loginSteps), doRegistryLoginStepName, loginSteps)
+	if len(loginSteps) != 3 {
+		t.Fatalf("ci_cd.yml has %d %q steps (%v), want 3", len(loginSteps), doRegistryLoginStepName, loginSteps)
+	}
+
+	if _, ok := loginSteps["checks"]; !ok {
+		t.Errorf("the checks job must log in to the registry for a check with registry_login, got jobs %v", loginSteps)
 	}
 
 	for jobName, step := range loginSteps {

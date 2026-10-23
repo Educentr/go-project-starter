@@ -3,6 +3,9 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -16,6 +19,11 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"gopkg.in/yaml.v3"
 )
+
+// minSupportedGoMinor is the lowest Go 1.x minor the generator may target in
+// generated projects. Go supports the two latest minor releases, so generating
+// on anything older only defers the next dependency-drift breakage.
+const minSupportedGoMinor = 26
 
 // fakeGenFileContent is a minimal generated file: disclaimer marker, no user
 // code below it.
@@ -388,6 +396,50 @@ func main() {
 	}
 }
 
+// binaryGoVersion reports the Go toolchain a binary was built with ("1.26.0"),
+// the same way the generated Makefile probes it.
+func binaryGoVersion(t *testing.T, path string) string {
+	t.Helper()
+
+	cmd := exec.Command("go", "version", "-m", path)
+
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Error reading the build toolchain of %s: %v", path, err)
+	}
+
+	fields := strings.Fields(strings.SplitN(string(out), "\n", 2)[0])
+	if len(fields) < 2 || !strings.HasPrefix(fields[1], "go") {
+		t.Fatalf("Unexpected `go version -m` output for %s: %q", path, out)
+	}
+
+	return strings.TrimPrefix(fields[1], "go")
+}
+
+// patchGoDirective rewrites the `go` directive of a go.mod and returns a
+// function restoring the original content.
+func patchGoDirective(t *testing.T, goModPath, version string) func() {
+	t.Helper()
+
+	original, err := os.ReadFile(goModPath)
+	if err != nil {
+		t.Fatalf("Error reading go.mod: %v", err)
+	}
+
+	patched := regexp.MustCompile(`(?m)^go .*$`).ReplaceAllString(string(original), "go "+version)
+	if err := os.WriteFile(goModPath, []byte(patched), 0o600); err != nil {
+		t.Fatalf("Error patching go.mod: %v", err)
+	}
+
+	return func() {
+		if err := os.WriteFile(goModPath, original, 0o600); err != nil {
+			t.Fatalf("Error restoring go.mod: %v", err)
+		}
+	}
+}
+
 // TestGolangciLintInstallToolchain verifies the lint-install logic of the
 // generated Makefile (TOOLS-13 / issue #29):
 //   - install-lint builds golangci-lint with the Go version the project targets,
@@ -475,29 +527,24 @@ func TestGolangciLintInstallToolchain(t *testing.T) {
 	t.Run("binary matching the pinned tag is kept", func(t *testing.T) {
 		buildFakeGolangciLint(t, binPath, tag)
 
+		// The guard compares go.mod's target against the toolchain the binary
+		// was really built with (`go version -m`), not the one its --version
+		// string claims. The fixture is built by whatever Go runs these tests,
+		// so it would look stale purely because the generated project targets a
+		// newer release than the host — this case is about version detection,
+		// staleness by toolchain is the next subtest. Target the fixture's own
+		// toolchain to isolate it.
+		defer patchGoDirective(t, goModPath, binaryGoVersion(t, binPath))()
+
 		if out := dryRunInstall(t); strings.Contains(out, rebuildMarker) {
 			t.Errorf("golangci-lint v%s must not be rebuilt, make output:\n%s", tag, out)
 		}
 	})
 
 	t.Run("binary built with an older toolchain is rebuilt", func(t *testing.T) {
-		goMod, err := os.ReadFile(goModPath)
-		if err != nil {
-			t.Fatalf("Error reading go.mod: %v", err)
-		}
-
 		// Target a Go version no toolchain in existence was built with, so the
 		// fake binary is guaranteed to look stale.
-		patched := regexp.MustCompile(`(?m)^go .*$`).ReplaceAllString(string(goMod), "go 1.99.0")
-		if err := os.WriteFile(goModPath, []byte(patched), 0o600); err != nil {
-			t.Fatalf("Error patching go.mod: %v", err)
-		}
-
-		defer func() {
-			if err := os.WriteFile(goModPath, goMod, 0o600); err != nil {
-				t.Fatalf("Error restoring go.mod: %v", err)
-			}
-		}()
+		defer patchGoDirective(t, goModPath, "1.99.0")()
 
 		buildFakeGolangciLint(t, binPath, tag)
 
@@ -1174,6 +1221,104 @@ func TestGenerateCLIOnly(t *testing.T) {
 	assertFileContains(t, mainFile, []string{
 		`cliAdmin "github.com/test/clitest/internal/app/transport/cli/admin"`,
 	})
+
+	// Regression TOOLS-2 / issue #28 — main.go must not print its own
+	// "Available commands:" header; PrintHelp is the sole owner.
+	mainContent, err := os.ReadFile(filepath.Join(tmpDir, mainFile))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", mainFile, err)
+	}
+
+	if strings.Contains(string(mainContent), "Available commands:") {
+		t.Errorf("%s should NOT print \"Available commands:\" — PrintHelp already owns that header", mainFile)
+	}
+
+	// Regression TOOLS-2 review, defect 1: descriptions from the spec land in Go
+	// string literals. The cli-only fixture has a multi-line description with
+	// quotes and a backslash, which used to be interpolated verbatim and produce
+	// source that does not compile. Parsing every generated file is the check
+	// that catches it — a grep for template text would not.
+	assertGeneratedGoParses(t, tmpDir)
+
+	// ...and the escaped literal must still carry the original text, i.e. the
+	// escaping fixed the syntax without mangling the description.
+	assertFileContains(t, handlerFile, []string{
+		`Description: "Seed the database with \"fixtures\".\nSecond paragraph documents the C:\\data layout` +
+			` and must not leak into the command list.\n"`,
+		`pFile := fs.String("file", "fixtures \"default\".json", "Path to the \"fixtures\" file")`,
+		// A "5s" spec default must become a time.Duration, not the bare token 5s.
+		`pWait := fs.Duration("wait", time.Duration(5000000000), "How long to wait between batches")`,
+	})
+
+	// The command list is summarized (one line per command), while the full
+	// description stays reachable through detailed help: PrintCommandHelp and
+	// PrintSubcommandHelp print cmd.Description / sub.Description verbatim.
+	assertFileContains(t, handlerFile, []string{
+		"func helpSummary(desc string) string",
+		"helpSummary(cmd.Description)",
+		"helpSummary(cmd.Subcommands[sn].Description)",
+		"func (h *Handler) PrintCommandHelp(w io.Writer, cmdName string) error",
+		"func (h *Handler) PrintSubcommandHelp(w io.Writer, cmdName, subName string) error",
+		`fmt.Fprintf(w, "Description: %s\n", cmd.Description)`,
+		`fmt.Fprintf(w, "Description: %s\n", sub.Description)`,
+	})
+
+	// Defect 3: PrintHelp advertises '<command> --help', so Execute must honor
+	// it for commands and subcommands instead of running them, and a --help that
+	// reaches flag.Parse must not surface as a command failure.
+	assertFileContains(t, handlerFile, []string{
+		"func isHelpArg(arg string) bool",
+		"if len(args) > 0 && isHelpArg(args[0]) {",
+		"if len(args) > 1 && isHelpArg(args[1]) {",
+		"if errors.Is(err, flag.ErrHelp) {",
+	})
+
+	// Defect 6: generator self-tests must not be shipped into user projects.
+	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); err == nil {
+		t.Error("generated project must not contain psg_handler_test.go — " +
+			"help formatting is covered by this repo's tests, not by tests shipped to users")
+	}
+}
+
+// assertGeneratedGoParses parses every .go file under dir. It is the cheap
+// stand-in for "the generated project compiles": a full build needs the module
+// cache and network, but a parse already catches generator bugs that emit
+// syntactically invalid source — unterminated string literals above all.
+func assertGeneratedGoParses(t *testing.T, dir string) {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	parsed := 0
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		parsed++
+
+		if _, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution); err != nil {
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				rel = path
+			}
+
+			t.Errorf("generated file %s is not valid Go: %v", rel, err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Error walking generated project: %v", err)
+	}
+
+	if parsed == 0 {
+		t.Fatalf("no generated .go files found under %s", dir)
+	}
 }
 
 // TestGenerateQueueWorker tests that queue worker generates correctly from contract.
@@ -1340,6 +1485,93 @@ func TestGenerateDaemonWorker(t *testing.T) {
 		"ErrorTimeout    = durationFromEnv(",
 		"NewCycleTimeout = durationFromEnv(",
 	})
+}
+
+// TestGenerateTelegramWorkerGoVersion tests that a project with a telegram worker is
+// generated on a supported Go version and carries no workaround pin of
+// github.com/gofrs/uuid/v5.
+//
+// The telegram driver templates import gofrs/uuid/v5 directly. Its v5.5.0+ releases
+// declare `go 1.25`, which used to break `go mod tidy` in projects generated on Go 1.24
+// (TOOLS-4). The fix is the Go version bump, not freezing the dependency on v5.4.0, so
+// go.mod must resolve uuid itself instead of carrying a hardcoded require line.
+//
+// The floor is deliberately a *supported* release (Go supports the two latest minors):
+// generating on an EOL version only defers the next dependency-drift break, which is
+// why the first attempt at this fix (Go 1.25 + goimports pinned to v0.49.0) was
+// rejected on review.
+func TestGenerateTelegramWorkerGoVersion(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "worker-telegram")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate telegram worker project ("+tmpDir+")")
+	if err != nil {
+		t.Fatalf("Error creating project: %s\n%s", err, out)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("Error reading go.mod: %v", err)
+	}
+
+	s := string(content)
+
+	major, minor, err := goDirective(s)
+	if err != nil {
+		t.Fatalf("Error parsing go directive: %v\n%s", err, s)
+	}
+
+	if major != 1 || minor < minSupportedGoMinor {
+		t.Errorf("go.mod should declare go >= 1.%d (a supported release), got %d.%d",
+			minSupportedGoMinor, major, minor)
+	}
+
+	if strings.Contains(s, "github.com/gofrs/uuid/v5 v") {
+		t.Errorf("go.mod should not pin github.com/gofrs/uuid/v5 — the Go version bump "+
+			"removed the need for it, got:\n%s", s)
+	}
+
+	// The same rule applies to the toolchain the generated Makefile installs:
+	// pinning goimports to an old release to stay installable on an old Go is
+	// the workaround this bump replaces.
+	makefile, err := os.ReadFile(filepath.Join(tmpDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("Error reading Makefile: %v", err)
+	}
+
+	if !strings.Contains(string(makefile), "goimports@latest") {
+		t.Errorf("generated Makefile should install goimports@latest, not a pinned release")
+	}
+}
+
+// goDirective extracts the major and minor version from the `go` directive of a go.mod.
+func goDirective(goMod string) (int, int, error) {
+	m := regexp.MustCompile(`(?m)^go\s+(\d+)\.(\d+)`).FindStringSubmatch(goMod)
+	if m == nil {
+		return 0, 0, fmt.Errorf("no go directive found")
+	}
+
+	major, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse major %q: %w", m[1], err)
+	}
+
+	minor, err := strconv.Atoi(m[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse minor %q: %w", m[2], err)
+	}
+
+	return major, minor, nil
 }
 
 // TestObsoleteFileCleanup tests that stale generated files (with disclaimer, no user code)
@@ -2716,5 +2948,104 @@ func TestConflictWithUserSpecAbortsRun(t *testing.T) {
 
 	if string(got) != userContent {
 		t.Errorf("User spec must be left untouched, got:\n%s", got)
+	}
+}
+
+// TestGenerateCIChecks verifies that checks declared in github_ci produce a
+// single matrix job in the generated workflow and that build/build-packages are
+// gated on it.
+func TestGenerateCIChecks(t *testing.T) {
+	tmpDir := generateProject(t, "ci-checks")
+
+	workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
+	if err != nil {
+		t.Fatalf("Error reading .github/workflows/ci_cd.yml: %v", err)
+	}
+
+	wf := string(workflow)
+
+	expected := []string{
+		// One matrix job, not a job per check.
+		"\n  checks:\n",
+		"fail-fast: false",
+		"- name: 'lint'\n            run: 'make lint'",
+		"- name: 'unit-tests'\n            run: 'make unit-tests'",
+		"- name: 'guards'\n            run: 'make lint-guards'",
+		"registry_login: true",
+		// `make lint` diffs against origin/main, so history must be complete.
+		"fetch-depth: 0",
+		// Escape hatch mirroring the existing SKIP_GOAT_TESTS one.
+		"vars.SKIP_CHECKS != 'true'",
+		// Gate: one needs entry aggregating every matrix leg.
+		"(needs.checks.result == 'success' || needs.checks.result == 'skipped')",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(wf, exp) {
+			t.Errorf("ci_cd.yml should contain %q", exp)
+		}
+	}
+
+	// Registry login is guarded per matrix leg, not run for every check.
+	if !strings.Contains(wf, "if: ${{ matrix.registry_login }}") {
+		t.Error("ci_cd.yml should guard the registry login step with matrix.registry_login")
+	}
+
+	// Both build and build-packages must list checks in needs.
+	for _, job := range []string{"  build:", "  build-packages:"} {
+		idx := strings.Index(wf, "\n"+job)
+		if idx < 0 {
+			t.Fatalf("ci_cd.yml should contain job %q", job)
+		}
+
+		head := wf[idx:]
+		if end := strings.Index(head, "    steps:"); end > 0 {
+			head = head[:end]
+		}
+
+		if !strings.Contains(head, "      - checks\n") {
+			t.Errorf("job %q should list checks in needs, got:\n%s", job, head)
+		}
+	}
+
+	// Nesting the checks under github_ci means they are not a separate world:
+	// the runner and the job timeout of the section apply to the checks job
+	// like to any other. Parsing also asserts the generated YAML is valid.
+	parsed := parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml")
+
+	checksJob, ok := parsed.Jobs["checks"]
+	if !ok {
+		t.Fatalf("ci_cd.yml has no checks job, got jobs %v", parsed.Jobs)
+	}
+
+	// Mirrors ci-checks/project.yaml.
+	if checksJob.RunsOn != "self-hosted" {
+		t.Errorf("checks job runs-on = %#v, want \"self-hosted\"", checksJob.RunsOn)
+	}
+
+	if checksJob.TimeoutMinutes == nil || *checksJob.TimeoutMinutes != 25 {
+		t.Errorf("checks job timeout-minutes = %v, want 25", checksJob.TimeoutMinutes)
+	}
+}
+
+// TestGenerateWithoutCIChecks verifies the backward-compatible path: no
+// `github_ci.checks` key means no checks job and an unchanged CI graph.
+// github-ci-defaults has no github_ci section at all, so it covers both the
+// missing section and the missing key.
+func TestGenerateWithoutCIChecks(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci-defaults")
+
+	for _, relPath := range []string{filepath.Join(".github", "workflows", "ci_cd.yml"), ".gitlab-ci.yml"} {
+		content, err := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if err != nil {
+			t.Fatalf("Error reading %s: %v", relPath, err)
+		}
+
+		s := string(content)
+		for _, unexp := range []string{"checks:", "SKIP_CHECKS", "needs.checks"} {
+			if strings.Contains(s, unexp) {
+				t.Errorf("%s should NOT contain %q when no checks are declared", relPath, unexp)
+			}
+		}
 	}
 }

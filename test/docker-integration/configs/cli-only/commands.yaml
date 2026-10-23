@@ -2,8 +2,13 @@ commands:
   - name: user
     description: "User management"
     subcommands:
+      # Multi-line on purpose: the command list shows only the first line, so the
+      # rest must stay reachable through 'user create --help' / 'help user create'
+      # (TOOLS-2 review, defect 2).
       - name: create
-        description: "Create a new user"
+        description: |
+          Create a new user.
+          Requires --email; the "name" flag is optional and defaults to the email.
         flags:
           - name: email
             type: string
@@ -31,3 +36,20 @@ commands:
       - name: steps
         type: int
         description: "Number of steps"
+  # Hostile description on purpose: multi-line text with embedded quotes and a
+  # backslash used to be interpolated verbatim into a Go string literal, so the
+  # generated project did not compile (TOOLS-2 review, defect 1). It also keeps
+  # the help-list summarization honest: only the first line may reach the list.
+  - name: seed
+    description: |
+      Seed the database with "fixtures".
+      Second paragraph documents the C:\data layout and must not leak into the command list.
+    flags:
+      - name: file
+        type: string
+        default: 'fixtures "default".json'
+        description: 'Path to the "fixtures" file'
+      - name: wait
+        type: duration
+        default: "5s"
+        description: "How long to wait between batches"
