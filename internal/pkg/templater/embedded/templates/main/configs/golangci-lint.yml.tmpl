@@ -20,9 +20,7 @@ linters:
     - errname
     - errorlint
     - exhaustive
-{{- if .Metrics.IsEnabled }}
     - forbidigo
-{{- end }}
     - forcetypeassert
     - funlen
     - ginkgolinter
@@ -95,19 +93,29 @@ linters:
         - switch
         - map
       default-signifies-exhaustive: true
+    # Declaration validators — the same rules the dedicated gates carry, so
+    # that `make lint` catches the typical case right away:
 {{- if .Metrics.IsEnabled }}
-    # Metrics validator: metric constructors belong in the generated collector
-    # package only. See configs/golangci-metrics.yml and `make metrics-validate`.
+    # metric constructors belong in the generated collector package only
+    # (configs/golangci-metrics.yml, `make metrics-validate`);
+{{- end }}
+    # OnlineConf is read through the generated accessor package only
+    # (configs/golangci-onlineconf.yml, `make onlineconf-validate`).
     forbidigo:
       # Match on the resolved package, not on the spelling at the call site —
-      # otherwise an import alias defeats the rule. See
-      # configs/golangci-metrics.yml for the full reasoning.
+      # otherwise an import alias defeats the rule. See the dedicated validator
+      # configs for the full reasoning.
       analyze-types: true
       forbid:
+{{- if .Metrics.IsEnabled }}
 {{- range $_, $rule := .Metrics.ForbiddenConstructors }}
         - pattern: '{{ $rule.Pattern }}'
           msg: "{{ $rule.Msg }}"
 {{- end }}
+{{- end }}
+{{- range $_, $rule := .OnlineConf.ForbiddenCalls }}
+        - pattern: '{{ $rule.Pattern }}'
+          msg: "{{ $rule.Msg }}"
 {{- end }}
     funlen:
       lines: -1
@@ -191,6 +199,13 @@ linters:
           - forbidigo
         path: ({{ .Metrics.GetPackagePath }}/|pkg/drivers/kafka/)
 {{- end }}
+      # The generated accessor package is where OnlineConf IS read. It is the
+      # only exemption: generated files used to be exempt as a class, which let
+      # the manual section below the disclaimer marker of a psg_*_gen.go file
+      # read any key unnoticed. See configs/golangci-onlineconf.yml.
+      - linters:
+          - forbidigo
+        path: {{ .OnlineConf.ExemptPathPattern }}
     paths:
       - third_party$
       - builtin$

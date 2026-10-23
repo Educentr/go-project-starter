@@ -40,6 +40,10 @@ const DefaultPrivateReposTokenSecret = "GH_PAT"
 // invented pin would claim a provenance the tree does not have.
 const DefaultStarterVersion = "latest"
 
+// goCommentWidth is the text width a wrapped doc comment is filled to: the 80
+// columns the generated code is written at, minus the "// " prefix.
+const goCommentWidth = 77
+
 type GeneratorParams struct {
 	AppInfo         string
 	Logger          ds.Logger
@@ -89,6 +93,7 @@ type GeneratorParams struct {
 	Artifacts     ds.ArtifactsConfig
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
+	OnlineConf    ds.OnlineConfConfig
 	// GithubCI carries the runner, job timeout and doctl setup applied to
 	// every job of the generated GitHub Actions workflows, plus the checks that
 	// gate build.
@@ -1026,6 +1031,15 @@ func templateFuncs() template.FuncMap {
 		// metric help texts in particular, which are free-form prose and may
 		// legitimately contain quotes, backslashes or newlines.
 		"GoQuote": strconv.Quote,
+		// YAMLString renders prose as a one-line double-quoted YAML scalar.
+		// Declarations carry folded multi-line descriptions; re-indenting them
+		// into a block scalar from a template is how a generated yaml file ends
+		// up unparseable, so they are collapsed onto one line instead. The
+		// quoting is strconv.Quote's, which also escapes the control
+		// characters a hand-rolled pair of replacements would let through.
+		"YAMLString": func(s string) string {
+			return strconv.Quote(strings.Join(strings.Fields(s), " "))
+		},
 		// GoComment renders a possibly multi-line string as the body of a
 		// line comment, continuing every line after the first with "// ".
 		// Needed wherever contract prose lands in a doc comment: a help text
@@ -1038,6 +1052,14 @@ func templateFuncs() template.FuncMap {
 			}
 
 			return strings.Join(lines, "\n// ")
+		},
+		// GoCommentWrap renders prose as the body of a line comment, rewrapped
+		// to the width the surrounding generated code is written at. A folded
+		// YAML description arrives as one long line, and a doc comment that runs
+		// past the line length every linter checks is a diff nobody can read —
+		// so the prose is refilled rather than passed through.
+		"GoCommentWrap": func(s string) string {
+			return wrapComment(s, goCommentWidth)
 		},
 		// Queue serialization template helpers
 		"serializeField": func(field ds.QueueField) string {
@@ -1181,4 +1203,37 @@ func getTmplErrorLine(lines []string, tmplErr string) (string, error) {
 	} else {
 		return "", errors.New("can't get line from error")
 	}
+}
+
+// wrapComment refills prose to width columns, continuing every line after the
+// first with the line-comment prefix. A word longer than width keeps its own
+// line rather than being broken — an OnlineConf path or a Go identifier must
+// stay copy-pasteable.
+func wrapComment(s string, width int) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return ""
+	}
+
+	var (
+		b    strings.Builder
+		line = words[0]
+	)
+
+	for _, word := range words[1:] {
+		if len(line)+1+len(word) > width {
+			b.WriteString(line)
+			b.WriteString("\n// ")
+
+			line = word
+
+			continue
+		}
+
+		line += " " + word
+	}
+
+	b.WriteString(line)
+
+	return b.String()
 }

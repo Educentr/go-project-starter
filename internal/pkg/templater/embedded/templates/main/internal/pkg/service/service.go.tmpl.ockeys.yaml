@@ -1,0 +1,22 @@
+# The OnlineConf keys the generated service layer reads.
+groups:
+  - scope: service
+    keys:
+      - path: "{service}/settings/enabled/<action>"
+        name: SettingsEnabled
+        type: strings
+        default: "absent — the action is enabled for everyone"
+        description: >-
+          Allow list of one action: the telegram user ids it is enabled for, or
+          `full` for everyone. The action is a runtime key, so the subtree
+          belongs to the generated code. An absent key enables the action for
+          everyone; an empty one hands the decision to the per-user keys below
+          it.
+
+      - path: "{service}/settings/enabled/<action>/<tgID>"
+        name: SettingsEnabledUser
+        type: string
+        default: "absent — the user is not in the allow list"
+        description: >-
+          Whether one telegram user is in the allow list of one action. Only the
+          presence of the key is read, never its value.

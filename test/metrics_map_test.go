@@ -406,10 +406,13 @@ func TestGenerateWithoutMetricsMap(t *testing.T) {
 		t.Error("no metrics map should mean no metrics validator config")
 	}
 
+	// forbidigo itself stays on: the OnlineConf validator is in every project,
+	// because generated code reads OnlineConf in every project. What must be
+	// absent is the metric-constructor rule.
 	mainLint := readGenerated(t, tmpDir, "configs", "golangci-lint.yml")
 
-	if strings.Contains(mainLint, "forbidigo") {
-		t.Error("no metrics map should mean no forbidigo rule in the lint config")
+	if strings.Contains(mainLint, "prometheus.New") {
+		t.Error("no metrics map should mean no metric-constructor rule in the lint config")
 	}
 
 	makefile := readGenerated(t, tmpDir, "Makefile")

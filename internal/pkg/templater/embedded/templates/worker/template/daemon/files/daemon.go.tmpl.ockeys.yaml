@@ -1,0 +1,40 @@
+# The OnlineConf keys a generated daemon worker reads.
+groups:
+  - scope: worker_daemon
+    keys:
+      - path: "{service}/worker/{worker}"
+        name: WorkerPath
+        description: >-
+          Configuration subtree of one worker. The worker hands the path to the
+          logger, which reads the log level below it keyed by the stage of a job
+          run, so the subtree belongs to the generated code as a whole.
+
+      - path: "{service}/worker/{worker}/jobs/enabled"
+        name: WorkerJobsEnabled
+        type: strings
+        default: "empty — no job is enabled"
+        description: Names of the jobs this worker is allowed to run.
+
+      - path: "{service}/worker/{worker}/batch_size"
+        name: WorkerBatchSize
+        type: int
+        default: "the worker's DefaultBatchSize"
+        description: How many items one iteration of the worker takes.
+
+      - path: "{service}/worker/{worker}/max_workers"
+        name: WorkerMaxWorkers
+        type: int
+        default: "5"
+        description: Upper bound on the goroutines the worker runs jobs in.
+
+      - path: "{service}/worker/{worker}/default/timeout"
+        name: WorkerDefaultTimeout
+        type: duration
+        default: "0 — no timeout"
+        description: Timeout of one job run, used when job/timeout is unset.
+
+      - path: "{service}/worker/{worker}/job/timeout"
+        name: WorkerJobTimeout
+        type: duration
+        default: "default/timeout"
+        description: Timeout of one job run.

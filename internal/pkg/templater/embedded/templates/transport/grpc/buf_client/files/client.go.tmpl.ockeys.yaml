@@ -1,0 +1,21 @@
+# The OnlineConf keys a generated gRPC client reads.
+groups:
+  - scope: grpc_client
+    keys:
+      - path: "{service}/transport/grpc/{transport}/host"
+        name: GRPCClientHost
+        type: string
+        description: >-
+          Host of the upstream service. Not `required`: a client declared
+          `instantiation: dynamic` in project.yaml takes its address as an
+          argument and never reads this key, and one declared `optional: true`
+          is skipped when it is unset — so whether the key is needed is a
+          project setting, not a property of the key. The generated driver
+          reports a missing host at Init, with the transport named.
+
+      - path: "{service}/transport/grpc/{transport}/port"
+        name: GRPCClientPort
+        type: string
+        description: >-
+          Port of the upstream service. Not `required`, for the same reason as
+          the host.

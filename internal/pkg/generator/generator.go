@@ -18,6 +18,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/lintconfig"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
+	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 	"github.com/Educentr/go-project-starter/internal/pkg/refrewrite"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
@@ -79,6 +80,7 @@ type Generator struct {
 	Artifacts           ds.ArtifactsConfig
 	Documentation       ds.DocsConfig
 	Metrics             ds.MetricsConfig
+	OnlineConf          ds.OnlineConfConfig
 	GithubCI            ds.GithubCIConfig
 	// CustomGenerators are the project's own generators with their commands
 	// rendered per contract — what the Makefile targets are built from.
@@ -113,6 +115,22 @@ const (
 	// errLintOverridesCtx prefixes failures of the lint override layer, naming
 	// the config key the operator has to look at.
 	errLintOverridesCtx = "tools.lint_config.overrides"
+
+	// errOnlineConfMapCtx prefixes failures of the OnlineConf key surface.
+	errOnlineConfMapCtx = "onlineconf key map"
+
+	// errOnlineConfPathCtx prefixes failures of the `onlineconf.path` channel —
+	// resolving the reference, loading the map and checking it against the keys
+	// the generator itself declares.
+	errOnlineConfPathCtx = "onlineconf.path"
+
+	// Worker templates whose generated code reads its own OnlineConf subtree.
+	workerTemplateDaemon   = "daemon"
+	workerTemplateTelegram = "telegram"
+
+	// grpcGeneratorBufClient is the only gRPC generator there is today, and the
+	// only one whose generated code reads OnlineConf.
+	grpcGeneratorBufClient = "buf_client"
 
 	// errRelPathFmt wraps a failure to make a generator-written path
 	// project-relative for the manifest.
@@ -271,6 +289,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		return err
 	}
 
+	if err := g.processOnlineConfMap(config); err != nil {
+		return err
+	}
+
 	if err := g.processGenerators(config); err != nil {
 		return err
 	}
@@ -295,7 +317,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 		transport := ds.Transport{
 			Name:              rest.Name,
-			PkgName:           fmt.Sprintf("%s_%s", rest.Name, rest.Version),
+			PkgName:           transportPkgName(rest.Name, rest.Version),
 			Type:              ds.RestTransportType,
 			GeneratorType:     rest.GeneratorType,
 			HealthCheckPath:   rest.HealthCheckPath,
@@ -942,6 +964,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		Artifacts:               g.Artifacts,
 		Documentation:           g.Documentation,
 		Metrics:                 g.Metrics,
+		OnlineConf:              g.OnlineConf,
 		GithubCI:                g.GithubCI,
 		CustomGenerators:        g.CustomGenerators,
 	}
@@ -1101,6 +1124,86 @@ func (g *Generator) processLintConfig(config cfg.Config) error {
 	return nil
 }
 
+// processOnlineConfMap assembles the project's whole OnlineConf key map: the
+// paths the generated code reads, plus the service's own declarations when
+// project.yaml points at a key map.
+//
+// It runs for every project, with or without `onlineconf.path`. Generated code
+// reads OnlineConf in every project, so every project gets the accessor package,
+// the validator, the startup check and the registry; the service's map adds its
+// keys to them. It used to be the switch for the whole feature, which left the
+// guard off exactly where the only reader was the generated code.
+//
+// The service map is materialized inline (same mechanism as the metrics map, the
+// CLI and queue-worker contracts) because the declarations are needed by
+// collectFiles, which runs before the resolveAllSources pre-pass. Nothing
+// downstream reads the map file itself — the generated accessor package is the
+// artifact — so the staged copy is dropped right after the parse and no copy
+// lands in the project. The --sourceRef ref override applies here too, so a
+// remote map comes from the same state of the contracts as the rest.
+func (g *Generator) processOnlineConfMap(config cfg.Config) error {
+	decls, err := templater.LoadOnlineConfKeyDecls()
+	if err != nil {
+		return errors.Wrap(err, errOnlineConfMapCtx)
+	}
+
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
+	if err != nil {
+		return errors.Wrap(err, errOnlineConfMapCtx)
+	}
+
+	perApp := make(map[string]*ockeymap.GenSurface, len(config.Applications))
+
+	// One scan for the whole project: the answer does not depend on which
+	// application is being expanded.
+	optional := optionalComponents(config)
+
+	for _, app := range config.Applications {
+		appSurface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app, optional))
+		if err != nil {
+			return errors.Wrapf(err, "%s: application %s", errOnlineConfMapCtx, app.Name)
+		}
+
+		perApp[app.Name] = appSurface
+	}
+
+	var serviceKeys []ockeymap.Key
+
+	if config.OnlineConf.IsEnabled() {
+		mapPath, cleanup, err := resolveInlineSpec(
+			context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "%s: resolve %s", errOnlineConfPathCtx, config.OnlineConf.Path)
+		}
+
+		keyMap, err := ockeymap.Load(mapPath)
+
+		cleanup()
+
+		if err != nil {
+			return errors.Wrap(err, errOnlineConfPathCtx)
+		}
+
+		if err := keyMap.CheckGeneratorKeys(generated.Keys); err != nil {
+			return errors.Wrap(err, errOnlineConfPathCtx)
+		}
+
+		warnOnlineConfTreeRoot(keyMap.TreeRoot(), config.Main.Name)
+
+		serviceKeys = keyMap.Keys
+	}
+
+	onlineConf, err := ds.NewOnlineConfConfig(config.Main.Name, serviceKeys, generated, perApp)
+	if err != nil {
+		return errors.Wrap(err, errOnlineConfMapCtx)
+	}
+
+	g.OnlineConf = onlineConf
+
+	return nil
+}
+
 // lintBodyTransform returns the body transform that folds the project's lint
 // overrides into the rendered golangci-lint config, or nil for every other
 // file and whenever no override layer is configured. A nil transform keeps the
@@ -1133,6 +1236,205 @@ func (g *Generator) userOwnedPaths() []string {
 	}
 
 	return paths
+}
+
+// warnOnlineConfTreeRoot reports a key map that declares its keys in a different
+// tree than the one the generated code reads.
+//
+// The generated readers build their paths from constant.ServiceName, so they
+// always read under /<service name>. A map rooted elsewhere is not an error —
+// a service may legitimately read another subtree of the tree — but it means
+// the service reads two roots, and the two halves of the surface can no longer
+// collide, so the check above has nothing to compare. Saying so beats letting
+// the gate look like it passed.
+func warnOnlineConfTreeRoot(mapRoot, serviceName string) {
+	if mapRoot == "" || mapRoot == serviceName {
+		return
+	}
+
+	log.Printf(
+		"warning: onlineconf.path: the key map declares keys in tree /%s, but the generated code "+
+			"reads /%s — the service then reads two trees, and no declaration of the map can "+
+			"collide with a key the generator reads itself",
+		mapRoot, serviceName)
+}
+
+// onlineConfAppSurface describes the dimensions of ONE application: the
+// transports, workers and Kafka clients its process actually runs.
+//
+// It exists for the startup check. A required key belongs to a component — a
+// gRPC client's host, a Kafka producer's brokers, a telegram bot's token — and a
+// process that does not run that component never reads it, so checking the
+// project's whole set in every process would stop a REST-only application over
+// the token of a worker it never starts.
+// A component declared optional is left out. The generated code treats an
+// absent key of an optional transport or Kafka client as "not configured, skip"
+// rather than as an error, and `optional: true` is the project saying so — a
+// startup check that failed over it would contradict the project's own setting.
+// Optionality is per project rather than per application, the same way the
+// generated readers test it.
+func onlineConfAppSurface(config cfg.Config, app cfg.Application, optional map[string]bool) ockeymap.ProjectSurface {
+	appConfig := config
+	appConfig.RestList = nil
+	appConfig.GrpcList = nil
+	appConfig.KafkaList = nil
+	appConfig.WorkerList = nil
+	appConfig.Applications = []cfg.Application{app}
+
+	for _, transport := range app.TransportList {
+		if optional[transport.Name] {
+			continue
+		}
+
+		if rest, ok := config.RestMap[transport.Name]; ok {
+			appConfig.RestList = append(appConfig.RestList, rest)
+		}
+
+		if grpc, ok := config.GrpcMap[transport.Name]; ok {
+			appConfig.GrpcList = append(appConfig.GrpcList, grpc)
+		}
+	}
+
+	for _, kafka := range app.KafkaList {
+		if kafka.Optional || optional[kafka.Name] {
+			continue
+		}
+
+		if client, ok := config.KafkaMap[kafka.Name]; ok {
+			appConfig.KafkaList = append(appConfig.KafkaList, client)
+		}
+	}
+
+	for _, name := range app.WorkerList {
+		if worker, ok := config.WorkerMap[name]; ok {
+			appConfig.WorkerList = append(appConfig.WorkerList, worker)
+		}
+	}
+
+	return onlineConfSurface(appConfig)
+}
+
+// optionalComponents returns the names of the transports and Kafka clients at
+// least one application declares optional — the same condition the generated
+// readers are rendered with (ds.Apps.IsTransportOptional), so that a key the
+// generated code is willing to do without is not one the startup check insists
+// on.
+func optionalComponents(config cfg.Config) map[string]bool {
+	out := map[string]bool{}
+
+	for _, app := range config.Applications {
+		for _, transport := range app.TransportList {
+			if transport.Config.Optional {
+				out[transport.Name] = true
+			}
+		}
+
+		for _, kafka := range app.KafkaList {
+			if kafka.Optional {
+				out[kafka.Name] = true
+			}
+		}
+	}
+
+	return out
+}
+
+// onlineConfSurface describes the project dimensions the generator's own key
+// declarations expand over: which transports, applications, workers and Kafka
+// clients exist, under the names the generated readers actually use.
+func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
+	surface := ockeymap.ProjectSurface{Service: config.Main.Name}
+
+	for _, rest := range config.RestList {
+		// Both a server and a client read their configuration under the package
+		// name, which carries the api version — not under the transport name.
+		// The server name is the one the generated main hands to rest.NewServer
+		// ("api_v1"), and the runtime passes it straight back into the
+		// configuration provider.
+		if rest.GeneratorType == cfg.GeneratorTypeOgenClient {
+			surface.RESTClients = append(surface.RESTClients, transportPkgName(rest.Name, rest.Version))
+
+			continue
+		}
+
+		surface.RESTServers = append(surface.RESTServers, ockeymap.RESTServer{
+			Transport: transportPkgName(rest.Name, rest.Version),
+			Apps:      appsServingTransport(config, rest.Name),
+		})
+	}
+
+	for _, grpc := range config.GrpcList {
+		// Only the generated client reads host and port. A server, once there
+		// is one, reads neither — and claiming its keys would keep the service
+		// from declaring paths nothing reads.
+		if grpc.GeneratorType != grpcGeneratorBufClient {
+			continue
+		}
+
+		surface.GRPCClients = append(surface.GRPCClients, grpc.Name)
+	}
+
+	for _, kafka := range config.KafkaList {
+		// A custom driver is the project's own code: the generator emits no
+		// config.go for it, so it reads none of these keys (see
+		// GetKafkaDriverTemplates).
+		if kafka.Type != ds.KafkaTypeProducer || kafka.Driver == ds.KafkaDriverCustom {
+			continue
+		}
+
+		events := make([]string, 0, len(kafka.Events))
+		for _, event := range kafka.Events {
+			events = append(events, event.Name)
+		}
+
+		surface.KafkaProducers = append(surface.KafkaProducers, ockeymap.KafkaProducer{
+			Client: kafka.Client,
+			Events: events,
+		})
+	}
+
+	for _, worker := range config.WorkerList {
+		// A queue worker falls through deliberately: its generated code reads
+		// no OnlineConf key at all, so there is nothing to claim under
+		// /<service>/worker/<name> for it. That is also why the declarations
+		// are scoped per worker template rather than to workers in general.
+		switch worker.GeneratorTemplate {
+		case workerTemplateDaemon:
+			surface.DaemonWorkers = append(surface.DaemonWorkers, worker.Name)
+		case workerTemplateTelegram:
+			surface.TelegramWorkers = append(surface.TelegramWorkers, worker.Name)
+		}
+	}
+
+	return surface
+}
+
+// transportPkgName is the package name a REST transport's generated code lives
+// under — and, for a client, the segment it reads its configuration under. Kept
+// next to the surface it feeds so that the expanded paths cannot drift from
+// ds.Transport.PkgName, which is built from the same two fields.
+func transportPkgName(name, version string) string {
+	return fmt.Sprintf("%s_%s", name, version)
+}
+
+// appsServingTransport returns the applications a REST transport is wired into.
+// The generated provider reads every key twice — under the application name and
+// without it — so both the transport and its applications are part of the
+// surface.
+func appsServingTransport(config cfg.Config, transportName string) []string {
+	var apps []string
+
+	for _, app := range config.Applications {
+		for _, transport := range app.TransportList {
+			if transport.Name == transportName {
+				apps = append(apps, app.Name)
+
+				break
+			}
+		}
+	}
+
+	return apps
 }
 
 // resolveInlineSpec materializes a spec source into a local file for
@@ -2026,6 +2328,15 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 
 	dirs = append(dirs, dirsM...)
 	files = append(files, filesM...)
+
+	// Generated OnlineConf accessors — only when a key map is configured.
+	dirsOC, filesOC, err := templater.GetOnlineConfTemplates(g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get onlineconf templates: %w", err)
+	}
+
+	dirs = append(dirs, dirsOC...)
+	files = append(files, filesOC...)
 
 	// Generate Kafka driver templates for segmentio drivers
 	for _, kafka := range g.Kafka {
