@@ -73,6 +73,7 @@ make lint-full                # Lint entire codebase
 make lint-fix                 # Auto-fix linting issues
 make generate                 # Run all code generators (ogen, protobuf, mocks{{ if .UseActiveRecord }}, argen{{ end }})
 make regenerate               # Full project regeneration via go-project-starter $(GPSVERSION)
+make check-generated          # Verify the generated area was not hand-edited (writes nothing)
 make update-starter STARTER_VERSION=vX.Y.Z  # Regenerate with another generator version and record it
 ```
 
@@ -80,6 +81,12 @@ The generator is pinned in the Makefile as `GPSVERSION` — the version that pro
 `make regenerate` fetches exactly it, so no pre-installed `go-project-starter` is required, and
 regenerating is expected to leave the tree unchanged. Never edit that line by hand: it is written
 by the generator, and `make update-starter` is what raises it.
+
+`make check-generated` compares the tree against the manifest in `.project-config/meta.yaml` and
+fails, naming the file and both hashes, when code above a disclaimer marker was edited, a copied
+spec under `api/` was edited in place, or a generated file was deleted. Code **below** a marker is
+yours and is never compared. Run it after editing generated files: it tells a change that survives
+`make regenerate` from one that is about to be thrown away.
 
 ## Code Generation
 
