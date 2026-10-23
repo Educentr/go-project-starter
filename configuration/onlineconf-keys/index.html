@@ -1,0 +1,3524 @@
+
+<!doctype html>
+<html lang="ru" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Документация генератора Go микросервисов">
+      
+      
+      
+        <link rel="canonical" href="https://educentr.github.io/go-project-starter/configuration/onlineconf-keys/">
+      
+      
+        <link rel="prev" href="../metrics-map/">
+      
+      
+        <link rel="next" href="../custom-generators/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Карта ключей OnlineConf - Go Project Starter</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#onlineconf-onlineconfpath" class="md-skip">
+          Перейти к содержанию
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Верхний колонтитул">
+    <a href="../.." title="Go Project Starter" class="md-header__button md-logo" aria-label="Go Project Starter" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Go Project Starter
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Карта ключей OnlineConf
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Тёмная тема"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Тёмная тема" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Светлая тема"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Светлая тема" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Поиск" placeholder="Поиск" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Поиск">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Поделиться" aria-label="Поделиться" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Очистить" aria-label="Очистить" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Инициализация поиска
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Educentr/go-project-starter" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Educentr/go-project-starter
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Навигация" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Go Project Starter" class="md-nav__button md-logo" aria-label="Go Project Starter" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Go Project Starter
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Educentr/go-project-starter" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Educentr/go-project-starter
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Главная
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Начало работы
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Начало работы
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Установка
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Быстрый старт
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../architecture/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Архитектура
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/generated-project/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Сгенерированный проект
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../cli/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Команды
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Параметры
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Конфигурация
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Конфигурация
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../main/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Основные секции
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Транспорты
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../applications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Applications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../infrastructure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Инфраструктура
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rewrite-refs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rewrite refs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub CI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Карта метрик
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Карта ключей OnlineConf
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Карта ключей OnlineConf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Зачем
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Подключение
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Формат карты
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Формат карты">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        path — полный путь ключа
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        type — тип значения
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        required — ключ, без которого сервис не работает
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default — значение при отсутствии ключа
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        name — имя аксессора
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description-godoc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        description — проза для godoc
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сгенерированный пакет аксессоров
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Сгенерированный пакет аксессоров">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Константы путей
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Аксессоры: сигнатуру задаёт объявление
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkrequired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CheckRequired — проверка на старте
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onlineconf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл OnlineConf
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#activerecordconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ActiveRecordConfig — известная дыра в карте
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subscribe-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribe и Paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Валидатор
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Валидатор">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Почему запрещён весь пакет, а не только читатели
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Почему правило не обходится алиасом импорта
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Исключения
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ключи, которые читает сгенерированный код
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Ключи, которые читает сгенерированный код">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Переменные сегменты пути
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scope — измерение, по которому запись раскрывается
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Запись без type — построитель пути
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-read_via" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shared и read_via — одно чтение на много путей
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        required у ключей генератора
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Связь объявлений с кодом
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Совпадение с картой сервиса — ошибка генерации
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configsonlineconf-treeyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        configs/onlineconf-tree.yaml — вся поверхность дерева
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Чего генератор не делает
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Полный пример
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Диагностика
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Миграция существующего проекта
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-generators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Свои генераторы
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lint-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Конфиг линтера
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../workflow/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Рабочий процесс
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Рабочий процесс
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflow/regeneration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Регенерация
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflow/makefile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflow/onlineconf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OnlineConf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../ai-agents/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coding agents
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coding agents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ai-agents/llms-md/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Генерация
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Примеры
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Примеры
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/grpc-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gRPC сервис
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/cli-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI приложение
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/telegram-bot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Telegram бот
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/multi-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../testing/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Тестирование
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Тестирование
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/goat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GOAT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../development/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Разработка генератора
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Разработка генератора
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура генератора
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Справочник
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Справочник
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/yaml-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YAML Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/makefile-targets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/naming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Именование
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Зачем
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Подключение
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Формат карты
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Формат карты">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        path — полный путь ключа
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        type — тип значения
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        required — ключ, без которого сервис не работает
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default — значение при отсутствии ключа
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        name — имя аксессора
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#description-godoc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        description — проза для godoc
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сгенерированный пакет аксессоров
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Сгенерированный пакет аксессоров">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Константы путей
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Аксессоры: сигнатуру задаёт объявление
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkrequired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CheckRequired — проверка на старте
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onlineconf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл OnlineConf
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#activerecordconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ActiveRecordConfig — известная дыра в карте
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subscribe-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribe и Paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Валидатор
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Валидатор">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Почему запрещён весь пакет, а не только читатели
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Почему правило не обходится алиасом импорта
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Исключения
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ключи, которые читает сгенерированный код
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Ключи, которые читает сгенерированный код">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Переменные сегменты пути
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scope — измерение, по которому запись раскрывается
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Запись без type — построитель пути
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-read_via" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shared и read_via — одно чтение на много путей
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        required у ключей генератора
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Связь объявлений с кодом
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Совпадение с картой сервиса — ошибка генерации
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configsonlineconf-treeyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        configs/onlineconf-tree.yaml — вся поверхность дерева
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Чего генератор не делает
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Полный пример
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Диагностика
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Миграция существующего проекта
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="onlineconf-onlineconfpath">Карта ключей OnlineConf (<code>onlineconf.path</code>)<a class="headerlink" href="#onlineconf-onlineconfpath" title="Permanent link">&para;</a></h1>
+<p>У каждого сгенерированного проекта есть <strong>полная карта ключей OnlineConf, к которым он обращается</strong>. Карта состоит из двух половин:</p>
+<ul>
+<li><strong>половина генератора</strong> — ключи, которые читает сгенерированный код: таймауты транспортов, уровни логирования, тумблеры безопасности, настройки воркеров и Kafka, dev-stand, ACL телеграм-бота. Объявлена в самом генераторе, рядом с шаблонами, которые её читают. Есть <strong>всегда</strong>;</li>
+<li><strong>половина сервиса</strong> — <code>onlineconf.path</code> в <code>project.yaml</code>: ссылка на карту в контрактном репозитории. Необязательна.</li>
+</ul>
+<p>На этой карте держится всё остальное: типизированные аксессоры в одном пакете, валидатор (никто не читает OnlineConf в обход карты), проверка «все обязательные настройки сделаны» на старте и реестр всей поверхности дерева. Поэтому <strong><code>onlineconf.path</code> добавляет ключи, а не включает фичу</strong>: без него карта состоит из половины генератора, и пакет, валидатор, проверка и реестр генерируются всё равно.</p>
+<p>Механизм — тот же, что у <a href="../metrics-map/">карты метрик</a>: карта в контрактном репозитории, ссылка полем <code>project.yaml</code>, генерация, парный валидатор.</p>
+<h2 id="_1">Зачем<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<p>Генератор <strong>уже</strong> генерировал чтение OnlineConf — для своих ключей (<code>pkg/app/restconfig/psg_config_oc_gen.go</code>, <code>psg_zlog_gen.go</code>, <code>psg_service_gen.go</code>). Форма ему принадлежала; снаружи её не было только у ключей <strong>сервиса</strong>.</p>
+<p>Предмет — не «строки в коде». Путь собирается из приватных констант, объявленных у каждого читателя по-своему:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nx">onlineconf</span><span class="p">.</span><span class="nx">MakePath</span><span class="p">(</span><span class="nx">constant</span><span class="p">.</span><span class="nx">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="nx">ocSegmentDocker</span><span class="p">,</span><span class="w"> </span><span class="s">"network"</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nx">onlineconf</span><span class="p">.</span><span class="nx">MakePath</span><span class="p">(</span><span class="nx">serviceName</span><span class="p">,</span><span class="w"> </span><span class="nx">segConfluence</span><span class="p">,</span><span class="w"> </span><span class="nx">keyURL</span><span class="p">)</span>
+</code></pre></div>
+<p>Собранного пути не существует нигде целиком, поэтому любой внешний инструмент (гвард, реестр, ревью) видит не путь, а частный словарь сегментов — и расходится с картой <strong>молча</strong>. Типизированный аксессор плюс парный запрет прямого обращения к <code>onlineconf</code> делают «проект читает необъявленный ключ» невозможным по построению, а не по договорённости.</p>
+<p>И то же самое — причина, по которой сгенерированный код тоже читает <strong>через аксессоры</strong>. Пока он собирал пути сам, половина поверхности дерева существовала только внутри шаблонов: владелец контракта её не видел, валидатор обходил сгенерированные файлы целиком (а с ними — и секцию ручного кода ниже disclaimer-маркера), и проверка на старте знала только про ключи сервиса.</p>
+<h2 id="_2">Подключение<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<p>Карта — <strong>контрактный артефакт</strong>, поэтому живёт в контрактном репозитории, а <code>project.yaml</code> несёт только ссылку. Форма ссылки та же, что у <code>rest[].path</code> и <code>metrics.path</code> (см. <a href="../remote-specs/">Удалённые спеки</a>): локальный путь, <code>https://</code>, <code>git+ssh://</code>, <code>git+https://</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># project.yaml</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">onlineconf</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"git+https://github.com/org/contracts.git@v1.4.0#common/onlineconf-key-map.yaml"</span>
+</code></pre></div>
+<p>Локально — для проб и для тестов:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">onlineconf</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./onlineconf-key-map.yaml</span>
+</code></pre></div>
+<p>Карта читается <strong>во время генерации</strong> и в проект не копируется: ничего ниже по цепочке её не читает, артефактом является сгенерированный пакет аксессоров. Второй копии, которая молча расходится с контрактом, не возникает. Переопределение ref (<code>--sourceRef</code> / <code>SOURCE_REF</code>) действует и на этот канал — удалённая карта приезжает из того же состояния контрактов, что и остальные спеки.</p>
+<h2 id="_3">Формат карты<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<p>Плоский список. Минимально достаточны <strong>два</strong> поля — <code>path</code> и <code>type</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># common/onlineconf-key-map.yaml</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">keys</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/supervisor/min_lifetime</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">duration</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5m</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="no">How long a spawned agent is kept before the supervisor may reap it.</span>
+</code></pre></div>
+<p>Схема <strong>строгая</strong>: неизвестное поле — отказ генерации. Процессные поля, которые обычно обрастает реестр ключей (<code>consumer</code>, <code>seeded_by</code>, <code>declared_in</code>, <code>status</code>, <code>service_tree</code>), в карту <strong>не входят</strong>. Карта — вход генератора, а «кто и где ключ читает» — вопрос о потребителях, не о контракте; владелец ключа — сам контракт. Закрытая схема — это то, что превращает опечатку в имени поля в ошибку, а не в объявление, которое молча ничего не делает.</p>
+<h3 id="path"><code>path</code> — полный путь ключа<a class="headerlink" href="#path" title="Permanent link">&para;</a></h3>
+<p>В <code>path</code> пишется <strong>то, что существует в дереве</strong>, целиком. Ведущий <code>/</code> необязателен, завершающий отбрасывается: <code>svc/a/b/</code> и <code>/svc/a/b</code> — один и тот же ключ.</p>
+<p>Требования:</p>
+<ul>
+<li>минимум два сегмента — <code>/&lt;корень дерева&gt;/&lt;ключ&gt;</code>. OnlineConf читает <strong>значение</strong>, не поддерево, поэтому один корень ключа не называет;</li>
+<li>сегмент — <code>[A-Za-z0-9][A-Za-z0-9_.-]*</code>;</li>
+<li><strong>все записи карты лежат в одном дереве.</strong> Карта — одна на сервис: у ключа ровно одно дерево, а общая карта смешивала бы поверхности нескольких сервисов в одном файле. Расхождение первого сегмента — ошибка;</li>
+<li><strong>шаблоны со списковым сегментом не принимаются.</strong> <code>/svc/agent_env/&lt;i&gt;/name</code> — не ключ: обхода поддерева в OnlineConf нет (так задумано). Список объявляется как <strong>один ключ со структурным значением</strong> (<code>type: struct</code>) и один аксессор.</li>
+</ul>
+<h3 id="type"><code>type</code> — тип значения<a class="headerlink" href="#type" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th><code>type</code></th>
+<th>Go-тип</th>
+<th>Читается через</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>string</code></td>
+<td><code>string</code></td>
+<td><code>GetStringIfExists</code></td>
+</tr>
+<tr>
+<td><code>int</code></td>
+<td><code>int64</code></td>
+<td><code>GetIntIfExists</code></td>
+</tr>
+<tr>
+<td><code>bool</code></td>
+<td><code>bool</code></td>
+<td><code>GetBoolIfExists</code></td>
+</tr>
+<tr>
+<td><code>duration</code></td>
+<td><code>time.Duration</code></td>
+<td><code>GetDurationIfExists</code></td>
+</tr>
+<tr>
+<td><code>strings</code></td>
+<td><code>[]string</code></td>
+<td><code>GetStrings</code> (строка через запятую или JSON-массив)</td>
+</tr>
+<tr>
+<td><code>struct</code></td>
+<td>тип вызывающего</td>
+<td><code>GetStruct</code> (JSON в переданный <code>dst</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Используются именно <code>*IfExists</code>-формы: форма с дефолтом (<code>onlineconf.GetString(ctx, path, d...)</code>) при ошибке чтения обращается к <code>d[0]</code> и <strong>паникует</strong>, если дефолт не передали. Сгенерированный код не должен зависеть от того, вспомнил ли вызывающий про дефолт.</p>
+<p><code>int</code> — это <code>int64</code>: такова ширина в go-onlineconf, и сужать её за вас генератор не станет.</p>
+<h3 id="required"><code>required</code> — ключ, без которого сервис не работает<a class="headerlink" href="#required" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/confluence/url</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>Аксессор такого ключа при отсутствии значения возвращает <code>ErrKeyNotSet</code>, а не нуль. Кроме того, ключ попадает в <code>CheckRequired</code>, который сгенерированный <code>main</code> вызывает <strong>на старте</strong>, сразу после инициализации OnlineConf: отсутствующий обязательный ключ — это misconfiguration инсталляции, и узнавать о нём надо при старте процесса, а не на первом запросе, которому он понадобился.</p>
+<p>Ограничения (оба — ошибка генерации):</p>
+<ul>
+<li><code>required</code> <strong>вместе с</strong> <code>default</code> — противоречие: ключ с дефолтом не бывает отсутствующим;</li>
+<li><code>required</code> у <code>struct</code> — <strong>нельзя</strong>: проверить наличие значило бы его разобрать, а тип назначения принадлежит вызывающему, не карте. Читайте через признак наличия у аксессора. Для <code>strings</code> <code>required</code> возможен: наличие берётся из <code>GetStringIfExists</code> по тому же пути.</li>
+</ul>
+<h3 id="default"><code>default</code> — значение при отсутствии ключа<a class="headerlink" href="#default" title="Permanent link">&para;</a></h3>
+<p>Декодируется <strong>по объявленному типу во время генерации</strong>, поэтому <code>default: 5 hours</code> у <code>duration</code> — ошибка генерации, а не значение, которого сервис никогда не получит.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/supervisor/min_lifetime</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">duration</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5m</span><span class="w">          </span><span class="c1"># → 5 * time.Minute</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/notify/recipients</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">strings</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops@example.com, oncall@example.com</span><span class="w">   </span><span class="c1"># или YAML-список</span>
+</code></pre></div>
+<p><code>struct</code> дефолта не принимает: форма значения принадлежит вызывающему, который передаёт <code>dst</code> и может заполнить его сам (<code>GetStruct</code> не трогает <code>dst</code>, если ключа нет).</p>
+<h3 id="name"><code>name</code> — имя аксессора<a class="headerlink" href="#name" title="Permanent link">&para;</a></h3>
+<p>Необязательно. По умолчанию имя выводится из сегментов пути <strong>ниже корня дерева</strong>: <code>/myservice/supervisor/min_lifetime</code> → <code>SupervisorMinLifetime</code>. Корень отбрасывается, потому что карта одна на сервис — повторять его в каждом идентификаторе нечего, пакет уже назван.</p>
+<p>Разделители внутри сегмента (<code>_</code>, <code>-</code>, <code>.</code>) сворачиваются, а распространённые аббревиатуры получают принятое в Go написание (список как у <code>golint</code>): <code>/svc/confluence/url</code> → <code>ConfluenceURL</code>, <code>/svc/api/http_timeout</code> → <code>APIHTTPTimeout</code>, <code>/svc/user/id</code> → <code>UserID</code>.</p>
+<p><code>name</code> нужен, когда выведенное имя всё равно читается плохо (<code>/svc/db/dsn</code> → <code>DBDSN</code>) или когда путь не даёт идентификатора вовсе (<code>/svc/2fa</code> — после сворачивания идентификатор начинался бы с цифры, это ошибка генерации с указанием объявления). Значение должно быть экспортируемым Go-идентификатором: оно называет функцию.</p>
+<p>Два объявления, дающие один идентификатор, — ошибка, а не одна функция на двоих.</p>
+<h3 id="description-godoc"><code>description</code> — проза для godoc<a class="headerlink" href="#description-godoc" title="Permanent link">&para;</a></h3>
+<p>Необязательно, но это единственное место, где смысл ключа <strong>видно</strong> и можно отревьюить; в <code>MakePath</code> посреди кода его не видит никто. Текст уезжает в doc-комментарий аксессора.</p>
+<h2 id="_4">Сгенерированный пакет аксессоров<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<p>Генерируется в <code>internal/pkg/occonf/psg_occonf_gen.go</code>. Пакет назван <code>occonf</code>, а не <code>onlineconf</code>, намеренно: он оборачивает библиотеку с таким именем, и на месте вызова эти две вещи должны различаться.</p>
+<h3 id="_5">Константы путей<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p>По одной на объявленный ключ:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kd">const</span><span class="w"> </span><span class="p">(</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="c1">// PathSupervisorMinLifetime is the path of SupervisorMinLifetime (duration).</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nx">PathSupervisorMinLifetime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"/myservice/supervisor/min_lifetime"</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="p">)</span>
+</code></pre></div>
+<p>Экспортируются, чтобы путь можно было передать в <code>Subscribe</code>, не обращаясь к <code>onlineconf</code> (что валидатор запрещает).</p>
+<h3 id="_6">Аксессоры: сигнатуру задаёт объявление<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<p>Форму возврата выбирает <strong>карта</strong>, а не место вызова — поэтому обязательный ключ нельзя принять за отсутствующий, а опциональный за присутствующий.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1">// default: отсутствие не сообщается, возвращается дефолт</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">SupervisorMinLifetime</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Duration</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1">// required: отсутствие — ErrKeyNotSet, не нуль</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="kd">func</span><span class="w"> </span><span class="nx">ConfluenceURL</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1">// ни того, ни другого: наличие возвращается вместе со значением</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="kd">func</span><span class="w"> </span><span class="nx">QueueName</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="c1">// strings с дефолтом: отсутствие даёт дефолт</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="kd">func</span><span class="w"> </span><span class="nx">NotifyRecipients</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="c1">// strings без дефолта: наличие возвращается вместе со значением — «нет ключа»</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="c1">// и «пустой список» это разные конфигурации</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="kd">func</span><span class="w"> </span><span class="nx">AllowedOrigins</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="c1">// struct: форма значения принадлежит вызывающему</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="kd">func</span><span class="w"> </span><span class="nx">AgentEnv</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">dst</span><span class="w"> </span><span class="kt">any</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+</code></pre></div>
+<p>Использование в коде сервиса:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">import</span><span class="w"> </span><span class="s">"github.com/org/myservice/internal/pkg/occonf"</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nx">lifetime</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">SupervisorMinLifetime</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span><span class="w">   </span><span class="c1">// 5m, если ключа нет</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="nx">url</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">ConfluenceURL</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span><span class="w">                </span><span class="c1">// ErrKeyNotSet, если ключа нет</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="k">if</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">Is</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">ErrKeyNotSet</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="nx">queue</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">QueueName</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span><span class="w">              </span><span class="c1">// ok == false ≠ queue == ""</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="kd">var</span><span class="w"> </span><span class="nx">env</span><span class="w"> </span><span class="p">[]</span><span class="nx">AgentEnvVar</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="k">if</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">AgentEnv</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">env</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<h3 id="checkrequired"><code>CheckRequired</code> — проверка на старте<a class="headerlink" href="#checkrequired" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">CheckRequired</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+</code></pre></div>
+<p>Читает каждый <code>required</code>-ключ <strong>через его же аксессор</strong> (чтобы проверка на старте и работающий сервис понимали «пригоден» одинаково) и сообщает <strong>все</strong> проблемы сразу. Вызов проставляется автоматически в <code>cmd/&lt;app&gt;/psg_main_gen.go</code> сразу после запуска watcher-а:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nx">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">CheckRequired</span><span class="p">(</span><span class="nx">mainCtx</span><span class="p">,</span><span class="w"> </span><span class="s">"api"</span><span class="p">)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nx">zlog</span><span class="p">.</span><span class="nx">Ctx</span><span class="p">(</span><span class="nx">mainCtx</span><span class="p">).</span><span class="nx">Error</span><span class="p">().</span><span class="nx">Err</span><span class="p">(</span><span class="nx">err</span><span class="p">).</span><span class="nx">Msg</span><span class="p">(</span><span class="s">"required onlineconf keys are missing"</span><span class="p">)</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nx">os</span><span class="p">.</span><span class="nx">Exit</span><span class="p">(</span><span class="nx">ExitCodeErrorConfig</span><span class="p">)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">}</span>
+</code></pre></div>
+<p>Это ровно та граница, на которой OnlineConf и так валидируется один раз за процесс. Дальше в коде проверять наличие ключа на каждом чтении не нужно — инвариант уже установлен.</p>
+<p><strong>Почему параметр — имя приложения.</strong> Ключи сервиса проверяются всегда: у карты сервиса нет измерения приложений. А вот <code>required</code>-ключ генератора принадлежит <strong>компоненту</strong> — host gRPC-клиента, brokers Kafka-продюсера, токен телеграм-бота — и процесс, который этот компонент не запускает, такой ключ не читает. Проверять весь набор проекта в каждом процессе значило бы не дать стартовать REST-только приложению из-за токена воркера, которого у него нет.</p>
+<p>По той же причине компонент, объявленный в <code>project.yaml</code> как <code>optional: true</code>, из проверки исключается: сгенерированный читатель пропускает отсутствующий ключ такого компонента вместо того, чтобы ругаться, и проверка не должна настаивать там, где код согласен обойтись.</p>
+<blockquote>
+<p>CLI-приложения (<code>cmd/&lt;cli&gt;</code>) проверку не получают: короткоживущей команде не обязательно нужна вся конфигурационная поверхность сервиса. При необходимости вызовите <code>occonf.CheckRequired</code> сами.</p>
+</blockquote>
+<h3 id="onlineconf">Жизненный цикл OnlineConf<a class="headerlink" href="#onlineconf" title="Permanent link">&para;</a></h3>
+<p>Пакет оборачивает и точки входа самой библиотеки — по той же причине, по которой оборачивает чтения: валидатор запрещает <code>onlineconf</code> всюду, кроме этого пакета, и сгенерированный <code>main</code>, обращающийся к библиотеке напрямую, был бы единственным исключением, которого никто не видит.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">Initialize</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">configDir</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">StartWatcher</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="kd">func</span><span class="w"> </span><span class="nx">StopWatcher</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+</code></pre></div>
+<h3 id="activerecordconfig"><code>ActiveRecordConfig</code> — известная дыра в карте<a class="headerlink" href="#activerecordconfig" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">ActiveRecordConfig</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">onlineconf</span><span class="p">.</span><span class="nx">OnlineconfInstance</span>
+</code></pre></div>
+<p>Генерируется <strong>только при <code>use_active_record: true</code></strong>. ActiveRecord читает дерево сам, через <code>activerecord.ConfigInterface</code>, а этот интерфейс — весь набор читателей библиотеки (<code>GetString</code>, <code>GetStruct</code>, …). Значит, отдать ActiveRecord узкий интерфейс нельзя, и значение, которое возвращает эта функция, может прочитать любой путь.</p>
+<p>Это <strong>дыра в карте, и она была всегда</strong>: собственные чтения ActiveRecord (<code>db/&lt;shard&gt;</code>, user, password, …) не объявлены и в <code>configs/onlineconf-tree.yaml</code> не попадают. Сузилась она в одном: проект без ActiveRecord такой функции не получает вовсе, то есть мимо аксессоров пройти негде. Читать ключи через неё нельзя — объявите ключ и позовите его аксессор.</p>
+<h3 id="subscribe-paths"><code>Subscribe</code> и <code>Paths</code><a class="headerlink" href="#subscribe-paths" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">Paths</span><span class="p">()</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">Subscribe</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">paths</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">cb</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+</code></pre></div>
+<p><code>Subscribe</code> существует именно потому, что валидатор запрещает вызывать <code>onlineconf</code> из кода сервиса: без него сервис, реагирующий на изменения конфигурации, не мог бы это сделать иначе, чем нарушив правило.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">Subscribe</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">{</span><span class="nx">occonf</span><span class="p">.</span><span class="nx">PathSupervisorMinLifetime</span><span class="p">},</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span><span class="nx">reloadSupervisor</span><span class="p">()</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="p">})</span>
+</code></pre></div>
+<h2 id="_7">Валидатор<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<p>Объявление становится несущим только вместе с парным запретом: <strong>обращения к пакету <code>onlineconf</code> вне сгенерированного пакета запрещены</strong>. Иначе рядом с аксессорами всегда можно написать ещё один <code>onlineconf.MakePath</code>, и карта вырождается в договорённость.</p>
+<p>Запрет реализован правилом <code>forbidigo</code> и генерируется в двух местах:</p>
+<ul>
+<li><code>configs/golangci-onlineconf.yml</code> + цель <code>make onlineconf-validate</code> — <strong>основной гейт</strong>;</li>
+<li><code>configs/golangci-lint.yml</code> — то же правило, чтобы <code>make lint</code> ловил типовой случай сразу.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>make<span class="w"> </span>onlineconf-validate
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>internal/app/svc/svc.go:42:14: use of `onlineconf.MakePath` forbidden because
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>  "reading OnlineConf directly is not allowed here: declare the key in the
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>  OnlineConf key map instead — the generated accessor package is the only place
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>  OnlineConf is read" (forbidigo)
+</code></pre></div>
+<h3 id="_8">Почему запрещён весь пакет, а не только читатели<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<p>Правило одно — <code>^onlineconf\.</code> — и это осознанно. Запрет только <code>Get*</code> оставил бы <code>MakePath</code> свободным собирать путь для какого-нибудь другого читателя; запрет только <code>MakePath</code> оставил бы свободным строковый литерал пути. Одно правило на пакет закрывает оба случая.</p>
+<h3 id="_9">Почему правило не обходится алиасом импорта<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<p>Оба конфига ставят <code>forbidigo: analyze-types: true</code>. По умолчанию <code>forbidigo</code> сравнивает паттерн с <strong>текстом вызова, как он написан</strong>, а паттерн называет пакет. Без резолва типов мимо запрета проходят обе переименованные формы:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">import</span><span class="w"> </span><span class="nx">oc</span><span class="w"> </span><span class="s">"github.com/Educentr/go-onlineconf/pkg/onlineconf"</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="nx">v</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">oc</span><span class="p">.</span><span class="nx">GetString</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">"/svc/undeclared"</span><span class="p">,</span><span class="w"> </span><span class="s">""</span><span class="p">)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">import</span><span class="w"> </span><span class="p">.</span><span class="w"> </span><span class="s">"github.com/Educentr/go-onlineconf/pkg/onlineconf"</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nx">v</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">GetString</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">"/svc/undeclared"</span><span class="p">,</span><span class="w"> </span><span class="s">""</span><span class="p">)</span>
+</code></pre></div>
+<p>С <code>analyze-types: true</code> вызов резолвится до настоящего пакета, и обе формы ловятся. Гейт, который обходится переименованием импорта, гейтом не является.</p>
+<p>Побочное следствие: валидатору нужна информация о типах, то есть проект должен компилироваться. Для <code>make onlineconf-validate</code> это не ограничение — цель и так запускается после генерации.</p>
+<h3 id="_10">Исключения<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<p>Из проверки выведено <strong>одно</strong> место: <code>internal/pkg/occonf/</code> — сгенерированный пакет, где OnlineConf и <strong>должен</strong> читаться.</p>
+<p>Раньше из проверки выводился ещё и <code>psg_*_gen.go</code> как класс: сгенерированный код читал ключи генератора напрямую, и иначе валидатор ругался бы на него самого. В этом была дыра — секция ручного кода ниже disclaimer-маркера <strong>внутри</strong> такого файла выводилась из проверки вместе с файлом, и могла читать любой ключ незаметно. Теперь сгенерированный код читает через аксессоры, исключение не нужно, и дыры нет.</p>
+<p>Проверено на сгенерированном проекте: <code>make onlineconf-validate</code> чист на чистом выводе генератора и падает (exit 10) на дописанном ниже маркера <code>oc.GetBool(ctx, oc.MakePath(…))</code> в <code>psg_router_gen.go</code> — в том числе с переименованным импортом.</p>
+<h2 id="_11">Ключи, которые читает сгенерированный код<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
+<p>Половина карты принадлежит генератору, и он <strong>объявляет свои ключи сам</strong> — по тому же принципу, по которому у карты метрик есть внутренняя карта <code>internal-metrics.yaml</code>.</p>
+<p>Объявление лежит <strong>рядом с чтением</strong>: у каждого шаблона, чей код читает ключ, есть файл <code>&lt;шаблон&gt;.ockeys.yaml</code> в том же каталоге. Из объявления генерируется аксессор, и шаблон вызывает именно его — так что «чтение» и «объявление» это одна и та же запись, а не два списка, которые надо держать в согласии.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># internal/pkg/templater/embedded/templates/transport/rest/files/pkg/app/</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="c1">#   restconfig/config_oc.go.tmpl.ockeys.yaml</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="nt">groups</span><span class="p">:</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">scope</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rest_server</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">    </span><span class="nt">keys</span><span class="p">:</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"{service}/transport/rest/{transport}/{app}/server/timeout/read"</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RESTServerAppTimeoutRead</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">duration</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="s">"the</span><span class="nv"> </span><span class="s">transport-wide</span><span class="nv"> </span><span class="s">value"</span>
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Request read timeout of this application's HTTP server.</span>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a>
+<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"{service}/transport/rest/{transport}/{app}/handler/&lt;urlPath&gt;/timeout"</span>
+<a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RESTAppHandlerTimeout</span>
+<a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a><span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">duration</span>
+<a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a><span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Timeout of the handler of one url path of this application.</span>
+<a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>
+<a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"{service}/transport/rest/{transport}/{app}/handler"</span>
+<a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RESTAppHandlerPath</span>
+<a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a><span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a><span class="w">          </span><span class="no">Per-handler configuration, keyed by the url path of the request. The</span>
+<a id="__codelineno-19-21" name="__codelineno-19-21" href="#__codelineno-19-21"></a><span class="w">          </span><span class="no">provider hands the path to the runtime and to the logger.</span>
+</code></pre></div>
+<h3 id="_12">Переменные сегменты пути<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>форма</th>
+<th>что это</th>
+<th>что с ней делает генератор</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{service}</code>, <code>{transport}</code>, <code>{app}</code>, <code>{worker}</code>, <code>{client}</code>, <code>{event}</code></td>
+<td>измерение проекта, известное на генерации</td>
+<td>раскрывается в конкретные имена в реестре; становится <strong>параметром</strong> аксессора</td>
+</tr>
+<tr>
+<td><code>&lt;urlPath&gt;</code>, <code>&lt;tgID&gt;</code>, <code>&lt;action&gt;</code>, …</td>
+<td>сегмент, который сгенерированный код вычисляет в рантайме</td>
+<td>остаётся как есть в реестре; становится параметром аксессора и <strong>отдаёт поддерево генератору</strong> с этого сегмента</td>
+</tr>
+</tbody>
+</table>
+<p>Измерения становятся параметрами, а не подставляются в имя функции, потому что сгенерированные читатели <strong>generic</strong> по ним: провайдер конфигурации REST получает имя сервера и приложения от рантайма, а не от генератора. Аксессор с «впечённым» именем транспорта вызвать было бы нельзя.</p>
+<p>Из этого же следует, что <strong>набор аксессоров не зависит от измерений проекта</strong> — от них зависит реестр. Шаблон, который генерируется, зовёт свои аксессоры безусловно: провайдер конфигурации REST генерируется и в проекте, у которого единственный REST-транспорт — клиент, и всё равно зовёт каждый серверный аксессор. Поэтому аксессоры генерируются все, а претензии на пути (строки реестра и проверки на старте) — только по тому, что проект действительно читает.</p>
+<p>Побочно: у ключа без переменных сегментов путь известен на генерации, и построитель возвращает константу, а не собирает ту же строку на каждом чтении (<code>DevStandPath()</code> читается раз на запрос через логгер).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1">// {service}/transport/rest/{transport}/{app}/handler/&lt;urlPath&gt;/timeout</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">RESTAppHandlerTimeoutPath</span><span class="p">(</span><span class="nx">transport</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">urlPath</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="kd">func</span><span class="w"> </span><span class="nx">RESTAppHandlerTimeout</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">transport</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">urlPath</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Duration</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="scope"><code>scope</code> — измерение, по которому запись раскрывается<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h3>
+<p><code>service</code>, <code>rest_server</code>, <code>rest_client</code>, <code>grpc_client</code>, <code>kafka_producer</code>, <code>kafka_producer_event</code>, <code>worker_daemon</code>, <code>worker_telegram</code>, <code>telegram_driver</code>. Scope же определяет, какие <code>{плейсхолдеры}</code> в записи допустимы.</p>
+<h3 id="type_1">Запись без <code>type</code> — построитель пути<a class="headerlink" href="#type_1" title="Permanent link">&para;</a></h3>
+<p>Сгенерированному коду иногда нужно не значение, а сам путь: префикс, который он отдаёт рантайму или логгеру, читающему <strong>ниже</strong>. Такая запись объявляется без <code>type</code>, её имя обязано заканчиваться на <code>Path</code>, и она отдаёт генератору всё поддерево:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">RESTAppHandlerPath</span><span class="p">(</span><span class="nx">transport</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span>
+</code></pre></div>
+<p>Дописать сегменты построитель не даёт. Дать ему <code>extra ...string</code> значило бы завести второй способ адресовать дерево — путь, которого нет ни в одном объявлении и ни в одной строке реестра.</p>
+<h3 id="shared-read_via"><code>shared</code> и <code>read_via</code> — одно чтение на много путей<a class="headerlink" href="#shared-read_via" title="Permanent link">&para;</a></h3>
+<p>Уровень логирования читается под префиксом, который передаёт вызывающий, а вызывающие — сгенерированные читатели, этот префикс и собирающие (middleware REST — по url запроса, воркеры — по этапу job-а). Сам конструктор логгера видит две непрозрачные строки, поэтому у него <strong>один</strong> аксессор:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># logger/zlog/zlog.go.tmpl.ockeys.yaml</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"&lt;prefix&gt;/&lt;levelKey&gt;/log_level"</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LogLevel</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">  </span><span class="nt">shared</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">…</span>
+</code></pre></div>
+<p><code>shared: true</code> означает «путь целиком собирает вызывающий», и такая запись <strong>не отдаёт себе никакого поддерева</strong> — иначе <code>&lt;prefix&gt;</code> забрал бы всё дерево сервиса.</p>
+<p>Это <strong>единственная</strong> форма записи, которая начинается не с <code>{service}</code>, и причина ровно в том же: префикс приходит <strong>уже абсолютным</strong> (его собирают <code>occonf.RESTAppMetricsPath</code>, <code>occonf.WorkerPath</code> — оба от корня дерева), поэтому имя сервиса в нём уже есть и приписывать его второй раз нельзя. Приписанное повторно, оно уводило чтение на уровень глубже дерева и делало <code>log_level</code> мёртвым конфигом (TOOLS-65). Пустой префикс — процессный логгер: вызывающий нормализует его в корень дерева сервиса сам, потому что сборка пути пустой компонент не выбрасывает и дала бы путь с <code>//</code>.</p>
+<p>Конкретные пути, до которых аксессор доходит, объявлены там, где находится вызывающий, и ссылаются на него полем <code>read_via</code> (включая путь процессного логгера — <code>{service}/default/log_level</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">scope</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rest_server</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">    </span><span class="nt">keys</span><span class="p">:</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"{service}/transport/rest/{transport}/{app}/handler/default/log_level"</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="w">        </span><span class="nt">read_via</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LogLevel</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">…</span>
+</code></pre></div>
+<p>Запись с <code>read_via</code> даёт строку в реестре и участвует в проверке совпадений, но своего аксессора не получает: у читателя он уже есть. <code>read_via</code>, называющий аксессор, которого в проекте нет, — ошибка генерации.</p>
+<h3 id="required_1"><code>required</code> у ключей генератора<a class="headerlink" href="#required_1" title="Permanent link">&para;</a></h3>
+<p><code>required</code> означает ровно одно: ключ попадает в <code>CheckRequired</code> <strong>того приложения</strong>, которое запускает читающий его компонент (см. выше).</p>
+<p>Помечать им можно ключ, которого <strong>никакая настройка <code>project.yaml</code> не может сделать ненужным</strong>, пока код компонента генерируется. Таких два:</p>
+<table>
+<thead>
+<tr>
+<th>ключ</th>
+<th>компонент</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/&lt;svc&gt;/security/tg_token</code></td>
+<td>телеграм-воркер: бот без токена не выполнит ни одного вызова</td>
+</tr>
+<tr>
+<td><code>/&lt;svc&gt;/kafka/&lt;client&gt;/brokers</code></td>
+<td>сгенерированный Kafka-продюсер: публиковать некуда</td>
+</tr>
+</tbody>
+</table>
+<p>host/port gRPC- и REST-клиентов <code>required</code> <strong>не</strong> помечены, хотя без них клиент не работает: клиент с <code>instantiation: dynamic</code> получает адрес аргументом и этот ключ не читает вовсе, а <code>optional: true</code> означает «нет значения — пропустить компонент». То есть нужность ключа здесь — настройка проекта, а не свойство ключа; об отсутствующем host сгенерированный драйвер и так сообщает на Init, называя транспорт.</p>
+<p>Форму чтения <code>required</code> <strong>не меняет</strong> — аксессор по-прежнему возвращает признак наличия. Так и надо: читатель ключа компонента, объявленного <code>optional: true</code>, должен уметь увидеть отсутствие и пропустить компонент, а не упасть. Поэтому требование живёт на старте процесса, где известно, какие компоненты это приложение реально поднимает, а само чтение не трогается.</p>
+<p>Ключи с <code>default</code> остаются необязательными: инсталляции, полагающиеся на дефолт, после регенерации стартуют как раньше. Записи с двухуровневым fallback (<code>…/{transport}/port</code> и <code>…/{transport}/{app}/port</code>) <code>required</code> не бывают: проверка смотрит по одному пути, а провайдера устраивает любая из двух форм — и об отсутствующем порте сервер и так сообщает с именем транспорта и приложения.</p>
+<h3 id="_13">Связь объявлений с кодом<a class="headerlink" href="#_13" title="Permanent link">&para;</a></h3>
+<p>Раньше вместо объявлений был список зарезервированных префиксов (<code>transport</code>, <code>security</code>, <code>kafka</code>, <code>log</code>, <code>logger</code>, <code>devstand</code>). Он велся руками, с шаблонами ничем не был связан — и поддеревья, которые сгенерированный код реально читает (<code>worker/&lt;имя&gt;</code>, <code>settings</code>, <code>bot</code>), в него просто не попали.</p>
+<p>Теперь связь механическая в обе стороны, и это проверяется тестами в <code>internal/pkg/templater/onlineconf_keys_test.go</code>:</p>
+<ul>
+<li><code>TestNoTemplateReadsOnlineConfDirectly</code> — шаблон вне <code>occonf</code>, обращающийся к библиотеке <code>onlineconf</code>, роняет тест: он породил бы код, который валидатор самого проекта отвергает;</li>
+<li><code>TestOnlineConfDeclarationsMatchAccessorCalls</code> — аксессор, который шаблон вызывает, обязан быть объявлен <strong>этим же</strong> шаблоном, а объявленный — вызван. Чтение, добавленное без объявления, не соберётся (нет такой функции); объявление, оставшееся без чтения, роняет тест.</li>
+</ul>
+<h3 id="_14">Совпадение с картой сервиса — ошибка генерации<a class="headerlink" href="#_14" title="Permanent link">&para;</a></h3>
+<p>Объявить в карте сервиса ключ, который читает сгенерированный код, нельзя: иначе у ключа два читателя и два написания — то, ради чего карта и существует. Проверяются два случая.</p>
+<p><strong>Точное совпадение пути:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>onlineconf.path: invalid onlineconf key map: onlineconf key is read by generated code:
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>  keys[0]: path "/myservice/transport/rest/api_v1/port" is a key the generator reads itself
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>  (generated by transport/rest/files/pkg/app/restconfig/config_oc.go.tmpl): Port the HTTP
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>  server listens on, for every application serving this transport.
+</code></pre></div>
+<p><strong>Объявление внутри поддерева, которое генератор отдаёт себе</strong> — и его корня, потому что там сгенерированный читатель владеет самим узлом:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>onlineconf.path: invalid onlineconf key map: onlineconf key is read by generated code:
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>  keys[0]: path "/myservice/settings/enabled/login" is inside "/myservice/settings/enabled",
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>  a subtree the generated code reads below under a segment it computes itself
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>  (generated by main/internal/pkg/service/service.go.tmpl): Per-action allow lists …
+</code></pre></div>
+<p>Поддерево отдаётся генератору двумя способами: записью без <code>type</code> (построитель пути — всё, что ниже, читает сгенерированный код) и записью с <code>&lt;runtimeСегментом&gt;</code> (с него и ниже).</p>
+<p>Проверка идёт по <strong>фактическому</strong> проекту, а не по префиксам: ключ измерения, которого в проекте нет, сервис объявить может — его никто не читает, второго читателя не возникает. Это не только «нет такого компонента», но и «для такого компонента генератор ничего не генерирует»: Kafka-продюсер с <code>driver: custom</code> (драйвер пишет проект, <code>config.go</code> не генерируется), consumer, queue-воркер (не читает OnlineConf вовсе), gRPC-транспорт не-клиент.</p>
+<p>Если корень дерева карты не совпадает с именем сервиса (<code>main.name</code>), генератор печатает предупреждение: сгенерированные читатели всегда читают под <code>/&lt;main.name&gt;</code>, поэтому карта в другом дереве означает, что сервис читает два корня — и совпадать двум половинам поверхности больше негде, то есть проверка выше ничего не сравнивает.</p>
+<h3 id="configsonlineconf-treeyaml"><code>configs/onlineconf-tree.yaml</code> — вся поверхность дерева<a class="headerlink" href="#configsonlineconf-treeyaml" title="Permanent link">&para;</a></h3>
+<p>Карта описывает ключи сервиса, но дерево сервиса больше: половина поверхности — чтения сгенерированного кода. Поэтому генерируется реестр <strong>всей</strong> поверхности, одним списком и с указанием, кто читает:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nt">tree</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="nt">keys</span><span class="p">:</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/confluence/url</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="w">    </span><span class="nt">origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service</span>
+<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="w">    </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="w">    </span><span class="nt">accessor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ConfluenceURL</span>
+<a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Base</span><span class="nv"> </span><span class="s">URL</span><span class="nv"> </span><span class="s">of</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Confluence</span><span class="nv"> </span><span class="s">instance</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">exporter</span><span class="nv"> </span><span class="s">writes</span><span class="nv"> </span><span class="s">to."</span>
+<a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/security/csrf/enabled</span>
+<a id="__codelineno-26-11" name="__codelineno-26-11" href="#__codelineno-26-11"></a><span class="w">    </span><span class="nt">origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">generated</span>
+<a id="__codelineno-26-12" name="__codelineno-26-12" href="#__codelineno-26-12"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bool</span>
+<a id="__codelineno-26-13" name="__codelineno-26-13" href="#__codelineno-26-13"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="s">"false"</span>
+<a id="__codelineno-26-14" name="__codelineno-26-14" href="#__codelineno-26-14"></a><span class="w">    </span><span class="nt">read_by</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"transport/rest/files/pkg/app/restconfig/config_oc.go.tmpl"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-26-15" name="__codelineno-26-15" href="#__codelineno-26-15"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Whether</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">CSRF</span><span class="nv"> </span><span class="s">middleware</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">applied."</span>
+<a id="__codelineno-26-16" name="__codelineno-26-16" href="#__codelineno-26-16"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/settings/enabled/&lt;action&gt;</span>
+<a id="__codelineno-26-17" name="__codelineno-26-17" href="#__codelineno-26-17"></a><span class="w">    </span><span class="nt">origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">generated</span>
+<a id="__codelineno-26-18" name="__codelineno-26-18" href="#__codelineno-26-18"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">strings</span>
+<a id="__codelineno-26-19" name="__codelineno-26-19" href="#__codelineno-26-19"></a><span class="w">    </span><span class="nt">accessor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SettingsEnabled</span>
+<a id="__codelineno-26-20" name="__codelineno-26-20" href="#__codelineno-26-20"></a><span class="w">    </span><span class="nt">owns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/settings/enabled</span>
+<a id="__codelineno-26-21" name="__codelineno-26-21" href="#__codelineno-26-21"></a><span class="w">    </span><span class="nt">read_by</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"main/internal/pkg/service/service.go.tmpl"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-26-22" name="__codelineno-26-22" href="#__codelineno-26-22"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Allow</span><span class="nv"> </span><span class="s">list</span><span class="nv"> </span><span class="s">of</span><span class="nv"> </span><span class="s">one</span><span class="nv"> </span><span class="s">action</span><span class="nv"> </span><span class="s">…"</span>
+<a id="__codelineno-26-23" name="__codelineno-26-23" href="#__codelineno-26-23"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/transport/rest/api_v1/api/handler/default/log_level</span>
+<a id="__codelineno-26-24" name="__codelineno-26-24" href="#__codelineno-26-24"></a><span class="w">    </span><span class="nt">origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">generated</span>
+<a id="__codelineno-26-25" name="__codelineno-26-25" href="#__codelineno-26-25"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-26-26" name="__codelineno-26-26" href="#__codelineno-26-26"></a><span class="w">    </span><span class="nt">read_via</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LogLevel</span>
+<a id="__codelineno-26-27" name="__codelineno-26-27" href="#__codelineno-26-27"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
+<a id="__codelineno-26-28" name="__codelineno-26-28" href="#__codelineno-26-28"></a><span class="w">    </span><span class="nt">read_by</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"logger/logrus/logrus.go.tmpl"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"logger/zlog/zlog.go.tmpl"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-26-29" name="__codelineno-26-29" href="#__codelineno-26-29"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Log</span><span class="nv"> </span><span class="s">level</span><span class="nv"> </span><span class="s">of</span><span class="nv"> </span><span class="s">requests</span><span class="nv"> </span><span class="s">to</span><span class="nv"> </span><span class="s">this</span><span class="nv"> </span><span class="s">application</span><span class="nv"> </span><span class="s">…"</span>
+</code></pre></div>
+<ul>
+<li><code>origin: service</code> — объявлено картой сервиса, читается через аксессор <code>accessor</code>;</li>
+<li><code>origin: generated</code> — объявлено генератором; <code>read_by</code> называет шаблон, то есть файл, который нужно править, если чтение пора менять. Перечислены <strong>все</strong> объявившие шаблоны, включая взаимоисключающие альтернативы (оба логгера читают одно и то же, поэтому названы оба). У ключа с несколькими читателями <code>description</code> собирает причины всех: <code>devstand</code> переключает и консольный вывод логгера, и детализацию ошибок, и диагностику бота — хранить только первую причину значило бы называть всех читателей и объяснять одного.</li>
+</ul>
+<p>Ещё два поля: <code>owns</code> называет точку, с которой поддерево принадлежит сгенерированному коду (и внутрь которой карта сервиса объявлять не может), а <code>read_via</code> — общий аксессор, через который идёт чтение, когда своего у пути нет.</p>
+<p>Файл никем в сервисе не читается — он для чтения человеком и для diff-а: он перегенерируется каждый прогон, поэтому изменение в нём и есть изменение конфигурационной поверхности сервиса. Генерируется в <strong>каждом</strong> проекте: без <code>onlineconf.path</code> в нём только строки <code>origin: generated</code>.</p>
+<blockquote>
+<p><strong>Известный дефект.</strong> Уровни логирования (<code>…/handler/default/log_level</code>, <code>…/worker/&lt;имя&gt;/job/log_level</code>) объявлены по той форме, которую собирает сгенерированный код, но сам логгер приписывает к переданному ему префиксу имя сервиса второй раз, поэтому фактическое чтение сейчас уходит на уровень глубже. Дефект отслеживается отдельной задачей; объявления описывают ту поверхность, к которой приведёт починка.</p>
+</blockquote>
+<h2 id="_15">Чего генератор не делает<a class="headerlink" href="#_15" title="Permanent link">&para;</a></h2>
+<p>Намеренно вне scope:</p>
+<ul>
+<li><strong>Значения ключей и политика сеяния.</strong> Значение привязано к инсталляции, а решение о нём живёт рядом с решением, а не в генераторе.</li>
+<li><strong>OnlineConf admin и доставка дерева.</strong> Это инфраструктура потребителя.</li>
+<li><strong>Отчёты и производные страницы по ключам.</strong> Генерируется только реестр поверхности дерева (<code>configs/onlineconf-tree.yaml</code>); остальные производные страницы строятся из той же карты, но не генератором.</li>
+<li><strong>Аксессоры поддеревьев.</strong> Обхода поддерева в OnlineConf нет; список — это один ключ со структурным значением.</li>
+</ul>
+<h2 id="_16">Полный пример<a class="headerlink" href="#_16" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># project.yaml</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="nt">onlineconf</span><span class="p">:</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git+https://github.com/org/contracts.git@v1.4.0#common/onlineconf-key-map.yaml</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># common/onlineconf-key-map.yaml в контрактном репозитории</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="nt">keys</span><span class="p">:</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/supervisor/min_lifetime</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">duration</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5m</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="w">      </span><span class="no">How long a spawned agent is kept before the supervisor may reap it.</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a>
+<a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/supervisor/max_agents</span>
+<a id="__codelineno-28-10" name="__codelineno-28-10" href="#__codelineno-28-10"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">int</span>
+<a id="__codelineno-28-11" name="__codelineno-28-11" href="#__codelineno-28-11"></a><span class="w">    </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-28-12" name="__codelineno-28-12" href="#__codelineno-28-12"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upper bound on concurrently running agents.</span>
+<a id="__codelineno-28-13" name="__codelineno-28-13" href="#__codelineno-28-13"></a>
+<a id="__codelineno-28-14" name="__codelineno-28-14" href="#__codelineno-28-14"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/feature/new_pipeline_enabled</span>
+<a id="__codelineno-28-15" name="__codelineno-28-15" href="#__codelineno-28-15"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bool</span>
+<a id="__codelineno-28-16" name="__codelineno-28-16" href="#__codelineno-28-16"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-28-17" name="__codelineno-28-17" href="#__codelineno-28-17"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Route tasks through the new pipeline.</span>
+<a id="__codelineno-28-18" name="__codelineno-28-18" href="#__codelineno-28-18"></a>
+<a id="__codelineno-28-19" name="__codelineno-28-19" href="#__codelineno-28-19"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/confluence/url</span>
+<a id="__codelineno-28-20" name="__codelineno-28-20" href="#__codelineno-28-20"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-28-21" name="__codelineno-28-21" href="#__codelineno-28-21"></a><span class="w">    </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-28-22" name="__codelineno-28-22" href="#__codelineno-28-22"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Base URL of the Confluence instance the exporter writes to.</span>
+<a id="__codelineno-28-23" name="__codelineno-28-23" href="#__codelineno-28-23"></a>
+<a id="__codelineno-28-24" name="__codelineno-28-24" href="#__codelineno-28-24"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/notify/recipients</span>
+<a id="__codelineno-28-25" name="__codelineno-28-25" href="#__codelineno-28-25"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">strings</span>
+<a id="__codelineno-28-26" name="__codelineno-28-26" href="#__codelineno-28-26"></a><span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops@example.com, oncall@example.com</span>
+<a id="__codelineno-28-27" name="__codelineno-28-27" href="#__codelineno-28-27"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Addresses that receive escalation mail.</span>
+<a id="__codelineno-28-28" name="__codelineno-28-28" href="#__codelineno-28-28"></a>
+<a id="__codelineno-28-29" name="__codelineno-28-29" href="#__codelineno-28-29"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/queue/name</span>
+<a id="__codelineno-28-30" name="__codelineno-28-30" href="#__codelineno-28-30"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-28-31" name="__codelineno-28-31" href="#__codelineno-28-31"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Queue to consume from; unset means the built-in default queue.</span>
+<a id="__codelineno-28-32" name="__codelineno-28-32" href="#__codelineno-28-32"></a>
+<a id="__codelineno-28-33" name="__codelineno-28-33" href="#__codelineno-28-33"></a><span class="w">  </span><span class="c1"># Список — ОДИН ключ со структурным значением: обхода поддерева нет.</span>
+<a id="__codelineno-28-34" name="__codelineno-28-34" href="#__codelineno-28-34"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/agent_env</span>
+<a id="__codelineno-28-35" name="__codelineno-28-35" href="#__codelineno-28-35"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">struct</span>
+<a id="__codelineno-28-36" name="__codelineno-28-36" href="#__codelineno-28-36"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<a id="__codelineno-28-37" name="__codelineno-28-37" href="#__codelineno-28-37"></a><span class="w">      </span><span class="no">Environment variables handed to every spawned agent, as a JSON array of</span>
+<a id="__codelineno-28-38" name="__codelineno-28-38" href="#__codelineno-28-38"></a><span class="w">      </span><span class="no">{name, value} objects.</span>
+<a id="__codelineno-28-39" name="__codelineno-28-39" href="#__codelineno-28-39"></a>
+<a id="__codelineno-28-40" name="__codelineno-28-40" href="#__codelineno-28-40"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/myservice/db/dsn</span>
+<a id="__codelineno-28-41" name="__codelineno-28-41" href="#__codelineno-28-41"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<a id="__codelineno-28-42" name="__codelineno-28-42" href="#__codelineno-28-42"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseDSN</span>
+<a id="__codelineno-28-43" name="__codelineno-28-43" href="#__codelineno-28-43"></a><span class="w">    </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-28-44" name="__codelineno-28-44" href="#__codelineno-28-44"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Data source name of the primary database.</span>
+</code></pre></div>
+<h2 id="_17">Диагностика<a class="headerlink" href="#_17" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Сообщение</th>
+<th>Причина</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>invalid onlineconf key map: the file is empty</code></td>
+<td>карта пустая (или в ней только пробелы)</td>
+</tr>
+<tr>
+<td><code>invalid onlineconf key map: no keys declared</code></td>
+<td><code>keys: []</code></td>
+</tr>
+<tr>
+<td><code>malformed onlineconf key map: line 4: unknown field "consumer"</code></td>
+<td>поле вне схемы: молча проигнорированный ключ — это объявление, которое не действует</td>
+</tr>
+<tr>
+<td><code>keys[0]: path is required</code></td>
+<td>нет <code>path</code></td>
+</tr>
+<tr>
+<td><code>keys[0]: type "float" is unknown, expected one of bool, duration, int, string, strings, struct</code></td>
+<td>неизвестный <code>type</code></td>
+</tr>
+<tr>
+<td><code>keys[0]: path "/svc" has no key segment</code></td>
+<td>один корень — это поддерево, а не ключ</td>
+</tr>
+<tr>
+<td><code>keys[0]: path "/svc/agent_env/&lt;i&gt;/name" uses the template segment "&lt;i&gt;"</code></td>
+<td>шаблон со списковым сегментом: объявляйте <code>type: struct</code></td>
+</tr>
+<tr>
+<td><code>keys[0]: path "/svc/a b" has an invalid segment "a b"</code></td>
+<td>сегмент вне грамматики</td>
+</tr>
+<tr>
+<td><code>keys[1]: duplicate onlineconf key path: "/svc/a" (first declared at keys[0])</code></td>
+<td>один ключ объявлен дважды</td>
+</tr>
+<tr>
+<td><code>keys[1]: onlineconf key map spans several service trees: "/other/b" is in tree "other", keys[0] is in tree "svc"</code></td>
+<td>карта не одна на сервис</td>
+</tr>
+<tr>
+<td><code>keys[0]: path "…" is a key the generator reads itself (generated by …)</code></td>
+<td>ключ уже читает сгенерированный код</td>
+</tr>
+<tr>
+<td><code>keys[0]: path "…" is inside "…", a subtree the generated code reads below under a segment it computes itself</code></td>
+<td>объявление внутри поддерева, которое генератор отдаёт себе</td>
+</tr>
+<tr>
+<td><code>generator onlineconf key declaration defect: …</code></td>
+<td>дефект объявлений самого генератора (не карты сервиса) — баг go-project-starter</td>
+</tr>
+<tr>
+<td><code>keys[0]:</code>required<code>and</code>default<code>contradict each other</code></td>
+<td>и <code>required</code>, и <code>default</code></td>
+</tr>
+<tr>
+<td><code>keys[0]: type struct cannot be</code>required<code>: verifying it would mean unmarshaling the value</code></td>
+<td><code>required</code> у <code>struct</code></td>
+</tr>
+<tr>
+<td><code>keys[0]: type struct takes no</code>default``</td>
+<td><code>default</code> у <code>struct</code></td>
+</tr>
+<tr>
+<td><code>keys[0]: invalid default value: default "5 hours" is not a duration</code></td>
+<td>дефолт не парсится как объявленный тип</td>
+</tr>
+<tr>
+<td><code>keys[0]: name "my_key" is not an exported Go identifier</code></td>
+<td><code>name</code> не называет функцию</td>
+</tr>
+<tr>
+<td><code>keys[0]: path "/svc/2fa" generates the accessor 2fa, which does not start with a letter</code></td>
+<td>из пути не выходит идентификатора — задайте <code>name</code></td>
+</tr>
+<tr>
+<td><code>onlineconf accessor name collision: "/svc/max-size" and "/svc/max_size" both generate the accessor MaxSize</code></td>
+<td>два объявления сворачиваются в один идентификатор</td>
+</tr>
+</tbody>
+</table>
+<p>Валидация сообщает <strong>все</strong> проблемы сразу: починка плохой карты занимает один проход, а не по одному на запись.</p>
+<h2 id="_18">Миграция существующего проекта<a class="headerlink" href="#_18" title="Permanent link">&para;</a></h2>
+<p>При первом <code>make regenerate</code> после обновления генератора в проекте появятся:</p>
+<ul>
+<li><code>internal/pkg/occonf/psg_occonf_gen.go</code> — пакет доступа к OnlineConf. Даже если <code>onlineconf.path</code> не задан: половину карты приносит генератор;</li>
+<li><code>configs/golangci-onlineconf.yml</code> и цель <code>make onlineconf-validate</code>;</li>
+<li><code>configs/onlineconf-tree.yaml</code> — реестр всей поверхности дерева;</li>
+<li>вызов <code>occonf.CheckRequired(mainCtx, "&lt;app&gt;")</code> в <code>cmd/&lt;app&gt;/psg_main_gen.go</code>.</li>
+</ul>
+<p><strong>Фактические пути, типы и значения по умолчанию не меняются.</strong> Сгенерированный код читает те же ключи, что и раньше, в том же порядке fallback-а — поменялось только то, через что он их читает. Инсталляциям перенастраиваться не нужно.</p>
+<p>Что ломается — и так и задумано:</p>
+<p><strong>1. Рукописный код, читающий OnlineConf напрямую, начнёт падать на <code>make onlineconf-validate</code>.</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>internal/app/svc/svc.go:42:14: use of `onlineconf.MakePath` forbidden …
+</code></pre></div>
+<p>Перенос: объявите ключ в карте сервиса (<code>onlineconf.path</code>), перегенерируйте и замените чтение на аксессор.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="c1">// было</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="nx">v</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">onlineconf</span><span class="p">.</span><span class="nx">GetString</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">onlineconf</span><span class="p">.</span><span class="nx">MakePath</span><span class="p">(</span><span class="nx">constant</span><span class="p">.</span><span class="nx">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="nx">segConfluence</span><span class="p">,</span><span class="w"> </span><span class="nx">keyURL</span><span class="p">))</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="c1">// стало: /myservice/confluence/url в карте, required: true</span>
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a><span class="nx">v</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">occonf</span><span class="p">.</span><span class="nx">ConfluenceURL</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+</code></pre></div>
+<p>Ключ, который читает <strong>сгенерированный</strong> код, в карту сервиса объявлять не надо и нельзя — у него уже есть аксессор, см. <code>configs/onlineconf-tree.yaml</code> (<code>accessor</code> в строке <code>origin: generated</code>).</p>
+<p>Подписка на изменения — <code>occonf.Subscribe(ctx, []string{occonf.PathX}, cb)</code>; путь ключа с параметрами даёт построитель <code>occonf.XPath(args…)</code>.</p>
+<p><strong>2. Секция ручного кода ниже disclaimer-маркера в <code>psg_*_gen.go</code> больше не выведена из проверки.</strong> Если там было прямое чтение — переносится так же.</p>
+<p><strong>3. <code>GetConfigPath</code> у воркеров больше не принимает сегменты.</strong> Было <code>GetConfigPath(key ...string)</code>, стало <code>GetConfigPath()</code> — она возвращает поддерево воркера, то есть префикс, который воркер отдаёт логгеру. Путь, собранный из сегментов на месте вызова, адресует узел, которого нет ни в одном объявлении и ни в одной строке реестра, — ровно то, что карта убирает. Если рукописный код звал <code>GetConfigPath("foo")</code>, объявите ключ в карте сервиса и читайте его аксессором.</p>
+<p><code>GetTgTokenPath</code> телеграм-драйвера сигнатуру сохранила (оба параметра теперь игнорируются) и возвращает <code>occonf.TelegramTokenPath()</code>.</p>
+<p><strong>4. Два ключа генератора помечены <code>required</code>, и приложение без них теперь не стартует:</strong> <code>/&lt;svc&gt;/security/tg_token</code> (телеграм-воркер) и <code>/&lt;svc&gt;/kafka/&lt;client&gt;/brokers</code> (Kafka-продюсер). Оба и раньше были фатальны — процесс поднимался и падал позже, при инициализации компонента; поменялось только <strong>когда</strong>: теперь на старте, с указанием пути. Проверяются они только в тех приложениях, которые соответствующий компонент запускают, и только если компонент не объявлен <code>optional: true</code>. Критерий и список — в разделе «<code>required</code> у ключей генератора» выше.</p>
+<p>Остальные ключи генератора <code>required</code> не помечены: у них либо есть значение по умолчанию, либо их нужность зависит от настройки <code>project.yaml</code>.</p>
+<p><strong>5. Dev-stand сеял токен телеграм-бота не туда.</strong> <code>etc/onlineconf/dev/init-config.sql</code> создавал <code>tg_token</code>, <code>buffer_size</code> и <code>tg_api_endpoint</code> под <code>/&lt;svc&gt;/worker/&lt;имя&gt;/</code>, а драйвер читает их под <code>/&lt;svc&gt;/security/</code> (<code>configPath = "security"</code>). Сеялись мёртвые узлы; теперь они создаются там, где их читают. Если вы правили эти значения в своём dev-дереве — перенесите их в <code>security/</code> (или пересоздайте том MySQL, см. CLAUDE.md «Testing dev_stand Feature»).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  К началу
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Educentr/go-project-starter" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.share", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0431\u0443\u0444\u0435\u0440", "clipboard.copy": "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0432 \u0431\u0443\u0444\u0435\u0440", "search.result.more.one": "\u0415\u0449\u0451 1 \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.more.other": "\u0415\u0449\u0451 # \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.none": "\u0421\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", "search.result.one": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e 1 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435", "search.result.other": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439: #", "search.result.placeholder": "\u041d\u0430\u0447\u043d\u0438\u0442\u0435 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430", "search.result.term.missing": "\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442", "select.version": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0435\u0440\u0441\u0438\u044e"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+      
+    
+  </body>
+</html>
