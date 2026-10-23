@@ -115,21 +115,46 @@ func (c *HTTPClient) GetWithHeaders(t *testing.T, path string, headers map[strin
 	return resp, respBody
 }
 
-// TestRetryConfig contains retry configuration for tests
-var TestRetryConfig = struct {
+// RetryConfig holds the retry parameters WaitForAPI backs off with.
+type RetryConfig struct {
 	MaxAttempts       int
 	InitialInterval   time.Duration
 	MaxInterval       time.Duration
 	BackoffMultiplier float64
-}{
-	MaxAttempts:       5,
-	InitialInterval:   500 * time.Millisecond,
-	MaxInterval:       5 * time.Second,
-	BackoffMultiplier: 2.0,
 }
 
-// WaitForAPI waits for the API to be ready with exponential backoff retry
+// TestRetryConfig returns the retry parameters used by the generated helpers.
+//
+// A function returning a value, not a package-level variable: the variable was
+// exported and mutable, so one test tuning a field (to make a slow case pass)
+// changed the backoff of every other test in the binary — and only in the order
+// they happened to run. A caller that needs different parameters takes a copy
+// and changes that.
+func TestRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxAttempts:       5,
+		InitialInterval:   500 * time.Millisecond,
+		MaxInterval:       5 * time.Second,
+		BackoffMultiplier: 2.0,
+	}
+}
+
+// WaitForAPI waits for the API to be ready with exponential backoff retry,
+// using the default retry parameters.
 func WaitForAPI(t *testing.T, baseURL string, maxWait time.Duration) error {
+	t.Helper()
+
+	return WaitForAPIWithRetry(t, baseURL, maxWait, TestRetryConfig())
+}
+
+// WaitForAPIWithRetry is WaitForAPI with the retry parameters supplied by the
+// caller.
+//
+// This is how the backoff is tuned now that TestRetryConfig is a function: a
+// suite whose API needs longer to come up passes its own RetryConfig instead of
+// writing to a package-level variable, which changed the backoff of every other
+// test in the binary and only in the order they happened to run.
+func WaitForAPIWithRetry(t *testing.T, baseURL string, maxWait time.Duration, retry RetryConfig) error {
 	t.Helper()
 
 	client := &http.Client{
@@ -137,7 +162,7 @@ func WaitForAPI(t *testing.T, baseURL string, maxWait time.Duration) error {
 	}
 
 	// Use exponential backoff for retries
-	interval := TestRetryConfig.InitialInterval
+	interval := retry.InitialInterval
 	attempt := 0
 	deadline := time.Now().Add(maxWait)
 
@@ -161,7 +186,7 @@ func WaitForAPI(t *testing.T, baseURL string, maxWait time.Duration) error {
 		}
 
 		// Check if we've exhausted max attempts
-		if attempt >= TestRetryConfig.MaxAttempts && time.Now().Add(interval).After(deadline) {
+		if attempt >= retry.MaxAttempts && time.Now().Add(interval).After(deadline) {
 			break
 		}
 
@@ -177,9 +202,9 @@ func WaitForAPI(t *testing.T, baseURL string, maxWait time.Duration) error {
 		}
 
 		// Exponential backoff: increase interval for next iteration
-		interval = time.Duration(float64(interval) * TestRetryConfig.BackoffMultiplier)
-		if interval > TestRetryConfig.MaxInterval {
-			interval = TestRetryConfig.MaxInterval
+		interval = time.Duration(float64(interval) * retry.BackoffMultiplier)
+		if interval > retry.MaxInterval {
+			interval = retry.MaxInterval
 		}
 	}
 
