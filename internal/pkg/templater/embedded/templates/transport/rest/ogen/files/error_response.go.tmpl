@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/go-faster/jx"
 	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/ogenerrors"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
 	oas "{{ .Transport.GetTargetGeneratePath .ProjectPath }}"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 type OgenErrorHandler struct {
@@ -23,7 +23,7 @@ type OgenErrorHandler struct {
 func (o *OgenErrorHandler) UnexpectedError(ctx context.Context, w http.ResponseWriter, _ *http.Request, errHdl error) {
 	userErr := "UnexpectedError"
 
-	devstand, err := onlineconf.GetBool(ctx, onlineconf.MakePath("{{ .ProjectName }}", "devstand"), false)
+	devstand, _, err := occonf.DevStand(ctx)
 	if err != nil {
 		{{ .Logger.ErrorMsg "ctx" "err" "Unexpected error from onlineconf"}}
 	}

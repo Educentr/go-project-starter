@@ -13,6 +13,7 @@
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 - [GitHub CI](github-ci.md) — раннер, timeout, установка doctl и проверки, гейтящие `build`
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
+- [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
 - [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки
 
 ## Базовая структура
@@ -120,4 +121,5 @@ applications:
 - [Rewrite refs](rewrite-refs.md) — переписывание кросс-директорных `$ref` после copy
 - [GitHub CI](github-ci.md) — раннер, timeout, установка doctl и проверки, гейтящие `build`
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
+- [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
 - [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки

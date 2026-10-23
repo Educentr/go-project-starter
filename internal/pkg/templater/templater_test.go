@@ -1962,19 +1962,19 @@ func TestOgenClientAuthTemplate(t *testing.T) {
 			name:         "apikey",
 			authType:     "apikey",
 			wantMethod:   "func (ak *SecuritySource) AuthHeader(",
-			wantOCLeaves: []string{`"auth_params", "apikey"`},
+			wantOCLeaves: []string{`occonf.RESTClientAPIKey(ctx, "billing_v1")`},
 		},
 		{
 			name:         "bearer",
 			authType:     "bearer",
 			wantMethod:   "func (s *SecuritySource) BearerAuth(",
-			wantOCLeaves: []string{`"auth_params", "token"`},
+			wantOCLeaves: []string{`occonf.RESTClientToken(ctx, "billing_v1")`},
 		},
 		{
 			name:         "basic",
 			authType:     "basic",
 			wantMethod:   "func (s *SecuritySource) BasicAuth(",
-			wantOCLeaves: []string{`"auth_params", "username"`, `"auth_params", "password"`},
+			wantOCLeaves: []string{`occonf.RESTClientUsername(ctx, "billing_v1")`, `occonf.RESTClientPassword(ctx, "billing_v1")`},
 		},
 	}
 
@@ -1991,7 +1991,7 @@ func TestOgenClientAuthTemplate(t *testing.T) {
 
 			for _, leaf := range tt.wantOCLeaves {
 				if !strings.Contains(content, leaf) {
-					t.Errorf("auth.go for %s should read OnlineConf leaf %s", tt.authType, leaf)
+					t.Errorf("auth.go for %s should read OnlineConf through %s", tt.authType, leaf)
 				}
 			}
 

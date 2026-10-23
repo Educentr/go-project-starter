@@ -1,0 +1,104 @@
+# The OnlineConf keys the generated logrus constructor reads.
+#
+# The log level is read under a prefix the caller hands in, and the callers are
+# the generated readers that compose one: the REST middleware (per request path)
+# and the workers (per job). The constructor itself sees two opaque strings, so
+# it reads through ONE shared accessor — and the concrete paths that accessor
+# reaches are declared below it, in the scope of whoever supplies the prefix,
+# each pointing back at it with `read_via`.
+#
+# The prefix arrives absolute — it already carries the service name — so the
+# shared accessor claims no service tree of its own and prepends none (TOOLS-65:
+# prepending it moved every read one level deeper than declared here and made the
+# log_level override dead config). Its path therefore starts at the caller's
+# segment, which is why it is the one declaration without `{service}` first.
+groups:
+  - scope: service
+    keys:
+      - path: "{service}/devstand"
+        name: DevStand
+        type: bool
+        default: "false"
+        description: >-
+          Whether this installation is a development stand. The logger then
+          writes human-readable console output instead of JSON.
+
+      - path: "<prefix>/<levelKey>/log_level"
+        name: LogLevel
+        type: string
+        shared: true
+        default: "absent — the level of the `default` key, then info"
+        description: >-
+          Log level under one of the prefixes the generated readers compose. The
+          prefix is an absolute path and already carries the service name, so
+          this accessor prepends no service tree and claims no subtree: the paths
+          it reaches are the ones declared with read_via below, in the scope of
+          the reader that supplies the prefix.
+
+      - path: "{service}/default/log_level"
+        type: string
+        read_via: LogLevel
+        default: info
+        description: >-
+          Log level of the process logger — the one the service starts with,
+          before any transport or worker hands the logger a prefix of its own.
+          An empty prefix is normalized to the root of the service tree, which
+          is why this path has no owner segment between the tree and `default`.
+
+  - scope: rest_server
+    keys:
+      - path: "{service}/transport/rest/{transport}/{app}/handler/default/log_level"
+        type: string
+        read_via: LogLevel
+        default: info
+        description: >-
+          Log level of requests to this application, used for every url path
+          that has no level of its own.
+
+      - path: "{service}/transport/rest/{transport}/{app}/handler/<urlPath>/log_level"
+        type: string
+        read_via: LogLevel
+        default: "the level of handler/default/log_level"
+        description: Log level of requests to one url path of this application.
+
+      - path: "{service}/transport/rest/{transport}/{app}/mw/metrics/default/log_level"
+        type: string
+        read_via: LogLevel
+        default: info
+        description: >-
+          Log level of the request middleware of this application, used for
+          every url path that has no level of its own.
+
+      - path: "{service}/transport/rest/{transport}/{app}/mw/metrics/<urlPath>/log_level"
+        type: string
+        read_via: LogLevel
+        default: "the level of mw/metrics/default/log_level"
+        description: Log level of the request middleware for one url path.
+
+  - scope: worker_daemon
+    keys:
+      - path: "{service}/worker/{worker}/default/log_level"
+        type: string
+        read_via: LogLevel
+        default: info
+        description: Log level of this worker, used when job/log_level is unset.
+
+      - path: "{service}/worker/{worker}/job/log_level"
+        type: string
+        read_via: LogLevel
+        default: "the level of default/log_level"
+        description: Log level of one job run of this worker.
+
+  - scope: worker_telegram
+    keys:
+      - path: "{service}/worker/{worker}/default/log_level"
+        type: string
+        read_via: LogLevel
+        default: info
+        description: Log level of this worker, used when job/log_level is unset.
+
+      - path: "{service}/worker/{worker}/job/log_level"
+        type: string
+        read_via: LogLevel
+        default: "the level of default/log_level"
+        description: Log level of one update being handled by this worker.

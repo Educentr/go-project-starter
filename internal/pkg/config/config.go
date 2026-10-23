@@ -181,6 +181,11 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config metrics section: "+msg)
 	}
 
+	// Same for the OnlineConf key map reference.
+	if ok, msg := config.OnlineConf.IsValid(baseDir); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config onlineconf section: "+msg)
+	}
+
 	// Validate the lint config ownership. The override document's own contents
 	// are checked at generation time, once a remote document has been fetched.
 	if ok, msg := config.Tools.LintConfig.IsValid(baseDir); !ok {

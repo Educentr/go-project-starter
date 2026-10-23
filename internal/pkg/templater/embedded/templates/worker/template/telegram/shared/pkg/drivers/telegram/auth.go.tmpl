@@ -5,20 +5,24 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 
-	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	{{ .Logger.Import }}
+
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 var (
 	tgSHA []byte
 )
 
-func GetTgTokenPath(_ context.Context, serviceName string) string {
-	return onlineconf.MakePath(serviceName, configPath, "tg_token")
+// GetTgTokenPath returns the path of the bot token, for a subscription to its
+// rotation. The token is a declared key, so the path comes from the accessor
+// package rather than from segments assembled here.
+func GetTgTokenPath(_ context.Context, _ string) string {
+	return occonf.TelegramTokenPath()
 }
 
 func GetTgToken(ctx context.Context, serviceName string) (string, error) {
-	botToken, err := onlineconf.GetString(ctx, GetTgTokenPath(ctx, serviceName), "")
+	botToken, _, err := occonf.TelegramToken(ctx)
 	if err != nil {
 		{{ $.Logger.ErrorMsg "ctx" "err" "Error getting bot_token" }}
 

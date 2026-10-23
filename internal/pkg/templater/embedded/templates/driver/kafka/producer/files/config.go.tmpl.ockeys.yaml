@@ -1,0 +1,57 @@
+# The OnlineConf keys a generated Kafka producer reads.
+groups:
+  - scope: kafka_producer
+    keys:
+      - path: "{service}/kafka/{client}/brokers"
+        name: KafkaBrokers
+        type: string
+        required: true
+        description: >-
+          Comma-separated broker addresses. Required: there is nothing sensible
+          to publish to without them, and the producer fails to start.
+
+      - path: "{service}/kafka/{client}/auth_type"
+        name: KafkaAuthType
+        type: string
+        default: none
+        description: SASL mechanism, or `none`.
+
+      - path: "{service}/kafka/{client}/username"
+        name: KafkaUsername
+        type: string
+        default: "empty"
+        description: SASL user name, read when auth_type is not `none`.
+
+      - path: "{service}/kafka/{client}/password"
+        name: KafkaPassword
+        type: string
+        default: "empty"
+        description: SASL password, read when auth_type is not `none`.
+
+      - path: "{service}/kafka/{client}/tls_enabled"
+        name: KafkaTLSEnabled
+        type: bool
+        default: "false"
+        description: Whether the broker connection is TLS.
+
+      - path: "{service}/kafka/{client}/tls_skip_verify"
+        name: KafkaTLSSkipVerify
+        type: bool
+        default: "false"
+        description: Whether the broker certificate is verified. For stands only.
+
+      - path: "{service}/kafka/{client}/tls_ca_cert"
+        name: KafkaTLSCACert
+        type: string
+        default: "empty — the system roots are used"
+        description: PEM certificate authority the broker certificate is verified against.
+
+  - scope: kafka_producer_event
+    keys:
+      - path: "{service}/kafka/{client}/events/{event}/topic"
+        name: KafkaEventTopic
+        type: string
+        default: "the event name"
+        description: >-
+          Topic this event is published to. Declared per event so that the same
+          code publishes to a different topic per installation.

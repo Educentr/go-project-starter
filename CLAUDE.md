@@ -114,6 +114,17 @@ templater/embedded/templates/
 - **internal/pkg/** - Generated core logic, config-agnostic, no logger binding (returns errors up)
 - **internal/app/** - Project-specific code, config-aware, can use specific logger
 
+**Одно исключение из направления зависимостей: `internal/pkg/occonf`.** Сгенерированные
+библиотеки в `pkg/` (`pkg/app/restconfig`, `pkg/app/logger`, `pkg/drivers/*`) читают
+конфигурацию, и читают её через сгенерированный пакет аксессоров — то есть `pkg/` →
+`internal/pkg/occonf`. Альтернатива — чтобы каждая из них собирала пути OnlineConf сама, и
+это ровно тот дефект, который убирает карта ключей (см. «OnlineConf Key Map»): путь,
+собранный на месте вызова, не виден ни гварду, ни реестру, ни ревью. Эти пакеты и так не
+переносимы между проектами (`pkg/drivers/telegram` импортирует `internal/app/constant`,
+`pkg/app/restconfig` генерируется под выбранный логгер), так что «maximally reusable» для
+них и раньше было неточным. Новых исключений заводить не нужно: всё, что читает
+конфигурацию, идёт через `occonf`.
+
 ### Key Concepts
 
 - **Application** - Atomically scalable unit (container). Can include HTTP servers, gRPC, workers, drivers
@@ -132,8 +143,8 @@ templater/embedded/templates/
 
 **OnlineConf paths** (3-level priority):
 1. Default from code
-2. Transport: `/{serviceName}/transport/rest/{transportName}/{key}`
-3. App-specific: `/{serviceName}/transport/rest/{transportName}/{appName}/{key}`
+2. Transport: `/{serviceName}/transport/rest/{serverName}/{key}` — `serverName` is `{transportName}_{apiVersion}` (`api_v1`), the name the generated main hands to `rest.NewServer`
+3. App-specific: `/{serviceName}/transport/rest/{serverName}/{appName}/{key}`
 
 See [docs/NAMING.md](docs/NAMING.md) for detailed documentation.
 
@@ -227,6 +238,107 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 Без обоих ключей мерж не запускается вовсе и вывод побайтно совпадает с прежним. `configs/golangci-metrics.yml` и `make metrics-validate` (гейт карты метрик) генерируются независимо от секции. `tools.lint_exclude_paths` при `own: true` ни на что не влияет — генерация печатает warning, ключ остаётся валидным.
 
 Реализация: `internal/pkg/lintconfig/` (правила слияния, `ConfigPath`), `Generator.processLintConfig()` / `lintBodyTransform()` / `userOwnedPaths()`, фильтр own-режима в `templater.GetMainTemplates()`, хук `templater.GenerateByTmplWithTransform()` (отдаёт трансформу тело шаблона без disclaimer-блоков — мерж парсит YAML, а блоки это комментарии вокруг него). Полная документация: [docs/configuration/lint-config.md](docs/configuration/lint-config.md).
+
+## OnlineConf Key Map
+
+У каждого сгенерированного проекта **всегда** есть полная карта ключей OnlineConf, к которым он
+обращается, и она состоит из двух половин: ключи, которые читает сгенерированный код (объявляет
+сам генератор, рядом с шаблонами), и ключи сервиса (`onlineconf.path` в `project.yaml` — ссылка на
+карту в контрактном репозитории; форма та же, что у `metrics.path`: local / https / git+ssh /
+git+https; `--sourceRef` действует; карта читается во время генерации и в проект **не копируется**).
+
+**`onlineconf.path` добавляет ключи, а не включает фичу.** Пакет, валидатор, проверка на старте и
+реестр генерируются в **каждом** проекте; без `onlineconf.path` карта состоит из половины
+генератора. Раньше `onlineconf.path` был выключателем — и гвард был выключен ровно там, где
+единственным читателем был сгенерированный код.
+
+Генерируется:
+
+- `internal/pkg/occonf/psg_occonf_gen.go` — **единственное** место, где вызывается библиотека
+  `onlineconf`: типизированный аксессор на каждый ключ обеих половин, построитель пути
+  `<Name>Path(...)`, фасад жизненного цикла (`Initialize`, `StartWatcher`, `StopWatcher`),
+  `Paths()`, `Subscribe(ctx, paths, cb)` и `CheckRequired(ctx, app)`. Плюс
+  `ActiveRecordConfig(ctx)` — только при `use_active_record: true`: ActiveRecord читает дерево
+  сам через `activerecord.ConfigInterface`, а это весь набор читателей библиотеки, поэтому
+  узкий интерфейс ему отдать нельзя. Это известная дыра в карте (чтения ActiveRecord не
+  объявлены и в реестр не попадают), и она была всегда; теперь её хотя бы нет в проектах без
+  ActiveRecord. Пакет назван
+  `occonf`, не `onlineconf`: он оборачивает библиотеку с таким именем. Чтение идёт через
+  `*IfExists`-формы — форма с дефолтом (`GetString(ctx, path, d...)`) при ошибке обращается к
+  `d[0]` и паникует без дефолта;
+- `configs/golangci-onlineconf.yml` + цель `make onlineconf-validate` — валидатор: `forbidigo`
+  запрещает **любое** обращение к пакету `onlineconf` (`^onlineconf\.`) вне сгенерированного
+  пакета. Запрет только `Get*` оставил бы `MakePath` свободным собирать путь, запрет только
+  `MakePath` — строковый литерал. `psg_*_gen.go` больше **не** исключён: сгенерированный код
+  читает через аксессоры, поэтому исключение не нужно — а оно выводило из проверки и секцию
+  ручного кода ниже disclaimer-маркера. Те же правила дублируются в `configs/golangci-lint.yml`,
+  но **гейт — `onlineconf-validate`**;
+- `configs/onlineconf-tree.yaml` — реестр **всей** поверхности дерева: ключи карты сервиса
+  (`origin: service`) и чтения сгенерированного кода (`origin: generated`, с `read_by` —
+  шаблоном-читателем). Поля `accessor`, `read_via` (общий аксессор) и `owns` (с какой точки
+  поддерево принадлежит сгенерированному коду). В рантайме не читается, он для ревью и diff-а.
+
+**Сгенерированный код читает OnlineConf только через `occonf`** — все 15 шаблонов с чтениями плюс
+`main` (жизненный цикл). Фактические пути, типы и значения по умолчанию при этом не изменились.
+
+**Сигнатуру аксессора ключа сервиса задаёт объявление**, а не место вызова: `required` →
+`(T, error)` с `ErrKeyNotSet`; `default` → `(T, error)` с дефолтом; ни того, ни другого →
+`(T, bool, error)`. Схема карты **строгая**: поля `path`, `type`, `required`, `default`, `name`,
+`description`; неизвестное поле — отказ генерации. `path` — **полный** путь; все записи в одном
+дереве (карта одна на сервис); шаблоны со списковым сегментом (`…/<i>/…`) не принимаются — список
+объявляется одним ключом с `type: struct`. Типы: `string`, `int` (int64), `bool`, `duration`,
+`strings`, `struct`. `required` нельзя только у `struct`: проверка потребовала бы разобрать
+значение, а тип назначения принадлежит вызывающему.
+
+**Объявления генератора** (`<шаблон>.ockeys.yaml` рядом с шаблоном; из вывода генерации
+исключаются в `GetTemplates`) несут `path`, `name`, `type`, `required`, `shared`, `read_via`,
+`default` (проза), `description`. В пути два вида переменных сегментов: `{service}`,
+`{transport}`, `{app}`, `{worker}`, `{client}`, `{event}` — измерения проекта, известные на
+генерации, и `<urlPath>`, `<tgID>`, `<action>` — сегменты, которые сгенерированный код вычисляет в
+рантайме. **Оба становятся параметрами аксессора**: сгенерированные читатели generic по
+измерениям (провайдер REST получает имя сервера и приложения от рантайма). Поэтому **набор
+аксессоров не зависит от измерений проекта** — от них зависят строки реестра и проверки на
+старте: шаблон, который генерируется, зовёт свои аксессоры безусловно (провайдер REST
+генерируется и в проекте, где единственный REST-транспорт — клиент). Запись без `type` —
+построитель пути (имя обязано кончаться на `Path`), отдаёт генератору всё поддерево; запись с
+`<runtimeСегментом>` — с него и ниже. `shared: true` — аксессор, путь которого целиком собирает
+вызывающий (уровень логирования), поддерева не отдаёт, а конкретные пути объявляются у вызывающих
+с `read_via: <Имя>`. Запись с `shared: true` — **единственная**, которая начинается не с
+`{service}`, а с `<runtimeСегмента>`: префикс приходит уже абсолютным (его собирают
+`occonf.RESTAppMetricsPath` / `occonf.WorkerPath`), и приписанное второй раз имя сервиса уводило
+чтение на уровень глубже дерева — ровно дефект TOOLS-65. Пустой префикс (процессный логгер)
+нормализует в корень дерева сам вызывающий: сборка пути пустой компонент не выбрасывает и дала бы
+`//`. `scope` задаёт измерение раскрытия (`service`, `rest_server`, `rest_client`,
+`grpc_client`, `kafka_producer`, `kafka_producer_event`, `worker_daemon`, `worker_telegram`,
+`telegram_driver`).
+
+`required` у ключа генератора **не меняет форму чтения** (читатель компонента, объявленного
+`optional: true`, должен уметь увидеть отсутствие) — он означает, что ключ попадает в
+`CheckRequired` **того приложения**, которое этот компонент запускает. Поэтому
+`CheckRequired(ctx, app)` принимает имя приложения: ключи сервиса проверяются всегда, ключи
+генератора — по компонентам приложения, за вычетом объявленных `optional`. Помечать `required`
+можно только ключ, которого никакая настройка `project.yaml` не может сделать ненужным: таких
+два — `security/tg_token` и `kafka/<client>/brokers`. host/port клиентов не помечены, потому что
+клиент с `instantiation: dynamic` получает адрес аргументом и ключ не читает.
+
+Совпадение пути из карты сервиса с путём генератора — ошибка генерации с указанием
+шаблона-читателя: точное совпадение либо объявление внутри отданного генератору поддерева.
+Проверка идёт по **фактическому** проекту: ключ измерения, которого в проекте нет (Kafka без
+Kafka-клиента), сервис объявить может — второго читателя не возникает.
+
+Связь объявлений с кодом держат тесты в `internal/pkg/templater/onlineconf_keys_test.go`:
+`TestNoTemplateReadsOnlineConfDirectly` (шаблон вне `occonf`, обращающийся к библиотеке) и
+`TestOnlineConfDeclarationsMatchAccessorCalls` (аксессор, который шаблон вызывает, обязан быть
+объявлен этим же шаблоном, и наоборот).
+
+Реализация: `internal/pkg/ockeymap/` (парсинг, валидация, хелперы кодогенерации; `gendecl.go` —
+объявления генератора, раскрытие по проекту и по приложению, проверка совпадений),
+`internal/pkg/templater/onlineconf_keys.go` (загрузка объявлений из embed FS, скан шаблонов),
+`internal/pkg/ds/onlineconf.go` (единая модель аксессора для обеих половин, правила валидатора,
+реестр), `Generator.processOnlineConfMap()` / `onlineConfSurface()` / `onlineConfAppSurface()`.
+Полная документация (включая раздел миграции):
+[docs/configuration/onlineconf-keys.md](docs/configuration/onlineconf-keys.md).
+
 ## Grafana Annotations
 
 Секция `grafana.annotations[]` в `project.yaml` объявляет записи-запросы, которые эмитятся в `.annotations.list[]` **каждого** сгенерированного дашборда рядом со стоковой записью builtIn. Сами события (деплой, рестарт, краш) постит сервис в рантайме через `POST /api/annotations`; без записи-запроса они складываются в Grafana, но ни на одном графике не рисуются.

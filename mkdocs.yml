@@ -83,6 +83,7 @@ nav:
     - Rewrite refs: configuration/rewrite-refs.md
     - GitHub CI: configuration/github-ci.md
     - Карта метрик: configuration/metrics-map.md
+    - Карта ключей OnlineConf: configuration/onlineconf-keys.md
     - Свои генераторы: configuration/custom-generators.md
     - Конфиг линтера: configuration/lint-config.md
   - Рабочий процесс:

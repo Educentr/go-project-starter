@@ -238,6 +238,15 @@ lint-fix: lint
 metrics-validate: install-lint
 	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-metrics.yml ./... $(LINT_ARGS)
 {{ end }}
+# OnlineConf validator: reading OnlineConf is only allowed through the generated
+# accessor package. The key map declares what the service may read; this check
+# is what makes that binding rather than advisory.
+#
+# Uses its own config instead of a flag so the target does not depend on the
+# flag set of a particular golangci-lint release.
+.PHONY: onlineconf-validate
+onlineconf-validate: install-lint
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-onlineconf.yml ./... $(LINT_ARGS)
 
 # Create test coverage report
 .PHONY: coverage

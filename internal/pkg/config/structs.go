@@ -537,6 +537,26 @@ type (
 		Path string `mapstructure:"path"`
 	}
 
+	// OnlineConf points at the service's OnlineConf key map — the declaration
+	// of every OnlineConf key the service is allowed to read. Like the metrics
+	// map it is a contract artifact, so `path` takes the same URI forms as
+	// `rest[].path`: a local path, an https URL, or a git+ssh/git+https URI.
+	//
+	// YAML example:
+	//
+	//	onlineconf:
+	//	  path: "git+https://github.com/org/contracts.git@v1#common/onlineconf-key-map.yaml"
+	//
+	// Omitting the section keeps the previous behavior: no accessor package,
+	// no validator, no startup check.
+	//
+	// See docs/configuration/onlineconf-keys.md for full documentation.
+	OnlineConf struct {
+		// Path is the URI of the key map. Required when the section is
+		// present.
+		Path string `mapstructure:"path"`
+	}
+
 	// KafkaEvent represents a Kafka event with typed messages.
 	// Event name is used for Go method generation and as default topic name.
 	// Topic can be overridden per environment via OnlineConf.
@@ -857,6 +877,7 @@ type (
 		Packaging      PackagingConfig     `mapstructure:"packaging"`
 		Documentation  DocumentationConfig `mapstructure:"documentation"`
 		Metrics        Metrics             `mapstructure:"metrics"`
+		OnlineConf     OnlineConf          `mapstructure:"onlineconf"`
 		GithubCI       GithubCIConfig      `mapstructure:"github_ci"`
 		// GeneratorList declares code generators the project brings itself.
 		GeneratorList CustomGeneratorList `mapstructure:"generator"`
@@ -1775,6 +1796,30 @@ func (m Metrics) IsValid(baseConfigDir string) (bool, string) {
 
 	if ok, msg := validateSpecPath(baseConfigDir, m.Path); !ok {
 		return false, "metrics.path: " + msg
+	}
+
+	return true, ""
+}
+
+// IsEnabled reports whether an OnlineConf key map is configured. When it is
+// not, the whole feature stays off: no accessor package, no validator, no
+// startup check. There is no transitional half-on mode, for the same reason as
+// the metrics map — it would leave traces in generated code that nobody cleans
+// up later.
+func (o OnlineConf) IsEnabled() bool {
+	return o.Path != ""
+}
+
+// IsValid validates the onlineconf section. The map itself is parsed and
+// validated later, at generation time, because a remote map has to be fetched
+// first; here only the reference is checked.
+func (o OnlineConf) IsValid(baseConfigDir string) (bool, string) {
+	if !o.IsEnabled() {
+		return true, ""
+	}
+
+	if ok, msg := validateSpecPath(baseConfigDir, o.Path); !ok {
+		return false, "onlineconf.path: " + msg
 	}
 
 	return true, ""

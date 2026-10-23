@@ -22,12 +22,16 @@ type MetricsConfig struct {
 	Metrics []metricsmap.Metric
 }
 
-// MetricForbidRule is one forbidigo rule of the metrics validator: a regexp
-// over the called identifier plus the message the developer sees.
-type MetricForbidRule struct {
+// ForbidRule is one forbidigo rule: a regexp over the called identifier plus
+// the message the developer sees. Shared by the generated validators (metrics
+// map, OnlineConf key map), which differ in their patterns, not in their shape.
+type ForbidRule struct {
 	Pattern string
 	Msg     string
 }
+
+// MetricForbidRule is one forbidigo rule of the metrics validator.
+type MetricForbidRule = ForbidRule
 
 // KafkaProducerMetrics carries the Kafka producer's metric declarations into
 // its driver template. The producer needs one collector per producer instance

@@ -1,0 +1,17 @@
+# The OnlineConf keys the generated telegram command router reads.
+groups:
+  - scope: worker_telegram
+    keys:
+      - path: "{service}/devstand"
+        name: DevStand
+        type: bool
+        default: "false"
+        description: >-
+          The telegram router then answers with diagnostics it withholds in
+          production.
+
+      - path: "{service}/settings/auto_refund_disable"
+        name: SettingsAutoRefundDisable
+        type: bool
+        default: "false"
+        description: Whether a failed payment is refunded automatically.
