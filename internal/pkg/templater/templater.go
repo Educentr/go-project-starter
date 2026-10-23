@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
@@ -23,6 +24,10 @@ import (
 // MinRuntimeVersion is the minimum supported version of go-project-starter-runtime.
 // This should be updated when new runtime version is released.
 const MinRuntimeVersion = "v0.15.0"
+
+// goTypeDuration is the Go type the CLI flag helpers emit for a `duration`
+// flag declared in a CLI spec.
+const goTypeDuration = "time.Duration"
 
 // DefaultPrivateReposTokenSecret is the CI secret name used to fetch private
 // Go modules when git.private_repos_token_secret is not set in project.yaml.
@@ -849,12 +854,31 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 			re := regexp.MustCompile(`\$\{([^}]+)\}`)
 			return re.ReplaceAllString(s, `${{ secrets.$1 }}`)
 		},
+		// goQuote renders s as a syntactically valid Go string literal
+		// (quotes included). Every value that comes from a user-supplied spec
+		// and ends up inside generated Go source must go through it —
+		// descriptions may legitimately contain quotes, backslashes or
+		// newlines, which would otherwise terminate the literal and produce
+		// code that does not compile.
+		"goQuote": strconv.Quote,
 		// CLI template helpers for flag handling
 		"flagDefault": func(goType, defaultVal string) string {
 			if defaultVal != "" {
 				switch goType {
 				case "string":
-					return `"` + defaultVal + `"`
+					return strconv.Quote(defaultVal)
+				case goTypeDuration:
+					// flag.Duration takes a time.Duration, not the "5s" the
+					// spec spells it with. Spec defaults are validated at load
+					// time, so a parse failure here can only mean the
+					// validation and this helper disagree — fall back to the
+					// zero value instead of emitting broken source.
+					d, err := time.ParseDuration(defaultVal)
+					if err != nil {
+						return "0"
+					}
+
+					return "time.Duration(" + strconv.FormatInt(int64(d), 10) + ")"
 				case "bool":
 					return defaultVal
 				default:
@@ -870,7 +894,7 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 				return "false"
 			case "float64":
 				return "0"
-			case "time.Duration":
+			case goTypeDuration:
 				return "0"
 			default:
 				return `""`
@@ -886,7 +910,7 @@ func GenerateByTmpl(tmpl Template, params any, userCode []byte, destPath string)
 				return "*" + varName + " == 0"
 			case "bool":
 				return "!*" + varName
-			case "time.Duration":
+			case goTypeDuration:
 				return "*" + varName + " == 0"
 			default:
 				return "*" + varName + ` == ""`

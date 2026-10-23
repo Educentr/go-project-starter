@@ -72,7 +72,7 @@ Reference-конфиг: [`test/docker-integration/configs/rest-envs-goat/project
 
 ## Требования
 
-- Go 1.24+
+- Go 1.27+
 - Docker (для testcontainers)
 - Скомпилированный бинарник приложения
 
