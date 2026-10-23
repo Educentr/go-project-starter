@@ -7,8 +7,8 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 )
 
-// TestLoggerMapping verifies that LoggerMapping contains valid logger implementations.
-func TestLoggerMapping(t *testing.T) {
+// TestLoggerMapping verifies that Get answers with valid logger implementations.
+func TestLoggerLookup(t *testing.T) {
 	tests := []struct {
 		name   string
 		key    string
@@ -33,14 +33,14 @@ func TestLoggerMapping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, ok := LoggerMapping[tt.key]
+			logger, ok := Get(tt.key)
 
 			if ok != tt.wantOk {
-				t.Errorf("LoggerMapping[%q] exists = %v, want %v", tt.key, ok, tt.wantOk)
+				t.Errorf("Get(%q) exists = %v, want %v", tt.key, ok, tt.wantOk)
 			}
 
 			if tt.wantOk && logger == nil {
-				t.Errorf("LoggerMapping[%q] = nil, want non-nil logger", tt.key)
+				t.Errorf("Get(%q) = nil, want non-nil logger", tt.key)
 			}
 		})
 	}
@@ -48,7 +48,8 @@ func TestLoggerMapping(t *testing.T) {
 
 // TestLoggerInterface verifies that all loggers implement the ds.Logger interface.
 func TestLoggerInterface(t *testing.T) {
-	for name, logger := range LoggerMapping {
+	for _, name := range Names() {
+		logger, _ := Get(name)
 		t.Run(name, func(_ *testing.T) {
 			var _ ds.Logger = logger // compile-time interface check
 		})

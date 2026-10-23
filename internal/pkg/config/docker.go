@@ -97,7 +97,7 @@ var dockerUnsafeValueRx = regexp.MustCompile(`[\r\n"\\]`)
 // `ARG`s the Dockerfile template already declares and the variables the
 // Makefile template already assigns. Taking one of them would redeclare it and
 // silently change the value used by the rest of the generated build.
-var dockerReservedArgNames = map[string]struct{}{
+var dockerReservedArgNames = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	// Dockerfile template (app/files/Dockerfile.tmpl).
 	"binary": {},
 	// Makefile template (main/Makefile.tmpl).

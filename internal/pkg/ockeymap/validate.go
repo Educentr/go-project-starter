@@ -60,7 +60,7 @@ var (
 )
 
 // knownTypes is the closed set of accepted `type` values.
-var knownTypes = map[string]struct{}{
+var knownTypes = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	TypeString:   {},
 	TypeInt:      {},
 	TypeBool:     {},

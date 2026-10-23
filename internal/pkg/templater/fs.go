@@ -365,7 +365,7 @@ func GetTransportGeneratorTemplates(transportType ds.TransportType, generatorTyp
 }
 
 var (
-	prefixDirs = map[string]string{
+	prefixDirs = map[string]string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 		"transportConfig": "configs/transport/{{ .Transport.Type }}/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}",
 		"transport":       "internal/app/transport/{{ .Transport.Type }}/{{ .Transport.Name }}/{{ .Transport.ApiVersion }}",
 		"worker":          "internal/app/worker/{{ .Worker.Name }}",

@@ -24,9 +24,12 @@ const (
 //go:embed embedded/internal-metrics.yaml
 var embedded embed.FS
 
+// Memo of the embedded internal metrics map. The input is an embed.FS fixed at
+// compile time, so the parsed result is the same for the whole process — this is
+// a read-through cache over an immutable input, not shared mutable state.
 var (
-	internalOnce   sync.Once
-	internalMap    *Map
+	internalOnce   sync.Once //nolint:gochecknoglobals // memo over the embedded FS, see above
+	internalMap    *Map      //nolint:gochecknoglobals // memo over the embedded FS, see above
 	errInternalMap error
 )
 
