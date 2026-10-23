@@ -294,9 +294,12 @@ git submodule update --init --recursive
 
 ### "TestEnvInitializer not implemented"
 
-**Причина:** Не создан файл `tests/init.go`.
+**Причина:** Не создан файл `tests/init.go` либо реализация в нём не зарегистрирована.
 
-**Решение:** Создайте файл с реализацией интерфейса (см. [GOAT](testing/goat.md)).
+**Решение:** Создайте файл с реализацией интерфейса и зарегистрируйте её инициализатором
+переменной — `var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})` (см.
+[GOAT](testing/goat.md)). Присваивание `testEnvInit` из `init()` в сгенерированных
+проектах запрещено линтером `gochecknoinits`.
 
 ## CI/CD
 

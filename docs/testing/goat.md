@@ -82,6 +82,14 @@ Reference-конфиг: [`test/docker-integration/configs/rest-envs-goat/project
 
 Это **обязательный** файл, реализующий интерфейс `TestEnvInitializer`. Сгенерированный `psg_init_gen.go` подаёт `defaultTestEnvInitializer{}`, которая упадёт с panic-сообщением: пример в этом сообщении хардкодит `psql`/`xray` как иллюстрацию — для проектов **без БД и внешних сервисов** используйте минимальный шаблон ниже.
 
+Реализация регистрируется **инициализатором переменной**:
+
+```go
+var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})
+```
+
+а не присваиванием `testEnvInit` из `init()`: `init()` в сгенерированных проектах запрещён линтером (`gochecknoinits`) — неявный side-effect при импорте, зависящий от порядка инициализации пакетов. Инициализатор переменной срабатывает в тот же момент, но явно называет, кто кого подменяет; `SetTestEnvInitializer` возвращает переданное значение именно для того, чтобы вызов можно было записать как инициализатор. Чтение (`GetEnv()` из сгенерированного `TestMain`) происходит после того, как инициализация переменных пакета завершилась, так что подмена не теряется.
+
 #### Минимальный init.go (без БД и внешних сервисов)
 
 Подходит для сервисов, в которых goat-тесты только проверяют HTTP/gRPC контракт через бинарник, без зависимостей от postgres/xray/redis:
@@ -109,9 +117,7 @@ func (t *testEnvInitializerImpl) InitTestEnv() (testutil.TestAppConfig, *gtt.Env
     return cfg, env
 }
 
-func init() {
-    testEnvInit = &testEnvInitializerImpl{}
-}
+var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})
 ```
 
 При таком init.go также нужно реализовать `NewExecutor()` — простейший вариант для `use_envs: true` проектов: загрузить переменные из `.env-{app}.example` через `testutil.LoadEnvFile()` и передать в `WithEnv()`.
@@ -199,9 +205,7 @@ func (t *testEnvInitializerImpl) InitTestEnv() (testutil.TestAppConfig, *gtt.Env
     return config, env
 }
 
-func init() {
-    testEnvInit = &testEnvInitializerImpl{}
-}
+var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})
 ```
 
 ## Написание тестов
@@ -369,7 +373,7 @@ your-project/
 
 - Создайте `tests/init.go`
 - Реализуйте интерфейс
-- Присвойте в `init()`: `testEnvInit = &testEnvInitializerImpl{}`
+- Зарегистрируйте реализацию: `var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})`
 
 ## Ресурсы
 
