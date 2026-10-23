@@ -496,7 +496,9 @@ applications:
 ```bash
 make regenerate
 
-# Implement TestEnvInitializer in tests/{app_name}/init.go
+# Implement TestEnvInitializer in tests/{app_name}/init.go, then register it with
+#   var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})
+# NEVER use init() — gochecknoinits is enabled, including in _test.go
 # Write test suites inheriting BaseTestSuite
 # Test via HTTP only — NEVER call service functions directly from tests
 # Run: make goat-tests-{app_name} or make goat-tests (runs all)

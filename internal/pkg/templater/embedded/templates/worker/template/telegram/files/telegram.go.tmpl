@@ -24,6 +24,7 @@ import (
 
 type Worker struct {
 	EmptyCommands
+	EmptyCustomizer
 	telegram.UnimplementedUpdateHandler
 	telegram.UnimplementedAdminStatusHandler
 	daemon.EmptyWorker
@@ -31,12 +32,52 @@ type Worker struct {
 	tgSrv TelegramUpdateWorker
 	jobState any
 	tgMetrics *metrics.TelegramMetrics
+	// cmds — реестр команд воркера. Поле, а не package-global cmdMaps,
+	// наполнявшийся из init(): порядок инициализации пакетов на него не влияет,
+	// и два воркера в одном процессе не делят один набор команд.
+	cmds map[telegram.CommandName]telegram.Cmd
 }
 
 type EmptyCommands struct{}
 
 func (e *EmptyCommands) GetCommandList() []telegram.Cmd {
 	return []telegram.Cmd{}
+}
+
+// EmptyCustomizer несёт реализацию customize по умолчанию. Отдельный встроенный
+// тип, а не метод на Worker: метод с тем же именем, объявленный проектом на
+// *Worker ниже disclaimer-маркера, перекрывает промотированный — именно это и
+// делает точку расширения необязательной.
+type EmptyCustomizer struct{}
+
+// customize — точка расширения воркера: Create зовёт её на свежесконструированном
+// воркере, до Init и Run. Отсюда проект регистрирует свои команды (w.AddCommands)
+// и переназначает хуки пакета (updateHandler, updateHandlerIdle,
+// unknownCommandHandler). По умолчанию не делает ничего; проект объявляет
+//
+//	func (w *Worker) customize() { ... }
+//
+// ниже disclaimer-маркера или в своём файле пакета воркера.
+//
+// Раньше то же самое делалось из init() своего файла пакета — неявный side-effect
+// при импорте, зависящий от порядка инициализации пакетов. В сгенерированных
+// проектах init() запрещён линтером (gochecknoinits).
+func (e *EmptyCustomizer) customize() {}
+
+// AddCommands регистрирует команды в реестре воркера, перезаписывая команду с тем
+// же Name. Вызывается из customize.
+//
+// Карта создаётся на месте, если воркер собран не через Create (например,
+// &Worker{} в тесте проекта): запись в nil-карту — паника, которая указывает на
+// AddCommands, а не на пропущенный конструктор.
+func (w *Worker) AddCommands(cmds ...telegram.Cmd) {
+	if w.cmds == nil {
+		w.cmds = make(map[telegram.CommandName]telegram.Cmd, len(cmds))
+	}
+
+	for _, c := range cmds {
+		w.cmds[c.Name] = c
+	}
 }
 
 type TelegramUpdateWorker interface {
@@ -56,8 +97,8 @@ var (
 
 // updateHandler — точка расширения Run: сюда уходит каждый апдейт из канала.
 // По умолчанию — синхронный разбор одного апдейта за другим (handleUpdate). Проект
-// переназначает переменную в init() своего файла пакета — например, чтобы разложить
-// апдейты по очередям и не держать всех пользователей одной зависшей командой.
+// переназначает переменную из customize — например, чтобы разложить апдейты по
+// очередям и не держать всех пользователей одной зависшей командой.
 var updateHandler = (*Worker).handleUpdate //nolint:gochecknoglobals // точка расширения шаблона
 
 // updateHandlerIdle — вторая половина той же точки: GracefulStop ждёт не только пустого
@@ -87,7 +128,14 @@ func (w *Worker) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 }
 
 func Create() *Worker {
-    return &Worker{}
+	w := &Worker{
+		cmds: make(map[telegram.CommandName]telegram.Cmd),
+	}
+
+	w.AddCommands(generatedCommands()...)
+	w.customize()
+
+	return w
 }
 
 func (w *Worker) Name() string {
@@ -371,7 +419,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 								continue
 							}
 						case telegram.UpdateHiddenAction:
-							c, ex := cmdMaps[hm.CmdName]
+							c, ex := w.cmds[hm.CmdName]
 							if !ex {
 								{{ .Logger.InfoMsg "hmCtx" "Unknown command" "str::Cmd::string(hm.CmdName)" }}
 

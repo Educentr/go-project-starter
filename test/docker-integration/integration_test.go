@@ -50,18 +50,22 @@ var (
 	projectRoot string
 )
 
-func init() {
-	var err error
-
-	projectRoot, err = getProjectRoot()
+// setupTestEnv resolves the project root, checks the prerequisites and builds the
+// goat environment shared by every test in the package. Called from TestMain so
+// that a missing prerequisite is a readable error on stderr instead of a panic
+// stack from package initialization.
+func setupTestEnv() error {
+	root, err := getProjectRoot()
 	if err != nil {
-		panic(fmt.Errorf("failed to get project root: %w", err))
+		return fmt.Errorf("failed to get project root: %w", err)
 	}
+
+	projectRoot = root
 
 	// Check if binary exists (built by Makefile)
 	binaryPath := filepath.Join(projectRoot, "bin", "go-project-starter")
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		panic("Binary not found. Run 'make buildfortest' first")
+	if _, err := os.Stat(binaryPath); err != nil {
+		return fmt.Errorf("generator binary %s is not usable, run 'make buildfortest' first: %w", binaryPath, err)
 	}
 
 	// Register golang-builder service
@@ -75,6 +79,8 @@ func init() {
 	manager := services.NewManager(servicesMap, services.DefaultManagerConfig())
 
 	env = gtt.NewEnv(gtt.EnvConfig{}, manager)
+
+	return nil
 }
 
 // getProjectRoot returns the absolute path to the project root directory
@@ -164,6 +170,11 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 
 // TestMain is the entry point for all tests in this package
 func TestMain(m *testing.M) {
+	if err := setupTestEnv(); err != nil {
+		fmt.Fprintln(os.Stderr, "docker-integration setup failed:", err)
+		os.Exit(1)
+	}
+
 	gtt.CallMain(env, m)
 }
 

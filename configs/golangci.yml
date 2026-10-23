@@ -72,7 +72,9 @@ linters:
     # Check that no global variables.
     # - gochecknoglobals
     # Checks that no init functions are present in Go code.
-    # - gochecknoinits
+    # Включён и НЕ исключён для _test.go: init() — неявный side-effect при импорте,
+    # зависящий от порядка инициализации пакетов, в тестах в той же мере (TOOLS-30).
+    - gochecknoinits
     # Finds repeated strings that could be replaced by a constant.
     - goconst
     # Provides diagnostics that check for bugs, performance and style issues.
@@ -489,7 +491,6 @@ issues:
         - funlen
         - gci
         - gochecknoglobals
-        - gochecknoinits
         - goconst
         - gocritic
         - gocyclo

@@ -11,12 +11,17 @@ const (
 	CmdStart telegram.CommandName = "start"
 )
 
-func init() {
-	cmdMaps[CmdStart] = telegram.Cmd{
-		Name:    CmdStart,
-		Private: true,
-		Handler: func(ctx context.Context, h any, params string) (telegram.Response, error) {
-			return h.(*handler.Handler).Start(ctx, params)
+// generatedCommands — команды, объявленные генератором. Create добавляет их в
+// реестр воркера первыми; свои команды проект регистрирует из customize
+// (w.AddCommands), а не дописывая сюда: этот файл перегенерируется.
+func generatedCommands() []telegram.Cmd {
+	return []telegram.Cmd{
+		{
+			Name:    CmdStart,
+			Private: true,
+			Handler: func(ctx context.Context, h any, params string) (telegram.Response, error) {
+				return h.(*handler.Handler).Start(ctx, params)
+			},
 		},
 	}
 }
