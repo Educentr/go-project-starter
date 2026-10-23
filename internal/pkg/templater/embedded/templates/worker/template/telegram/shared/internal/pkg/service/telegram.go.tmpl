@@ -70,3 +70,28 @@ func (s *Service) SendInvoice(ctx context.Context, chatID int64, invoice telegra
 func (s *Service) GetFileDirectURL(fileID string) (string, error) {
 	return s.telegram.GetFileDirectURL(fileID)
 }
+
+// TelegramPackInvoiceData упаковывает и подписывает payload инвойса.
+//
+// Подпись делается ключом текущего токена бота, а токен принадлежит экземпляру
+// драйвера — поэтому упаковка это метод драйвера, а не функция пакета telegram, и
+// добраться до неё можно только через сервис, у которого драйвер есть.
+func (s *Service) TelegramPackInvoiceData(ctx context.Context, invoiceData telegram.TelegramInvoiceData) (string, error) {
+	return s.telegram.PackInvoiceData(ctx, invoiceData)
+}
+
+// TelegramUnpackInvoiceData разбирает payload инвойса и проверяет его подпись.
+func (s *Service) TelegramUnpackInvoiceData(ctx context.Context, invoice *telegram.TelegramInvoiceData, data string) error {
+	return s.telegram.UnpackInvoiceData(ctx, invoice, data)
+}
+
+// TelegramTokenSHA отдаёт ключ подписи WebApp-данных текущего токена бота —
+// HMAC("WebAppData", botToken), которым Telegram подписывает initData мини-аппа.
+//
+// Нужен проекту, который валидирует initData сам: вместе с
+// telegram.MakeSHA256Hash это полная проверка подписи. Ключ переехал из
+// package-level переменной драйвера в его поле, поэтому единственный путь к нему
+// снаружи — через сервис, у которого драйвер есть.
+func (s *Service) TelegramTokenSHA(ctx context.Context) ([]byte, error) {
+	return s.telegram.GetTgTokenSHA(ctx)
+}

@@ -36,6 +36,31 @@ type Worker struct {
 	// наполнявшийся из init(): порядок инициализации пакетов на него не влияет,
 	// и два воркера в одном процессе не делят один набор команд.
 	cmds map[telegram.CommandName]telegram.Cmd
+	// Хуки воркера — поля, а не package-global переменные, которые проект
+	// переназначал. Причина та же, что у cmds: два воркера в одном процессе
+	// больше не делят один набор хуков, а подмена видна в коде вызовом сеттера,
+	// а не присваиванием переменной чужого пакета. Ставятся из customize,
+	// читаются через invokeUpdateHandler / updateHandlerIsIdle /
+	// handleUnknownCommand — там же дефолты, поэтому nil-поле это не ошибка.
+	updateHandler         func(ctx context.Context, update tgbotapi.Update)
+	updateHandlerIdle     func() bool
+	unknownCommandHandler func(ctx context.Context, w *Worker, rd telegram.RequestData)
+	// customErrors — обработчики ошибок авторизации, специфичных для проекта:
+	// ошибка, которую вернула Authorization, → ответ пользователю. Наполняется
+	// через AddErrorHandler.
+	//
+	// Срез, а не карта: HandleAuthError ищет первое совпадение по errors.Is, а
+	// одна ошибка может подойти под несколько зарегистрированных (обёртка и то,
+	// что она обёртывает). Обход карты в Go рандомизирован, то есть на один и тот
+	// же отказ пользователь получал бы разные ответы от запроса к запросу.
+	// Порядок регистрации — воспроизводимый порядок проверки.
+	customErrors []customErrorHandler
+}
+
+// customErrorHandler — одна запись реестра ошибок авторизации.
+type customErrorHandler struct {
+	target  error
+	handler func(ctx context.Context) (telegram.Response, error)
 }
 
 type EmptyCommands struct{}
@@ -51,9 +76,10 @@ func (e *EmptyCommands) GetCommandList() []telegram.Cmd {
 type EmptyCustomizer struct{}
 
 // customize — точка расширения воркера: Create зовёт её на свежесконструированном
-// воркере, до Init и Run. Отсюда проект регистрирует свои команды (w.AddCommands)
-// и переназначает хуки пакета (updateHandler, updateHandlerIdle,
-// unknownCommandHandler). По умолчанию не делает ничего; проект объявляет
+// воркере, до Init и Run. Отсюда проект регистрирует свои команды (w.AddCommands),
+// ставит хуки воркера (w.SetUpdateHandler, w.SetUnknownCommandHandler) и
+// обработчики своих ошибок авторизации (w.AddErrorHandler).
+// По умолчанию не делает ничего; проект объявляет
 //
 //	func (w *Worker) customize() { ... }
 //
@@ -80,6 +106,61 @@ func (w *Worker) AddCommands(cmds ...telegram.Cmd) {
 	}
 }
 
+// SetUpdateHandler заменяет обработчик апдейтов. Вызывается из customize.
+//
+// idle — вторая половина той же точки расширения, поэтому и параметр у неё здесь,
+// а не у отдельного сеттера: GracefulStop ждёт не только пустого канала апдейтов,
+// но и того, что обработчик закончил начатое. У синхронного обработчика пустой
+// канал это и значит, у асинхронного (разложил апдейты по очередям) — нет, и
+// воркер остановился бы на полпути. Отдельный сеттер позволял заменить обработчик
+// и промолчать про idle; здесь про неё приходится сказать хотя бы nil.
+//
+//	w.SetUpdateHandler(w.dispatchToQueues, w.queuesDrained) // асинхронный
+//	w.SetUpdateHandler(myHandler, nil)                      // синхронный: idle == пустой канал
+//
+// nil в h возвращает обработчик по умолчанию (handleUpdate), nil в idle — «всегда
+// свободен».
+func (w *Worker) SetUpdateHandler(h func(ctx context.Context, update tgbotapi.Update), idle func() bool) {
+	w.updateHandler = h
+	w.updateHandlerIdle = idle
+}
+
+// SetUnknownCommandHandler ставит обработчик ненайденной команды (устаревшая
+// кнопка, опечатка в тексте). Вызывается из customize — например, чтобы сбросить
+// состояние диалога пользователя, иначе старая кнопка оставит его на полушаге.
+//
+// Воркер передаётся обработчику аргументом: так же его получал прежний
+// package-global unknownCommandHandler, и перенос присваивания в вызов сеттера
+// не требует править тело обработчика.
+func (w *Worker) SetUnknownCommandHandler(h func(ctx context.Context, w *Worker, rd telegram.RequestData)) {
+	w.unknownCommandHandler = h
+}
+
+// AddErrorHandler регистрирует ответ на ошибку авторизации, специфичную для
+// проекта: HandleAuthError отдаст resp от handler, если Authorization вернула
+// ошибку, для которой errors.Is(err, target) истинно. Вызывается из customize.
+//
+// Проверка идёт в порядке регистрации, и выигрывает первое совпадение. Это важно,
+// когда одна ошибка подходит под несколько записей: регистрируйте более узкую
+// (обёртку) раньше более широкой.
+//
+// Повторная регистрация того же target заменяет обработчик на месте, не сдвигая
+// порядок — как делало присваивание в прежнюю карту CustomError. Иначе переход
+// на сеттер молча менял бы смысл кода, который переопределяет обработчик,
+// зарегистрированный раньше общим хелпером: append оставил бы обе записи, а
+// выиграла бы первая.
+func (w *Worker) AddErrorHandler(target error, handler func(ctx context.Context) (telegram.Response, error)) {
+	for i := range w.customErrors {
+		if w.customErrors[i].target == target {
+			w.customErrors[i].handler = handler
+
+			return
+		}
+	}
+
+	w.customErrors = append(w.customErrors, customErrorHandler{target: target, handler: handler})
+}
+
 type TelegramUpdateWorker interface {
 	NeedStartHiddenMessageJob(ctx context.Context) bool
 	GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel
@@ -95,15 +176,48 @@ var (
 	ErrServiceType = errors.New("service type is not TelegramUpdateWorker")
 )
 
-// updateHandler — точка расширения Run: сюда уходит каждый апдейт из канала.
-// По умолчанию — синхронный разбор одного апдейта за другим (handleUpdate). Проект
-// переназначает переменную из customize — например, чтобы разложить апдейты по
-// очередям и не держать всех пользователей одной зависшей командой.
-var updateHandler = (*Worker).handleUpdate //nolint:gochecknoglobals // точка расширения шаблона
+// Три метода ниже читают хуки воркера. Дефолт в каждом, а не в Create: воркер,
+// собранный не через конструктор (&Worker{} в тесте проекта), иначе падал бы на
+// вызове nil-функции — а в Run и GracefulStop, то есть далеко от причины.
+//
+// Имена намеренно не dispatchUpdate / updatesIdle: ровно так назывались методы,
+// которые прежняя документация предлагала объявить **проекту** и присвоить хукам
+// («updateHandler = (*Worker).dispatchUpdate»). Сгенерируй мы те же имена — у
+// каждого, кто следовал документации, пакет перестал бы компилироваться по
+// «method already declared», и ошибка указывала бы на сгенерированный файл.
 
-// updateHandlerIdle — вторая половина той же точки: GracefulStop ждёт не только пустого
-// канала апдейтов, но и того, что переназначенный обработчик закончил начатое.
-var updateHandlerIdle = func() bool { return true } //nolint:gochecknoglobals // точка расширения шаблона
+// invokeUpdateHandler отдаёт апдейт из канала обработчику: поставленному через
+// SetUpdateHandler либо handleUpdate по умолчанию.
+func (w *Worker) invokeUpdateHandler(ctx context.Context, update tgbotapi.Update) {
+	if w.updateHandler != nil {
+		w.updateHandler(ctx, update)
+
+		return
+	}
+
+	w.handleUpdate(ctx, update)
+}
+
+// updateHandlerIsIdle сообщает, закончил ли обработчик апдейтов начатое. Без
+// поставленной idle ответ «да»: обработчик по умолчанию синхронный, и пустого
+// канала апдейтов, который проверяет GracefulStop, для него достаточно.
+func (w *Worker) updateHandlerIsIdle() bool {
+	if w.updateHandlerIdle == nil {
+		return true
+	}
+
+	return w.updateHandlerIdle()
+}
+
+// handleUnknownCommand зовёт обработчик ненайденной команды, если проект его
+// поставил. По умолчанию не делает ничего — как прежняя пустая функция в хуке.
+func (w *Worker) handleUnknownCommand(ctx context.Context, rd telegram.RequestData) {
+	if w.unknownCommandHandler == nil {
+		return
+	}
+
+	w.unknownCommandHandler(ctx, w, rd)
+}
 
 // handleUpdate — обработчик по умолчанию: лог, JobStarter и разбор его ошибок.
 func (w *Worker) handleUpdate(ctx context.Context, update tgbotapi.Update) {
@@ -316,7 +430,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 		for {
 			select {
 			case update := <- w.tgSrv.GetUpdateChannel(ctx):
-				updateHandler(w, ctx, update)
+				w.invokeUpdateHandler(ctx, update)
 
 			case <-ctx.Done():
 				break JOB
@@ -602,7 +716,7 @@ func (w *Worker) GracefulStop(ctx context.Context) (<-chan struct{}, error) {
 		for {
 			select {
 			case <-c.C:
-				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 && updateHandlerIdle() {
+				if len(w.tgSrv.GetUpdateChannel(ctx)) == 0 && w.updateHandlerIsIdle() {
 					{{ .Logger.InfoMsg "ctx" "GracefulStop telegram worker" "str::$nameFieldLogger::WorkerName" }}
 
 					close(stopped)
