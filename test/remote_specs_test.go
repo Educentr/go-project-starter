@@ -424,7 +424,7 @@ applications:
 }
 
 // TestRemoteSpec_LocalPath_Regression verifies that the addition of the
-// remote-spec resolve pre-pass did not regress local-path behaviour. A
+// remote-spec resolve pre-pass did not regress local-path behavior. A
 // relative `./api.yaml` next to project.yaml must resolve and be copied
 // exactly as before.
 func TestRemoteSpec_LocalPath_Regression(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 	"strings"
 )
 
-// Options configures RewriteLocalRefs behaviour.
+// Options configures RewriteLocalRefs behavior.
 type Options struct {
 	// Logf, when non-nil, is used for per-file diagnostics. Defaults to log.Printf.
 	Logf func(format string, args ...any)
@@ -27,7 +27,7 @@ type Options struct {
 	DryRun bool
 }
 
-// Report summarises a RewriteLocalRefs run.
+// Report summarizes a RewriteLocalRefs run.
 type Report struct {
 	FilesScanned  int
 	FilesModified int
