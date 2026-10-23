@@ -87,13 +87,25 @@ by the generator, and `make update-starter` is what raises it.
 
 | Change | Command |
 |--------|---------|
+{{- if .Applications.HasMocks }}
+| OpenAPI spec (`api/rest/`) | `make generate` |
+{{- else }}
 | OpenAPI spec (`api/rest/`) | `make generate-ogen` |
+{{- end }}
 {{- if .UseActiveRecord }}
 | ActiveRecord declarations (`decl/`) | `make generate-argen` |
 {{- end }}
 | Protobuf files (`api/proto/`) | `make generate` |
 | `.project-config/project.yaml` | `make regenerate` |
 | All generators | `make generate` |
+{{- if .Applications.HasMocks }}
+
+The mocks under `tests/{app}/mocks/{transport}/` are generated from the ogen
+interfaces, so a spec change needs `make generate` (which runs `generate-ogen`
+and then `generate-mocks`), not `make generate-ogen` alone — otherwise the mock
+keeps referring to types ogen no longer emits and the test package stops
+compiling.
+{{- end }}
 
 ### Regeneration safety
 
@@ -278,8 +290,13 @@ No config change needed — edit the OpenAPI spec only.
 # 1. Edit the spec file
 #    api/rest/{transport_name}/{version}/{spec_file}.yml
 
+{{ if .Applications.HasMocks -}}
+# 2. Regenerate ogen code and the mocks built from it
+make generate
+{{- else -}}
 # 2. Regenerate ogen code
 make generate-ogen
+{{- end }}
 
 # 3. Implement the handler
 #    internal/app/transport/rest/{transport_name}/{version}/handler/

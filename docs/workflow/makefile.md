@@ -67,10 +67,15 @@
 
 | Команда | Описание |
 |---------|----------|
-| `make generate` | Все генераторы |
+| `make generate` | Все генераторы (включая моки) |
 | `make ogen` | Генерация REST из OpenAPI |
 | `make argen` | Генерация ActiveRecord |
-| `make mock` | Генерация моков |
+| `make generate-mocks` | Перегенерация моков, каркас которых пишет генератор |
+| `make mock` | Все `//go:generate` проекта, включая написанные вручную |
+
+`generate-mocks` входит в `generate` последним пререквизитом — мок отражает
+ogen-интерфейс и должен перегенерироваться после него. Подробности:
+[Makefile Targets Reference](../reference/makefile-targets.md#моки-и-make-generate).
 
 ### Системные пакеты (при `artifacts: [deb, rpm, apk]`)
 
