@@ -798,6 +798,11 @@ func (t Transport) HasAuthParams() bool {
 // shapes that auth.go.tmpl knows how to render qualify; for any other value
 // no SecuritySource type exists, so it must not be passed to ogen's
 // NewClient (the client templates branch on this).
+//
+// auth.go.tmpl gates its whole body on this, imports included: a client to an
+// API without authentication declares no SecuritySource, and the file has to
+// come out as a bare package clause rather than a package clause plus imports
+// nothing uses — unused imports do not compile.
 func (t Transport) UsesSecuritySource() bool {
 	if t.AuthParams.Transport != AuthTransportHeader {
 		return false

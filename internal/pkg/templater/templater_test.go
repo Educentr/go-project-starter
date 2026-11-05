@@ -3,6 +3,8 @@ package templater
 import (
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -2005,17 +2007,65 @@ func TestOgenClientAuthTemplate(t *testing.T) {
 	}
 }
 
-// TestOgenClientAuthTemplateUnsupportedType asserts the template still fails
-// loudly for auth types that have no SecuritySource branch, instead of
+// TestOgenClientAuthTemplateUnsupportedAuthParams asserts the template still fails
+// loudly for auth_params that have no SecuritySource branch, instead of
 // emitting a wrapper that cannot compile.
-func TestOgenClientAuthTemplateUnsupportedType(t *testing.T) {
-	_, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("header", "oauth2", "static"))
-	if err == nil {
-		t.Fatal("rendering auth.go.tmpl with an unsupported auth type should fail")
+func TestOgenClientAuthTemplateUnsupportedAuthParams(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		authTransport string
+		authType      string
+	}{
+		{name: "unsupported type", authTransport: "header", authType: "oauth2"},
+		{name: "unsupported transport", authTransport: "query", authType: "apikey"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams(tt.authTransport, tt.authType, "static"))
+			if err == nil {
+				t.Fatal("rendering auth.go.tmpl with unsupported auth_params should fail")
+			}
+
+			if !strings.Contains(err.Error(), "unsupported auth_params") {
+				t.Errorf("error should name the unsupported auth_params, got: %v", err)
+			}
+
+			// Both halves of auth_params go into the message: an
+			// unsupported transport with a supported type used to be
+			// reported as an unsupported type.
+			for _, want := range []string{tt.authTransport, tt.authType} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error should mention %q, got: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// TestOgenClientAuthTemplateWithoutAuthParams covers a client to an API that
+// needs no authentication. There is no SecuritySource to declare, so the
+// wrapper has to come out as a bare package clause: the imports used to be
+// emitted unconditionally, which left the file with four unused imports and
+// made the generated project fail to compile.
+func TestOgenClientAuthTemplateWithoutAuthParams(t *testing.T) {
+	content, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("", "", "static"))
+	if err != nil {
+		t.Fatalf("rendering auth.go.tmpl without auth params failed: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "Unsupported auth type") {
-		t.Errorf("error should mention the unsupported auth type, got: %v", err)
+	file, err := parser.ParseFile(token.NewFileSet(), "auth.go", content, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("auth.go without auth params does not parse: %v\n%s", err, content)
+	}
+
+	if len(file.Imports) != 0 {
+		t.Errorf("auth.go without auth params must import nothing, got %d imports:\n%s", len(file.Imports), content)
+	}
+
+	// Nothing but the package clause and the disclaimer comments: a
+	// SecuritySource here would be a type ogen's NewClient is never handed
+	// (see TestOgenClientPassesSecuritySource).
+	if strings.Contains(content, "SecuritySource") {
+		t.Errorf("auth.go without auth params must not declare SecuritySource, got:\n%s", content)
 	}
 }
 
