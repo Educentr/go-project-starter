@@ -409,12 +409,17 @@ func onlineConfSurfaceRows(
 
 	if generated != nil {
 		for _, key := range generated.Keys {
+			// Both flags arrive already resolved against this project's
+			// settings: whether a `required` key is checked anywhere, and
+			// whether anything refuses to start without it, depend on how the
+			// applications wire the component — which is what the expansion
+			// knows and this mapping does not.
 			out = append(out, OnlineConfSurfaceEntry{
 				Path:           key.Path,
 				Origin:         OnlineConfOriginGenerated,
 				Type:           key.Type,
 				Required:       key.Required,
-				RequiredAtInit: key.Required || key.RequiredAtInit,
+				RequiredAtInit: key.RequiredAtInit,
 				Accessor:       key.Accessor,
 				ReadVia:        key.ReadVia,
 				Owns:           key.OwnedPrefix,

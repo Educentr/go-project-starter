@@ -1,0 +1,74 @@
+# What a component the project declares optional means for the registry of
+# OnlineConf keys: `optional: true` is per wiring, so one application saying it
+# can run without a component does not answer for another that cannot.
+main:
+  name: octolerant
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/octolerant.git
+  module_path: github.com/test/octolerant
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  # Optional for the api application, mandatory for the worker one: the worker
+  # process does not come up without the host, so the key has to be seeded.
+  - name: billing
+    path:
+      - ./billing.swagger.yml
+    version: "v1"
+    generator_type: ogen_client
+    auth_params:
+      transport: header
+      type: basic
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+# Optional in the single application that wires it: nothing of this project
+# refuses to start without the brokers, so the required key of the producer is
+# checked nowhere.
+kafka:
+  - name: events_producer
+    type: producer
+    driver: segmentio
+    client: main_kafka
+    events:
+      - name: user_events
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: billing
+        config:
+          optional: true
+      - name: sys
+    kafka:
+      - name: events_producer
+        optional: true
+
+  - name: worker
+    transport:
+      - name: billing
+      - name: sys

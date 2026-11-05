@@ -26,7 +26,9 @@
 # single path to compare against, so the service map may not declare inside it.
 #
 # `required: true` marks a key the startup check verifies. A generated one is
-# checked only in the applications that run the component reading it.
+# checked only in the applications that run the component reading it — so it is
+# not set for a component every application of this project wires
+# `optional: true`, because then no check is generated for it anywhere.
 #
 # `required_at_init: true` marks a key this service does not start without —
 # whoever seeds the tree has to set it, and a guard over this file is how that
@@ -37,6 +39,9 @@
 # `instantiation: dynamic` or `optional: true` does not need it. The flag is
 # already the answer for THIS project's settings — it is not set on a path that
 # the project's own configuration makes unnecessary, so the whole list applies.
+# `optional: true` makes a key unnecessary only where EVERY application wiring
+# the component declares it so: one wiring without it is one process that
+# refuses to start, and that is a key to seed.
 #
 # This file is for reading and diffing: nothing in the service loads it. It is
 # regenerated on every run, so a diff here is a change to the configuration

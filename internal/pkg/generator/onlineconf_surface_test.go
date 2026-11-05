@@ -392,3 +392,108 @@ func TestReadsItsAddressFollowsEveryWiring(t *testing.T) {
 		})
 	}
 }
+
+// One wiring without `optional` is one process that refuses to start without
+// the key, so a component is tolerant only when every application that wires
+// it declares it optional.
+//
+// This is the defect the whole flag exists to prevent, one level down: a client
+// optional in the REST application and mandatory in the worker was published as
+// needing no configuration, while the worker's ValidateFor<App> refused to
+// start without it — a crash-loop no guard over the registry could have caught.
+func TestOptionalEverywhereFollowsEveryWiring(t *testing.T) {
+	// Each wiring is one application; true means it declares the component
+	// optional.
+	tests := []struct {
+		name    string
+		wirings []bool
+		want    bool
+	}{
+		{name: "the only wiring is mandatory", wirings: []bool{false}, want: false},
+		{name: "the only wiring is optional", wirings: []bool{true}, want: true},
+		{name: "optional in one application, mandatory in another", wirings: []bool{true, false}, want: false},
+		{name: "optional in every application", wirings: []bool{true, true}, want: true},
+		// Nothing of the project answers for a component no application wires,
+		// the same way readsItsAddress answers for an unwired static client.
+		{name: "wired nowhere", wirings: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, kind := range []string{"transport", "kafka"} {
+				config := cfg.Config{Main: cfg.Main{Name: "svc"}}
+
+				for i, optional := range tt.wirings {
+					app := cfg.Application{Name: string(rune('a' + i))}
+
+					if kind == "transport" {
+						app.TransportList = []cfg.AppTransport{
+							{Name: "other"},
+							{Name: "component", Config: cfg.AppTransportConfig{Optional: optional}},
+						}
+					} else {
+						app.KafkaList = []cfg.AppKafka{
+							{Name: "other"},
+							{Name: "component", Optional: optional},
+						}
+					}
+
+					config.Applications = append(config.Applications, app)
+				}
+
+				if got := optionalEverywhere(config, "component"); got != tt.want {
+					t.Errorf("optionalEverywhere(%s) = %v, want %v", kind, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+// The surface is what carries that answer into the expansion: a client wired
+// optional in one application and mandatory in another is not tolerant, so the
+// registry marks its host as a key the project has to seed.
+func TestOnlineConfSurfaceTolerantNeedsEveryWiringOptional(t *testing.T) {
+	config := cfg.Config{
+		Main: cfg.Main{Name: "svc"},
+		RestList: cfg.RestList{
+			{Name: "api", Version: "v1", GeneratorType: "ogen"},
+			{Name: "billing", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient},
+			{Name: "audit", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient},
+		},
+		KafkaList: cfg.KafkaList{
+			{Name: "events", Type: ds.KafkaTypeProducer, Client: "main", Events: []cfg.KafkaEvent{{Name: "created"}}},
+		},
+		Applications: []cfg.Application{
+			{
+				Name: "api",
+				TransportList: []cfg.AppTransport{
+					{Name: "api"},
+					{Name: "billing", Config: cfg.AppTransportConfig{Optional: true}},
+					{Name: "audit", Config: cfg.AppTransportConfig{Optional: true}},
+				},
+				KafkaList: []cfg.AppKafka{{Name: "events", Optional: true}},
+			},
+			{
+				Name: "worker",
+				// The same client, wired without `optional`: this process does
+				// not come up without the host.
+				TransportList: []cfg.AppTransport{{Name: "billing"}},
+				KafkaList:     []cfg.AppKafka{{Name: "events", Optional: true}},
+			},
+		},
+	}
+
+	surface := onlineConfSurface(config)
+
+	want := map[string]bool{
+		"billing_v1": false,
+		"audit_v1":   true,
+		"main":       true,
+	}
+
+	for component, tolerant := range want {
+		if surface.Tolerant[component] != tolerant {
+			t.Errorf("Tolerant[%q] = %v, want %v", component, surface.Tolerant[component], tolerant)
+		}
+	}
+}

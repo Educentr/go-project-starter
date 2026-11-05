@@ -865,3 +865,41 @@ func TestExpandRejectsRequiredAtInitContradiction(t *testing.T) {
 		t.Errorf("the error should name the disagreement, got: %v", err)
 	}
 }
+
+// A `required` key of a tolerant component is not a key this project does not
+// start without: the startup check of a required key is generated per
+// application, and an application that wires the component `optional` gets no
+// check for it. So the row carries neither flag — a guard told to demand it
+// would demand configuration for a component the project says it can run
+// without.
+func TestExpandRequiredFollowsTheComponentToo(t *testing.T) {
+	surface := fullSurface()
+	surface.KafkaProducers = []ockeymap.KafkaProducer{
+		{Client: "main", Events: []string{"created"}},
+		{Client: "audits", Events: []string{"logged"}},
+	}
+	surface.Tolerant = map[string]bool{"audits": true}
+
+	got := expand(t,
+		"groups:\n  - scope: kafka_producer\n    keys:\n      - path: \"{service}/kafka/{client}/brokers\"\n"+
+			"        name: KafkaBrokers\n        type: string\n        required: true\n        description: d\n",
+		surface)
+
+	want := map[string]bool{
+		"/svc/kafka/main/brokers":   true,
+		"/svc/kafka/audits/brokers": false,
+	}
+
+	if len(got.Keys) != len(want) {
+		t.Fatalf("want %d keys, got %v", len(want), paths(got.Keys))
+	}
+
+	for _, key := range got.Keys {
+		// Both flags, and the same answer from both: a row claiming `required`
+		// while nothing checks it would contradict its own `required_at_init`.
+		if key.Required != want[key.Path] || key.RequiredAtInit != want[key.Path] {
+			t.Errorf("%s: Required = %v, RequiredAtInit = %v, want both %v",
+				key.Path, key.Required, key.RequiredAtInit, want[key.Path])
+		}
+	}
+}

@@ -961,3 +961,55 @@ func TestRequiredKeysAreAlsoRequiredAtInit(t *testing.T) {
 		t.Errorf("token row = %+v, want both required and required_at_init", token)
 	}
 }
+
+// TestRequiredAtInitFollowsEveryWiring is the pin on what `optional: true`
+// answers for: one application, not the project.
+//
+// The fixture wires one REST client optional in the application that can run
+// without it and mandatory in another, and one Kafka producer optional in the
+// only application that wires it. Published the other way round, both are the
+// failure this flag exists to prevent: a key nothing demands while a process
+// refuses to start without it, and a key demanded while no process reads it.
+func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
+	tmpDir := generateFromConfig(t, "onlineconf-tolerant",
+		"Generate project with a component optional in one application only")
+	byPath := onlineConfRegistry(t, tmpDir)
+
+	// billing is optional for `api` and mandatory for `worker`: the worker
+	// process validates its dependencies and refuses to start on the nil
+	// client, so the host has to be seeded.
+	host, ok := byPath["/octolerant/transport/rest/billing_v1/host"]
+	if !ok {
+		t.Fatal("registry should list the host of the client")
+	}
+
+	if !host.RequiredAtInit {
+		t.Errorf("host row = %+v, want required_at_init: one wiring has no `optional`", host)
+	}
+
+	// And that is not a guess about the generated code: this is the check that
+	// fails without the key.
+	service := readGenerated(t, tmpDir, "internal", "pkg", "service", "psg_service_gen.go")
+	if !strings.Contains(service, "func (s *Service) ValidateForWorker() error") ||
+		!strings.Contains(service, `missing = append(missing, "billing (REST client)")`) {
+		t.Error("the mandatory wiring should keep its application from starting without the client")
+	}
+
+	// The producer is optional in the one application that wires it, so its
+	// `required` key is checked in no application — the generated startup check
+	// is empty. A flag on it would send a guard after configuration this
+	// project does not need.
+	brokers, ok := byPath["/octolerant/kafka/main_kafka/brokers"]
+	if !ok {
+		t.Fatal("registry should list the brokers of the producer")
+	}
+
+	if brokers.Required || brokers.RequiredAtInit {
+		t.Errorf("brokers row = %+v, want neither flag: every wiring of the producer is optional", brokers)
+	}
+
+	occonfFile := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+	if !strings.Contains(occonfFile, "func CheckRequired(_ context.Context, _ string) error") {
+		t.Error("an optional producer adds no startup check, so the registry must not claim one")
+	}
+}

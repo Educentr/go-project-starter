@@ -196,13 +196,16 @@ type GeneratorKey struct {
 	// empty when the path claims no subtree. It is the path itself for a prefix
 	// builder, and the part before the first runtime segment otherwise.
 	OwnedPrefix string
-	// Required reports a key the startup check verifies.
+	// Required reports a key the startup check of this project verifies. False
+	// where the declaration says `required` but no application of the project
+	// checks it, because every one of them wires the component `optional`.
 	Required bool
-	// RequiredAtInit reports a key whose absence keeps the process from
-	// starting without any startup check seeing it: the component reports it
-	// from its own Init. False where the project's own settings answer for the
-	// component — a client taking its address as an argument, or one declared
-	// `optional: true` — because then the key is not needed here.
+	// RequiredAtInit reports a key whose absence keeps a process of this
+	// project from starting — either because a startup check fails on it
+	// (`required`), or because the component reports it missing from its own
+	// Init and no check covers it. False where the project's own settings
+	// answer for the component: a client taking its address as an argument, or
+	// one every application wires `optional: true`.
 	RequiredAtInit bool
 	// Default is the fallback the generated reader applies, as prose.
 	Default string
@@ -961,8 +964,12 @@ func (e *expansion) addGroup(group GenGroup, owner string, surface ProjectSurfac
 			// A component the project lets do without its configuration is not
 			// one a guard can demand configuration for, so the published fact
 			// is per expansion rather than per declaration: the same host key
-			// is a start-stopper for one client and not for the next.
-			e.addKey(key, owner, path, key.RequiredAtInit && !sub.tolerant)
+			// is a start-stopper for one client and not for the next. It
+			// applies to `required` as well — the startup check of a required
+			// key is only generated for the applications that run its
+			// component, so a component every application answers for is
+			// checked nowhere.
+			e.addKey(key, owner, path, sub.tolerant)
 
 			if key.Required {
 				e.addRequired(key, sub.values, path)
@@ -973,11 +980,23 @@ func (e *expansion) addGroup(group GenGroup, owner string, surface ProjectSurfac
 
 // addKey folds one expanded path into the registry, reporting a contradiction
 // with an entry already there.
-func (e *expansion) addKey(key GenKey, owner, path string, requiredAtInit bool) {
+//
+// tolerant is what the project says about the component this path belongs to:
+// a missing value stops nothing, so neither flag of the row is set. Both are
+// decided here rather than carried from the declaration, because both answer
+// the same question — does the service start without this key — and a row
+// claiming `required` while no application checks it would make the pair
+// contradict itself.
+func (e *expansion) addKey(key GenKey, owner, path string, tolerant bool) {
 	accessor := key.Name
 	if key.ReadVia != "" {
 		accessor = ""
 	}
+
+	required := key.Required && !tolerant
+	// A `required` key is one the process does not start without — the failed
+	// startup check IS that — so the registry publishes it as one.
+	requiredAtInit := (key.Required || key.RequiredAtInit) && !tolerant
 
 	existing, seen := e.keys[path]
 	if !seen {
@@ -987,7 +1006,7 @@ func (e *expansion) addKey(key GenKey, owner, path string, requiredAtInit bool) 
 			Accessor:       accessor,
 			ReadVia:        key.ReadVia,
 			OwnedPrefix:    expandOwnedPrefix(key, path),
-			Required:       key.Required,
+			Required:       required,
 			RequiredAtInit: requiredAtInit,
 			Default:        key.Default,
 			Descriptions:   []string{key.Description},

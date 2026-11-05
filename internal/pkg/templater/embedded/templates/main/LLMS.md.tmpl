@@ -711,7 +711,9 @@ service's own, from a contract repository.
   settings actually need. That is the list whoever seeds the tree has to set — check it
   in CI (`yq '.keys[] | select(.required_at_init) | .path' configs/onlineconf-tree.yaml`)
   rather than finding out from a crash loop. A REST server port is NOT among them: it
-  defaults to the port declared in `project.yaml`
+  defaults to the port declared in `project.yaml`. `optional: true` removes a component's
+  keys from the list only when **every** application that wires it says so — the
+  application that wired it without `optional` still refuses to start on a nil dependency
 {{- if .DevStand }}
 
 ## Dev Environment
