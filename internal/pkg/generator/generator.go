@@ -1343,11 +1343,55 @@ func optionalComponents(config cfg.Config) map[string]bool {
 	return out
 }
 
+// readsItsAddress reports whether the generated client of a transport reads the
+// address of its upstream from OnlineConf at all.
+//
+// A client declared `instantiation: dynamic` takes the address as an argument:
+// the generated code neither imports the accessor package nor reads the key, so
+// a guard demanding that the key be set would be demanding configuration for a
+// read that does not exist. The mode can be overridden per application, so the
+// address is read unless every wiring of the client is dynamic — one static
+// wiring is one Init that fails without the key.
+//
+// It does not decide whether the keys appear in the registry: a dynamic client
+// still owns its subtree, and the service map may not declare inside it.
+func readsItsAddress(config cfg.Config, name, declared string) bool {
+	wired := false
+
+	for _, app := range config.Applications {
+		for _, transport := range app.TransportList {
+			if transport.Name != name {
+				continue
+			}
+
+			wired = true
+
+			mode := declared
+			if transport.Config.Instantiation != "" {
+				mode = transport.Config.Instantiation
+			}
+
+			if mode != cfg.InstantiationDynamic {
+				return true
+			}
+		}
+	}
+
+	// A client wired into no application has no generated code to read
+	// anything; the declared mode is the only thing left to answer from.
+	return !wired && declared != cfg.InstantiationDynamic
+}
+
 // onlineConfSurface describes the project dimensions the generator's own key
 // declarations expand over: which transports, applications, workers and Kafka
 // clients exist, under the names the generated readers actually use.
 func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
-	surface := ockeymap.ProjectSurface{Service: config.Main.Name}
+	surface := ockeymap.ProjectSurface{
+		Service:  config.Main.Name,
+		Tolerant: map[string]bool{},
+	}
+
+	optional := optionalComponents(config)
 
 	for _, rest := range config.RestList {
 		// Both a server and a client read their configuration under the package
@@ -1356,15 +1400,25 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		// ("api_v1"), and the runtime passes it straight back into the
 		// configuration provider.
 		if rest.GeneratorType == cfg.GeneratorTypeOgenClient {
-			surface.RESTClients = append(surface.RESTClients, transportPkgName(rest.Name, rest.Version))
+			client := transportPkgName(rest.Name, rest.Version)
+			surface.RESTClients = append(surface.RESTClients, client)
+
+			if optional[rest.Name] || !readsItsAddress(config, rest.Name, rest.Instantiation) {
+				surface.Tolerant[client] = true
+			}
 
 			continue
 		}
 
+		server := transportPkgName(rest.Name, rest.Version)
 		surface.RESTServers = append(surface.RESTServers, ockeymap.RESTServer{
-			Transport: transportPkgName(rest.Name, rest.Version),
+			Transport: server,
 			Apps:      appsServingTransport(config, rest.Name),
 		})
+
+		if optional[rest.Name] {
+			surface.Tolerant[server] = true
+		}
 	}
 
 	for _, grpc := range config.GrpcList {
@@ -1376,6 +1430,10 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		}
 
 		surface.GRPCClients = append(surface.GRPCClients, grpc.Name)
+
+		if optional[grpc.Name] || !readsItsAddress(config, grpc.Name, grpc.Instantiation) {
+			surface.Tolerant[grpc.Name] = true
+		}
 	}
 
 	for _, kafka := range config.KafkaList {
@@ -1395,6 +1453,10 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 			Client: kafka.Client,
 			Events: events,
 		})
+
+		if optional[kafka.Name] {
+			surface.Tolerant[kafka.Client] = true
+		}
 	}
 
 	for _, worker := range config.WorkerList {

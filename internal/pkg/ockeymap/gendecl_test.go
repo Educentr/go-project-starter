@@ -574,6 +574,36 @@ func TestParseGenDeclRejectsDefects(t *testing.T) {
 			wantMsg: "names both read_via",
 		},
 		{
+			name: "required_at_init alongside a default",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: X\n" +
+				"        type: bool\n        required_at_init: true\n        default: \"false\"\n        description: d\n",
+			wantMsg: "declares both `required_at_init` and `default`",
+		},
+		{
+			name: "required_at_init alongside required",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: X\n" +
+				"        type: bool\n        required: true\n        required_at_init: true\n        description: d\n",
+			wantMsg: "declares both `required` and `required_at_init`",
+		},
+		{
+			name: "required_at_init with a runtime segment",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<id>\"\n        name: X\n" +
+				"        type: bool\n        required_at_init: true\n        description: d\n",
+			wantMsg: "the path only exists once the process runs",
+		},
+		{
+			name: "required_at_init without a type",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: APath\n" +
+				"        required_at_init: true\n        description: d\n",
+			wantMsg: "has no value to be missing",
+		},
+		{
+			name: "required_at_init on a shared accessor",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"<prefix>/log_level\"\n        name: X\n" +
+				"        type: string\n        shared: true\n        required_at_init: true\n        description: d\n",
+			wantMsg: "there is no path for a guard to demand",
+		},
+		{
 			name: "two parameters of one name",
 			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<id>/b/<id>\"\n        name: X\n" +
 				"        type: bool\n        description: d\n",
@@ -738,5 +768,100 @@ func TestExpandRejectsSurfaceWithoutService(t *testing.T) {
 	_, err := ockeymap.ExpandGenDecls([]ockeymap.GenDeclFile{decl}, ockeymap.ProjectSurface{})
 	if !errors.Is(err, ockeymap.ErrGenDeclDefect) {
 		t.Fatalf("ExpandGenDecls() error = %v, want ErrGenDeclDefect", err)
+	}
+}
+
+// `required_at_init` is published per expansion, not per declaration: the same
+// host key keeps one client's process from starting and is not needed by the
+// next, and which is which is a project.yaml setting — `optional: true` or
+// `instantiation: dynamic`, both of which the surface reports as tolerant.
+func TestExpandRequiredAtInitFollowsTheComponent(t *testing.T) {
+	surface := fullSurface()
+	surface.RESTClients = []string{"billing_v1", "audit_v1"}
+	surface.Tolerant = map[string]bool{"audit_v1": true}
+
+	got := expand(t,
+		"groups:\n  - scope: rest_client\n    keys:\n      - path: \"{service}/transport/rest/{transport}/host\"\n"+
+			"        name: ClientHost\n        type: string\n        required_at_init: true\n        description: d\n",
+		surface)
+
+	want := map[string]bool{
+		"/svc/transport/rest/billing_v1/host": true,
+		"/svc/transport/rest/audit_v1/host":   false,
+	}
+
+	if len(got.Keys) != len(want) {
+		t.Fatalf("want %d keys, got %v", len(want), paths(got.Keys))
+	}
+
+	for _, key := range got.Keys {
+		if key.RequiredAtInit != want[key.Path] {
+			t.Errorf("%s: RequiredAtInit = %v, want %v", key.Path, key.RequiredAtInit, want[key.Path])
+		}
+	}
+
+	// It generates nothing: no startup check, and the accessor still answers
+	// with presence, because the reader of a tolerant component has to be able
+	// to see the key missing and skip.
+	if len(got.Required) != 0 {
+		t.Errorf("required_at_init should add no startup check, got %v", got.Required)
+	}
+
+	if got.Accessors[0].Shape() != ockeymap.ShapeOptional {
+		t.Errorf("Shape() = %q, want %q", got.Accessors[0].Shape(), ockeymap.ShapeOptional)
+	}
+}
+
+// An application is not a component: a key read per application of a tolerant
+// transport is still not demanded, and one read for a transport nobody declared
+// optional is demanded for every application of it.
+func TestExpandRequiredAtInitIgnoresTheApplicationDimension(t *testing.T) {
+	surface := ockeymap.ProjectSurface{
+		Service: "svc",
+		RESTServers: []ockeymap.RESTServer{
+			{Transport: "api", Apps: []string{"web"}},
+			{Transport: "sys", Apps: []string{"web"}},
+		},
+		Tolerant: map[string]bool{"sys": true},
+	}
+
+	got := expand(t,
+		"groups:\n  - scope: rest_server\n    keys:\n      - path: \"{service}/transport/rest/{transport}/{app}/port\"\n"+
+			"        name: AppPort\n        type: string\n        required_at_init: true\n        description: d\n",
+		surface)
+
+	want := map[string]bool{
+		"/svc/transport/rest/api/web/port": true,
+		"/svc/transport/rest/sys/web/port": false,
+	}
+
+	for _, key := range got.Keys {
+		if key.RequiredAtInit != want[key.Path] {
+			t.Errorf("%s: RequiredAtInit = %v, want %v", key.Path, key.RequiredAtInit, want[key.Path])
+		}
+	}
+}
+
+// Two templates reading one path have to agree about whether the process starts
+// without it — otherwise the registry would carry whichever declaration the
+// template walk reached first.
+func TestExpandRejectsRequiredAtInitContradiction(t *testing.T) {
+	first := parseDecl(t, "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: A\n"+
+		"        type: string\n        required_at_init: true\n        description: d\n")
+
+	second := parseDecl(t, "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: A\n"+
+		"        type: string\n        description: d\n")
+	second.Owner = "other.go.tmpl"
+
+	_, err := ockeymap.ExpandGenDecls(
+		[]ockeymap.GenDeclFile{first, second},
+		ockeymap.ProjectSurface{Service: "svc"},
+	)
+	if !errors.Is(err, ockeymap.ErrGenDeclDefect) {
+		t.Fatalf("ExpandGenDecls() error = %v, want ErrGenDeclDefect", err)
+	}
+
+	if !strings.Contains(err.Error(), "required at init") {
+		t.Errorf("the error should name the disagreement, got: %v", err)
 	}
 }

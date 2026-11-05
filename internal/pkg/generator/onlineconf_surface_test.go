@@ -280,3 +280,115 @@ func TestEveryScopeIsReachableFromAProject(t *testing.T) {
 		}
 	}
 }
+
+// The tolerant set is what keeps `required_at_init` from demanding
+// configuration the project says is not needed. Two settings put a component
+// there, and they are different reasons: `optional: true` means the generated
+// reader skips the component when the key is unset, `instantiation: dynamic`
+// means the generated client takes its address as an argument and reads no key
+// at all.
+func TestOnlineConfSurfaceMarksTolerantComponents(t *testing.T) {
+	config := cfg.Config{
+		Main: cfg.Main{Name: "svc"},
+		RestList: cfg.RestList{
+			{Name: "api", Version: "v1", GeneratorType: "ogen"},
+			// Optional server: an application willing to run without it.
+			{Name: "extra", Version: "v1", GeneratorType: "ogen"},
+			{Name: "billing", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient},
+			{
+				Name: "audit", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient,
+				Instantiation: cfg.InstantiationDynamic,
+			},
+			{Name: "legacy", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient},
+		},
+		GrpcList: cfg.GrpcList{
+			{Name: "ItemService", GeneratorType: "buf_client"},
+			{Name: "Reporting", GeneratorType: "buf_client", Instantiation: cfg.InstantiationDynamic},
+		},
+		KafkaList: cfg.KafkaList{
+			{Name: "events", Type: ds.KafkaTypeProducer, Client: "main", Events: []cfg.KafkaEvent{{Name: "created"}}},
+			{Name: "audits", Type: ds.KafkaTypeProducer, Client: "audits", Events: []cfg.KafkaEvent{{Name: "logged"}}},
+		},
+		Applications: []cfg.Application{{
+			Name: "web",
+			TransportList: []cfg.AppTransport{
+				{Name: "api"},
+				{Name: "extra", Config: cfg.AppTransportConfig{Optional: true}},
+				{Name: "billing"},
+				{Name: "audit"},
+				// A client the project declares static and this application
+				// wires dynamically reads nothing either.
+				{Name: "legacy", Config: cfg.AppTransportConfig{Instantiation: cfg.InstantiationDynamic}},
+				{Name: "ItemService"},
+				{Name: "Reporting"},
+			},
+			KafkaList: []cfg.AppKafka{{Name: "events"}, {Name: "audits", Optional: true}},
+		}},
+	}
+
+	surface := onlineConfSurface(config)
+
+	want := map[string]bool{
+		"api_v1":      false,
+		"extra_v1":    true,
+		"billing_v1":  false,
+		"audit_v1":    true,
+		"legacy_v1":   true,
+		"ItemService": false,
+		"Reporting":   true,
+		"main":        false,
+		"audits":      true,
+	}
+
+	for component, tolerant := range want {
+		if surface.Tolerant[component] != tolerant {
+			t.Errorf("Tolerant[%q] = %v, want %v", component, surface.Tolerant[component], tolerant)
+		}
+	}
+}
+
+// One static wiring is one Init that fails without the address, so the mode of
+// a client is dynamic only when every application wires it that way.
+func TestReadsItsAddressFollowsEveryWiring(t *testing.T) {
+	tests := []struct {
+		name     string
+		declared string
+		wirings  []string
+		want     bool
+	}{
+		{name: "static, unset", declared: "", wirings: []string{""}, want: true},
+		{name: "static, declared", declared: cfg.InstantiationStatic, wirings: []string{""}, want: true},
+		{name: "dynamic everywhere", declared: cfg.InstantiationDynamic, wirings: []string{""}, want: false},
+		{
+			name:     "dynamic, one application overrides to static",
+			declared: cfg.InstantiationDynamic, wirings: []string{"", cfg.InstantiationStatic}, want: true,
+		},
+		{
+			name:     "static, every application overrides to dynamic",
+			declared: cfg.InstantiationStatic,
+			wirings:  []string{cfg.InstantiationDynamic, cfg.InstantiationDynamic}, want: false,
+		},
+		{name: "wired nowhere, static", declared: "", wirings: nil, want: true},
+		{name: "wired nowhere, dynamic", declared: cfg.InstantiationDynamic, wirings: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := cfg.Config{Main: cfg.Main{Name: "svc"}}
+
+			for i, wiring := range tt.wirings {
+				config.Applications = append(config.Applications, cfg.Application{
+					Name: string(rune('a' + i)),
+					TransportList: []cfg.AppTransport{
+						{Name: "other"},
+						{Name: "client", Config: cfg.AppTransportConfig{Instantiation: wiring}},
+					},
+				})
+			}
+
+			if got := readsItsAddress(config, "client", tt.declared); got != tt.want {
+				t.Errorf("readsItsAddress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

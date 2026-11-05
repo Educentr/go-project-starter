@@ -5,13 +5,18 @@ groups:
       - path: "{service}/transport/rest/{transport}/host"
         name: RESTClientHost
         type: string
+        required_at_init: true
         description: >-
-          Base URL of the upstream service. Not `required`: a client declared
-          `instantiation: dynamic` in project.yaml takes its base URL as an
-          argument and never reads this key, and one declared `optional: true`
-          is skipped when it is unset — so whether the key is needed is a
-          project setting, not a property of the key. The generated client
-          reports a missing host at Init, with the transport named.
+          Base URL of the upstream service. The generated client reports it
+          missing at Init, with the transport named, so a project that does not
+          set it crash-loops on start. Not `required`, because the startup
+          check cannot tell whether this installation needs the key: a client
+          declared `instantiation: dynamic` in project.yaml takes its base URL
+          as an argument and never reads it, and one declared `optional: true`
+          is skipped when it is unset. `required_at_init` is the answer to the
+          same question asked of the project rather than of the key — the
+          registry carries it only for the clients of this project that do read
+          it, so the guard of whoever seeds the tree can demand it.
 
       - path: "{service}/transport/rest/{transport}/timeout"
         name: RESTClientTimeout

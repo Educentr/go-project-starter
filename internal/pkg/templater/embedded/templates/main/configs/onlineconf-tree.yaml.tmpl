@@ -28,6 +28,16 @@
 # `required: true` marks a key the startup check verifies. A generated one is
 # checked only in the applications that run the component reading it.
 #
+# `required_at_init: true` marks a key this service does not start without —
+# whoever seeds the tree has to set it, and a guard over this file is how that
+# is checked before a deploy finds out. Every `required` key is one (the check
+# failing is the failed start), and so is a key no check covers but whose
+# component reports it missing while coming up: the host of a generated client,
+# for instance, which no check can demand because a client declared
+# `instantiation: dynamic` or `optional: true` does not need it. The flag is
+# already the answer for THIS project's settings — it is not set on a path that
+# the project's own configuration makes unnecessary, so the whole list applies.
+#
 # This file is for reading and diffing: nothing in the service loads it. It is
 # regenerated on every run, so a diff here is a change to the configuration
 # surface of the service, which is exactly the thing worth reviewing.
@@ -43,6 +53,9 @@ keys:
 {{- end }}
 {{- if $e.Required }}
     required: true
+{{- end }}
+{{- if $e.RequiredAtInit }}
+    required_at_init: true
 {{- end }}
 {{- if $e.Accessor }}
     accessor: {{ $e.Accessor }}

@@ -706,6 +706,12 @@ service's own, from a contract repository.
   (`origin: generated`, with `read_by` naming the template). A key with
   `origin: generated` cannot be added to the key map — it already has an accessor, named
   in the row. Read it before adding a key, and diff it after regenerating
+- Rows marked `required_at_init: true` are the keys this service does **not start**
+  without, framework keys included, already filtered down to the ones this project's
+  settings actually need. That is the list whoever seeds the tree has to set — check it
+  in CI (`yq '.keys[] | select(.required_at_init) | .path' configs/onlineconf-tree.yaml`)
+  rather than finding out from a crash loop. A REST server port is NOT among them: it
+  defaults to the port declared in `project.yaml`
 {{- if .DevStand }}
 
 ## Dev Environment
