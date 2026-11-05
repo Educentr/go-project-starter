@@ -120,7 +120,9 @@ groups:
           Prefix the request middleware hands to the logger, which reads the log
           level below it keyed by the url path of the request. The logger's reads
           are the only ones in the subtree and they are declared (`read_via`), so
-          the subtree is open to the service map.
+          the subtree is open to the service map. The url path arrives whole, so
+          what stays reserved below this prefix is every path ending in
+          `log_level`, however many levels down.
 
       - path: "{service}/security/httpAuth/enabled"
         name: SecurityHTTPAuthEnabled

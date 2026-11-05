@@ -285,8 +285,12 @@ func TestServiceMayDeclareKeysInTheWorkerSubtree(t *testing.T) {
 		"/svc/worker/reaper":             false,
 		"/svc/worker/reaper/job/timeout": false,
 		// One instance of a read declared with a runtime segment: the logger
-		// reads the level of every url path below the metrics prefix.
-		"/svc/transport/rest/api_v1/web/mw/metrics/users/log_level": false,
+		// reads the level of every url path below the metrics prefix. The
+		// middleware hands the url path whole, so the instance of the shape is
+		// as deep as the url is long — the usual REST url has several segments.
+		"/svc/transport/rest/api_v1/web/mw/metrics/users/log_level":    false,
+		"/svc/transport/rest/api_v1/web/mw/metrics/v1/users/log_level": false,
+		"/svc/transport/rest/api_v1/web/mw/metrics/v1/users":           true,
 		// A closed subtree stays closed: the runtime reads its own keys below
 		// the handler prefix, and no declaration here names them.
 		"/svc/transport/rest/api_v1/web/handler/retries": false,

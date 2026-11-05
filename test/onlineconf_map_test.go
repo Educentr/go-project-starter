@@ -400,6 +400,18 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 			keyType:  "duration",
 			wantMsgs: []string{"/octest/transport/rest/api_v1/api/handler", "computes"},
 		},
+		{
+			// The metrics prefix is open, so what protects the level the logger
+			// reads below it is the match by shape — and the middleware hands
+			// the url path whole, so the shape is as deep as the url is long.
+			name:    "the level of a multi-segment url path below the open metrics prefix",
+			path:    "/octest/transport/rest/api_v1/api/mw/metrics/v1/users/log_level",
+			keyType: "string",
+			wantMsgs: []string{
+				"/octest/transport/rest/api_v1/api/mw/metrics/<urlPath>/log_level",
+				"angle brackets", "logger/zlog/zlog.go.tmpl",
+			},
+		},
 	}
 
 	for _, tt := range tests {

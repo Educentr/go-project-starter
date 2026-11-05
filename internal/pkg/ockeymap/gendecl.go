@@ -1333,32 +1333,50 @@ func checkOneGeneratorKey(
 }
 
 // matchesRuntimeRead reports whether path is one of the paths a declared read
-// reaches: the same depth, and every segment equal except the ones the generated
-// code computes at runtime, which match anything.
+// reaches: every literal segment equal, and every segment the generated code
+// computes at runtime standing for one or more segments of path.
 //
 // The check is what makes an open subtree safe: a read below an open prefix is
 // declared, but a read declared with a runtime segment names a shape rather than
 // a path, and an exact comparison would let every instance of that shape through
 // (`…/mw/metrics/<urlPath>/log_level` and the service declaring
 // `…/mw/metrics/users/log_level`).
+//
+// A runtime segment spans one or more segments because the value the generated
+// code computes may itself carry slashes, and the path builder keeps them: the
+// request middleware hands the logger `r.URL.Path` whole, so the level of
+// `/v1/users` is read at `…/mw/metrics/v1/users/log_level`. Matching segment for
+// segment would have let that path — the common shape of a REST url — through.
+// Where the computed value is in fact a single segment (the stage of a job run)
+// the wider match only reserves more of the shape than the generated code
+// reaches, which is the safe direction: the service is told to pick another
+// path, rather than silently becoming the second reader of one.
 func matchesRuntimeRead(path, declared string) bool {
-	got, want := pathSegments(path), pathSegments(declared)
+	return matchSegments(pathSegments(path), pathSegments(declared))
+}
 
-	if len(got) != len(want) {
+// matchSegments matches path segments against the segments of a declared read,
+// runtime segments taking one or more of them.
+func matchSegments(got, want []string) bool {
+	if len(want) == 0 {
+		return len(got) == 0
+	}
+
+	if isRuntimeParam(want[0]) {
+		for taken := 1; taken <= len(got); taken++ {
+			if matchSegments(got[taken:], want[1:]) {
+				return true
+			}
+		}
+
 		return false
 	}
 
-	for i, segment := range want {
-		if isRuntimeParam(segment) {
-			continue
-		}
-
-		if got[i] != segment {
-			return false
-		}
+	if len(got) == 0 || got[0] != want[0] {
+		return false
 	}
 
-	return true
+	return matchSegments(got[1:], want[1:])
 }
 
 // hasRuntimeSegment reports whether a path carries a segment the generated code

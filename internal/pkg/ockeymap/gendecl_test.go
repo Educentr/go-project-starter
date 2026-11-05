@@ -748,6 +748,17 @@ func TestCheckGeneratorKeysOpenSubtree(t *testing.T) {
 			Path: "/svc/worker/reaper/<levelKey>/log_level", Type: "string", ReadVia: "LogLevel",
 			ReadBy: []string{"zlog.go.tmpl"}, Descriptions: []string{"log level of a stage"},
 		},
+		{
+			Path: "/svc/transport/rest/api_v1/web/mw/metrics", Accessor: "RESTAppMetricsPath",
+			OwnedPrefix: "/svc/transport/rest/api_v1/web/mw/metrics", OpenSubtree: true,
+			ReadBy: []string{"config_oc.go.tmpl"}, Descriptions: []string{"metrics prefix"},
+		},
+		{
+			Path:    "/svc/transport/rest/api_v1/web/mw/metrics/<urlPath>/log_level",
+			Type:    "string",
+			ReadVia: "LogLevel",
+			ReadBy:  []string{"zlog.go.tmpl"}, Descriptions: []string{"log level of a url path"},
+		},
 	}
 
 	tests := []struct {
@@ -785,6 +796,23 @@ func TestCheckGeneratorKeysOpenSubtree(t *testing.T) {
 				"reads itself", "/svc/worker/reaper/<levelKey>/log_level", "angle brackets",
 				"zlog.go.tmpl",
 			},
+		},
+		{
+			// A runtime segment stands for the whole value the generated code
+			// computes, slashes included: the request middleware hands the
+			// logger `r.URL.Path`, so the level of /v1/users is read several
+			// levels below the prefix. Matching segment for segment let exactly
+			// this shape — the common one for a REST url — through.
+			name: "an instance spanning several segments",
+			path: "/svc/transport/rest/api_v1/web/mw/metrics/v1/users/log_level",
+			wantMsgs: []string{
+				"reads itself", "/svc/transport/rest/api_v1/web/mw/metrics/<urlPath>/log_level",
+				"angle brackets", "zlog.go.tmpl",
+			},
+		},
+		{
+			name: "a deep key in the open subtree that no read reaches",
+			path: "/svc/transport/rest/api_v1/web/mw/metrics/v1/users/sample_rate",
 		},
 	}
 
