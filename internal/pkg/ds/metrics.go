@@ -17,8 +17,22 @@ import (
 // the service's. Entries with External set are declared but not constructed
 // (a library emits them); they are present so that a service cannot shadow
 // their names and so that the dashboard can still chart them.
+//
+// Apps describes the project's applications, in config order. It is what turns
+// the service-wide namespace into a per-process one: the map declares the
+// surface of a service, while a collector is registered — and a dashboard
+// panel is read — in one process at a time. It is filled once the applications
+// are built, after the map itself is parsed.
 type MetricsConfig struct {
 	Enabled bool
+	Metrics []metricsmap.Metric
+	Apps    []metricsmap.AppScope
+}
+
+// MetricsAppCollectors binds an application to the generated collectors it
+// registers.
+type MetricsAppCollectors struct {
+	App     string
 	Metrics []metricsmap.Metric
 }
 
@@ -92,6 +106,121 @@ func (m MetricsConfig) HasGenerated() bool {
 	}
 
 	return false
+}
+
+// ForApp returns the declarations the named application publishes: the ones
+// whose `apps` list names it (or is empty), minus the generator-owned ones
+// whose component this application does not run.
+//
+// This is the per-process view of the map. It is what the dashboard is built
+// from: a panel for a metric the process cannot emit reads empty forever, and
+// an always-empty panel is indistinguishable from a broken feature.
+//
+// An application the generator did not resolve, or one without a /metrics
+// endpoint, charts nothing: Apps is filled from the project's own application
+// list, and an application with no sys transport is never scraped, so every
+// panel built for it could only read empty. That holds even when the map names
+// such an application — its collectors go to a registry of its own code, which
+// no Prometheus target reads.
+func (m MetricsConfig) ForApp(name string) []metricsmap.Metric {
+	scope, ok := m.publishingScope(name)
+	if !ok {
+		return nil
+	}
+
+	out := make([]metricsmap.Metric, 0, len(m.Metrics))
+
+	for _, metric := range m.Metrics {
+		if scope.Publishes(metric) {
+			out = append(out, metric)
+		}
+	}
+
+	return out
+}
+
+// CollectorsByApp lists, for each application that publishes collectors, the
+// collectors generated for it — applications in config order, collectors in
+// declaration order.
+//
+// An application that exposes /metrics is always listed, even with nothing to
+// register: the generated RegisterFor answers over this set, and a sys
+// application is a legitimate target whether the map assigned it anything or
+// not. An application WITHOUT a /metrics endpoint is listed only when the map
+// names it explicitly — it has no endpoint of its own, so it is here to hand
+// its collectors to a registry of its own code, and an empty entry for it
+// would only make a typo in RegisterFor read as success.
+func (m MetricsConfig) CollectorsByApp() []MetricsAppCollectors {
+	out := make([]MetricsAppCollectors, 0, len(m.Apps))
+
+	for _, scope := range m.Apps {
+		generated := m.generatedFor(scope)
+
+		if !scope.ExposesMetrics && len(generated) == 0 {
+			continue
+		}
+
+		out = append(out, MetricsAppCollectors{App: scope.Name, Metrics: generated})
+	}
+
+	return out
+}
+
+// HasGeneratedFor reports whether the named application registers at least one
+// generated collector. The generated main uses it to decide whether to import
+// the collector package at all: an application whose every declaration belongs
+// to a sibling would otherwise import a package it never calls.
+//
+// It answers over the same set CollectorsByApp emits, so the import guard and
+// the map it guards cannot disagree. The /metrics endpoint is not part of the
+// question — the generated main gates the registration call on the sys
+// transport separately, because an application with no endpoint registers from
+// its own code, not from main.
+func (m MetricsConfig) HasGeneratedFor(name string) bool {
+	scope, ok := m.appScope(name)
+	if !ok {
+		return false
+	}
+
+	return len(m.generatedFor(scope)) > 0
+}
+
+// generatedFor returns the collectors the application registers: the
+// declarations it publishes, minus the ones no collector is generated for
+// (external declarations, and the ones a generator component constructs
+// itself).
+func (m MetricsConfig) generatedFor(scope metricsmap.AppScope) []metricsmap.Metric {
+	out := make([]metricsmap.Metric, 0, len(m.Metrics))
+
+	for _, metric := range m.Metrics {
+		if metric.Generated() && scope.Publishes(metric) {
+			out = append(out, metric)
+		}
+	}
+
+	return out
+}
+
+// publishingScope returns the resolved description of an application that is
+// actually scraped — the one question the dashboard asks.
+func (m MetricsConfig) publishingScope(name string) (metricsmap.AppScope, bool) {
+	scope, ok := m.appScope(name)
+	if !ok || !scope.ExposesMetrics {
+		return metricsmap.AppScope{}, false
+	}
+
+	return scope, true
+}
+
+// appScope returns the resolved description of one application.
+func (m MetricsConfig) appScope(name string) (metricsmap.AppScope, bool) {
+	for _, scope := range m.Apps {
+		if scope.Name == name {
+			return scope, true
+		}
+	}
+
+	return metricsmap.AppScope{}, false
 }
 
 // ForbiddenConstructors returns the metrics validator's rules: the collector

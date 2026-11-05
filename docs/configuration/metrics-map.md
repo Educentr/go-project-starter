@@ -125,6 +125,62 @@ metrics:
 
 Это нужно для метрик OTEL SDK, драйверов БД и всего остального, что инструментирует себя само. Без этого поля такие метрики пришлось бы прятать от карты, и карта перестала бы быть полным списком.
 
+### `apps` — какие приложения публикуют метрику
+
+```yaml
+  - name: spawn_errors_total
+    type: CounterVec
+    labels: reason, stage
+    help: Spawn attempts that failed, by reason and stage.
+    apps: [supervisor]
+
+  - name: queue_depth
+    type: Gauge
+    help: Number of tasks currently waiting in the queue.
+    apps: supervisor, api      # допустима и скалярная форма через запятую
+
+  - name: cli_runs_total
+    type: Counter
+    help: CLI invocations started.
+    apps: [cli]                # приложение без sys-транспорта — тоже адресат
+
+  - name: restarts_total
+    type: Counter
+    help: Process restarts since start.
+    # без apps — публикуют все приложения с эндпоинтом /metrics
+```
+
+Карта описывает поверхность **сервиса**, а приложений у сервиса бывает несколько. Коллектор, зарегистрированный в процессе, который его никогда не инкрементирует, выставляет на `/metrics` всегда-нулевую серию, а всегда-нулевая серия неотличима от сломанной фичи: правило «в норме ноль, любой рост — дефект» на ней не работает ни в одну сторону.
+
+`apps` отвечает на вопрос «кто публикует эту запись»:
+
+- **запись без `apps`** публикуют все приложения с `sys`-транспортом — это поведение до появления поля, то есть существующие карты не меняются, а сервис из одного приложения поле писать не обязан;
+- **запись с `apps`** попадает только в перечисленные приложения: и в их регистрацию, и в их ряд Service Metrics на дашборде;
+- **имя, которого нет среди приложений проекта, — ошибка генерации** (опечатка молча оставила бы метрику без публикации, при том что объявление читается так, будто она где-то есть). Это **единственное**, что ссылка может сделать неправильно;
+- **написанный, но пустой список** (`apps: ""`, `apps: []`, `apps: ","`) — ошибка, а не «публикуют все». Для `labels` пустой список значит «меток нет», для `apps` он значил бы противоположность тому, как строка читается; «публикуют все» пишется отсутствием ключа.
+
+#### Приложение без `sys`-транспорта
+
+`apps` может называть приложение, у которого нет `sys`-транспорта. Эндпоинта `/metrics` у такого процесса нет, но **собственный реестр у него быть может** — и это ровно тот случай, ради которого поле заводилось: CLI-приложение, приборы которого намеренно живут в пакетно-приватных реестрах.
+
+Как это работает:
+
+- коллекторы такого приложения попадают в `collectorsByApp`, то есть доступны через `CollectorsFor("<app>")` / `RegisterFor("<app>", reg)`;
+- в его `collectorsByApp` попадают **только записи, где оно названо явно**. Запись без `apps` по-прежнему означает «все приложения с `/metrics`»: иначе серверные метрики сервиса утекли бы в приватный реестр CLI — это обратная сторона того же дефекта;
+- сгенерированный `main` такого приложения `RegisterFor` **не вызывает** и пакет коллекторов **не импортирует**: регистрировать некуда, эндпоинта нет. Регистрирует его собственный код, в свой реестр:
+
+  ```go
+  reg := prometheus.NewRegistry()            // или любой реестр процесса
+  if err := metrics.RegisterFor("cli", reg); err != nil {
+      return fmt.Errorf("register cli metrics: %w", err)
+  }
+  ```
+
+- **ряда Service Metrics на дашборде у него нет** — дашборд он получает (дашборд следует за datasource, не за транспортом), но скрейпить такой процесс нечем, и любая панель читалась бы пустой;
+- приложение, у которого **нет** эндпоинта `/metrics` **и** которому карта ничего не адресовала явно, в `collectorsByApp` не попадает вовсе: пустая запись превратила бы опечатку в `RegisterFor` в успешную регистрацию ничего. Приложение с `sys` остаётся ключом всегда — это законный адресат независимо от того, адресовала ли ему карта что-нибудь.
+
+Вторую половину вопроса — метрики, которые конструирует не сервис, а сам генератор (`kafka_producer_*`), — `apps` не касается: они принадлежат приложениям, в которых работает соответствующий компонент, и генератор определяет это по `project.yaml`. Поэтому панели Kafka-продюсера видит только дашборд того приложения, к которому продюсер привязан.
+
 ## Сгенерированный пакет коллекторов
 
 Генерируется в `internal/pkg/metrics/psg_metrics_gen.go` — по одной экспортируемой переменной на объявленную метрику:
@@ -155,11 +211,13 @@ metrics.QueueDepth.Set(float64(len(queue)))
 
 ### Регистрация
 
-Пакет отдаёт три функции:
+Пакет отдаёт пять функций:
 
 ```go
-func Collectors() []prometheus.Collector
-func Register(reg prometheus.Registerer) error
+func CollectorsFor(app string) ([]prometheus.Collector, bool)   // коллекторы одного приложения
+func RegisterFor(app string, reg prometheus.Registerer) error   // регистрация одного приложения
+func Collectors() []prometheus.Collector                        // вся поверхность сервиса
+func Register(reg prometheus.Registerer) error                  // вся поверхность сервиса
 func Unregister(reg prometheus.Registerer)
 ```
 
@@ -168,14 +226,22 @@ Registerer **явный**, а коллекторы создаются через
 Вызов проставляется автоматически в `cmd/<app>/psg_main_gen.go` рядом с существующим `application.InitMetrics` — для приложений, у которых есть `sys`-транспорт (то есть эндпоинт `/metrics`):
 
 ```go
-err = metrics.Register(application.GetMetrics())
+err = metrics.RegisterFor("supervisor", application.GetMetrics())
 ```
+
+Регистрируется то, что публикует **это** приложение (см. [`apps`](#apps--какие-приложения-публикуют-метрику)). В сервисе, где ни одна запись `apps` не указывает, это вся карта — ровно как раньше.
+
+Приложение **без** `sys`-транспорта вызова в `main` не получает (эндпоинта нет) — его коллекторы регистрирует собственный код процесса, в свой реестр: см. [«Приложение без `sys`-транспорта»](#приложение-без-sys-транспорта).
+
+`RegisterFor` с именем, которое не публикует ни одной объявленной метрики, возвращает ошибку (`ErrUnknownApp`), а не пустую регистрацию: пустой реестр из-за опечатки — это та самая ложная «всё хорошо», от которой поле и заводилось.
+
+`Collectors()` / `Register()` отдают **всю** поверхность сервиса, без разбиения по приложениям — для теста или инструмента, которому нужен весь набор сразу.
 
 В тестах:
 
 ```go
 reg := prometheus.NewRegistry()
-require.NoError(t, metrics.Register(reg))
+require.NoError(t, metrics.RegisterFor("supervisor", reg))
 defer metrics.Unregister(reg)
 ```
 
@@ -248,7 +314,7 @@ var sneaky = NewCounter(CounterOpts{Name: "undeclared_total", Help: "…"})
 
 ## Дашборд
 
-В дев-дашборд (`configs/grafana/dashboards/<app>.json`) добавляется свёрнутый ряд **Service Metrics** с канонической панелью на каждую объявленную метрику:
+В дев-дашборд (`configs/grafana/dashboards/<app>.json`) добавляется свёрнутый ряд **Service Metrics** с канонической панелью на каждую метрику, которую публикует **это** приложение (см. [`apps`](#apps--какие-приложения-публикуют-метрику)) — панель по метрике, которую процесс не эмитит, пустовала бы всегда, а это та же ложная «всё хорошо», что и всегда-нулевая серия. У приложения без `sys`-транспорта ряда нет вовсе, даже если карта ему что-то адресовала: скрейпить такой процесс нечем:
 
 | Тип | Запрос |
 |---|---|
@@ -308,6 +374,9 @@ metrics:
   - name: queue_depth
     type: Gauge
     help: Number of tasks currently waiting in the queue.
+    # публикует только supervisor: у api этой очереди нет, и всегда-нулевая
+    # панель на его дашборде была бы ложным «всё хорошо»
+    apps: [supervisor]
 
   - name: task_duration_seconds
     type: HistogramVec
@@ -344,5 +413,8 @@ metrics:
 | `metric name collision: "x" declared by both …internal metrics[n] and service metrics map[m]` | имя уже занято внутренним набором генератора |
 | `metric variable name collision: "queue:depth" and "queue_depth" both generate the variable QueueDepth` | два имени сворачиваются в один Go-идентификатор |
 | `invalid metrics map: metrics[0] (x): `owner` is reserved for the generator's internal map` | `owner`/`requires` в карте сервиса |
+| `invalid metrics map: metrics[0]: application "api" is listed twice in apps` | имя приложения повторяется в `apps` |
+| `malformed metrics map: apps: declared but names no application; remove the key to publish the metric from every application` | `apps: ""` / `apps: []` / `apps: ","`: пустой список означал бы «публикуют все» — противоположность тому, как строка читается |
+| `unknown application in apps: metric "x": apps names "apii", which is not an application of this project (declared applications: admin, api, worker)` | опечатка в имени приложения |
 
 Валидация сообщает **все** проблемы сразу: починка плохой карты занимает один проход, а не по одному на запись.
