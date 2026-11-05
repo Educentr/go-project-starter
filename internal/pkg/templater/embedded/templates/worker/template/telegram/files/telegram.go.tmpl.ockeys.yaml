@@ -7,11 +7,14 @@ groups:
     keys:
       - path: "{service}/worker/{worker}"
         name: WorkerPath
+        open: true
         description: >-
           Configuration subtree of one worker. The worker hands the path to the
           logger, which reads the log level below it keyed by the stage of an
-          update being handled, so the subtree belongs to the generated code as
-          a whole.
+          update being handled. Every read the generated code performs in the
+          subtree is declared — the keys below and the stage keys of the logger
+          (`read_via`) — so the subtree is open: the service map may declare the
+          settings its own handwritten handlers read.
 
       - path: "{service}/worker/{worker}/default/timeout"
         name: WorkerDefaultTimeout

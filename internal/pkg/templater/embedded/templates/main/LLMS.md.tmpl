@@ -558,13 +558,14 @@ ALL new workers MUST have an `enabled` flag in OnlineConf set to `false`.
 
 The flag is a key like any other, so it goes in the service key map (see "Declared keys
 only" below) — reading OnlineConf any other way is rejected by `make onlineconf-validate`.
-Put it in the service's own subtree, NOT under `/<service>/worker/<name>/`: that subtree
-belongs to the generated worker, and `configs/onlineconf-tree.yaml` shows which paths are
-already taken.
+It belongs in the worker's own subtree, `/<service>/worker/<name>/`: the generated worker
+reads some paths there (`batch_size`, `jobs/enabled`, the job timeouts), and the rest of the
+subtree is yours. `configs/onlineconf-tree.yaml` shows which paths are already taken — the
+map is rejected if a declaration collides with one of them.
 
 ```yaml
 # in the OnlineConf key map `onlineconf.path` points at
-  - path: /<service>/jobs/<worker name>/enabled
+  - path: /<service>/worker/<worker name>/enabled
     type: bool
     default: false
     description: Whether this worker runs at all.
@@ -572,7 +573,7 @@ already taken.
 
 ```go
 func (w *Worker) GetTasks(ctx context.Context, lastJobState any) ([]daemon.ITask, any, error) {
-    enabled, err := {{ .OnlineConf.GetPackageName }}.Jobs<WorkerName>Enabled(ctx)
+    enabled, err := {{ .OnlineConf.GetPackageName }}.Worker<WorkerName>Enabled(ctx)
     if err != nil || !enabled {
         return nil, nil, nil
     }

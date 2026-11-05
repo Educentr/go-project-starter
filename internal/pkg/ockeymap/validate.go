@@ -19,6 +19,11 @@ const (
 	// errWrapFmt wraps one error in another, both unwrappable.
 	errWrapFmt = "%w: %w"
 
+	// keyProblemFmt prefixes a problem with the entry of the map it belongs to,
+	// by index: the map is a list, and the path alone would not say which entry
+	// to fix when two of them are spelled alike.
+	keyProblemFmt = "keys[%d]: %s"
+
 	// errNotExportedNameFmt reports a `name` override that cannot be the
 	// identifier of a generated function. Shared by the two halves of the map,
 	// which validate the same rule.
@@ -84,7 +89,7 @@ func (m *Map) Validate() error {
 
 	for i, key := range m.Keys {
 		for _, msg := range key.problems() {
-			problems = append(problems, fmt.Sprintf("keys[%d]: %s", i, msg))
+			problems = append(problems, fmt.Sprintf(keyProblemFmt, i, msg))
 		}
 
 		if key.Path == "" {

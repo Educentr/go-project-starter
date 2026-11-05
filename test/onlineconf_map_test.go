@@ -475,6 +475,57 @@ func TestGenerateRejectsWorkerAndBotKeys(t *testing.T) {
 	}
 }
 
+// TestGenerateAllowsServiceKeysBesideAnOpenPrefix is the regression test for
+// TOOLS-87: the tick interval of a worker is read by the handwritten job code,
+// under the worker prefix, and nothing generated reads it. Reserving the whole
+// subtree left that key with no accessor and no way to declare it, so the only
+// way to read it was to call the OnlineConf library from a package excluded from
+// the validator — which is the thing the key map exists to remove.
+//
+// The worker prefix is `open`: every read the generated code performs below it
+// is declared, so the service may declare its own keys beside them.
+func TestGenerateAllowsServiceKeysBesideAnOpenPrefix(t *testing.T) {
+	const (
+		workerPrefix = "/simple-worker-daemon/worker/daemon"
+		intervalPath = workerPrefix + "/interval"
+	)
+
+	out, targetDir, err := generateOnlineConfMap(t, "worker-daemon",
+		"keys:\n  - path: "+intervalPath+"\n    type: duration\n    default: 1m\n"+
+			"    description: How long the worker sleeps between ticks.\n")
+	if err != nil {
+		t.Fatalf("generation should accept a key beside the reads of an open prefix: %v\n%s", err, out)
+	}
+
+	occonf := readGenerated(t, targetDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	if !strings.Contains(occonf, `"`+intervalPath+`"`) {
+		t.Errorf("the declared key should get a path constant carrying %s", intervalPath)
+	}
+
+	registry := onlineConfRegistry(t, targetDir)
+
+	entry, listed := registry[intervalPath]
+	if !listed {
+		t.Fatalf("%s should be a row of the registry", intervalPath)
+	}
+
+	if entry.Origin != "service" || entry.Accessor == "" {
+		t.Errorf("%s = %+v, want a service row read through an accessor", intervalPath, entry)
+	}
+
+	// The prefix row says who reads below it, and an open one claims no subtree:
+	// `owns` is what tells a reviewer the service may not declare there.
+	prefix, listed := registry[workerPrefix]
+	if !listed {
+		t.Fatalf("%s should be a row of the registry", workerPrefix)
+	}
+
+	if prefix.Owns != "" {
+		t.Errorf("%s owns = %q, want no claim: the subtree is open", workerPrefix, prefix.Owns)
+	}
+}
+
 // A key of a dimension the project does not have is the service's to declare:
 // nothing in this project reads it, so there is no second reader to protect
 // against. Over-reserving would be the mirror image of the old prefix list,

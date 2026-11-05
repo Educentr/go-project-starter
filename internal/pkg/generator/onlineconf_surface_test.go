@@ -250,6 +250,66 @@ func TestAppRequiredChecksFollowTheApplication(t *testing.T) {
 	}
 }
 
+// The worker prefix is open, so a service may declare the settings its own
+// handwritten job code reads below it — the tick interval of a worker is the
+// reported case (TOOLS-87): it is read by hand below /<svc>/worker/<name>, and
+// a closed subtree left it with no accessor and no way to declare it.
+//
+// Against the real declarations on purpose: what makes this work is one `open`
+// in daemon.go.tmpl.ockeys.yaml, and a unit test of the check would not notice
+// it being dropped.
+func TestServiceMayDeclareKeysInTheWorkerSubtree(t *testing.T) {
+	config := cfg.Config{
+		Main:         cfg.Main{Name: "svc"},
+		RestList:     cfg.RestList{{Name: "api", Version: "v1", GeneratorType: "ogen"}},
+		WorkerList:   cfg.WorkerList{{Name: "reaper", GeneratorType: "template", GeneratorTemplate: "daemon"}},
+		Applications: []cfg.Application{{Name: "web", TransportList: []cfg.AppTransport{{Name: "api"}}}},
+	}
+
+	decls, err := templater.LoadOnlineConfKeyDecls()
+	if err != nil {
+		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
+	}
+
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
+	if err != nil {
+		t.Fatalf("ExpandGenDecls() error: %v", err)
+	}
+
+	tests := map[string]bool{
+		// Below an open prefix, beside what the generated code reads.
+		"/svc/worker/reaper/interval":                           true,
+		"/svc/worker/reaper/drain/timeout":                      true,
+		"/svc/transport/rest/api_v1/web/mw/metrics/sample_rate": true,
+		// The prefix itself, and a read declared below it.
+		"/svc/worker/reaper":             false,
+		"/svc/worker/reaper/job/timeout": false,
+		// One instance of a read declared with a runtime segment: the logger
+		// reads the level of every url path below the metrics prefix.
+		"/svc/transport/rest/api_v1/web/mw/metrics/users/log_level": false,
+		// A closed subtree stays closed: the runtime reads its own keys below
+		// the handler prefix, and no declaration here names them.
+		"/svc/transport/rest/api_v1/web/handler/retries": false,
+	}
+
+	for path, want := range tests {
+		keyMap, err := ockeymap.Parse([]byte("keys:\n  - path: " + path + "\n    type: duration\n"))
+		if err != nil {
+			t.Fatalf("Parse() error: %v", err)
+		}
+
+		err = keyMap.CheckGeneratorKeys(generated.Keys)
+
+		if want && err != nil {
+			t.Errorf("declaring %s should be allowed, got: %v", path, err)
+		}
+
+		if !want && err == nil {
+			t.Errorf("declaring %s should be rejected: the generated code reads it", path)
+		}
+	}
+}
+
 // Every scope a declaration can name has to be reachable from a project
 // configuration, or the declarations in it are dead and the paths they describe
 // silently stay declarable by the service.
