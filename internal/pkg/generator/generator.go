@@ -1764,6 +1764,27 @@ func (g *Generator) Generate() error {
 		return err
 	}
 
+	// Contract specs are copied too, so the same rule covers them — and it is
+	// checked here, before anything has been written, not merely before
+	// copyContracts: a contract-drift abort that struck after the spec copies
+	// used to leave a tree whose next run reported those specs as hand edits.
+	if err = g.checkContractDrift(targetPath); err != nil {
+		return err
+	}
+
+	// Every check above compares against the manifest of the previous run; keep
+	// it so the checkpoint can merge what this run writes on top of it.
+	prevManifest := g.Meta.Manifest
+
+	var writes runWrites
+
+	// A run that writes files and then fails still has to say what it wrote: an
+	// unrecorded copy is a hand edit as far as the next run can tell. Runs that
+	// get to write their whole manifest mark it saved, and the checkpoint then
+	// leaves that complete picture alone — so any new early return added below
+	// has to pass through the manifest save or it will fall back to this one.
+	defer func() { g.checkpoint(targetPath, prevManifest, writes) }()
+
 	dirs, files, err := g.collectFiles(targetPath)
 	if err != nil {
 		return errors.Wrap(err, "Error collect files")
@@ -1898,6 +1919,10 @@ func (g *Generator) Generate() error {
 		defer dstFile.Close()
 
 		file.Code.WriteTo(dstFile)
+
+		// Recorded as written only now: the checkpoint of a failed run must
+		// not claim files this run planned but never created.
+		writes.generated = manifest
 	}
 
 	// Remove obsolete generated files (stale psg_*_gen.go without user code)
@@ -1945,6 +1970,9 @@ func (g *Generator) Generate() error {
 	}
 
 	copiedSpecs, err := copyTargets(specTargets)
+
+	writes.copied = append(writes.copied, copiedSpecs...)
+
 	if err != nil {
 		return errors.Wrap(err, errCopySpecCtx)
 	}
@@ -1958,6 +1986,9 @@ func (g *Generator) Generate() error {
 	}
 
 	copiedSchemas, err := copyTargets(schemaTargets)
+
+	writes.copied = append(writes.copied, copiedSchemas...)
+
 	if err != nil {
 		return errors.Wrap(err, errCopySchemaCtx)
 	}
@@ -1970,12 +2001,10 @@ func (g *Generator) Generate() error {
 		return err
 	}
 
-	// Before copyContracts, which overwrites the file the check looks at.
-	if err = g.checkContractDrift(targetPath); err != nil {
-		return err
-	}
-
 	contractRecords, err := g.copyContracts(targetPath)
+
+	writes.contracts = contractRecords
+
 	if err != nil {
 		return errors.Wrap(err, "Error copy contracts")
 	}
@@ -2023,6 +2052,11 @@ func (g *Generator) Generate() error {
 	if err = g.Meta.Save(); err != nil {
 		return fmt.Errorf("error save meta: %w", err)
 	}
+
+	// From here on meta.yaml describes this run in full, so a later failure
+	// (a post-generate step, the submodule setup) must not have the checkpoint
+	// put the partial picture back.
+	writes.saved = true
 
 	for _, procData := range g.PostGenerate {
 		cmd := exec.Command(procData.Cmd, procData.Arg...)
@@ -2117,20 +2151,30 @@ func copiedFileRecords(targetPath string, paths []string) (meta.Manifest, error)
 	records := make(meta.Manifest, 0, len(paths))
 
 	for _, path := range paths {
-		content, err := os.ReadFile(path)
+		record, err := copiedFileRecord(targetPath, path)
 		if err != nil {
-			return nil, fmt.Errorf("error read copied file %s: %w", path, err)
+			return nil, err
 		}
 
-		rel, err := meta.RelPath(targetPath, path)
-		if err != nil {
-			return nil, fmt.Errorf(errRelPathFmt, path, err)
-		}
-
-		records = append(records, meta.FileRecord{Path: rel, Kind: meta.KindCopied, Hash: meta.HashContent(content)})
+		records = append(records, record)
 	}
 
 	return records, nil
+}
+
+// copiedFileRecord is the record of a single copied file, read from disk.
+func copiedFileRecord(targetPath, path string) (meta.FileRecord, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return meta.FileRecord{}, fmt.Errorf("error read copied file %s: %w", path, err)
+	}
+
+	rel, err := meta.RelPath(targetPath, path)
+	if err != nil {
+		return meta.FileRecord{}, fmt.Errorf(errRelPathFmt, path, err)
+	}
+
+	return meta.FileRecord{Path: rel, Kind: meta.KindCopied, Hash: meta.HashContent(content)}, nil
 }
 
 // refreshManifestHashes re-reads the manifest files from disk and updates their

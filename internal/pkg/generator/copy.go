@@ -182,7 +182,9 @@ func (g *Generator) ensureSchemaDirs() error {
 }
 
 // copyTargets performs the planned copies and returns the paths it wrote, so
-// they can be recorded in the manifest.
+// they can be recorded in the manifest. A failed copy returns the paths copied
+// before it alongside the error: those files are on disk, and whatever is on
+// disk has to end up in the manifest.
 func copyTargets(targets []copyTarget) ([]string, error) {
 	written := make([]string, 0, len(targets))
 
@@ -190,7 +192,10 @@ func copyTargets(targets []copyTarget) ([]string, error) {
 		log.Printf("copy %s: `%s` to `%s`\n", target.kind, target.source, target.dest)
 
 		if err := tools.CopyFile(target.source, target.dest); err != nil {
-			return nil, err
+			// With the files already copied, and the one that failed: a copy
+			// that failed halfway leaves a truncated file, and an unrecorded
+			// file is a conflict for the next run instead of ours to overwrite.
+			return append(written, target.dest), err
 		}
 
 		written = append(written, target.dest)
