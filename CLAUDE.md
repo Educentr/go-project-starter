@@ -50,6 +50,26 @@ const MinRuntimeVersion = "vX.Y.Z"  // <- обновить до последне
 
 **Важно:** Release notes составлять относительно коммита последнего релиза, а не последнего тега!
 
+### 4. Skills Plugin Update (ОБЯЗАТЕЛЬНО)
+
+Инструкции, по которым AI-агенты работают с генератором, лежат в
+[`Educentr/claude`](https://github.com/Educentr/claude/tree/main/plugins/go-project-starter) —
+агент читает их вместо этого репозитория. Плагин, оставшийся на прошлой версии, продолжает учить
+прошлой версии: ставит `go install …@<прошлый тег>` и выдаёт снятые ограничения как актуальные.
+
+```bash
+# что в плагине ещё указывает на прошлую версию (код 1 — не догнал)
+make check-skills-plugin SKILLS_VERSION=vX.Y.Z
+```
+
+Обновляется отдельным PR в `Educentr/claude` (отдельный репозиторий → отдельная задача с меткой
+`repo:github.com/Educentr/claude`): версия в version-statement **каждого** скила, пины команд
+(`@vX.Y.Z`, `STARTER_VERSION`), ссылки на документацию по тегу, затронутые релизом `references/`,
+`version` в `.claude-plugin/plugin.json`.
+
+Что с чем связано и что намеренно не правится (исторические упоминания версий) —
+[docs/development/skills-plugin.md](docs/development/skills-plugin.md).
+
 ## Build/Test/Lint Commands
 
 ```bash
@@ -72,6 +92,9 @@ make lint                # Check diffs with origin/main — this is the CI gate 
 make lint-config-verify  # Check configs/golangci.yml against the pinned version's schema
 make lint-full           # Full code lint — currently red on main (~600 pre-existing issues)
 make lint-fix            # Auto-fix linting issues
+
+# Release checks
+make check-skills-plugin SKILLS_VERSION=vX.Y.Z  # Claude skills plugin caught up with the release
 
 # Coverage report
 make coverage            # Generate HTML coverage report

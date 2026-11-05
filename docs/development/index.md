@@ -5,6 +5,7 @@
 ## Содержание раздела
 
 - [Архитектура генератора](generator.md) — детальное описание внутреннего устройства
+- [Плагин скилов для AI-агентов](skills-plugin.md) — что обновляется в `Educentr/claude` при каждом релизе
 
 ## Обзор архитектуры
 
@@ -355,6 +356,20 @@ git log --oneline <prev-commit>..HEAD
 # Создать релиз
 gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "..."
 ```
+
+### 4. Обновление плагина скилов
+
+Инструкции для AI-агентов живут в [`Educentr/claude`](https://github.com/Educentr/claude/tree/main/plugins/go-project-starter),
+и релиз обязан их догнать — иначе агент продолжает учить прошлой версии.
+
+```bash
+# что в плагине ещё указывает на прошлую версию
+make check-skills-plugin SKILLS_VERSION=vX.Y.Z
+```
+
+Обновляется отдельным PR в `Educentr/claude`: версия в каждом скиле, пины команд, ссылки на
+документацию по тегу, затронутые релизом `references/`, `version` в `.claude-plugin/plugin.json`.
+Что с чем связано — [Плагин скилов для AI-агентов](skills-plugin.md).
 
 ## Code Review
 

@@ -80,6 +80,19 @@ endif
 check-go-version:
 	@./scripts/check-go-mod-version.sh
 
+# Verify that the Claude skills plugin of this generator (Educentr/claude,
+# plugins/go-project-starter) documents the version being released — it is what
+# AI agents read instead of this repository, so a release that leaves it behind
+# keeps teaching the previous version. Run it at release time:
+#   make check-skills-plugin SKILLS_VERSION=v0.32.0
+# With SKILLS_VERSION empty the script checks the latest tag of this repository.
+# Not part of the CI gate: it reads another repository over the network, and a
+# GitHub outage must not turn every pull request red (same reasoning as
+# lint-config-verify).
+.PHONY: check-skills-plugin
+check-skills-plugin:
+	@./scripts/check-skills-plugin.sh $(SKILLS_VERSION)
+
 .PHONY: test
 test:
 	@go test $$(go list ./... | grep -v /test/docker-integration) -coverprofile=.cover
