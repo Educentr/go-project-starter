@@ -108,6 +108,7 @@ nav:
   - Разработка генератора:
     - development/index.md
     - Архитектура генератора: development/generator.md
+    - Плагин скилов для AI-агентов: development/skills-plugin.md
   - Справочник:
     - YAML Schema: reference/yaml-schema.md
     - Makefile: reference/makefile-targets.md
