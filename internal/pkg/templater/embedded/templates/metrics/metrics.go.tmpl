@@ -7,8 +7,10 @@
 // discouraged. `make metrics-validate` enforces the other half of the rule:
 // no metric constructors outside this package.
 //
-// RegisterFor wires an application's collectors into a registry. It is called
-// from the generated main of each application that exposes /metrics.
+// RegisterFor wires an application's collectors into a registry. The generated
+// main of an application that exposes /metrics calls it on startup; an
+// application with no /metrics endpoint calls it from its own code, with its
+// own registry.
 package {{ .Metrics.GetPackageName }}
 
 import (
@@ -18,9 +20,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// ErrUnknownApp reports a name that is not an application of this service, or
-// one that serves no /metrics endpoint. Registering into the wrong name would
-// otherwise leave /metrics empty and say nothing about why.
+// ErrUnknownApp reports a name that publishes none of this service's declared
+// metrics — not an application of the service, or one the map assigned nothing
+// to. Registering into the wrong name would otherwise leave the registry empty
+// and say nothing about why.
 var ErrUnknownApp = errors.New("unknown application")
 
 {{- range $_, $m := .Metrics.Generated }}
@@ -45,16 +48,20 @@ var {{ $m.VarName }} = {{ $m.Constructor }}(
 )
 {{- end }}
 
-// collectorsByApp holds, for each application that exposes /metrics, the
-// collectors that application publishes — in declaration order.
+// collectorsByApp holds, for each application that publishes collectors, the
+// ones that application publishes — in declaration order.
 //
 // The split comes from the `apps` field of the metrics map. The map declares
 // the surface of the SERVICE, and a service can be several processes: a
 // collector registered in a process that never increments it puts an
 // always-zero series on /metrics, which is indistinguishable from a broken
-// feature. A declaration that names no application is published by all of
-// them, so a single-application service sees exactly one entry holding
-// everything.
+// feature. A declaration that names no application is published by every
+// application with a /metrics endpoint, so a single-application service sees
+// exactly one entry holding everything.
+//
+// An application with no /metrics endpoint is a key here only when the map
+// names it: it has no endpoint of its own, so it is here to take its
+// collectors into a registry of its own code.
 var collectorsByApp = map[string][]prometheus.Collector{
 {{- range $_, $a := .Metrics.CollectorsByApp }}
 	{{ $a.App | GoQuote }}: {
@@ -77,8 +84,7 @@ func Collectors() []prometheus.Collector {
 }
 
 // CollectorsFor returns the collectors the named application publishes, or
-// false when the name is not an application of this service with a /metrics
-// endpoint.
+// false when the name publishes none of this service's declared metrics.
 func CollectorsFor(app string) ([]prometheus.Collector, bool) {
 	collectors, ok := collectorsByApp[app]
 
@@ -89,8 +95,8 @@ func CollectorsFor(app string) ([]prometheus.Collector, bool) {
 //
 // The registerer is explicit rather than the client_golang default one: tests
 // need a throwaway registry, and several applications can share one binary. A
-// nil registerer is a no-op; an unknown application is not, because leaving
-// /metrics empty over a typo is the failure this split exists to avoid.
+// nil registerer is a no-op; an unknown application is not, because leaving a
+// registry empty over a typo is the failure this split exists to avoid.
 func RegisterFor(app string, reg prometheus.Registerer) error {
 	collectors, ok := CollectorsFor(app)
 	if !ok {

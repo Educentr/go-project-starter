@@ -117,9 +117,11 @@ func (m MetricsConfig) HasGenerated() bool {
 // an always-empty panel is indistinguishable from a broken feature.
 //
 // An application the generator did not resolve, or one without a /metrics
-// endpoint, publishes nothing: Apps is filled from the project's own
-// application list, and an application with no sys transport is never scraped,
-// so every panel built for it could only read empty.
+// endpoint, charts nothing: Apps is filled from the project's own application
+// list, and an application with no sys transport is never scraped, so every
+// panel built for it could only read empty. That holds even when the map names
+// such an application — its collectors go to a registry of its own code, which
+// no Prometheus target reads.
 func (m MetricsConfig) ForApp(name string) []metricsmap.Metric {
 	scope, ok := m.publishingScope(name)
 	if !ok {
@@ -137,18 +139,28 @@ func (m MetricsConfig) ForApp(name string) []metricsmap.Metric {
 	return out
 }
 
-// CollectorsByApp lists, for every application that exposes /metrics, the
+// CollectorsByApp lists, for each application that publishes collectors, the
 // collectors generated for it — applications in config order, collectors in
 // declaration order.
+//
+// An application that exposes /metrics is always listed, even with nothing to
+// register: the generated RegisterFor answers over this set, and a sys
+// application is a legitimate target whether the map assigned it anything or
+// not. An application WITHOUT a /metrics endpoint is listed only when the map
+// names it explicitly — it has no endpoint of its own, so it is here to hand
+// its collectors to a registry of its own code, and an empty entry for it
+// would only make a typo in RegisterFor read as success.
 func (m MetricsConfig) CollectorsByApp() []MetricsAppCollectors {
 	out := make([]MetricsAppCollectors, 0, len(m.Apps))
 
 	for _, scope := range m.Apps {
-		if !scope.ExposesMetrics {
+		generated := m.generatedFor(scope)
+
+		if !scope.ExposesMetrics && len(generated) == 0 {
 			continue
 		}
 
-		out = append(out, MetricsAppCollectors{App: scope.Name, Metrics: m.generatedFor(scope)})
+		out = append(out, MetricsAppCollectors{App: scope.Name, Metrics: generated})
 	}
 
 	return out
@@ -160,9 +172,12 @@ func (m MetricsConfig) CollectorsByApp() []MetricsAppCollectors {
 // to a sibling would otherwise import a package it never calls.
 //
 // It answers over the same set CollectorsByApp emits, so the import guard and
-// the map it guards cannot disagree.
+// the map it guards cannot disagree. The /metrics endpoint is not part of the
+// question — the generated main gates the registration call on the sys
+// transport separately, because an application with no endpoint registers from
+// its own code, not from main.
 func (m MetricsConfig) HasGeneratedFor(name string) bool {
-	scope, ok := m.publishingScope(name)
+	scope, ok := m.appScope(name)
 	if !ok {
 		return false
 	}
@@ -186,8 +201,8 @@ func (m MetricsConfig) generatedFor(scope metricsmap.AppScope) []metricsmap.Metr
 	return out
 }
 
-// publishingScope returns the resolved description of an application that
-// actually publishes metrics.
+// publishingScope returns the resolved description of an application that is
+// actually scraped — the one question the dashboard asks.
 func (m MetricsConfig) publishingScope(name string) (metricsmap.AppScope, bool) {
 	scope, ok := m.appScope(name)
 	if !ok || !scope.ExposesMetrics {

@@ -105,16 +105,16 @@ metrics:
 	}
 }
 
-func TestPublishedBy(t *testing.T) {
+func TestNamesApp(t *testing.T) {
 	assigned := metricsmap.Metric{Name: "a", Apps: metricsmap.Apps{"api"}}
-	assert.True(t, assigned.PublishedBy("api"))
-	assert.False(t, assigned.PublishedBy("worker"))
+	assert.True(t, assigned.NamesApp("api"))
+	assert.False(t, assigned.NamesApp("worker"))
 
-	// No `apps` means every application — the behavior from before the field
-	// existed, so an existing map keeps generating what it generated.
+	// A declaration with no `apps` names nobody: it is published by default
+	// instead. AppScope.Publishes is where the two halves meet.
 	unassigned := metricsmap.Metric{Name: "a"}
-	assert.True(t, unassigned.PublishedBy("api"))
-	assert.True(t, unassigned.PublishedBy("worker"))
+	assert.False(t, unassigned.NamesApp("api"))
+	assert.False(t, unassigned.NamesApp("worker"))
 }
 
 func TestAppScope_Publishes(t *testing.T) {
@@ -139,6 +139,16 @@ func TestAppScope_Publishes(t *testing.T) {
 	assigned := metricsmap.Metric{Name: "admin_actions_total", Apps: metricsmap.Apps{"admin"}}
 	assert.False(t, producer.Publishes(assigned))
 	assert.True(t, plain.Publishes(assigned))
+
+	// An application with no /metrics endpoint. The default surface stops at
+	// it — pushing the service's server-side collectors into a private
+	// registry is the inverse of the defect `apps` removes — but a declaration
+	// that names it IS published by it: that is how a process whose
+	// instruments live in its own registry takes them from the map.
+	cli := metricsmap.AppScope{Name: "cli"}
+	assert.False(t, cli.Publishes(shared))
+	assert.False(t, cli.Publishes(assigned))
+	assert.True(t, cli.Publishes(metricsmap.Metric{Name: "cli_runs_total", Apps: metricsmap.Apps{"cli"}}))
 }
 
 func TestValidateApps(t *testing.T) {
@@ -147,23 +157,28 @@ func TestValidateApps(t *testing.T) {
 		{Name: "worker"},
 	}
 
+	// "worker" has no sys transport and is a valid reference all the same: the
+	// only thing a reference can get wrong is the spelling. Such an
+	// application registers from its own code, into its own registry.
 	require.NoError(t, metricsmap.ValidateApps([]metricsmap.Metric{
 		{Name: "restarts_total"},
 		{Name: "spawn_errors_total", Apps: metricsmap.Apps{"api"}},
+		{Name: "cli_runs_total", Apps: metricsmap.Apps{"worker"}},
 	}, scopes))
 
 	err := metricsmap.ValidateApps([]metricsmap.Metric{
 		{Name: "spawn_errors_total", Apps: metricsmap.Apps{"apii"}},
-		{Name: "restarts_total", Apps: metricsmap.Apps{"worker"}},
+		{Name: "restarts_total", Apps: metricsmap.Apps{"api", "workerr"}},
 	}, scopes)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, metricsmap.ErrUnknownApp))
 
-	// Both problems at once, and the hint spells the real names out so the
-	// reader does not have to open project.yaml.
+	// Every typo at once — one round trip to fix a bad map — and the hint
+	// spells the real names out so the reader does not have to open
+	// project.yaml.
 	assert.Contains(t, err.Error(), `apps names "apii", which is not an application of this project`)
+	assert.Contains(t, err.Error(), `apps names "workerr", which is not an application of this project`)
 	assert.Contains(t, err.Error(), "(declared applications: api, worker)")
-	assert.Contains(t, err.Error(), `application "worker" has no sys transport`)
 
 	// Metric NAME, not index: this check runs on the merged set, where the
 	// position counts the generator's own declarations first and so points at

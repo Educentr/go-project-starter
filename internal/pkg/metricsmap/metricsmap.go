@@ -92,6 +92,10 @@ type Metric struct {
 	// that never increments it puts an always-zero series on /metrics, and an
 	// always-zero series is indistinguishable from a broken feature: the rule
 	// "zero is normal, any growth is a defect" then holds in neither direction.
+	//
+	// A named application need not expose /metrics: it then takes its
+	// collectors into a registry of its own code rather than onto an endpoint.
+	// See AppScope.Publishes for why that is a reference and not an error.
 	Apps Apps `yaml:"apps"`
 }
 

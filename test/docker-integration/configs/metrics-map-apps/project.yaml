@@ -79,9 +79,11 @@ applications:
       datasources:
         - Prometheus
 
-  # No sys transport: no /metrics endpoint, nothing to register into. It has a
-  # dashboard anyway (dashboards follow the datasource, not the sys transport),
-  # which is the case where a Service Metrics row could only ever read empty.
+  # No sys transport: no /metrics endpoint for the generated main to register
+  # into, so it registers the declarations that name it from its own code, into
+  # its own registry. It has a dashboard anyway (dashboards follow the
+  # datasource, not the sys transport), which is the case where a Service
+  # Metrics row could only ever read empty.
   - name: worker
     transport:
       - name: api

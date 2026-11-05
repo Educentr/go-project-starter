@@ -157,9 +157,10 @@ func TestGenerateMetricsMap(t *testing.T) {
 		t.Error("generated main should import the generated collector package")
 	}
 
-	// The second application has no sys transport, so no /metrics endpoint and
-	// no registry to register into. It must get neither the call nor the
-	// import — an import it never uses would not compile.
+	// The second application has no sys transport, so no /metrics endpoint for
+	// main to register onto, and this map names no application, so nothing is
+	// addressed to it either. It must get neither the call nor the import — an
+	// import it never uses would not compile.
 	workerMain := readGenerated(t, tmpDir, "cmd", "worker", "psg_main_gen.go")
 
 	if strings.Contains(workerMain, "metrics.RegisterFor(") {

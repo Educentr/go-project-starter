@@ -21,8 +21,20 @@ metrics:
     apps:
       - admin
 
+  # An application WITHOUT a /metrics endpoint. It has no endpoint to put the
+  # collector on, so it takes it into a registry of its own code — the shape
+  # the field exists for: a process whose instruments are deliberately
+  # package-private.
+  - name: worker_runs_total
+    type: Counter
+    help: Worker runs started.
+    apps: [worker]
+
   # No `apps`: published by every application with a /metrics endpoint. This is
-  # the pre-existing behavior, and what a single-process service writes.
+  # the pre-existing behavior, and what a single-process service writes. It
+  # deliberately stops at the endpoint-less application: handing the service's
+  # server-side metrics to that process's private registry would be the
+  # inverse of the defect this field removes.
   - name: restarts_total
     type: Counter
     help: Process restarts since start.

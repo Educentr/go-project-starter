@@ -158,6 +158,10 @@ func main() {
 	// /metrics, and an always-zero series says nothing about whether the
 	// feature behind it works.
 	//
+	// Only an application with a /metrics endpoint registers from main. One
+	// without an endpoint registers its collectors itself, into whatever
+	// registry it keeps — there is nothing here to put them on.
+	//
 	// The registerer is explicit: tests use a throwaway registry, and several
 	// applications can share one binary.
 	{{- /* GoQuote, matching the key in the collector package's collectorsByApp:

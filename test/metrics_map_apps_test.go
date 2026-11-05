@@ -103,25 +103,33 @@ func assertPerAppCollectors(t *testing.T, tmpDir string) {
 
 	// Every declaration still becomes a variable: `apps` splits registration,
 	// not the namespace. The map is the surface of the service either way.
-	for _, varName := range []string{"SpawnErrorsTotal", "QueueDepth", "AdminActionsTotal", "RestartsTotal"} {
+	for _, varName := range []string{"SpawnErrorsTotal", "QueueDepth", "AdminActionsTotal", "WorkerRunsTotal", "RestartsTotal"} {
 		if !strings.Contains(metricsFile, "var "+varName+" = ") {
 			t.Errorf("every declaration should still get a collector variable, missing %s", varName)
 		}
 	}
 
-	// One entry per application with a /metrics endpoint, holding exactly the
-	// collectors that application publishes.
+	// One entry per application that publishes collectors, holding exactly the
+	// ones that application publishes.
 	wantPerApp := map[string]struct {
 		have    []string
 		haveNot []string
 	}{
 		"api": {
 			have:    []string{"SpawnErrorsTotal", "QueueDepth", "RestartsTotal"},
-			haveNot: []string{"AdminActionsTotal"},
+			haveNot: []string{"AdminActionsTotal", "WorkerRunsTotal"},
 		},
 		"admin": {
 			have:    []string{"QueueDepth", "AdminActionsTotal", "RestartsTotal"},
-			haveNot: []string{"SpawnErrorsTotal"},
+			haveNot: []string{"SpawnErrorsTotal", "WorkerRunsTotal"},
+		},
+		// No /metrics endpoint: only what the map named it in. The default
+		// surface (RestartsTotal, which names nobody) stops here — handing the
+		// service's server-side collectors to this process's own registry
+		// would be the inverse of the defect the field removes.
+		"worker": {
+			have:    []string{"WorkerRunsTotal"},
+			haveNot: []string{"SpawnErrorsTotal", "QueueDepth", "AdminActionsTotal", "RestartsTotal"},
 		},
 	}
 
@@ -142,13 +150,6 @@ func assertPerAppCollectors(t *testing.T, tmpDir string) {
 		}
 	}
 
-	// An application without a sys transport has no registry at all, so it is
-	// not a key of the map: RegisterFor on it is an error, not an empty
-	// registration that reads as success.
-	if strings.Contains(metricsFile, `"worker": {`) {
-		t.Error("an application without a /metrics endpoint must not appear in collectorsByApp")
-	}
-
 	// Each generated main registers under its own name.
 	for _, app := range []string{"api", "admin"} {
 		mainFile := readGenerated(t, tmpDir, "cmd", app, "psg_main_gen.go")
@@ -158,14 +159,18 @@ func assertPerAppCollectors(t *testing.T, tmpDir string) {
 		}
 	}
 
+	// The endpoint-less application is a key of the map, but its generated
+	// main still registers nothing: there is no /metrics here to put a
+	// collector on. Its own code calls metrics.RegisterFor("worker", reg) with
+	// whatever registry it keeps.
 	workerMain := readGenerated(t, tmpDir, "cmd", "worker", "psg_main_gen.go")
 
 	if strings.Contains(workerMain, "metrics.RegisterFor(") {
-		t.Error("an application without a /metrics endpoint should not register collectors")
+		t.Error("an application without a /metrics endpoint should not register collectors from main")
 	}
 
 	if strings.Contains(workerMain, `"github.com/test/metricsappstest/internal/pkg/metrics"`) {
-		t.Error("an application that does not register collectors must not import the package")
+		t.Error("an application whose main does not register collectors must not import the package")
 	}
 }
 
@@ -186,9 +191,10 @@ func assertPerAppDashboards(t *testing.T, tmpDir string) {
 	}
 
 	// A dashboard follows the Grafana datasource, not the sys transport, so an
-	// application with no /metrics endpoint still gets one. Its Service
-	// Metrics row would be panels nothing ever scrapes — and the user cannot
-	// scope them away either, because `apps: [worker]` is a hard error.
+	// application with no /metrics endpoint still gets one. It gets no Service
+	// Metrics row even though the map names it: its collectors go to a
+	// registry of its own code, which no Prometheus target reads, so every
+	// panel built here could only read empty.
 	if _, present := serviceMetricPanels(t, readGenerated(t, tmpDir, "configs", "grafana", "dashboards", "worker.json")); present {
 		t.Error("an application without a /metrics endpoint must get no Service Metrics row: nothing scrapes it")
 	}
@@ -199,8 +205,10 @@ func assertPerAppDashboards(t *testing.T, tmpDir string) {
 		}
 	}
 
-	if _, ok := apiPanels["admin_actions_total"]; ok {
-		t.Error("api dashboard must not chart admin_actions_total — the api process never emits it")
+	for _, unwanted := range []string{"admin_actions_total", "worker_runs_total"} {
+		if _, ok := apiPanels[unwanted]; ok {
+			t.Errorf("api dashboard must not chart %s — the api process never emits it", unwanted)
+		}
 	}
 
 	for _, want := range []string{"queue_depth", "admin_actions_total", "restarts_total"} {
@@ -209,8 +217,10 @@ func assertPerAppDashboards(t *testing.T, tmpDir string) {
 		}
 	}
 
-	if _, ok := adminPanels["spawn_errors_total"]; ok {
-		t.Error("admin dashboard must not chart spawn_errors_total — the admin process never emits it")
+	for _, unwanted := range []string{"spawn_errors_total", "worker_runs_total"} {
+		if _, ok := adminPanels[unwanted]; ok {
+			t.Errorf("admin dashboard must not chart %s — the admin process never emits it", unwanted)
+		}
 	}
 
 	// The Kafka producer is attached to the api application only. Its
@@ -261,39 +271,35 @@ func generateWithMetricsMap(t *testing.T, mapYAML, msg string) (string, error) {
 	}, msg)
 }
 
-// TestGenerateRejectsBadAppReference pins that an `apps` entry the project
-// cannot satisfy stops generation. Tolerating one would move the metric
-// nowhere while the declaration reads as if it had moved it somewhere — the
-// failure mode the map exists to remove.
+// TestGenerateRejectsBadAppReference pins that an `apps` entry naming no
+// application of the project stops generation. Tolerating a typo would move
+// the metric nowhere while the declaration reads as if it had moved it
+// somewhere — the failure mode the map exists to remove.
 //
-// Both halves ride one map because the check reports every problem at once;
-// the wording of each message is pinned at unit level in
+// A misspelling is the ONLY thing an `apps` entry can get wrong: naming an
+// application without a /metrics endpoint is legitimate (see the fixture's
+// worker), because such a process registers the collectors into a registry of
+// its own code.
+//
+// The wording of the message is pinned at unit level in
 // internal/pkg/metricsmap/apps_test.go, so what this costs a generator run for
 // is the end-to-end claim: the error reaches the binary's exit code.
 func TestGenerateRejectsBadAppReference(t *testing.T) {
 	out, err := generateWithMetricsMap(t,
 		"metrics:\n"+
-			// Misspelled: no such application.
 			"  - name: restarts_total\n"+
 			"    type: Counter\n"+
 			"    help: Process restarts since start.\n"+
-			"    apps: [apii]\n"+
-			// Real application, but it has no sys transport and therefore no
-			// /metrics endpoint to register into.
-			"  - name: spawn_errors_total\n"+
-			"    type: Counter\n"+
-			"    help: Spawn failures.\n"+
-			"    apps: [worker]\n",
-		"Generate project whose metrics map carries unsatisfiable apps references")
+			"    apps: [apii]\n",
+		"Generate project whose metrics map names an application that does not exist")
 
 	if err == nil {
-		t.Fatalf("generation succeeded on apps entries the project cannot satisfy\n%s", out)
+		t.Fatalf("generation succeeded on an apps entry naming no application of the project\n%s", out)
 	}
 
 	for _, want := range []string{
 		`apps names "apii", which is not an application of this project`,
 		"(declared applications: admin, api, worker)",
-		`application "worker" has no sys transport`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generator error should mention %q, got:\n%s", want, out)

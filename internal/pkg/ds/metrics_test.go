@@ -10,13 +10,15 @@ import (
 )
 
 // perAppConfig is a service of three processes: one serving /metrics and
-// running a Kafka producer, one serving /metrics only, one serving neither.
+// running a Kafka producer, one serving /metrics only, one serving neither but
+// named by a declaration of its own.
 func perAppConfig() ds.MetricsConfig {
 	return ds.MetricsConfig{
 		Enabled: true,
 		Metrics: []metricsmap.Metric{
 			{Name: "spawn_errors_total", Type: metricsmap.TypeCounter, Apps: metricsmap.Apps{"api"}},
 			{Name: "admin_actions_total", Type: metricsmap.TypeCounter, Apps: metricsmap.Apps{"admin"}},
+			{Name: "worker_runs_total", Type: metricsmap.TypeCounter, Apps: metricsmap.Apps{"worker"}},
 			{Name: "restarts_total", Type: metricsmap.TypeCounter},
 			{Name: "go_goroutines", Type: metricsmap.TypeGauge, External: true},
 			{Name: "kafka_producer_publish_total", Type: metricsmap.TypeCounter, Owner: metricsmap.OwnerKafkaProducer},
@@ -58,6 +60,12 @@ func TestMetricsConfig_ForApp(t *testing.T) {
 		[]string{"admin_actions_total", "restarts_total", "go_goroutines"},
 		names(cfg.ForApp("admin")))
 
+	// No /metrics endpoint: nothing scrapes this process, so a panel built for
+	// it could only read empty — even for the declaration that names it. Its
+	// collectors go to a registry of its own code, which no Prometheus target
+	// reads.
+	assert.Empty(t, cfg.ForApp("worker"))
+
 	// An application the generator never resolved is not an application of
 	// this project, so it publishes nothing.
 	assert.Empty(t, cfg.ForApp("nosuchapp"))
@@ -66,7 +74,7 @@ func TestMetricsConfig_ForApp(t *testing.T) {
 func TestMetricsConfig_CollectorsByApp(t *testing.T) {
 	byApp := perAppConfig().CollectorsByApp()
 
-	require.Len(t, byApp, 2, "only applications with a /metrics endpoint have collectors to register")
+	require.Len(t, byApp, 3)
 
 	assert.Equal(t, "api", byApp[0].App)
 	assert.Equal(t, []string{"spawn_errors_total", "restarts_total"}, names(byApp[0].Metrics))
@@ -76,6 +84,26 @@ func TestMetricsConfig_CollectorsByApp(t *testing.T) {
 	// its own template.
 	assert.Equal(t, "admin", byApp[1].App)
 	assert.Equal(t, []string{"admin_actions_total", "restarts_total"}, names(byApp[1].Metrics))
+
+	// No /metrics endpoint, so it gets only what the map named it in: the
+	// default surface is the service's server-side metrics, and handing those
+	// to this process's private registry is the inverse of the defect the
+	// field removes.
+	assert.Equal(t, "worker", byApp[2].App)
+	assert.Equal(t, []string{"worker_runs_total"}, names(byApp[2].Metrics))
+}
+
+func TestMetricsConfig_CollectorsByAppSkipsAppsWithNothingToRegister(t *testing.T) {
+	// A map that names nobody: the applications with a /metrics endpoint are
+	// still keys (RegisterFor answers over this set), the one without is not —
+	// an empty entry would only make a typo in RegisterFor read as success.
+	cfg := perAppConfig()
+	cfg.Metrics = []metricsmap.Metric{{Name: "restarts_total", Type: metricsmap.TypeCounter}}
+
+	byApp := cfg.CollectorsByApp()
+	require.Len(t, byApp, 2)
+	assert.Equal(t, "api", byApp[0].App)
+	assert.Equal(t, "admin", byApp[1].App)
 }
 
 func TestMetricsConfig_HasGeneratedFor(t *testing.T) {
@@ -84,9 +112,12 @@ func TestMetricsConfig_HasGeneratedFor(t *testing.T) {
 	assert.True(t, cfg.HasGeneratedFor("api"))
 	assert.True(t, cfg.HasGeneratedFor("admin"))
 
-	// No /metrics endpoint, so nothing is registered and the generated main
-	// must not import the collector package it would never call.
-	assert.False(t, cfg.HasGeneratedFor("worker"))
+	// No /metrics endpoint, but the map named it, so the collector package
+	// carries its entry. The generated main still registers nothing — it gates
+	// the call on the sys transport, so the import it guards is not emitted
+	// either.
+	assert.True(t, cfg.HasGeneratedFor("worker"))
+
 	assert.False(t, cfg.HasGeneratedFor("nosuchapp"))
 }
 
