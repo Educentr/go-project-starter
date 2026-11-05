@@ -73,7 +73,11 @@ groups:
         type: string
         read_via: LogLevel
         default: "the level of mw/metrics/default/log_level"
-        description: Log level of the request middleware for one url path.
+        description: >-
+          Log level of the request middleware for one url path. The middleware
+          hands the url path of the request whole, so this segment stands for as
+          many tree levels as the path has (`/v1/users` reads
+          mw/metrics/v1/users/log_level).
 
   - scope: worker_daemon
     keys:
