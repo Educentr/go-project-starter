@@ -47,20 +47,20 @@ var (
 )
 
 // knownOwners is the closed set of generator components that may own a metric.
-var knownOwners = map[string]struct{}{
+var knownOwners = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	OwnerKafkaProducer: {},
 }
 
 // knownCapabilities is the closed set of project capabilities a declaration may
 // depend on.
-var knownCapabilities = map[string]struct{}{
+var knownCapabilities = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	CapabilityKafkaProducer: {},
 	CapabilityRESTServer:    {},
 	CapabilityRESTClient:    {},
 }
 
 // knownTypes is the closed set of accepted `type` values.
-var knownTypes = map[string]struct{}{
+var knownTypes = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	TypeCounter:      {},
 	TypeCounterVec:   {},
 	TypeGauge:        {},

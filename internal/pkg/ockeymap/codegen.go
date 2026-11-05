@@ -40,7 +40,7 @@ var ErrBadDefault = errors.New("invalid default value")
 // looks like.
 //
 // A derivation that still reads badly is what the `name` field is for.
-var commonInitialisms = map[string]string{
+var commonInitialisms = map[string]string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"ACL": "ACL", "API": "API", "ASCII": "ASCII", "CPU": "CPU", "CSS": "CSS",
 	"DB": "DB", "DNS": "DNS", "DSN": "DSN", "EOF": "EOF", "GUID": "GUID",
 	"HTML": "HTML", "HTTP": "HTTP", "HTTPS": "HTTPS", "ID": "ID", "IP": "IP",
@@ -55,7 +55,7 @@ var commonInitialisms = map[string]string{
 // durationUnits are the time.Duration units a declared default is rendered
 // with, largest first: the generated source should read like the YAML it came
 // from ("5m" → 5 * time.Minute), not like a nanosecond count.
-var durationUnits = []struct {
+var durationUnits = []struct { //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	size time.Duration
 	name string
 }{

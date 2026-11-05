@@ -132,7 +132,7 @@ var generatorNameRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
 // with a target the generated Makefile already defines (see
 // internal/pkg/templater/embedded/templates/main/Makefile.tmpl). A collision
 // would silently override a built-in step, so it is rejected at config load.
-var reservedGeneratorNames = map[string]struct{}{
+var reservedGeneratorNames = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	// install-*
 	"argen":              {},
 	"buf":                {},
@@ -159,7 +159,7 @@ var reservedGeneratorNames = map[string]struct{}{
 // reservedGeneratorPrefixes are name prefixes reserved for the same reason as
 // reservedGeneratorNames, where the built-in target name is parameterized
 // (generate-test-env-<app>).
-var reservedGeneratorPrefixes = []string{"test-env-"}
+var reservedGeneratorPrefixes = []string{"test-env-"} //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 
 // IsValid validates a single generator declaration in isolation. Cross-checks
 // against the contract list (duplicate names, dangling references, a command

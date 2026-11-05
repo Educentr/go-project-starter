@@ -437,6 +437,10 @@ const (
 	pkgDir    = "pkg"
 	apiDir    = "api"
 
+	// internalDir is the project's internal/ tree — the parent of the generated
+	// core-logic packages (internal/pkg/occonf, internal/pkg/metrics).
+	internalDir = "internal"
+
 //	WorkerDaemonType WorkerType = "daemon"
 
 // ServiceName  = "service_name"
@@ -689,6 +693,22 @@ func (w Workers) GetUniqueTypes() map[string][]Worker {
 	}
 
 	return uniqueTypes
+}
+
+// HasGeneratorTemplate reports whether any worker is generated from the named
+// template ("telegram", "daemon", "queue").
+//
+// Templates that document a worker's extension points call it to leave out
+// advice about a worker the project does not have: a project without a telegram
+// bot should not be told how to set its update handler.
+func (w Workers) HasGeneratorTemplate(name string) bool {
+	for _, work := range w {
+		if work.GeneratorTemplate == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (ts Transports) Add(name string, transport Transport) error {

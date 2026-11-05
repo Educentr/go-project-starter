@@ -24,18 +24,22 @@ type Worker struct {
 	daemon.EmptyWorker
 	Srv ds.IService
 	jobState any
+	// Таймеры цикла. Поля, а не package-level переменные с durationFromEnv в
+	// инициализаторе: ENV читается в Create — в момент, который видно в main, — а
+	// не как side-effect импорта пакета. Читаются через errorTimeout() /
+	// newCycleTimeout(), там же лежат дефолты.
+	loopErrorTimeout    time.Duration
+	loopNewCycleTimeout time.Duration
 }
 
 const (
 	DefaultBatchSize     = 100
 	NextIterationTimeout = time.Millisecond * 1
-)
 
-// Loop timers, overridable via env vars for tests and tuning.
-// Defaults match historical hard-coded values.
-var (
-	ErrorTimeout    = durationFromEnv("WORKER_{{ .Worker.Name | ToUpper }}_ERROR_TIMEOUT", time.Second*10)
-	NewCycleTimeout = durationFromEnv("WORKER_{{ .Worker.Name | ToUpper }}_NEW_CYCLE_TIMEOUT", time.Second*10)
+	// Таймеры цикла по умолчанию — те же значения, что были захардкожены до
+	// появления ENV-переопределения.
+	DefaultErrorTimeout    = time.Second * 10
+	DefaultNewCycleTimeout = time.Second * 10
 )
 
 func durationFromEnv(key string, def time.Duration) time.Duration {
@@ -52,8 +56,53 @@ const (
 	WorkerName      = "{{ .Worker.Name }}"
 )
 
+// SetLoopTimeouts переопределяет паузы цикла из Go.
+//
+// Прежде это делалось присваиванием экспортированных package-level переменных
+// ErrorTimeout / NewCycleTimeout — чаще всего из теста проекта, чтобы цикл не
+// держал тест десять секунд. Переменных больше нет, а ENV на процесс
+// (WORKER_<NAME>_*) для теста неудобен: он глобален и зависит от порядка. Сеттер
+// возвращает тот же воркер, поэтому вызов можно записать в одну строку:
+//
+//	w := Create().SetLoopTimeouts(10*time.Millisecond, 10*time.Millisecond)
+//
+// Неположительное значение означает «оставить дефолт» — см. errorTimeout.
+func (w *Worker) SetLoopTimeouts(errorTimeout, newCycleTimeout time.Duration) *Worker {
+	w.loopErrorTimeout = errorTimeout
+	w.loopNewCycleTimeout = newCycleTimeout
+
+	return w
+}
+
+// errorTimeout — пауза после ошибки получения задач.
+//
+// Ноль здесь значит «не задано», а не «не ждать»: воркер, собранный не через
+// Create (&Worker{} в тесте проекта), с нулём крутил бы цикл на полной скорости и
+// долбил бы отказывающий источник задач без паузы. Поэтому неположительное
+// значение заменяется дефолтом.
+func (w *Worker) errorTimeout() time.Duration {
+	if w.loopErrorTimeout <= 0 {
+		return DefaultErrorTimeout
+	}
+
+	return w.loopErrorTimeout
+}
+
+// newCycleTimeout — пауза перед новым циклом, когда источник задач вернул nil.
+// Ноль трактуется так же, как в errorTimeout.
+func (w *Worker) newCycleTimeout() time.Duration {
+	if w.loopNewCycleTimeout <= 0 {
+		return DefaultNewCycleTimeout
+	}
+
+	return w.loopNewCycleTimeout
+}
+
 func Create() *Worker {
-    return &Worker{}
+    return &Worker{
+        loopErrorTimeout:    durationFromEnv("WORKER_{{ .Worker.Name | ToUpper }}_ERROR_TIMEOUT", DefaultErrorTimeout),
+        loopNewCycleTimeout: durationFromEnv("WORKER_{{ .Worker.Name | ToUpper }}_NEW_CYCLE_TIMEOUT", DefaultNewCycleTimeout),
+    }
 }
 
 func (w *Worker) Name() string {
@@ -178,7 +227,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 				tasks, jobState, err := w.GetTasks(ctx, w.jobState)
 				if err != nil {
 					{{ .Logger.ErrorMsg "ctx" "err" "Error get tasks" "str::$nameFieldLogger::WorkerName" }}
-					timer = time.NewTimer(ErrorTimeout)
+					timer = time.NewTimer(w.errorTimeout())
 					continue
 				}
 
@@ -186,7 +235,7 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 
 				if tasks == nil {
 					{{ .Logger.InfoMsg "ctx" "tasks is nill. Probable new cycle started" "str::$nameFieldLogger::WorkerName" }}
-					timer = time.NewTimer(NewCycleTimeout)
+					timer = time.NewTimer(w.newCycleTimeout())
 					continue
 				}
 

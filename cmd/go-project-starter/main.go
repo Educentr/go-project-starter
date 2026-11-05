@@ -55,8 +55,8 @@ const (
 
 var (
 	version   = "dev"
-	commit    = "none"
-	buildDate = "unknown"
+	commit    = "none"    //nolint:gochecknoglobals // set by the linker (-X main.commit); a const cannot be overridden
+	buildDate = "unknown" //nolint:gochecknoglobals // set by the linker (-X main.buildDate); a const cannot be overridden
 )
 
 func main() {

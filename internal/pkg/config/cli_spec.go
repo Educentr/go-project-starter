@@ -42,7 +42,7 @@ type CLISpec struct {
 }
 
 // validFlagTypes contains the allowed flag types
-var validFlagTypes = map[string]bool{
+var validFlagTypes = map[string]bool{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"string":   true,
 	"int":      true,
 	"bool":     true,

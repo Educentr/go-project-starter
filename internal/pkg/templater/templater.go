@@ -189,6 +189,12 @@ var (
 	// importErrRx = regexp.MustCompile(`(\d+):(\d+): `)
 )
 
+// cache memoizes template bodies read out of the embedded FS. The input is
+// fixed at compile time, so an entry can never go stale: a read-through cache
+// over an immutable input, not shared mutable state. Access goes through the
+// embedded mutex, so concurrent generation is safe.
+//
+//nolint:gochecknoglobals,decorder // memo over the embedded FS (see above); kept next to TemplateCache and GetTemplate, its only user
 var cache = TemplateCache{
 	templates: make(map[string]Template),
 }
@@ -285,11 +291,11 @@ const (
 )
 
 var (
-	ignoreExistingPath = []string{
+	ignoreExistingPath = []string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 		".git/",
 		"docs/",
 	}
-	ignoreIfExistsFiles = map[string]struct{}{
+	ignoreIfExistsFiles = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 		".gitignore":           {},
 		"go.mod":               {},
 		"go.sum":               {},

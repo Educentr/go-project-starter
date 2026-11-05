@@ -70,7 +70,11 @@ linters:
     # Checks that go compiler directive comments (//go:) are valid.
     - gocheckcompilerdirectives
     # Check that no global variables.
-    # - gochecknoglobals
+    # Включён (TOOLS-31). Что остаётся package-level — только с nolint и
+    # обоснованием: ldflags-переменные, read-only таблицы и memo над embed.FS.
+    # Мутабельного глобального состояния в генераторе нет.
+    # Для _test.go исключён (см. issues.exclude-rules): табличные тесты.
+    - gochecknoglobals
     # Checks that no init functions are present in Go code.
     # Включён и НЕ исключён для _test.go: init() — неявный side-effect при импорте,
     # зависящий от порядка инициализации пакетов, в тестах в той же мере (TOOLS-30).

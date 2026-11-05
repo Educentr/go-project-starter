@@ -35,7 +35,7 @@ var occonfCallRx = regexp.MustCompile(`\bocconf\.([A-Z][A-Za-z0-9]*)`)
 // package itself rather than from a declaration: the library's lifecycle, the
 // subscription helper, the startup check and its sentinel error. A template may
 // use them without declaring anything — they read no particular key.
-var occonfFacade = map[string]struct{}{
+var occonfFacade = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
 	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
 }

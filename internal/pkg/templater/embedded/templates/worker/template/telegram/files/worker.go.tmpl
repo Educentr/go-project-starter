@@ -10,8 +10,6 @@ import (
 	"{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
-var CustomError = map[error]func(ctx context.Context) (telegram.Response, error){}
-
 func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c telegram.Cmd, pp string) {
 	if hdl.Rd.Actor.ID == 0 {
 		{{ .Logger.ErrorMsg "ctx" "nil" "Actor ID is zero" }}
@@ -52,9 +50,9 @@ func (w *Worker) processRequest(ctx context.Context, hdl *handler.Handler, c tel
 }
 
 func (w *Worker) HandleAuthError(ctx context.Context, requestData telegram.RequestData, aclErr error) {
-	for cErr, cFunc := range CustomError {
-		if errors.Is(aclErr, cErr) {
-			resp, err := cFunc(ctx)
+	for _, ce := range w.customErrors {
+		if errors.Is(aclErr, ce.target) {
+			resp, err := ce.handler(ctx)
 			w.postProcessRequest(ctx, requestData, resp, err)
 
 			return

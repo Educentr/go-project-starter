@@ -23,7 +23,7 @@ const (
 // generator's hand-built rows. A declaration for one of these still reserves
 // its name and documents its help text; it just does not get a second,
 // poorer panel.
-var dedicatedRowPrefixes = []string{
+var dedicatedRowPrefixes = []string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"go_",
 	"process_",
 	"ogen_server_",

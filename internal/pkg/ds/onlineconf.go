@@ -190,7 +190,7 @@ const namesPerAccessor = 2
 // onlineConfDir is the project-relative directory of the generated accessor
 // package. It sits under internal/pkg/ because it is generated core logic with
 // no config dependency, following the repository's three-layer split.
-var onlineConfDir = filepath.Join("internal", "pkg", OnlineConfPackage)
+var onlineConfDir = filepath.Join(internalDir, pkgDir, OnlineConfPackage) //nolint:gochecknoglobals // filepath.Join of constants; read-only
 
 // ErrOnlineConfNameTaken reports two declarations that would generate one
 // function in the accessor package.
@@ -199,7 +199,7 @@ var ErrOnlineConfNameTaken = errors.New("onlineconf accessor name is already tak
 // onlineConfReserved are the names the accessor package carries itself: the
 // library's lifecycle, the subscription helper, the startup check and its
 // sentinel error. A declaration cannot have one of them.
-var onlineConfReserved = map[string]struct{}{
+var onlineConfReserved = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
 	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
 }

@@ -142,7 +142,7 @@ const (
 // explicitly because yaml.Decoder.KnownFields does not reach into a custom
 // UnmarshalYAML, and a silently ignored key is a declaration that never takes
 // effect — exactly the failure mode the map exists to remove.
-var metricFields = map[string]struct{}{
+var metricFields = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"name": {}, "type": {}, "labels": {}, "help": {},
 	"buckets": {}, "objectives": {}, "external": {},
 	"owner": {}, "requires": {},

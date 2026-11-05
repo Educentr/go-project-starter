@@ -2,6 +2,8 @@
 package {{ .Application.Name | ReplaceDash }}
 
 import (
+	"sync"
+
 	gtt "github.com/Educentr/goat"
 	"github.com/Educentr/goat/testutil"
 )
@@ -61,10 +63,55 @@ Create init.go with your implementation:
 `)
 }
 
-// testEnvInit is the current TestEnvInitializer implementation.
-// By default it's defaultTestEnvInitializer with panic.
-// Replace it from your init.go via SetTestEnvInitializer.
-var testEnvInit TestEnvInitializer = &defaultTestEnvInitializer{}
+// testEnvState — состояние тестового окружения: подменяемый инициализатор и то,
+// что он вернул.
+//
+// Одна структура вместо пяти отдельных package-level переменных (testEnvInit,
+// env, appConfig и два sync.Once): состояние процессное целиком, и держать его в
+// одном месте — единственный способ сказать это один раз, а не пять.
+type testEnvState struct {
+	initializer TestEnvInitializer
+
+	initOnce  sync.Once
+	appConfig testutil.TestAppConfig
+	env       *gtt.Env
+{{ if .Application.UseActiveRecord }}
+	activeRecordOnce sync.Once
+{{ end }}
+}
+
+// testEnv — единственная package-level переменная сгенерированного тестового
+// пакета.
+//
+// Процессный синглтон по природе задачи: InitTestEnv поднимает сервисы окружения
+// (контейнеры БД, xray), и они заводятся один раз на тестовый бинарь — иначе
+// каждый тестовый файл поднимал бы свою БД. Убрать переменную некуда:
+// передавать окружение аргументом значит отдать синглтон в код проекта, где его
+// уже ничто не сторожит. Поэтому состояние собрано в одну переменную с одним
+// исключением вместо пяти переменных без исключений.
+//
+//nolint:gochecknoglobals // процессный синглтон тестового окружения, см. выше
+var testEnv = &testEnvState{initializer: &defaultTestEnvInitializer{}}
+
+// ensure инициализирует тестовое окружение ровно один раз, лениво, при первом
+// обращении.
+//
+// Лениво, а не в инициализаторе переменной: к моменту первого обращения
+// инициализация переменных пакета (включая вызов SetTestEnvInitializer из
+// init.go проекта) уже завершилась, поэтому подмена инициализатора не теряется.
+func (s *testEnvState) ensure() {
+	s.initOnce.Do(func() {
+		s.appConfig, s.env = s.initializer.InitTestEnv()
+
+		if s.appConfig == nil {
+			panic("TestEnvInitializer.InitTestEnv() returned nil appConfig. Implement InitTestEnv in init.go")
+		}
+
+		if s.env == nil {
+			panic("TestEnvInitializer.InitTestEnv() returned nil env. Implement InitTestEnv in init.go")
+		}
+	})
+}
 
 // SetTestEnvInitializer подставляет реализацию TestEnvInitializer и возвращает её.
 // Вызывается из инициализатора переменной в вашем init.go:
@@ -75,13 +122,13 @@ var testEnvInit TestEnvInitializer = &defaultTestEnvInitializer{}
 // запрещён линтером (gochecknoinits) — неявный side-effect при импорте и
 // зависимость от порядка инициализации пакетов. Инициализатор переменной —
 // тот же момент времени, но с явной записью «кто кого подменяет»; именно для
-// этого функция и возвращает значение. testEnvInit инициализируется раньше
+// этого функция и возвращает значение. testEnv инициализируется раньше
 // (SetTestEnvInitializer от него зависит), так что подмена не теряется.
 //
 // Вызов до чтения гарантирован: инициализация переменных пакета завершается до
 // TestMain, а TestMain — единственный читатель (через GetEnv).
 func SetTestEnvInitializer(i TestEnvInitializer) TestEnvInitializer {
-	testEnvInit = i
+	testEnv.initializer = i
 
 	return i
 }

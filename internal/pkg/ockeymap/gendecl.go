@@ -322,7 +322,7 @@ var ErrGenDeclDefect = errors.New("generator onlineconf key declaration defect")
 // scopePlaceholders is the closed set of dimension placeholders each scope can
 // fill. A path using anything else is a defect: it could never be expanded into
 // a path that exists in a tree.
-var scopePlaceholders = map[string][]string{
+var scopePlaceholders = map[string][]string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	ScopeService:            {PlaceholderService},
 	ScopeRESTServer:         {PlaceholderService, PlaceholderTransport, PlaceholderApp},
 	ScopeRESTClient:         {PlaceholderService, PlaceholderTransport},
@@ -340,13 +340,13 @@ var scopePlaceholders = map[string][]string{
 var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
 
 // genKeyFields is the closed set of fields a declaration entry may carry.
-var genKeyFields = map[string]struct{}{
+var genKeyFields = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"path": {}, "name": {}, "type": {}, "required": {},
 	"shared": {}, "read_via": {}, "default": {}, "description": {},
 }
 
 // genGroupFields is the closed set of fields a declaration group may carry.
-var genGroupFields = map[string]struct{}{
+var genGroupFields = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"scope": {}, "keys": {},
 }
 

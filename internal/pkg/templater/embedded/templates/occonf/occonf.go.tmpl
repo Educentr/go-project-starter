@@ -333,6 +333,8 @@ type requiredCheck struct {
 // serviceRequired are the keys the service's own map declares `required`. They
 // hold for every application of the project: the map has no application
 // dimension.
+//
+//nolint:gochecknoglobals // таблица, целиком сгенерированная из карты ключей; после инициализации только читается
 var serviceRequired = []requiredCheck{
 {{- range $_, $c := .OnlineConf.ServiceRequired }}
 	{path: "{{ $c.Path }}", read: func(ctx context.Context) error { _, err := {{ $c.Accessor }}(ctx); return err }},
@@ -353,6 +355,8 @@ var serviceRequired = []requiredCheck{
 // The reads go through the ordinary accessors, which answer with presence; the
 // requirement is applied here rather than inside the accessor, so that a reader
 // of an optional component still gets to see an absent key.
+//
+//nolint:gochecknoglobals // таблица, целиком сгенерированная из карты ключей; после инициализации только читается
 var generatedRequired = map[string][]requiredCheck{
 {{- range $_, $app := .OnlineConf.AppRequired }}
 	"{{ $app.App }}": {

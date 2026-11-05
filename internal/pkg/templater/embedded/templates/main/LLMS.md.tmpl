@@ -107,6 +107,39 @@ keeps referring to types ogen no longer emits and the test package stops
 compiling.
 {{- end }}
 
+### No package-level mutable state
+
+{{ if .LintConfigOwn -}}
+This project owns `configs/golangci-lint.yml` (`tools.lint_config.own`), so
+whether `gochecknoglobals` and `gochecknoinits` are enabled is decided there, not
+by the generator. The generated code is written as though they are, and the rules
+below are what keeps regeneration from fighting code you add.
+{{- else -}}
+`gochecknoglobals` and `gochecknoinits` are both enabled in
+`configs/golangci-lint.yml`, `gochecknoinits` also for `_test.go`. So neither an
+`init()` function nor a mutable package-level `var` is a way to wire anything up.
+{{- end }}
+
+What is allowed at package level: a sentinel error (`var ErrX = errors.New(...)`),
+a `regexp.MustCompile`, a `//go:embed` declaration, a compile-time interface check
+(`var _ I = (*T)(nil)`), and anything carrying `//nolint:gochecknoglobals` with a
+reason. A lookup table that is only ever read is the usual honest case for that
+directive; shared mutable state is not.
+
+Extend generated code through the point it offers, not by reassigning something:
+
+| Instead of | Use |
+|------------|-----|
+| an `init()` function anywhere | the extension point of the component (see below) |
+{{- if .Workers.HasGeneratorTemplate "telegram" }}
+| assigning a telegram worker hook | `w.SetUpdateHandler(h, idle)`, `w.SetUnknownCommandHandler(h)`, `w.AddErrorHandler(target, h)` — all from `func (w *Worker) customize()` |
+| `cmdMaps[Cmd] = ...` | `w.AddCommands(telegram.Cmd{...})` from `customize()` |
+{{- end }}
+{{- if .Applications.HasGoatTests }}
+| assigning the goat test-env initializer | `var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})` |
+{{- end }}
+| a package-level `var` holding state your code mutates | a field on the owning struct, set by a constructor or a setter |
+
 ### Regeneration safety
 
 - Files with disclaimer markers: code above marker is regenerated, code below is preserved

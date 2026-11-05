@@ -120,7 +120,7 @@ const (
 // input, and who reads a key where is a question about consumers, not about the
 // contract. Keeping the schema closed is what makes a typo in a field name an
 // error instead of a declaration that quietly does nothing.
-var keyFields = map[string]struct{}{
+var keyFields = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"path": {}, "type": {}, "name": {},
 	"required": {}, "default": {}, "description": {},
 }

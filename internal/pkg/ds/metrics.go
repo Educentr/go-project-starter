@@ -61,7 +61,7 @@ const (
 // metricsDir is the project-relative directory of the generated collector
 // package. It sits under internal/pkg/ because it is generated core logic with
 // no config dependency, following the repository's three-layer split.
-var metricsDir = filepath.Join("internal", "pkg", MetricsPackage)
+var metricsDir = filepath.Join(internalDir, pkgDir, MetricsPackage) //nolint:gochecknoglobals // filepath.Join of constants; read-only
 
 // IsEnabled reports whether a metrics map is configured.
 func (m MetricsConfig) IsEnabled() bool {

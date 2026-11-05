@@ -61,7 +61,7 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		return config, errors.WithMessage(ErrInvalidConfig, "invalid config git section: "+msg)
 	}
 
-	config.Main.LoggerObj = loggers.LoggerMapping[config.Main.Logger]
+	config.Main.LoggerObj, _ = loggers.Get(config.Main.Logger)
 
 	// создаем мапки
 	config.RestMap = make(map[string]Rest)
