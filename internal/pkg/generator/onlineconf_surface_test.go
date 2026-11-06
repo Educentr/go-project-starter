@@ -234,7 +234,7 @@ func TestAppRequiredChecksFollowTheApplication(t *testing.T) {
 	}
 
 	for _, app := range config.Applications {
-		surface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app, optionalComponents(config)))
+		surface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app))
 		if err != nil {
 			t.Fatalf("ExpandGenDecls(%s) error: %v", app.Name, err)
 		}
@@ -494,6 +494,110 @@ func TestOnlineConfSurfaceTolerantNeedsEveryWiringOptional(t *testing.T) {
 	for component, tolerant := range want {
 		if surface.Tolerant[component] != tolerant {
 			t.Errorf("Tolerant[%q] = %v, want %v", component, surface.Tolerant[component], tolerant)
+		}
+	}
+}
+
+// TestAppRequiredChecksFollowTheWiring is the pin on the agreement between the
+// registry and the generated startup checks.
+//
+// The registry answers "does any process of this project refuse to start
+// without the key" and the check answers "does THIS application", so the two
+// have to read `optional: true` the same way: as a setting of the wiring. Read
+// project-wide by the check, as it used to be, a producer optional in one
+// application and mandatory in another was published as a key to seed while no
+// application checked it — a guard demanding configuration nothing verifies,
+// and for Kafka nothing else stops the start: the producer is never nil, so
+// ValidateFor<App> says nothing about it.
+func TestAppRequiredChecksFollowTheWiring(t *testing.T) {
+	config := cfg.Config{
+		Main: cfg.Main{Name: "svc"},
+		KafkaList: cfg.KafkaList{
+			{
+				Name: "audits", Type: ds.KafkaTypeProducer, Client: "audits",
+				Events: []cfg.KafkaEvent{{Name: "logged"}},
+			},
+			{
+				Name: "events", Type: ds.KafkaTypeProducer, Client: "main",
+				Events: []cfg.KafkaEvent{{Name: "created"}},
+			},
+		},
+		Applications: []cfg.Application{
+			{
+				Name: "api",
+				KafkaList: []cfg.AppKafka{
+					{Name: "audits", Optional: true},
+					{Name: "events", Optional: true},
+				},
+			},
+			{
+				Name: "worker",
+				// The same producer, wired without `optional`: this process
+				// does not come up without the brokers.
+				KafkaList: []cfg.AppKafka{{Name: "audits"}},
+			},
+		},
+	}
+
+	config.KafkaMap = map[string]cfg.Kafka{}
+	for _, kafka := range config.KafkaList {
+		config.KafkaMap[kafka.Name] = kafka
+	}
+
+	decls, err := templater.LoadOnlineConfKeyDecls()
+	if err != nil {
+		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
+	}
+
+	want := map[string][]string{
+		// Both producers are optional here, so neither key is checked.
+		"api": {},
+		// The mandatory wiring is the one that needs the brokers.
+		"worker": {"/svc/kafka/audits/brokers"},
+	}
+
+	checked := map[string]bool{}
+
+	for _, app := range config.Applications {
+		surface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app))
+		if err != nil {
+			t.Fatalf("ExpandGenDecls(%s) error: %v", app.Name, err)
+		}
+
+		got := make([]string, 0, len(surface.Required))
+
+		for _, check := range surface.Required {
+			got = append(got, check.Path)
+			checked[check.Path] = true
+		}
+
+		if strings.Join(got, ",") != strings.Join(want[app.Name], ",") {
+			t.Errorf("application %s requires %v, want %v", app.Name, got, want[app.Name])
+		}
+	}
+
+	// And the registry says the same about those keys as the checks do. This is
+	// the invariant the published flag rests on: a guard may take every
+	// `required_at_init` row of the registry as a key to seed, because each one
+	// is a key some process of the project verifies at startup.
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
+	if err != nil {
+		t.Fatalf("ExpandGenDecls(project) error: %v", err)
+	}
+
+	published := map[string]ockeymap.GeneratorKey{}
+
+	for _, key := range generated.Keys {
+		published[key.Path] = key
+
+		if key.Required && !checked[key.Path] {
+			t.Errorf("%s is published as required, but no application checks it", key.Path)
+		}
+	}
+
+	for path := range checked {
+		if key, ok := published[path]; !ok || !key.Required || !key.RequiredAtInit {
+			t.Errorf("%s is checked at startup, but the registry does not publish it as required", path)
 		}
 	}
 }

@@ -346,9 +346,12 @@ var serviceRequired = []requiredCheck{
 // client's host, a Kafka producer's brokers, a telegram bot's token — and a
 // process that does not run that component does not read it. Checking the
 // project's whole set in every process would stop a REST-only application over
-// the token of a worker it never starts. A component declared `optional: true`
-// in project.yaml is left out for the same reason: the generated reader skips
-// it, so the check must not insist on it.
+// the token of a worker it never starts. A component THIS application declares
+// `optional: true` in project.yaml is left out for the same reason: the
+// generated reader skips it, so the check must not insist on it. Another
+// application wiring the same component without `optional` keeps its own check —
+// optionality is a setting of the wiring, and that application does need the
+// key.
 //
 // The reads go through the ordinary accessors, which answer with presence; the
 // requirement is applied here rather than inside the accessor, so that a reader

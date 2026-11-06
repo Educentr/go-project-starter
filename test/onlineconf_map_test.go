@@ -1,10 +1,13 @@
 package test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -966,14 +969,16 @@ func TestRequiredKeysAreAlsoRequiredAtInit(t *testing.T) {
 // answers for: one application, not the project.
 //
 // The fixture wires one REST client optional in the application that can run
-// without it and mandatory in another, and one Kafka producer optional in the
-// only application that wires it. Published the other way round, both are the
-// failure this flag exists to prevent: a key nothing demands while a process
-// refuses to start without it, and a key demanded while no process reads it.
+// without it and mandatory in another, one Kafka producer optional in the only
+// application that wires it, and a second producer optional in one application
+// and mandatory in another. Published the other way round, each is the failure
+// this flag exists to prevent: a key nothing demands while a process refuses to
+// start without it, and a key demanded while no process reads it.
 func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
 	tmpDir := generateFromConfig(t, "onlineconf-tolerant",
 		"Generate project with a component optional in one application only")
 	byPath := onlineConfRegistry(t, tmpDir)
+	checks := generatedStartupChecks(t, tmpDir)
 
 	// billing is optional for `api` and mandatory for `worker`: the worker
 	// process validates its dependencies and refuses to start on the nil
@@ -995,10 +1000,9 @@ func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
 		t.Error("the mandatory wiring should keep its application from starting without the client")
 	}
 
-	// The producer is optional in the one application that wires it, so its
-	// `required` key is checked in no application — the generated startup check
-	// is empty. A flag on it would send a guard after configuration this
-	// project does not need.
+	// events_producer is optional in the one application that wires it, so its
+	// `required` key is checked in no application. A flag on it would send a
+	// guard after configuration this project does not need.
 	brokers, ok := byPath["/octolerant/kafka/main_kafka/brokers"]
 	if !ok {
 		t.Fatal("registry should list the brokers of the producer")
@@ -1008,8 +1012,156 @@ func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
 		t.Errorf("brokers row = %+v, want neither flag: every wiring of the producer is optional", brokers)
 	}
 
-	occonfFile := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
-	if !strings.Contains(occonfFile, "func CheckRequired(_ context.Context, _ string) error") {
-		t.Error("an optional producer adds no startup check, so the registry must not claim one")
+	// audit_producer is optional in `api` and mandatory in `worker`. A producer
+	// is never nil, so ValidateFor<App> says nothing about it: the startup check
+	// of this key is the only thing that keeps the worker from coming up without
+	// brokers, and the row has to say so.
+	auditBrokers, ok := byPath["/octolerant/kafka/audit_kafka/brokers"]
+	if !ok {
+		t.Fatal("registry should list the brokers of the mixed-wiring producer")
 	}
+
+	if !auditBrokers.Required || !auditBrokers.RequiredAtInit {
+		t.Errorf("brokers row = %+v, want both flags: one wiring of the producer has no `optional`",
+			auditBrokers)
+	}
+
+	if !slices.Contains(checks["worker"], auditBrokers.Path) {
+		t.Errorf("the mandatory wiring should check %s at startup, checks are %v",
+			auditBrokers.Path, checks)
+	}
+
+	if slices.Contains(checks["api"], auditBrokers.Path) {
+		t.Errorf("the optional wiring should not check %s at startup", auditBrokers.Path)
+	}
+
+	// The invariant a guard rests on, over every row of this project: a
+	// generated key published as required is one some process verifies at
+	// startup, and nothing is verified that the registry does not publish.
+	// Either way round the two would disagree, and the registry is the only
+	// half a consumer can see.
+	checked := map[string]bool{}
+
+	for _, paths := range checks {
+		for _, path := range paths {
+			checked[path] = true
+		}
+	}
+
+	for path, entry := range byPath {
+		if entry.Origin != "generated" {
+			continue
+		}
+
+		if entry.Required && !checked[path] {
+			t.Errorf("%s is published as required, but no application checks it at startup", path)
+		}
+
+		if checked[path] && !(entry.Required && entry.RequiredAtInit) {
+			t.Errorf("%s is checked at startup, but its row = %+v", path, entry)
+		}
+	}
+}
+
+// generatedStartupChecks returns the paths each application's startup check
+// verifies, read out of the generated occonf package.
+//
+// It parses the file rather than grepping it, because the question is which
+// application a check belongs to — and that is the key of the map literal the
+// checks sit in, not something a line of the file says on its own.
+func generatedStartupChecks(t *testing.T, tmpDir string) map[string][]string {
+	t.Helper()
+
+	src := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	file, err := parser.ParseFile(token.NewFileSet(), "psg_occonf_gen.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("the generated occonf package does not parse: %v", err)
+	}
+
+	out := map[string][]string{}
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != "generatedRequired" || len(value.Values) != 1 {
+				continue
+			}
+
+			literal, ok := value.Values[0].(*ast.CompositeLit)
+			if !ok {
+				t.Fatal("generatedRequired should be a composite literal of checks per application")
+			}
+
+			for _, element := range literal.Elts {
+				pair, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+
+				app := unquoteLiteral(t, pair.Key)
+
+				checks, ok := pair.Value.(*ast.CompositeLit)
+				if !ok {
+					t.Fatalf("the checks of %s should be a composite literal", app)
+				}
+
+				out[app] = startupCheckPaths(t, app, checks)
+			}
+		}
+	}
+
+	return out
+}
+
+// startupCheckPaths pulls the path out of each requiredCheck literal of one
+// application.
+func startupCheckPaths(t *testing.T, app string, checks *ast.CompositeLit) []string {
+	t.Helper()
+
+	paths := make([]string, 0, len(checks.Elts))
+
+	for _, element := range checks.Elts {
+		check, ok := element.(*ast.CompositeLit)
+		if !ok {
+			t.Fatalf("a check of %s should be a requiredCheck literal", app)
+		}
+
+		for _, field := range check.Elts {
+			pair, ok := field.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+
+			if name, ok := pair.Key.(*ast.Ident); !ok || name.Name != "path" {
+				continue
+			}
+
+			paths = append(paths, unquoteLiteral(t, pair.Value))
+		}
+	}
+
+	return paths
+}
+
+// unquoteLiteral reads a Go string literal out of the parsed source.
+func unquoteLiteral(t *testing.T, expr ast.Expr) string {
+	t.Helper()
+
+	literal, ok := expr.(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		t.Fatalf("expected a string literal, got %T", expr)
+	}
+
+	value, err := strconv.Unquote(literal.Value)
+	if err != nil {
+		t.Fatalf("string literal %s does not unquote: %v", literal.Value, err)
+	}
+
+	return value
 }

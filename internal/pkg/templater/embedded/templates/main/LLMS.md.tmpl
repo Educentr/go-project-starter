@@ -713,7 +713,8 @@ service's own, from a contract repository.
   rather than finding out from a crash loop. A REST server port is NOT among them: it
   defaults to the port declared in `project.yaml`. `optional: true` removes a component's
   keys from the list only when **every** application that wires it says so — the
-  application that wired it without `optional` still refuses to start on a nil dependency
+  application that wired it without `optional` still refuses to start, and
+  `{{ .OnlineConf.GetPackageName }}.CheckRequired` carries exactly that application's check
 {{- if .DevStand }}
 
 ## Dev Environment

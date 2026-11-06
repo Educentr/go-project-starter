@@ -1,6 +1,8 @@
 # What a component the project declares optional means for the registry of
-# OnlineConf keys: `optional: true` is per wiring, so one application saying it
-# can run without a component does not answer for another that cannot.
+# OnlineConf keys and for the generated startup checks: `optional: true` is per
+# wiring, so one application saying it can run without a component does not
+# answer for another that cannot — and the two have to read it the same way, or
+# the registry publishes a key to seed that no process verifies.
 main:
   name: octolerant
   logger: zerolog
@@ -45,16 +47,28 @@ rest:
     generator_type: template
     generator_template: sys
 
-# Optional in the single application that wires it: nothing of this project
-# refuses to start without the brokers, so the required key of the producer is
-# checked nowhere.
+# Two producers, so that both answers to "does any process need the brokers" are
+# in one project.
 kafka:
+  # Optional in the single application that wires it: nothing of this project
+  # refuses to start without the brokers, so the required key of the producer is
+  # checked nowhere.
   - name: events_producer
     type: producer
     driver: segmentio
     client: main_kafka
     events:
       - name: user_events
+  # Optional for the api application, mandatory for the worker one. A producer
+  # is never nil, so ValidateFor<App> says nothing about it: the only thing that
+  # keeps the worker from starting without the brokers is the startup check of
+  # the key, which is why the registry row and that check have to agree.
+  - name: audit_producer
+    type: producer
+    driver: segmentio
+    client: audit_kafka
+    events:
+      - name: audit_events
 
 applications:
   - name: api
@@ -67,8 +81,12 @@ applications:
     kafka:
       - name: events_producer
         optional: true
+      - name: audit_producer
+        optional: true
 
   - name: worker
     transport:
       - name: billing
       - name: sys
+    kafka:
+      - name: audit_producer

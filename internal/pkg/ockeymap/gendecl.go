@@ -964,14 +964,18 @@ func (e *expansion) addGroup(group GenGroup, owner string, surface ProjectSurfac
 			// A component the project lets do without its configuration is not
 			// one a guard can demand configuration for, so the published fact
 			// is per expansion rather than per declaration: the same host key
-			// is a start-stopper for one client and not for the next. It
-			// applies to `required` as well — the startup check of a required
-			// key is only generated for the applications that run its
-			// component, so a component every application answers for is
-			// checked nowhere.
+			// is a start-stopper for one client and not for the next.
 			e.addKey(key, owner, path, sub.tolerant)
 
-			if key.Required {
+			// The startup check comes from the same decision as the row, so
+			// that the two cannot disagree. Tolerance is "every wiring in this
+			// expansion's scope declares the component optional", and the two
+			// expansions differ only in that scope: the whole project for the
+			// registry, one application for its check. A component optional in
+			// every application is therefore tolerant in every per-application
+			// expansion too — checked nowhere, and published as required
+			// nowhere.
+			if key.Required && !sub.tolerant {
 				e.addRequired(key, sub.values, path)
 			}
 		}
