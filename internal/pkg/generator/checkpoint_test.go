@@ -37,6 +37,13 @@ func checkpointGenerator(t *testing.T, dir string, prev meta.Manifest) *Generato
 	}
 }
 
+// earlierRun is a minimal manifest of a previous run. The checkpoint only
+// records anything for a project that already has one, so a test about any
+// other aspect of it still has to supply one.
+func earlierRun() meta.Manifest {
+	return meta.Manifest{{Path: "Makefile", Kind: meta.KindGenerated, Hash: "earlier"}}
+}
+
 // savedManifest reads back the manifest the generator wrote to disk.
 func savedManifest(t *testing.T, dir string) meta.Manifest {
 	t.Helper()
@@ -128,8 +135,10 @@ func TestCheckpointKeepsRecordsOfEarlierRuns(t *testing.T) {
 func TestCheckpointSkipsFilesNeverWritten(t *testing.T) {
 	dir := t.TempDir()
 
-	g := checkpointGenerator(t, dir, nil)
-	g.checkpoint(dir, nil, runWrites{
+	prev := earlierRun()
+
+	g := checkpointGenerator(t, dir, prev)
+	g.checkpoint(dir, prev, runWrites{
 		generated: meta.Manifest{{Path: "cmd/api/psg_main_gen.go", Kind: meta.KindGenerated, Hash: "abc123"}},
 	})
 
@@ -146,8 +155,10 @@ func TestCheckpointSkipsWhenManifestAlreadySaved(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, genRel, "package constant\n")
 
-	g := checkpointGenerator(t, dir, nil)
-	g.checkpoint(dir, nil, runWrites{
+	prev := earlierRun()
+
+	g := checkpointGenerator(t, dir, prev)
+	g.checkpoint(dir, prev, runWrites{
 		generated: meta.Manifest{{Path: genRel, Kind: meta.KindGenerated, Hash: "abc123"}},
 		saved:     true,
 	})
@@ -174,8 +185,10 @@ func TestCheckpointKeepsContractProvenance(t *testing.T) {
 		Commit: "0123456789abcdef",
 	}
 
-	g := checkpointGenerator(t, dir, nil)
-	g.checkpoint(dir, nil, runWrites{contracts: meta.Manifest{record}})
+	prev := earlierRun()
+
+	g := checkpointGenerator(t, dir, prev)
+	g.checkpoint(dir, prev, runWrites{contracts: meta.Manifest{record}})
 
 	if got := savedManifest(t, dir).Index()[rel]; got != record {
 		t.Errorf("contract record = %+v, want %+v", got, record)
@@ -194,8 +207,10 @@ func TestCheckpointSkipsCopyThatNeverLanded(t *testing.T) {
 	dir := t.TempDir()
 	copied := writeFile(t, dir, copiedRel, "spec\n")
 
-	g := checkpointGenerator(t, dir, nil)
-	g.checkpoint(dir, nil, runWrites{
+	prev := earlierRun()
+
+	g := checkpointGenerator(t, dir, prev)
+	g.checkpoint(dir, prev, runWrites{
 		copied: []string{copied, filepath.Join(dir, filepath.FromSlash(missedRel))},
 	})
 
@@ -207,5 +222,29 @@ func TestCheckpointSkipsCopyThatNeverLanded(t *testing.T) {
 
 	if _, recorded := saved[missedRel]; recorded {
 		t.Errorf("manifest = %+v, want no record for the copy that never landed", saved)
+	}
+}
+
+// A project with no manifest stays without one: a partial manifest would make
+// the next run read the project as tracked and report every file earlier runs
+// wrote but this one did not reach as a file the generator never wrote.
+func TestCheckpointSkipsProjectWithoutManifest(t *testing.T) {
+	const (
+		genRel    = "internal/app/constant/psg_constant_gen.go"
+		copiedRel = "api/rest/example/v1/example.swagger.yml"
+	)
+
+	dir := t.TempDir()
+	writeFile(t, dir, genRel, "package constant\n")
+	copied := writeFile(t, dir, copiedRel, "spec\n")
+
+	g := checkpointGenerator(t, dir, nil)
+	g.checkpoint(dir, nil, runWrites{
+		generated: meta.Manifest{{Path: genRel, Kind: meta.KindGenerated, Hash: "abc123"}},
+		copied:    []string{copied},
+	})
+
+	if _, err := os.Stat(filepath.Join(dir, "meta.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("meta.yaml should not be written for a project that had no manifest, stat err = %v", err)
 	}
 }

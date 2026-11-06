@@ -45,11 +45,23 @@ type runWrites struct {
 // are actually on disk are recorded — a write that failed leaves a planned
 // record with no file behind it.
 //
+// A run with no previous manifest is not checkpointed at all: there a partial
+// manifest is worse than none. The manifest is also the switch between the
+// exact path and the pre-manifest one (templater.GetUserCodeFromFiles), so
+// writing one turns the project into "tracked" — and every file earlier runs
+// put there that this one did not reach (the specs under api/, the generated
+// files past the point of failure) becomes a file the generator never wrote,
+// i.e. a conflict. Leaving meta.yaml as it was keeps the project on the path it
+// was already on, and the first run that completes records the whole picture.
+// Nothing is lost by it: without records every check the checkpoint feeds —
+// copied drift, contract drift, conflicts — is a no-op, so such a project
+// cannot be in the loop the checkpoint exists for.
+//
 // Failures are logged rather than returned: the run is already failing on
 // something the operator has to act on, and that error is the one worth
 // showing.
 func (g *Generator) checkpoint(targetPath string, prev meta.Manifest, w runWrites) {
-	if w.saved {
+	if w.saved || len(prev) == 0 {
 		return
 	}
 
