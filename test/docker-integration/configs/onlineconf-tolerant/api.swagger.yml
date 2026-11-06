@@ -1,0 +1,60 @@
+openapi: 3.0.2
+servers:
+  - url: http://localhost:{port}/{basePath}
+    description: The production API server
+    variables:
+      port:
+        enum:
+          - '8080'
+        default: '8080'
+      basePath:
+        default: v1
+info:
+  version: 1.0.0
+  title: Test API
+tags:
+  - name: health
+    description: Health check endpoints
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: Health check
+      description: Returns service health status
+      operationId: getHealth
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefault'
+components:
+  schemas:
+    ErrorDefault:
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: integer
+          format: int32
+        error:
+          type: string
+      type: object
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: "1.0.0"
+      type: object

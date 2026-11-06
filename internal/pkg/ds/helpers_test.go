@@ -1118,3 +1118,64 @@ func TestApps_HasMocks(t *testing.T) {
 		t.Error("Apps.HasMocks() = false, want true when any application gets mock scaffolding")
 	}
 }
+
+// The ports the generated REST configuration provider falls back to: the ones
+// project.yaml declares, keyed by the server name the runtime hands back.
+func TestApps_RESTServerPorts(t *testing.T) {
+	apps := Apps{
+		{
+			Name: "web",
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", PkgName: "api_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8080",
+				},
+				"sys": Transport{
+					Name: "sys", PkgName: "sys_v1", Type: RestTransportType,
+					GeneratorType: "template", Port: "8085",
+				},
+				// A client reads the host of an upstream, not a port of its own.
+				"billing": Transport{
+					Name: "billing", PkgName: "billing_v1", Type: RestTransportType,
+					GeneratorType: "ogen_client", Port: "9000",
+				},
+				// No port declared: defaulting to zero would make the server
+				// listen on a port nobody asked for.
+				"legacy": Transport{
+					Name: "legacy", PkgName: "legacy_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "0",
+				},
+				"draft": Transport{
+					Name: "draft", PkgName: "draft_v1", Type: RestTransportType,
+					GeneratorType: "ogen",
+				},
+				// Another protocol entirely.
+				"items": Transport{Name: "items", Type: GrpcTransportType, Port: "8090"},
+			},
+		},
+		{
+			// The same server served by a second application is one entry.
+			Name: "admin",
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", PkgName: "api_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8080",
+				},
+			},
+		},
+	}
+
+	got := apps.RESTServerPorts()
+
+	want := []RESTServerPort{{Server: "api_v1", Port: "8080"}, {Server: "sys_v1", Port: "8085"}}
+
+	if len(got) != len(want) {
+		t.Fatalf("Apps.RESTServerPorts() = %+v, want %+v", got, want)
+	}
+
+	for i, server := range want {
+		if got[i] != server {
+			t.Errorf("Apps.RESTServerPorts()[%d] = %+v, want %+v", i, got[i], server)
+		}
+	}
+}

@@ -10,9 +10,12 @@
 # ("api_v1"): it is the name the generated main hands to rest.NewServer, and the
 # runtime passes it straight back into this provider.
 #
-# None of these is `required`. The two-form keys cannot be — the startup check
-# verifies one path at a time, and either form satisfies the provider — and the
-# server reports a missing port with the transport and application named anyway.
+# None of these is `required`, and none is `required_at_init`: every one has a
+# default in the generated provider, the port included — it falls back to the
+# port declared for the server in project.yaml, which the generator renders into
+# the provider. The two-form keys could not be `required` in any case: the
+# startup check verifies one path at a time, and either form satisfies the
+# provider.
 groups:
   - scope: rest_server
     keys:
@@ -31,14 +34,17 @@ groups:
       - path: "{service}/transport/rest/{transport}/port"
         name: RESTServerPort
         type: string
+        default: "the port declared for this server in project.yaml"
         description: >-
           Port the HTTP server listens on, for every application serving this
-          transport. Startup fails when neither form is set.
+          transport. Neither form set means the server listens where
+          project.yaml says it does, so this key is for moving a server off its
+          declared port, not for telling it where to listen.
 
       - path: "{service}/transport/rest/{transport}/{app}/port"
         name: RESTServerAppPort
         type: string
-        default: "the transport-wide value"
+        default: "the transport-wide value, then the port declared for this server in project.yaml"
         description: Port the HTTP server of this application listens on.
 
       - path: "{service}/transport/rest/{transport}/server/timeout/read"

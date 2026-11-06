@@ -135,6 +135,13 @@ type OnlineConfSurfaceEntry struct {
 	Type string
 	// Required marks a key the startup check verifies.
 	Required bool
+	// RequiredAtInit marks a key whose absence keeps the process from starting.
+	// A `required` key is one of these — the startup check failing IS that —
+	// and so is a key no check covers whose component reports it missing from
+	// its own Init. One field for both, because what the guard of whoever
+	// seeds the tree has to know is whether the service starts without the
+	// key, not which mechanism notices that it did not.
+	RequiredAtInit bool
 	// Accessor is the generated accessor the path is read through.
 	Accessor string
 	// ReadVia names the shared accessor a generated read goes through, empty
@@ -385,31 +392,41 @@ func onlineConfSurfaceRows(
 
 	for _, key := range serviceKeys {
 		out = append(out, OnlineConfSurfaceEntry{
-			Path:        key.Path,
-			Origin:      OnlineConfOriginService,
-			Type:        key.Type,
-			Required:    key.Required,
-			Accessor:    key.VarName(),
-			HasDefault:  key.HasDefault(),
-			Default:     key.DefaultText(),
-			Description: key.Description,
+			Path:   key.Path,
+			Origin: OnlineConfOriginService,
+			Type:   key.Type,
+			// A required service key is checked at the startup of every
+			// application — the service map has no application dimension — so
+			// the process does not start without it.
+			Required:       key.Required,
+			RequiredAtInit: key.Required,
+			Accessor:       key.VarName(),
+			HasDefault:     key.HasDefault(),
+			Default:        key.DefaultText(),
+			Description:    key.Description,
 		})
 	}
 
 	if generated != nil {
 		for _, key := range generated.Keys {
+			// Both flags arrive already resolved against this project's
+			// settings: whether a `required` key is checked anywhere, and
+			// whether anything refuses to start without it, depend on how the
+			// applications wire the component — which is what the expansion
+			// knows and this mapping does not.
 			out = append(out, OnlineConfSurfaceEntry{
-				Path:        key.Path,
-				Origin:      OnlineConfOriginGenerated,
-				Type:        key.Type,
-				Required:    key.Required,
-				Accessor:    key.Accessor,
-				ReadVia:     key.ReadVia,
-				Owns:        key.OwnedPrefix,
-				HasDefault:  key.Default != "",
-				Default:     key.Default,
-				ReadBy:      key.ReadBy,
-				Description: key.Description(),
+				Path:           key.Path,
+				Origin:         OnlineConfOriginGenerated,
+				Type:           key.Type,
+				Required:       key.Required,
+				RequiredAtInit: key.RequiredAtInit,
+				Accessor:       key.Accessor,
+				ReadVia:        key.ReadVia,
+				Owns:           key.OwnedPrefix,
+				HasDefault:     key.Default != "",
+				Default:        key.Default,
+				ReadBy:         key.ReadBy,
+				Description:    key.Description(),
 			})
 		}
 	}

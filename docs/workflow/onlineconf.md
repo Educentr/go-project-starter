@@ -83,6 +83,8 @@ OnlineConf пути следуют 3-уровневой иерархии для 
 /my-api/transport/rest/api_v1/web-app/port
 ```
 
+> **Порт засевать не нужно.** Уровень «default from code» для `port` — это порт сервера из `project.yaml`: генератор рендерит его в провайдер конфигурации. Ключ нужен только чтобы увести сервер с объявленного порта. Подробнее — [Порт REST-сервера](../configuration/transports.md#порт-rest-сервера).
+
 ## Динамическое обновление таймаутов
 
 Серверные таймауты (`timeout_read`, `timeout_write`, `timeout_read_header`) подписаны на изменения в OnlineConf через `RegisterSubscription`. При изменении значения в OnlineConf Admin UI:

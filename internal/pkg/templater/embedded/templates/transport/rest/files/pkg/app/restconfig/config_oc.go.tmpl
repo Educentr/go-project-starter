@@ -36,6 +36,20 @@ func NewOnlineConfConfigProvider(serviceName string) *OnlineConfConfigProvider {
 	return &OnlineConfConfigProvider{ServiceName: serviceName}
 }
 
+// defaultPorts are the ports project.yaml declares for the REST servers of this
+// service, keyed by the server name the runtime hands back to this provider.
+//
+// The port is the one piece of server configuration OnlineConf had to carry
+// before anything could start: the key has no other default, so every
+// installation seeded it by hand, repeating a number declared in project.yaml
+// all along. A value in the tree still wins — this is only what the provider
+// answers with when neither form of the key is set.
+var defaultPorts = map[string]string{
+{{- range $_, $server := .Applications.RESTServerPorts }}
+	"{{ $server.Server }}": "{{ $server.Port }}",
+{{- end }}
+}
+
 // --- ServerConfigProvider ---
 
 // GetServerConfig reads server configuration from OnlineConf.
@@ -44,6 +58,10 @@ func NewOnlineConfConfigProvider(serviceName string) *OnlineConfConfigProvider {
 // it — and is resolved application-first, transport-second. The two forms are
 // two keys, so each is read through its own accessor; the order they are tried
 // in is this provider's and stays here.
+//
+// The port falls back to the one declared for this server in project.yaml
+// (defaultPorts) when neither key is set, so a server that listens where the
+// project says it does needs no OnlineConf value at all.
 func (p *OnlineConfConfigProvider) GetServerConfig(ctx context.Context, serverName, appName string) (rest.ServerConfig, error) {
 	ip := rest.DefaultListenIP
 
@@ -70,6 +88,13 @@ func (p *OnlineConfConfigProvider) GetServerConfig(ctx context.Context, serverNa
 	}
 
 	if !ok {
+		port, ok = defaultPorts[serverName]
+	}
+
+	if !ok {
+		// Only reachable for a server this generator did not declare a port
+		// for: project.yaml left it out, or the provider was handed a name no
+		// generated main passes.
 		return rest.ServerConfig{}, fmt.Errorf("required config %q not found in %s/%s", "port", serverName, appName)
 	}
 

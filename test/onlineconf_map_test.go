@@ -1,10 +1,13 @@
 package test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,16 +18,17 @@ import (
 // closed schema so that a field added to the template without a thought shows
 // up here.
 type registryEntry struct {
-	Path        string   `yaml:"path"`
-	Origin      string   `yaml:"origin"`
-	Type        string   `yaml:"type"`
-	Required    bool     `yaml:"required"`
-	Accessor    string   `yaml:"accessor"`
-	ReadVia     string   `yaml:"read_via"`
-	Owns        string   `yaml:"owns"`
-	Default     string   `yaml:"default"`
-	ReadBy      []string `yaml:"read_by"`
-	Description string   `yaml:"description"`
+	Path           string   `yaml:"path"`
+	Origin         string   `yaml:"origin"`
+	Type           string   `yaml:"type"`
+	Required       bool     `yaml:"required"`
+	RequiredAtInit bool     `yaml:"required_at_init"`
+	Accessor       string   `yaml:"accessor"`
+	ReadVia        string   `yaml:"read_via"`
+	Owns           string   `yaml:"owns"`
+	Default        string   `yaml:"default"`
+	ReadBy         []string `yaml:"read_by"`
+	Description    string   `yaml:"description"`
 }
 
 // onlineConfRegistryFile is the shape of the generated registry.
@@ -853,4 +857,311 @@ func TestGeneratedRequiredKeysSurviveProjectSettings(t *testing.T) {
 	if strings.Contains(telegram, `"api": {`) {
 		t.Error("an application that runs no telegram worker must not require the token")
 	}
+}
+
+// TestRESTServerPortDefaultsToProjectYAML is the pin on the one framework key a
+// project used to have to seed before anything could start.
+//
+// The port had no default in the generated code while project.yaml declared it
+// all along, so every installation copied the number into OnlineConf by hand —
+// for every server, in every environment. The provider now falls back to the
+// declared port, and the key is what moves a server off it.
+func TestRESTServerPortDefaultsToProjectYAML(t *testing.T) {
+	tmpDir := generateFromConfig(t, "rest-only", "Generate project for the port default")
+	provider := readGenerated(t, tmpDir, "pkg", "app", "restconfig", "psg_config_oc_gen.go")
+
+	// Both servers of the fixture, with the ports project.yaml declares for
+	// them, keyed by the name the generated main hands to rest.NewServer.
+	for _, want := range []string{`"api_v1": "8080"`, `"sys_v1": "8085"`} {
+		if !strings.Contains(provider, want) {
+			t.Errorf("the provider should default to the declared port %s", want)
+		}
+	}
+
+	// The fallback is the last resort: a value in the tree still wins, in
+	// either of the two declared forms.
+	if !strings.Contains(provider, "port, ok = defaultPorts[serverName]") {
+		t.Error("the declared port should be applied only after both OnlineConf forms miss")
+	}
+
+	// A client has no port of its own, and the registry row says the key now
+	// has a default — the thing a guard over the tree reads to know the key
+	// need not be seeded.
+	port, ok := onlineConfRegistry(t, tmpDir)["/resttest/transport/rest/api_v1/port"]
+	if !ok {
+		t.Fatal("registry should list the server port")
+	}
+
+	if port.Default == "" || port.RequiredAtInit {
+		t.Errorf("port row = %+v, want a default and no required_at_init", port)
+	}
+}
+
+// TestRequiredAtInitMarksKeysNoStartupCheckCovers is the pin on the machine
+// readable answer to "which framework keys must be seeded".
+//
+// The host of a generated client is read while the client comes up and the
+// process crash-loops without it, but no startup check can demand it: whether
+// the client needs it is a project.yaml setting. So the registry carries the
+// fact per path, already resolved against THIS project's settings — a guard can
+// take the whole list and demand it.
+func TestRequiredAtInitMarksKeysNoStartupCheckCovers(t *testing.T) {
+	byPath := onlineConfRegistry(t,
+		generateFromConfig(t, "rest-client-basic-auth", "Generate project with static and dynamic clients"))
+
+	// billing is wired statically: its Init reads the host and fails without it.
+	static, ok := byPath["/basicauthtest/transport/rest/billing_v1/host"]
+	if !ok {
+		t.Fatal("registry should list the host of the static client")
+	}
+
+	if !static.RequiredAtInit {
+		t.Errorf("static client host row = %+v, want required_at_init", static)
+	}
+
+	if static.Required {
+		t.Error("the host is not `required`: no startup check can demand it")
+	}
+
+	// audit is `instantiation: dynamic`: it takes its base URL as an argument
+	// and never reads the key, so demanding it would demand configuration for a
+	// read that does not exist.
+	dynamic, ok := byPath["/basicauthtest/transport/rest/audit_v1/host"]
+	if !ok {
+		t.Fatal("registry should list the host of the dynamic client")
+	}
+
+	if dynamic.RequiredAtInit {
+		t.Errorf("dynamic client host row = %+v, want no required_at_init", dynamic)
+	}
+
+	// A key with a fallback is never missing, so nothing has to be seeded for
+	// it — that is the other half of what makes the list actionable.
+	timeout, ok := byPath["/basicauthtest/transport/rest/billing_v1/timeout"]
+	if !ok {
+		t.Fatal("registry should list the client timeout")
+	}
+
+	if timeout.RequiredAtInit {
+		t.Errorf("client timeout row = %+v, want no required_at_init: it has a default", timeout)
+	}
+}
+
+// A `required` key is a key the process does not start without — the startup
+// check failing IS that — so the registry marks it as one too. Otherwise a
+// guard would need to know which of two mechanisms notices, and ORing two
+// fields is exactly the detail a guard gets wrong.
+func TestRequiredKeysAreAlsoRequiredAtInit(t *testing.T) {
+	byPath := onlineConfRegistry(t,
+		generateFromConfig(t, "worker-telegram", "Generate project with a telegram worker"))
+
+	token, ok := byPath["/telegramtest/security/tg_token"]
+	if !ok {
+		t.Fatal("registry should list the telegram token")
+	}
+
+	if !token.Required || !token.RequiredAtInit {
+		t.Errorf("token row = %+v, want both required and required_at_init", token)
+	}
+}
+
+// TestRequiredAtInitFollowsEveryWiring is the pin on what `optional: true`
+// answers for: one application, not the project.
+//
+// The fixture wires one REST client optional in the application that can run
+// without it and mandatory in another, one Kafka producer optional in the only
+// application that wires it, and a second producer optional in one application
+// and mandatory in another. Published the other way round, each is the failure
+// this flag exists to prevent: a key nothing demands while a process refuses to
+// start without it, and a key demanded while no process reads it.
+func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
+	tmpDir := generateFromConfig(t, "onlineconf-tolerant",
+		"Generate project with a component optional in one application only")
+	byPath := onlineConfRegistry(t, tmpDir)
+	checks := generatedStartupChecks(t, tmpDir)
+
+	// billing is optional for `api` and mandatory for `worker`: the worker
+	// process validates its dependencies and refuses to start on the nil
+	// client, so the host has to be seeded.
+	host, ok := byPath["/octolerant/transport/rest/billing_v1/host"]
+	if !ok {
+		t.Fatal("registry should list the host of the client")
+	}
+
+	if !host.RequiredAtInit {
+		t.Errorf("host row = %+v, want required_at_init: one wiring has no `optional`", host)
+	}
+
+	// And that is not a guess about the generated code: this is the check that
+	// fails without the key.
+	service := readGenerated(t, tmpDir, "internal", "pkg", "service", "psg_service_gen.go")
+	if !strings.Contains(service, "func (s *Service) ValidateForWorker() error") ||
+		!strings.Contains(service, `missing = append(missing, "billing (REST client)")`) {
+		t.Error("the mandatory wiring should keep its application from starting without the client")
+	}
+
+	// events_producer is optional in the one application that wires it, so its
+	// `required` key is checked in no application. A flag on it would send a
+	// guard after configuration this project does not need.
+	brokers, ok := byPath["/octolerant/kafka/main_kafka/brokers"]
+	if !ok {
+		t.Fatal("registry should list the brokers of the producer")
+	}
+
+	if brokers.Required || brokers.RequiredAtInit {
+		t.Errorf("brokers row = %+v, want neither flag: every wiring of the producer is optional", brokers)
+	}
+
+	// audit_producer is optional in `api` and mandatory in `worker`. A producer
+	// is never nil, so ValidateFor<App> says nothing about it: the startup check
+	// of this key is the only thing that keeps the worker from coming up without
+	// brokers, and the row has to say so.
+	auditBrokers, ok := byPath["/octolerant/kafka/audit_kafka/brokers"]
+	if !ok {
+		t.Fatal("registry should list the brokers of the mixed-wiring producer")
+	}
+
+	if !auditBrokers.Required || !auditBrokers.RequiredAtInit {
+		t.Errorf("brokers row = %+v, want both flags: one wiring of the producer has no `optional`",
+			auditBrokers)
+	}
+
+	if !slices.Contains(checks["worker"], auditBrokers.Path) {
+		t.Errorf("the mandatory wiring should check %s at startup, checks are %v",
+			auditBrokers.Path, checks)
+	}
+
+	if slices.Contains(checks["api"], auditBrokers.Path) {
+		t.Errorf("the optional wiring should not check %s at startup", auditBrokers.Path)
+	}
+
+	// The invariant a guard rests on, over every row of this project: a
+	// generated key published as required is one some process verifies at
+	// startup, and nothing is verified that the registry does not publish.
+	// Either way round the two would disagree, and the registry is the only
+	// half a consumer can see.
+	checked := map[string]bool{}
+
+	for _, paths := range checks {
+		for _, path := range paths {
+			checked[path] = true
+		}
+	}
+
+	for path, entry := range byPath {
+		if entry.Origin != "generated" {
+			continue
+		}
+
+		if entry.Required && !checked[path] {
+			t.Errorf("%s is published as required, but no application checks it at startup", path)
+		}
+
+		if checked[path] && !(entry.Required && entry.RequiredAtInit) {
+			t.Errorf("%s is checked at startup, but its row = %+v", path, entry)
+		}
+	}
+}
+
+// generatedStartupChecks returns the paths each application's startup check
+// verifies, read out of the generated occonf package.
+//
+// It parses the file rather than grepping it, because the question is which
+// application a check belongs to — and that is the key of the map literal the
+// checks sit in, not something a line of the file says on its own.
+func generatedStartupChecks(t *testing.T, tmpDir string) map[string][]string {
+	t.Helper()
+
+	src := readGenerated(t, tmpDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	file, err := parser.ParseFile(token.NewFileSet(), "psg_occonf_gen.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("the generated occonf package does not parse: %v", err)
+	}
+
+	out := map[string][]string{}
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != "generatedRequired" || len(value.Values) != 1 {
+				continue
+			}
+
+			literal, ok := value.Values[0].(*ast.CompositeLit)
+			if !ok {
+				t.Fatal("generatedRequired should be a composite literal of checks per application")
+			}
+
+			for _, element := range literal.Elts {
+				pair, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+
+				app := unquoteLiteral(t, pair.Key)
+
+				checks, ok := pair.Value.(*ast.CompositeLit)
+				if !ok {
+					t.Fatalf("the checks of %s should be a composite literal", app)
+				}
+
+				out[app] = startupCheckPaths(t, app, checks)
+			}
+		}
+	}
+
+	return out
+}
+
+// startupCheckPaths pulls the path out of each requiredCheck literal of one
+// application.
+func startupCheckPaths(t *testing.T, app string, checks *ast.CompositeLit) []string {
+	t.Helper()
+
+	paths := make([]string, 0, len(checks.Elts))
+
+	for _, element := range checks.Elts {
+		check, ok := element.(*ast.CompositeLit)
+		if !ok {
+			t.Fatalf("a check of %s should be a requiredCheck literal", app)
+		}
+
+		for _, field := range check.Elts {
+			pair, ok := field.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+
+			if name, ok := pair.Key.(*ast.Ident); !ok || name.Name != "path" {
+				continue
+			}
+
+			paths = append(paths, unquoteLiteral(t, pair.Value))
+		}
+	}
+
+	return paths
+}
+
+// unquoteLiteral reads a Go string literal out of the parsed source.
+func unquoteLiteral(t *testing.T, expr ast.Expr) string {
+	t.Helper()
+
+	literal, ok := expr.(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		t.Fatalf("expected a string literal, got %T", expr)
+	}
+
+	value, err := strconv.Unquote(literal.Value)
+	if err != nil {
+		t.Fatalf("string literal %s does not unquote: %v", literal.Value, err)
+	}
+
+	return value
 }

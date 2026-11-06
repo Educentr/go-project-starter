@@ -920,6 +920,12 @@ func (a Apps) HasGoatTestsWithOnlineconf() bool {
 	return false
 }
 
+// ogenClientGeneratorType is the generator_type of a REST transport that is a
+// generated client rather than a served API.
+//
+//nolint:decorder // follows existing pattern - declared next to its readers
+const ogenClientGeneratorType = "ogen_client"
+
 // HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
 func (a App) HasOgenClients() bool {
 	for _, transport := range a.Transports {
@@ -1102,6 +1108,61 @@ func (a Apps) getTransport(t TransportType) []Transport {
 
 func (app App) GetRestTransport() []Transport {
 	return app.getTransport(RestTransportType)
+}
+
+// RESTServerPort is one REST server of the project and the port project.yaml
+// declares for it.
+//
+//nolint:decorder // follows existing pattern - declared next to the method producing it
+type RESTServerPort struct {
+	// Server is the name the generated main hands to rest.NewServer
+	// (<transport>_<version>). It is the name the runtime hands back to the
+	// configuration provider, so it is the key the provider resolves a port
+	// under.
+	Server string
+	// Port is the declared port, in the string form the server configuration
+	// carries it in.
+	Port string
+}
+
+// RESTServerPorts returns the port project.yaml declares for every REST server
+// of the project, sorted by server name.
+//
+// It is the default the generated configuration provider applies when neither
+// form of the port key is set in OnlineConf. The port used to be the one piece
+// of server configuration with no default in the generated code while the
+// generator knew it all along — so every installation had to seed it by hand,
+// for every server, before anything could start.
+//
+// Clients are left out: they read the host of an upstream, not a port of their
+// own. So is a server whose declared port is empty or zero — that is not a
+// port, and defaulting to it would turn a missing key into a listener nobody
+// asked for, which is worse than the error the provider reports now.
+func (a Apps) RESTServerPorts() []RESTServerPort {
+	out := make([]RESTServerPort, 0, len(a))
+	seen := make(map[string]struct{}, len(a))
+
+	for _, transport := range a.GetRestTransport() {
+		if transport.GeneratorType == ogenClientGeneratorType {
+			continue
+		}
+
+		if transport.Port == "" || transport.Port == "0" {
+			continue
+		}
+
+		if _, dup := seen[transport.PkgName]; dup {
+			continue
+		}
+
+		seen[transport.PkgName] = struct{}{}
+
+		out = append(out, RESTServerPort{Server: transport.PkgName, Port: transport.Port})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Server < out[j].Server })
+
+	return out
 }
 
 func (a App) GetGrpcTransport() []Transport {
