@@ -198,7 +198,9 @@ func contractSourceDesc(c ds.Contract, rec meta.FileRecord) string {
 }
 
 // copyContracts copies every resolved contract spec to its `copy` destination
-// and returns the manifest records for them, provenance included.
+// and returns the manifest records for them, provenance included. On failure it
+// returns the records of the contracts it did copy: those files are on disk,
+// and a run that fails has to record what it wrote (see checkpoint).
 func (g *Generator) copyContracts(targetPath string) (meta.Manifest, error) {
 	if len(g.Contracts) == 0 {
 		return nil, nil
@@ -208,24 +210,24 @@ func (g *Generator) copyContracts(targetPath string) (meta.Manifest, error) {
 
 	for _, c := range g.Contracts {
 		if _, err := os.Stat(c.SpecPath); err != nil {
-			return nil, fmt.Errorf("%w: %s (contract %s)", errSpecNotFound, c.SpecPath, c.RawPath)
+			return records, fmt.Errorf("%w: %s (contract %s)", errSpecNotFound, c.SpecPath, c.RawPath)
 		}
 
 		dest := filepath.Join(targetPath, filepath.FromSlash(c.Copy))
 
 		if err := os.MkdirAll(filepath.Dir(dest), tools.DefaultDirPerm); err != nil {
-			return nil, fmt.Errorf("error create contract dir %s: %w", filepath.Dir(dest), err)
+			return records, fmt.Errorf("error create contract dir %s: %w", filepath.Dir(dest), err)
 		}
 
 		log.Printf("copy contract: `%s` to `%s`\n", c.Source, dest)
 
 		if err := tools.CopyFile(c.SpecPath, dest); err != nil {
-			return nil, errors.Wrapf(err, "copy contract %s", c.RawPath)
+			return records, errors.Wrapf(err, "copy contract %s", c.RawPath)
 		}
 
 		content, err := os.ReadFile(dest)
 		if err != nil {
-			return nil, fmt.Errorf("error read copied contract %s: %w", dest, err)
+			return records, fmt.Errorf("error read copied contract %s: %w", dest, err)
 		}
 
 		records = append(records, meta.FileRecord{

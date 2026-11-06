@@ -265,3 +265,60 @@ func TestManifestProvenanceRoundTrip(t *testing.T) {
 		t.Errorf("round trip = %+v, want %+v", back, rec)
 	}
 }
+
+// TestManifestMerge covers what a partial run needs from Merge: its own
+// records win, and the records of the runs before it survive.
+func TestManifestMerge(t *testing.T) {
+	prev := Manifest{
+		{Path: "api/rest/example/v1/example.yml", Kind: KindCopied, Hash: "spec-v1"},
+		{Path: "cmd/api/psg_main_gen.go", Kind: KindGenerated, Hash: "main-v1"},
+	}
+
+	upd := Manifest{
+		{Path: "api/rest/example/v1/example.yml", Kind: KindCopied, Hash: "spec-v2"},
+		{Path: "api/contract/limits.yaml", Kind: KindCopied, Hash: "limits", Source: "./limits.yaml"},
+	}
+
+	merged := prev.Merge(upd)
+
+	// Sorted by path, one record per path — SetManifest's contract.
+	wantPaths := []string{"api/contract/limits.yaml", "api/rest/example/v1/example.yml", "cmd/api/psg_main_gen.go"}
+	if len(merged) != len(wantPaths) {
+		t.Fatalf("merged = %+v, want %d records", merged, len(wantPaths))
+	}
+
+	for i, want := range wantPaths {
+		if merged[i].Path != want {
+			t.Errorf("record %d path = %q, want %q", i, merged[i].Path, want)
+		}
+	}
+
+	idx := merged.Index()
+
+	if got := idx["api/rest/example/v1/example.yml"].Hash; got != "spec-v2" {
+		t.Errorf("replaced record hash = %q, want the update to win", got)
+	}
+
+	if got := idx["cmd/api/psg_main_gen.go"].Hash; got != "main-v1" {
+		t.Errorf("untouched record hash = %q, want the previous run's record kept", got)
+	}
+
+	if got := idx["api/contract/limits.yaml"].Source; got != "./limits.yaml" {
+		t.Errorf("added record source = %q, want it carried over", got)
+	}
+}
+
+// Merging nothing is still normalization: the caller hands the result straight
+// to SetManifest.
+func TestManifestMergeEmptyUpdate(t *testing.T) {
+	prev := Manifest{
+		{Path: "b.yml", Kind: KindCopied, Hash: "b"},
+		{Path: "a.yml", Kind: KindCopied, Hash: "a"},
+	}
+
+	merged := prev.Merge(nil)
+
+	if len(merged) != 2 || merged[0].Path != "a.yml" || merged[1].Path != "b.yml" {
+		t.Errorf("merged = %+v, want the previous manifest sorted by path", merged)
+	}
+}
