@@ -1,0 +1,34 @@
+# Minimal project whose only post-generate step is git_install: generating it
+# runs `make git-init` in a tree that has no .git yet, which is what
+# TestGenerateGitInitOutsideRepository asserts stays silent.
+#
+# dev_stand is deliberately off: it would make the generator add the onlineconf
+# submodule, and this fixture must not need the network.
+main:
+  name: gitinittest
+  logger: zerolog
+  registry_type: github
+
+post_generate:
+  - git_install
+
+git:
+  repo: git@github.com:test/gitinittest.git
+  module_path: github.com/test/gitinittest
+
+tools:
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: sys

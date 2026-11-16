@@ -1,8 +1,14 @@
 PWD = $(CURDIR)
 # Service name
 SERVICE_NAME = {{ .ProjectName }}
-# 8 symbols of the last commit
-LAST_COMMIT_HASH = $(shell git rev-parse --short=8 HEAD)
+# 8 symbols of the last commit.
+# Every git-derived variable below is recursively expanded (`=`, never `:=`) and
+# silences git's stderr. `make git-init` runs in a tree where `git init` has not
+# happened yet (the git_install post-generate step), so a variable expanded
+# while the Makefile is parsed prints `fatal: not a git repository` once per
+# expansion. Keep them lazy and quiet, and do not branch on them with `ifeq`,
+# which is evaluated at parse time.
+LAST_COMMIT_HASH = $(shell git rev-parse --short=8 HEAD 2>/dev/null)
 # Version of api/buf.yaml buf generator
 BUF_VERSION:=1.47.2
 # Test timeout
@@ -53,11 +59,14 @@ ONLINECONF_UPDATER_VERSION = v3.6.4
 BUILD_DATE = $(shell TZ=UTC-3 date +%Y%m%d-%H%M)
 # Operation system
 OSNAME = $(shell uname)
-# Build version
+# Commit timestamp of HEAD, unix seconds. Empty outside a git repository, which
+# also makes the `date` call below fail, hence the silenced stderr there too.
+COMMIT_TIMESTAMP = $(shell git show -s --format=%ct HEAD 2>/dev/null | head -1)
+# Build version. This `ifeq` tests `uname`, not git data, so parsing it is free.
 ifeq ($(OSNAME),Darwin)
-RELEASE ?= $(shell TZ=UTC-3 date -r $(shell git show -s --format=%ct $(shell git rev-parse HEAD) | head -1) '+%Y%m%d-%H%M')
+RELEASE ?= $(shell TZ=UTC-3 date -r $(COMMIT_TIMESTAMP) '+%Y%m%d-%H%M' 2>/dev/null)
 else
-RELEASE ?= $(shell git describe --exact-match --tags 2> /dev/null || TZ=UTC-3 date -d @$(shell git show -s --format=%ct $(shell git rev-parse HEAD) | head -1) '+%Y%m%d-%H%M')
+RELEASE ?= $(shell git describe --exact-match --tags 2>/dev/null || TZ=UTC-3 date -d @$(COMMIT_TIMESTAMP) '+%Y%m%d-%H%M' 2>/dev/null)
 endif
 # ld flags
 LD_FLAGS = -X 'main.BuildCommit=$(LAST_COMMIT_HASH)' -X 'main.Version=$(RELEASE)' -X 'main.BuildTime=$(BUILD_DATE)' -X 'main.BuildOS=$(OSNAME)'
@@ -77,17 +86,16 @@ PACKAGE = $(shell go list -m)
 PKG_LIST_FOR_TEST = $(shell go list ./...)
 PKG_LIST_FOR_UNIT_TEST = $(shell go list ./... | grep -v '/tests')
 
-COMMIT_BRANCH = $(shell git branch --no-color --show-current)
+COMMIT_BRANCH = $(shell git branch --no-color --show-current 2>/dev/null)
 
-# Environment prefix (prod/alpha/beta)
-ENVIRONMENT_PREFIX = dev-
-ifeq ($(COMMIT_BRANCH), main)
-	ENVIRONMENT_PREFIX =
-else ifeq ($(COMMIT_BRANCH), alpha)
-	ENVIRONMENT_PREFIX = alpha-
-else ifeq ($(COMMIT_BRANCH), beta)
-	ENVIRONMENT_PREFIX = beta-
-endif
+# Environment prefix (prod/alpha/beta). A lookup rather than an `ifeq` chain:
+# `ifeq` expands COMMIT_BRANCH - and so runs git - while the Makefile is parsed,
+# for every target. A branch that is not listed gets the dev- prefix, and so
+# does a tree without a repository, where COMMIT_BRANCH is empty.
+ENVIRONMENT_PREFIX_main =
+ENVIRONMENT_PREFIX_alpha = alpha-
+ENVIRONMENT_PREFIX_beta = beta-
+ENVIRONMENT_PREFIX = $(if $(filter main alpha beta,$(COMMIT_BRANCH)),$(ENVIRONMENT_PREFIX_$(COMMIT_BRANCH)),dev-)
 
 # Docker variables
 REGISTRY_SERVER ?= {{ .Docker.ImagePrefix }}
@@ -346,11 +354,8 @@ install-nfpm:
 # Package version (deb-compatible format: YYYYMMDD.HHMM+commit or 0~devYYYYMMDD.HHMM+commit)
 # Deb versions can't start with letters, dashes replaced with dots
 PKG_RELEASE = $(subst -,.,$(RELEASE))
-ifeq ($(COMMIT_BRANCH), main)
-PKG_VERSION ?= $(PKG_RELEASE).$(LAST_COMMIT_HASH)
-else
-PKG_VERSION ?= 0~dev$(PKG_RELEASE).$(LAST_COMMIT_HASH)
-endif
+# Lazy for the same reason as ENVIRONMENT_PREFIX: no `ifeq` on git data.
+PKG_VERSION ?= $(if $(filter main,$(COMMIT_BRANCH)),,0~dev)$(PKG_RELEASE).$(LAST_COMMIT_HASH)
 
 {{ range $_, $a := .Applications }}{{ if not $a.IsCLI }}
 {{ if $a.HasDeb }}
