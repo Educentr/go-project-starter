@@ -10,9 +10,10 @@ import (
 
 // GithubCIConfig contains the settings of the generated GitHub Actions
 // workflows (.github/workflows/ci_cd.yml and go-version-check.yml): the runner,
-// the job timeout and the doctl version applied to every job, plus the list of
-// checks that gate build. All fields are optional; omitting the whole section
-// keeps the historical output (ubuntu-latest, no job timeout, latest doctl, no
+// the job timeout and the doctl version applied to every job, the branches
+// whose push triggers them, plus the list of checks that gate build. All
+// fields are optional; omitting the whole section keeps the historical output
+// (ubuntu-latest, no job timeout, latest doctl, push on main and staging, no
 // check job).
 //
 // YAML example:
@@ -24,6 +25,9 @@ import (
 //	  job_timeout_minutes: 30     # timeout-minutes for every job
 //	  doctl_version: 1.170.0      # version input of digitalocean/action-doctl
 //	  doctl: install              # install (default) or image
+//	  push_branches:              # on.push branch filters; default [main, staging]
+//	    - main
+//	    - 'release/**'
 //	  checks:                     # matrix job gating build and build-packages
 //	    - name: lint
 //	      run: make lint
@@ -53,6 +57,10 @@ type GithubCIConfig struct {
 	// "image" takes it from the runner image and generates no install step.
 	// Omitted means "install", the historical output.
 	Doctl string `mapstructure:"doctl"`
+	// PushBranches replaces the branch filters of the `on.push` trigger of
+	// both generated workflows. Omitted means [main, staging], the historical
+	// output; an explicit empty list is rejected.
+	PushBranches []string `mapstructure:"push_branches"`
 	// Checks declares the checks run by the `checks` matrix job, which gates
 	// build and build-packages. Names must be non-empty and unique. Omitted
 	// means no check job is generated.
@@ -82,6 +90,12 @@ var (
 	ErrRunsOnGroupName  = errors.New("github_ci.runs_on: invalid runner group")
 	ErrRunsOnLabelsType = errors.New("github_ci.runs_on: 'labels' must be a list")
 	ErrRunsOnNoLabels   = errors.New("github_ci.runs_on: 'labels' is empty, omit the key instead")
+
+	ErrPushBranchesEmpty = errors.New(
+		"github_ci.push_branches: list is empty, omit the key instead to keep the default branches")
+	ErrPushBranch = errors.New(
+		"github_ci.push_branches: invalid branch filter, expected a branch name or a GitHub filter pattern")
+	ErrPushBranchDuplicate = errors.New("github_ci.push_branches: duplicate branch filter")
 )
 
 // runsOnTokenRx matches the runner labels and runner group names accepted in
@@ -89,6 +103,15 @@ var (
 // plain YAML scalar inside the flow-style `runs-on:` value the templates
 // produce: alphanumerics, `.`, `_`, `/`, `-`, and single inner spaces.
 var runsOnTokenRx = regexp.MustCompile(`^[A-Za-z0-9._/-]+( [A-Za-z0-9._/-]+)*$`)
+
+// pushBranchRx matches the accepted github_ci.push_branches entries: a branch
+// name or a GitHub branch filter pattern. Besides the characters a git branch
+// name may carry, it admits the filter metacharacters `*`, `?`, `+`, the
+// character range brackets and the leading `!` of an exclusion pattern.
+// Whitespace, control characters and YAML-hostile punctuation (`:`, `#`,
+// quotes) are rejected here rather than quoted away, because no GitHub filter
+// needs them and a branch name cannot contain them either.
+var pushBranchRx = regexp.MustCompile(`^[A-Za-z0-9._/*?+!\[\]-]+$`)
 
 // doctlVersionRx matches the accepted github_ci.doctl_version values, e.g.
 // "1.170.0". Restricted to a version-like token so the generated `version:`
@@ -187,6 +210,37 @@ func parseRunsOnGroup(raw map[string]any) (ds.RunsOnSpec, error) {
 	return spec, nil
 }
 
+// ValidatePushBranches verifies the github_ci.push_branches entries. A nil
+// slice is valid and means the generated workflows keep the default branches
+// (main and staging). An explicit empty list is not: the `on.push` trigger
+// cannot be rendered without branch filters, and omitting the key is the way
+// to ask for the defaults.
+func (g GithubCIConfig) ValidatePushBranches() error {
+	if g.PushBranches == nil {
+		return nil
+	}
+
+	if len(g.PushBranches) == 0 {
+		return ErrPushBranchesEmpty
+	}
+
+	seen := make(map[string]bool, len(g.PushBranches))
+
+	for _, branch := range g.PushBranches {
+		if !pushBranchRx.MatchString(branch) {
+			return fmt.Errorf(errFmtGotValue, ErrPushBranch, branch)
+		}
+
+		if seen[branch] {
+			return fmt.Errorf(errFmtGotValue, ErrPushBranchDuplicate, branch)
+		}
+
+		seen[branch] = true
+	}
+
+	return nil
+}
+
 // JobTimeout returns the configured job timeout in minutes, or 0 when the
 // timeout is not configured.
 func (g GithubCIConfig) JobTimeout() int {
@@ -218,6 +272,10 @@ func (g GithubCIConfig) IsValid(registryType string) (bool, string) {
 
 	if g.JobTimeoutMinutes != nil && *g.JobTimeoutMinutes <= 0 {
 		return false, fmt.Sprintf("github_ci.job_timeout_minutes must be greater than 0, got %d", *g.JobTimeoutMinutes)
+	}
+
+	if err := g.ValidatePushBranches(); err != nil {
+		return false, err.Error()
 	}
 
 	if g.DoctlVersion != "" && !doctlVersionRx.MatchString(g.DoctlVersion) {

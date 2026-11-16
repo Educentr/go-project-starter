@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,9 +69,9 @@ type ChecksConfig struct {
 	FailFast bool // true = cancel the remaining checks after the first failure
 }
 
-// Declared above the first func of the file, away from the GithubCIConfig it
-// configures, because decorder wants every type and const ahead of the funcs
-// (order: type,const,var,func).
+// The declarations up to the first func of the file sit here, away from the
+// GithubCIConfig they configure, because decorder wants every type, const and
+// var ahead of the funcs (order: type,const,var,func).
 
 // DoctlMode selects how the doctl CLI becomes available in the generated
 // DigitalOcean Container Registry login jobs. It configures GithubCIConfig
@@ -87,6 +88,25 @@ const (
 	// runner image without doctl turns the job red instead of installing one.
 	DoctlModeImage DoctlMode = "image"
 )
+
+// pushBranchIndent is the indentation of the `on.push.branches:` block
+// sequence items in the generated ci_cd.yml.
+const pushBranchIndent = "      "
+
+// defaultPushBranches are the branch filters of the `on.push` trigger used by
+// the generated workflows when github_ci.push_branches is not configured.
+// Kept as the historical literal of both workflow templates, so a project
+// that does not configure the key regenerates byte for byte.
+var defaultPushBranches = []string{"main", "staging"}
+
+// branchPlainRx matches the branch filters that are safe to emit as a plain
+// YAML scalar in both the block sequence of ci_cd.yml and the flow sequence of
+// go-version-check.yml. A filter outside this set is single-quoted instead:
+// the glob metacharacters `*`, `?`, `+` and `-` carry no meaning inside a
+// plain scalar, but a leading `!` is a YAML tag indicator and `[`, `]` are
+// flow indicators, and GitHub filter patterns legitimately use all of them
+// (`!main`, `release/[0-9]*`).
+var branchPlainRx = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/*?+-]*$`)
 
 // Enabled reports whether at least one check is declared. When false the checks
 // job is not generated and the CI graph stays exactly as it was.
@@ -133,6 +153,10 @@ type GithubCIConfig struct {
 	// Checks carries the declared checks and their shared settings. The zero
 	// value disables the checks job, leaving the CI graph as it was.
 	Checks ChecksConfig
+	// PushBranches lists the branch filters of the `on.push` trigger of both
+	// generated workflows. Empty means the trigger is rendered with the
+	// default branches, main and staging.
+	PushBranches []string
 }
 
 // DefaultRunsOn is the runner used by the generated workflows when
@@ -185,6 +209,60 @@ func (c GithubCIConfig) JobHeader() string {
 	}
 
 	return header
+}
+
+// pushBranches returns the configured branch filters, or defaultPushBranches
+// when the project did not configure any.
+func (c GithubCIConfig) pushBranches() []string {
+	if len(c.PushBranches) == 0 {
+		return defaultPushBranches
+	}
+
+	return c.PushBranches
+}
+
+// yamlBranch renders a branch filter as a YAML scalar: plain when the pattern
+// allows it, single-quoted otherwise. Quoting is decided per filter rather
+// than for the whole list so the default `main`/`staging` stay unquoted.
+func yamlBranch(branch string) string {
+	if branchPlainRx.MatchString(branch) {
+		return branch
+	}
+
+	return "'" + strings.ReplaceAll(branch, "'", "''") + "'"
+}
+
+// PushBranchesBlock renders the value of the `on.push.branches:` key as a
+// block sequence, for use at pushBranchIndent:
+//
+//	on:
+//	  push:
+//	    branches:
+//	      {{ $.GithubCI.PushBranchesBlock }}
+func (c GithubCIConfig) PushBranchesBlock() string {
+	branches := c.pushBranches()
+	items := make([]string, 0, len(branches))
+
+	for _, branch := range branches {
+		items = append(items, "- "+yamlBranch(branch))
+	}
+
+	return strings.Join(items, "\n"+pushBranchIndent)
+}
+
+// PushBranchesFlow renders the value of the `on.push.branches:` key as a flow
+// sequence, the form go-version-check.yml uses:
+//
+//	branches: {{ $.GithubCI.PushBranchesFlow }}
+func (c GithubCIConfig) PushBranchesFlow() string {
+	branches := c.pushBranches()
+	items := make([]string, 0, len(branches))
+
+	for _, branch := range branches {
+		items = append(items, yamlBranch(branch))
+	}
+
+	return "[" + strings.Join(items, ", ") + "]"
 }
 
 // DoctlFromImage reports whether the generated DigitalOcean registry login
