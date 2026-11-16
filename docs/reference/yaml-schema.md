@@ -348,6 +348,12 @@ applications:
     artifacts:
       - docker
       - deb
+
+    # Образ приложения:
+    docker:
+      platforms:                # [optional] Платформы образа, "linux/<arch>".
+        - linux/amd64           #            Несколько — образ собирается как
+        - linux/arm64           #            OCI index через docker buildx
 ```
 
 !!! warning "CLI приложения"

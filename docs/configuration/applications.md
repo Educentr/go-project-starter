@@ -48,6 +48,7 @@ applications:
 | `goat_tests_config` | Нет | Расширенная настройка GOAT тестов |
 | `grafana` | Нет | Настройки Grafana dashboard |
 | `artifacts` | Нет | Per-app override artifacts (docker, deb, rpm, apk) |
+| `docker` | Нет | Настройки образа приложения: `platforms` — платформы, под которые собирается образ (см. [Docker](docker.md#platforms)) |
 
 ### Формат транспортов
 

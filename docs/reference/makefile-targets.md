@@ -85,6 +85,7 @@ make lint LINT_ARGS='--build-tags=integration'
 | `make docker-up` | Запуск docker-compose |
 | `make docker-down` | Остановка docker-compose |
 | `make docker-logs` | Просмотр логов |
+| `make buildx-builder` | Создание buildx-билдера; от него зависят цели образов с `docker.platforms` |
 
 ## Dev Stand
 
