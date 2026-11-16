@@ -9,7 +9,30 @@ import (
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
+
+// specBasename returns the file name under which a raw `path:` entry lands in
+// the project tree. A URI is not a filesystem path, so the name has to come
+// from the source itself (the git subpath, the URL path) — filepath.Base of
+// "git+ssh://git@host/org/contracts.git#api.swagger.yml" is
+// "contracts.git#api.swagger.yml", and of an https URL carrying
+// "?token_env=NAME" it is the basename with the query glued to it.
+//
+// This mirrors what the resolve pre-pass records in SpecTargetFiles /
+// SchemaTargetFiles, and is what callers that run before that pre-pass — the
+// templates, the Makefile among them — have to use to name the same file.
+func specBasename(raw string) string {
+	src, err := specsource.ParseSpecSource(raw)
+	if err != nil {
+		// A malformed entry is the resolve pass's error to report, with the
+		// transport name and entry index attached; here keep the plain-path
+		// reading it had before URIs existed.
+		return filepath.Base(raw)
+	}
+
+	return src.TargetFilename()
+}
 
 type TransportType string
 
@@ -770,8 +793,8 @@ type Transport struct {
 	// SpecTargetFiles, when non-empty, holds the basename under which each
 	// SpecPath[i] should be saved into api/. Populated when sources are
 	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
-	// "users.yaml"). Empty for legacy local-only flows; in that case
-	// GetTargetSpecFile falls back to filepath.Base(SpecPath[i]).
+	// "users.yaml"). Empty until the resolve pre-pass runs; until then
+	// GetTargetSpecFile derives the same name from SpecPath[i] itself.
 	SpecTargetFiles []string
 	ApiVersion      string // перенесено из Hendler
 	Port            string // перенесено из Hendler
@@ -1194,13 +1217,19 @@ func (t Transport) GetTargetSpecDir(targetDir string) string {
 	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 
+// GetTargetSpecFile returns the file name under which spec entry num lands in
+// the transport's target spec directory.
+//
+// SpecTargetFiles, filled by the resolve pre-pass, wins. It is empty while the
+// templates are rendered — that happens before the pre-pass — so the fallback
+// derives the name from the raw `path:` entry, which may be a URI: see
+// specBasename.
 func (t Transport) GetTargetSpecFile(num int) string {
 	if num < len(t.SpecTargetFiles) && t.SpecTargetFiles[num] != "" {
 		return t.SpecTargetFiles[num]
 	}
-	_, file := filepath.Split(t.SpecPath[num])
 
-	return file
+	return specBasename(t.SpecPath[num])
 }
 
 func (t Transport) GetTargetGeneratePath(targetDir string) string {
@@ -1257,7 +1286,7 @@ func (j JSONSchema) GetSchemaFilenames() []string {
 	filenames := make([]string, 0, len(paths))
 
 	for _, path := range paths {
-		base := filepath.Base(path)
+		base := specBasename(path)
 		// Remove .json extension if present
 		if ext := filepath.Ext(base); ext == ".json" {
 			base = base[:len(base)-len(ext)]
