@@ -84,12 +84,29 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 		"func AgentEnv(ctx context.Context, dst any) (bool, error)",
 		// explicit `name` override wins over the derived DBDSN
 		"func DatabaseDSN(ctx context.Context) (string, error)",
+		// a segment the service computes at runtime becomes a parameter, and
+		// the runtime segment itself contributes nothing to the name
+		"func AccountQuota(ctx context.Context, account string) (int64, error)",
+		"func AccountQuotaPath(account string) string",
+		// parameters come in path order, before the struct destination
+		"func LimitsRate(ctx context.Context, account, action string, dst any) (bool, error)",
 	}
 
 	for _, want := range wantSignatures {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("generated accessor package should declare %q", want)
 		}
+	}
+
+	// A key whose path the service completes at runtime has no constant path —
+	// the builder composes it from the argument — so it is in neither the
+	// constant block nor Paths().
+	if strings.Contains(occonfFile, "PathAccountQuota") {
+		t.Error("a key with a runtime segment must not get a path constant: its path is an argument")
+	}
+
+	if !strings.Contains(occonfFile, `return onlineconf.MakePath("octest", "account", account, "quota")`) {
+		t.Error("the path builder should compose the declared path from the parameter")
 	}
 
 	// The *IfExists readers, deliberately: go-onlineconf's defaulting form
@@ -261,6 +278,19 @@ func assertOnlineConfRegistry(t *testing.T, tmpDir string) {
 		t.Errorf("service key row = %+v, want origin service, accessor DatabaseDSN, required", service)
 	}
 
+	// A service key whose path carries a runtime segment keeps the <name>
+	// spelling and claims no subtree: unlike a generated prefix, the service's
+	// own code reads exactly the paths the shape names, so `owns` would reserve
+	// against nobody.
+	shaped, ok := byPath["/octest/account/<account>/quota"]
+	if !ok {
+		t.Fatal("registry should list a service key with a runtime segment, in its <name> spelling")
+	}
+
+	if shaped.Origin != "service" || shaped.Accessor != "AccountQuota" || shaped.Owns != "" {
+		t.Errorf("runtime-segment service row = %+v, want origin service, accessor AccountQuota, no owns", shaped)
+	}
+
 	// A generated key carries the template the read comes from, which is what
 	// makes the row actionable: that is the file to change.
 	generated, ok := byPath["/octest/security/csrf/enabled"]
@@ -330,17 +360,19 @@ func assertOnlineConfRegistry(t *testing.T, tmpDir string) {
 	}
 }
 
-// TestGenerateRejectsListTemplatePath pins the shape a key registry tends to
-// carry: /svc/agent_env/<i>/name is not a key. OnlineConf has no subtree
-// traversal, so there is nothing to generate for it — and the message has to
-// say what to declare instead, not just that the path is malformed.
-func TestGenerateRejectsListTemplatePath(t *testing.T) {
+// TestGenerateRejectsDimensionPlaceholder pins the one bracketed form a service
+// map cannot carry. A <runtimeSegment> is a segment the service computes while
+// running and is accepted; a {dimension} is the generator's, expanded over the
+// project — and a service map is already the map of one service, so there is
+// nothing to expand it over. The message has to say that, not complain about
+// grammar.
+func TestGenerateRejectsDimensionPlaceholder(t *testing.T) {
 	out, targetDir := generateWithOnlineConfMap(t,
 		"keys:\n"+
-			"  - path: /octest/agent_env/<i>/name\n"+
+			"  - path: /octest/transport/rest/{transport}/mine\n"+
 			"    type: string\n")
 
-	for _, want := range []string{"<i>", "type: struct"} {
+	for _, want := range []string{"{transport}", "dimensions are the generator's", "<runtimeSegment>"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generator error should mention %q, got:\n%s", want, out)
 		}
@@ -348,6 +380,25 @@ func TestGenerateRejectsListTemplatePath(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(targetDir, "internal", "pkg", "occonf")); err == nil {
 		t.Error("a rejected map must not leave an accessor package behind")
+	}
+}
+
+// TestGenerateRejectsRequiredRuntimeSegment pins the one thing a key with a
+// runtime segment cannot be. CheckRequired reads every required key at process
+// start, and a path the service composes while running does not exist yet
+// then — so `required` there would be a promise the generated code could not
+// keep.
+func TestGenerateRejectsRequiredRuntimeSegment(t *testing.T) {
+	out, _ := generateWithOnlineConfMap(t,
+		"keys:\n"+
+			"  - path: /octest/account/<account>/quota\n"+
+			"    type: int\n"+
+			"    required: true\n")
+
+	for _, want := range []string{"`required` but has a runtime segment", "presence flag"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generator error should mention %q, got:\n%s", want, out)
+		}
 	}
 }
 
@@ -399,6 +450,17 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 			path:     "/octest/transport/rest/api_v1/api/handler/some_path/timeout",
 			keyType:  "duration",
 			wantMsgs: []string{"/octest/transport/rest/api_v1/api/handler", "computes"},
+		},
+		{
+			// The shape on the service's side: a runtime segment stands for any
+			// segment, `csrf` among them, so this declaration would read the
+			// toggle the generated configuration provider reads.
+			name:    "a shape of the service reaching a key the generator reads",
+			path:    "/octest/security/<area>/enabled",
+			keyType: "bool",
+			wantMsgs: []string{
+				"/octest/security/csrf/enabled", "angle brackets", "reads itself",
+			},
 		},
 		{
 			// The metrics prefix is open, so what protects the level the logger

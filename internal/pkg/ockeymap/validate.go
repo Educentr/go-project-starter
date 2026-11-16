@@ -49,6 +49,11 @@ var (
 	// map is one per service: a key belongs to exactly one tree, and a shared
 	// map would mix the surfaces of several services in one file.
 	ErrMultipleTrees = errors.New("onlineconf key map spans several service trees")
+	// ErrOverlappingPath reports two declarations that reach one path, because
+	// one of them carries a runtime segment standing for the other's literal.
+	// Not the same error as ErrDuplicatePath — the paths are spelled
+	// differently — but the same defect: one key, two accessors.
+	ErrOverlappingPath = errors.New("onlineconf key paths reach the same key")
 )
 
 var (
@@ -58,10 +63,6 @@ var (
 	// exported Go identifier, because it names a function in the generated
 	// package.
 	identRx = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
-	// templateSegmentRx catches the list-template form (`.../<i>/...`) a key
-	// registry tends to carry, so that it gets its own explanation rather than
-	// a bare grammar complaint.
-	templateSegmentRx = regexp.MustCompile(`[<>{}]`)
 )
 
 // knownTypes is the closed set of accepted `type` values.
@@ -107,6 +108,7 @@ func (m *Map) Validate() error {
 	}
 
 	problems = append(problems, m.treeProblems()...)
+	problems = append(problems, m.overlapProblems()...)
 
 	if len(problems) > 0 {
 		return problemList(ErrInvalidMap, problems)
@@ -141,6 +143,48 @@ func (m *Map) treeProblems() []string {
 	return problems
 }
 
+// overlapProblems reports two declarations that reach one and the same key.
+//
+// A runtime segment stands for any segment, so two paths spelled differently
+// can be the same key: `/svc/account/<account>/limit` reaches
+// `/svc/account/default/limit`, and declaring both gives one key two accessors
+// with two shapes — the thing the map exists to prevent, written in a way the
+// duplicate-path check cannot see.
+func (m *Map) overlapProblems() []string {
+	var problems []string
+
+	for i, key := range m.Keys {
+		if key.Path == "" || !key.HasParams() {
+			// Two paths without a runtime segment overlap only by being equal,
+			// which the duplicate check already reports.
+			continue
+		}
+
+		for j, other := range m.Keys {
+			if i == j || other.Path == "" || other.Path == key.Path {
+				continue
+			}
+
+			// Reported once per pair, by the shape: it is the declaration that
+			// reaches the other, and the one whose path is likely to change.
+			if j < i && other.HasParams() {
+				continue
+			}
+
+			if !pathsOverlap(key.Path, other.Path) {
+				continue
+			}
+
+			problems = append(problems, fmt.Sprintf("keys[%d]: %s: %q also reaches %q (keys[%d]), "+
+				"where a runtime segment stands for any segment — one key, two accessors. Drop the "+
+				"second declaration and read that path through the first accessor, passing the "+
+				"segment it names", i, ErrOverlappingPath, key.Path, other.Path, j))
+		}
+	}
+
+	return problems
+}
+
 // problems returns every rule the entry breaks, as human-readable messages.
 func (k Key) problems() []string {
 	problems := k.pathProblems()
@@ -160,8 +204,8 @@ func (k Key) problems() []string {
 	return problems
 }
 
-// pathProblems checks the declared path: grammar, depth and the subtrees the
-// generator owns.
+// pathProblems checks the declared path: grammar, depth, and the segments the
+// service's own code computes while running.
 func (k Key) pathProblems() []string {
 	if k.Path == "" {
 		return []string{"path is required"}
@@ -175,19 +219,73 @@ func (k Key) pathProblems() []string {
 				"because OnlineConf reads a value, not a subtree", k.Path)}
 	}
 
+	problems := k.segmentProblems(segments)
+
+	return append(problems, k.paramProblems()...)
+}
+
+// segmentProblems checks the grammar of every path segment.
+//
+// Three forms are accepted and the difference is what each of them is: a
+// literal segment is a segment of the tree; a <runtimeSegment> is a segment the
+// service's own code computes while running, and becomes a parameter of the
+// accessor; a {dimension} is neither — dimensions belong to the generator's half
+// of the map, which is expanded over the project, and a service path is already
+// the path of one service.
+func (k Key) segmentProblems(segments []string) []string {
 	var problems []string
 
-	for _, segment := range segments {
+	for i, segment := range segments {
 		switch {
-		case templateSegmentRx.MatchString(segment):
+		case isPlaceholder(segment):
 			problems = append(problems, fmt.Sprintf(
-				"path %q uses the template segment %q: a path with a list index is not a key. "+
-					"OnlineConf has no subtree traversal, so a list is declared as one key with a "+
-					"structured value (type: %s)", k.Path, segment, TypeStruct))
+				"path %q uses the dimension placeholder %q: dimensions are the generator's, which "+
+					"expands its declarations over the project. A service path is the path itself, "+
+					"with <runtimeSegment> for a segment the service computes while running",
+				k.Path, segment))
+		case strings.HasPrefix(segment, "<"), strings.HasSuffix(segment, ">"):
+			switch {
+			case !runtimeParamRx.MatchString(segment):
+				problems = append(problems, fmt.Sprintf(
+					"path %q has an invalid runtime segment %q, expected %s: the name becomes a "+
+						"parameter of the generated accessor", k.Path, segment, runtimeParamRx.String()))
+			case i == 0:
+				problems = append(problems, fmt.Sprintf(
+					"path %q starts with the runtime segment %q: the first segment is the service "+
+						"tree the whole map lives in, and it is known before the service runs",
+					k.Path, segment))
+			}
 		case !segmentRx.MatchString(segment):
-			problems = append(problems, fmt.Sprintf("path %q has an invalid segment %q, expected %s",
+			problems = append(problems, fmt.Sprintf(
+				"path %q has an invalid segment %q, expected %s or a <runtimeSegment>",
 				k.Path, segment, segmentRx.String()))
 		}
+	}
+
+	return problems
+}
+
+// paramProblems checks the parameters the runtime segments of the path turn
+// into: two of them cannot share a name, because the accessor could not be
+// written.
+func (k Key) paramProblems() []string {
+	params := k.Params()
+	if len(params) == 0 {
+		return nil
+	}
+
+	var problems []string
+
+	seen := make(map[string]struct{}, len(params))
+
+	for _, param := range params {
+		if _, taken := seen[param]; taken {
+			problems = append(problems, fmt.Sprintf(
+				"path %q uses the parameter name %q twice, so the accessor could not be written",
+				k.Path, param))
+		}
+
+		seen[param] = struct{}{}
 	}
 
 	return problems
@@ -201,8 +299,18 @@ func (k Key) namingProblems() []string {
 
 	varName := k.VarName()
 	if varName == "" {
-		// Only reachable for a path already reported as too short.
-		return nil
+		if len(k.Segments()) < minPathSegments {
+			// Already reported as a path with no key segment.
+			return nil
+		}
+
+		// Every segment below the tree root is computed at runtime, so there is
+		// nothing to derive a name from — the path has no fixed part but the
+		// root, which the derivation drops.
+		return []string{fmt.Sprintf(
+			"path %q derives no accessor name: every segment below the service tree is a runtime "+
+				"segment, and those become parameters rather than parts of the name; declare an "+
+				"explicit `name` for it", k.Path)}
 	}
 
 	if !startsWithLetter(varName) {
@@ -258,6 +366,13 @@ func (k Key) requiredProblems() []string {
 			"type %s cannot be `required`: verifying it would mean unmarshaling the value, and the "+
 				"destination type belongs to the caller, not to the map. Read it with the accessor's "+
 				"presence flag instead", k.Type))
+	}
+
+	if k.HasParams() {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `required` but has a runtime segment: CheckRequired reads every required key "+
+				"at process start, and a path the service only composes once it runs is not a path "+
+				"the check can enumerate. Read it with the accessor's presence flag instead", k.Path))
 	}
 
 	return problems

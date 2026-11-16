@@ -2,6 +2,7 @@ package ockeymap_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -170,13 +171,65 @@ func TestParseErrors(t *testing.T) {
 			wantMsg:  "has no key segment",
 		},
 		{
-			// The list-template form a key registry carries. There is no
-			// subtree read to generate for it, so it gets its own explanation
-			// rather than a bare grammar complaint.
-			name:     "list template segment",
-			yaml:     "keys:\n  - path: /svc/agent_env/<i>/name\n    type: string\n",
+			// A dimension placeholder belongs to the generator's half of the
+			// map, which is expanded over the project. A service path is the
+			// path of one service already, so there is nothing to expand — and
+			// the message has to say what to write instead of complaining about
+			// grammar.
+			name:     "dimension placeholder",
+			yaml:     "keys:\n  - path: /svc/transport/rest/{transport}/timeout\n    type: duration\n",
 			sentinel: ockeymap.ErrInvalidMap,
-			wantMsg:  "type: struct",
+			wantMsg:  "dimensions are the generator's",
+		},
+		{
+			// The name of a runtime segment becomes a Go parameter, so it has
+			// to be able to be one.
+			name:     "malformed runtime segment",
+			yaml:     "keys:\n  - path: /svc/account/<Account id>/quota\n    type: int\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "invalid runtime segment",
+		},
+		{
+			// The tree root is the one segment that cannot be computed: the
+			// whole map lives in one tree, and which tree it is is known before
+			// the service starts.
+			name:     "runtime segment as the tree root",
+			yaml:     "keys:\n  - path: /<service>/quota\n    type: int\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "starts with the runtime segment",
+		},
+		{
+			name:     "two runtime segments with one name",
+			yaml:     "keys:\n  - path: /svc/a/<id>/b/<id>/quota\n    type: int\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  `parameter name "id" twice`,
+		},
+		{
+			// Every segment below the root is a parameter, so the derivation has
+			// nothing left to build a name from.
+			name:     "nothing to derive a name from",
+			yaml:     "keys:\n  - path: /svc/<account>\n    type: int\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "derives no accessor name",
+		},
+		{
+			// CheckRequired reads every required key at process start, and this
+			// path does not exist until the service composes it.
+			name:     "required with a runtime segment",
+			yaml:     "keys:\n  - path: /svc/account/<account>/quota\n    type: int\n    required: true\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "`required` but has a runtime segment",
+		},
+		{
+			// Spelled differently, the same key: the runtime segment stands for
+			// `default` too, so the map would generate two accessors for one
+			// path — which is what the duplicate check exists to prevent, in a
+			// form it cannot see.
+			name: "a shape that reaches another declaration",
+			yaml: "keys:\n  - path: /svc/account/<account>/quota\n    type: int\n" +
+				"  - path: /svc/account/default/quota\n    type: int\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "one key, two accessors",
 		},
 		{
 			name:     "invalid segment",
@@ -278,17 +331,132 @@ func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 	bad := "keys:\n" +
 		"  - path: /svc/a\n    type: float\n" +
 		"  - path: /svc/b\n    type: int\n    required: true\n    default: 2\n" +
-		"  - path: /svc/c/<i>/name\n    type: string\n"
+		"  - path: /svc/c/{app}/name\n    type: string\n"
 
 	_, err := ockeymap.Parse([]byte(bad))
 	if err == nil {
 		t.Fatal("Parse() succeeded, want an error")
 	}
 
-	for _, want := range []string{`type "float" is unknown`, "contradict each other", "<i>"} {
+	for _, want := range []string{`type "float" is unknown`, "contradict each other", "{app}"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %q, got:\n%s", want, err)
 		}
+	}
+}
+
+// A key whose path the service completes while running — the account whose
+// quota is read, the action being authorized — is declared with a
+// <runtimeSegment>, and the segment becomes a parameter of the accessor. Without
+// it the only way to read such a key was to compose the path at the call site,
+// which is the one thing the map removes (TOOLS-89).
+func TestRuntimeSegmentKey(t *testing.T) {
+	m, err := ockeymap.Parse([]byte("keys:\n" +
+		"  - path: /svc/account/<account>/quota\n    type: int\n    default: 100\n" +
+		"  - path: /svc/limits/<account>/<action>/rate\n    type: int\n" +
+		"  - path: /svc/queue/name\n    type: string\n"))
+	if err != nil {
+		t.Fatalf("Parse() on a map with runtime segments: %v", err)
+	}
+
+	tests := []struct {
+		path        string
+		params      []string
+		varName     string
+		pathConst   string
+		pathBuilder string
+		paramDecl   string
+		pathArgs    string
+	}{
+		{
+			path: "/svc/account/<account>/quota", params: []string{"account"},
+			// The runtime segment is a parameter, not part of the key, so it
+			// contributes nothing to the derived name.
+			varName: "AccountQuota", pathBuilder: "AccountQuotaPath",
+			paramDecl: "account string",
+			pathArgs:  `"svc", "account", account, "quota"`,
+		},
+		{
+			path: "/svc/limits/<account>/<action>/rate", params: []string{"account", "action"},
+			varName: "LimitsRate", pathBuilder: "LimitsRatePath",
+			paramDecl: "account, action string",
+			pathArgs:  `"svc", "limits", account, action, "rate"`,
+		},
+		{
+			// A key without one is untouched: its path is a constant.
+			path: "/svc/queue/name", varName: "QueueName", pathConst: "PathQueueName",
+		},
+	}
+
+	byPath := make(map[string]ockeymap.Key, len(m.Keys))
+	for _, key := range m.Keys {
+		byPath[key.Path] = key
+	}
+
+	for _, tt := range tests {
+		key, ok := byPath[tt.path]
+		if !ok {
+			t.Errorf("map should declare %s", tt.path)
+
+			continue
+		}
+
+		if got := key.Params(); !slices.Equal(got, tt.params) {
+			t.Errorf("%s: Params() = %v, want %v", tt.path, got, tt.params)
+		}
+
+		if got := key.HasParams(); got != (len(tt.params) > 0) {
+			t.Errorf("%s: HasParams() = %v", tt.path, got)
+		}
+
+		if got := key.VarName(); got != tt.varName {
+			t.Errorf("%s: VarName() = %q, want %q", tt.path, got, tt.varName)
+		}
+
+		// One of the two, never both: a path composed from an argument cannot
+		// be a constant, and a constant needs no builder.
+		if got := key.PathConstName(); got != tt.pathConst {
+			t.Errorf("%s: PathConstName() = %q, want %q", tt.path, got, tt.pathConst)
+		}
+
+		if got := key.PathBuilderName(); got != tt.pathBuilder {
+			t.Errorf("%s: PathBuilderName() = %q, want %q", tt.path, got, tt.pathBuilder)
+		}
+
+		if got := key.ParamDecl(); got != tt.paramDecl {
+			t.Errorf("%s: ParamDecl() = %q, want %q", tt.path, got, tt.paramDecl)
+		}
+
+		if tt.pathArgs != "" {
+			if got := key.PathArgs(); got != tt.pathArgs {
+				t.Errorf("%s: PathArgs() = %q, want %q", tt.path, got, tt.pathArgs)
+			}
+		}
+	}
+
+	// The accessor shape is still the declaration's: a default is a default
+	// whether or not the path takes an argument.
+	if shape := byPath["/svc/account/<account>/quota"].Shape(); shape != ockeymap.ShapeDefault {
+		t.Errorf("Shape() = %q, want %q", shape, ockeymap.ShapeDefault)
+	}
+}
+
+// Two declarations told apart only by a runtime segment derive one identifier,
+// and that is reported rather than silently generating one accessor for both.
+func TestRuntimeSegmentNameCollision(t *testing.T) {
+	_, err := ockeymap.Parse([]byte("keys:\n" +
+		"  - path: /svc/account/<account>/quota\n    type: int\n" +
+		"  - path: /svc/account/quota\n    type: int\n"))
+	if err == nil {
+		t.Fatal("Parse() succeeded, want a collision")
+	}
+
+	if !errors.Is(err, ockeymap.ErrVarNameCollision) {
+		t.Errorf("error = %v, want errors.Is(..., ErrVarNameCollision)", err)
+	}
+
+	if !strings.Contains(err.Error(), "AccountQuota") {
+		t.Errorf("error = %q, want it to name the accessor AccountQuota", err)
 	}
 }
 
