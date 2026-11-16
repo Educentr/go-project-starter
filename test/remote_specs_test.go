@@ -645,7 +645,7 @@ func TestRemoteSpec_SharedBasename_AcrossTransports_LandsAtCanonicalName(t *test
 // while the spec itself sat next to the recipe under its proper basename.
 func TestRemoteSpec_MakefileNamesSpecByBasename(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, fakeOpenAPIBody)
+		_, _ = io.WriteString(w, fakeOpenAPIBody) //nolint:errcheck // test fixture server, as in the other cases here
 	}))
 	defer srv.Close()
 

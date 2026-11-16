@@ -253,6 +253,12 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 					"unknown transport: "+transport.Name+" in application: "+app.Name)
 			}
 
+			if app.CLI != "" {
+				if err := validateCLITransport(config.RestMap, app, transport); err != nil {
+					return config, err
+				}
+			}
+
 			// Validate instantiation is only allowed for ogen_client
 			if transport.Config.Instantiation != "" {
 				rest, isRest := config.RestMap[transport.Name]
@@ -326,6 +332,26 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	config.ConfigFilePath = realConfigPath
 
 	return config, nil
+}
+
+// validateCLITransport checks one transport reference of a CLI application.
+//
+// A CLI tool that calls an HTTP API is an ordinary shape (ops scripts, bots,
+// wrapper agents), and the client it calls has to be hosted by the application
+// that actually runs it: the generated client init belongs in the CLI's main,
+// not in some server's. What a CLI cannot host is an inbound transport — it has
+// no process to listen in, it runs one command and exits — so only rest entries
+// with generator_type: ogen_client are accepted here.
+func validateCLITransport(restMap map[string]Rest, app Application, transport AppTransport) error {
+	rest, isRest := restMap[transport.Name]
+	if isRest && rest.GeneratorType == GeneratorTypeOgenClient {
+		return nil
+	}
+
+	return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf(
+		"transport '%s' in CLI application '%s': a CLI application can only host client transports"+
+			" (rest with generator_type: %s), it has no server to listen in",
+		transport.Name, app.Name, GeneratorTypeOgenClient))
 }
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)

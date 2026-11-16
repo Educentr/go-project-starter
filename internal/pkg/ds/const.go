@@ -991,6 +991,35 @@ func (a App) GetOgenClients() []Transport {
 	return clients
 }
 
+// GetStaticOgenClients returns the ogen_client transports the application has
+// to construct at startup, sorted by name. Dynamic clients are built per call
+// site at runtime, so main has nothing to register for them.
+func (a App) GetStaticOgenClients() []Transport {
+	clients := make([]Transport, 0)
+
+	for _, transport := range a.GetOgenClients() {
+		if !transport.IsDynamic() {
+			clients = append(clients, transport)
+		}
+	}
+
+	return clients
+}
+
+// HasCLIStaticClients reports whether any CLI application registers static
+// clients in its main. A CLI never reaches the runtime's app.Init, so it wires
+// its clients into the service itself — this is the condition under which the
+// service layer exports the entry point for that (EmptyService.InitClients).
+func (a Apps) HasCLIStaticClients() bool {
+	for _, app := range a {
+		if app.IsCLI() && len(app.GetStaticOgenClients()) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (a App) TransportImports() []string {
 	imports := make([]string, 0)
 

@@ -795,7 +795,7 @@ type (
 	//	    kafka: [order_events]
 	//
 	//	  - name: cli-app
-	//	    cli: admin  # CLI is exclusive with transport/worker
+	//	    cli: admin  # no worker, and of transports only ogen_client clients
 	//
 	// See docs/configuration/applications.md for full documentation.
 	Application struct {
@@ -813,7 +813,9 @@ type (
 		KafkaListRaw interface{} `mapstructure:"kafka"`
 		// KafkaList is the normalized kafka list (populated after loading).
 		KafkaList []AppKafka `mapstructure:"-"`
-		// CLI is the CLI transport name. Exclusive with transport/worker.
+		// CLI is the CLI transport name. Excludes worker; of transports it
+		// admits only clients (rest with generator_type: ogen_client), see
+		// validateCLITransport.
 		CLI string `mapstructure:"cli"`
 		// Deploy contains deployment settings (volumes).
 		Deploy AppDeploy `mapstructure:"deploy"`
@@ -1302,21 +1304,15 @@ func (a Application) IsValid() (bool, string) {
 		return false, "Empty name"
 	}
 
-	// CLI apps are exclusive - cannot have transports or workers
 	if a.CLI != "" {
-		if len(a.TransportList) > 0 {
-			return false, "CLI application cannot have transports"
-		}
-
+		// A CLI process runs one command and exits, so there is nothing for a
+		// worker to run in it. Transports are allowed, but only client ones —
+		// that needs the rest map, so GetConfig checks it (validateCLITransport).
 		if len(a.WorkerList) > 0 {
 			return false, "CLI application cannot have workers"
 		}
-
-		return true, ""
-	}
-
-	// Non-CLI apps must have at least one transport
-	if len(a.TransportList) == 0 {
+	} else if len(a.TransportList) == 0 {
+		// Non-CLI apps must have at least one transport
 		return false, "Application must have at least one transport or be a CLI app"
 	}
 

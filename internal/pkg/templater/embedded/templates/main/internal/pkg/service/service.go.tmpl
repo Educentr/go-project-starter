@@ -350,6 +350,18 @@ func (s *EmptyService) InitService(ctx context.Context, drvs []ds.Runnable, clie
 }
 {{ end }}
 
+{{- if and (not .SkipServiceInit) .Applications.HasCLIStaticClients }}
+// InitClients wires the clients a CLI application constructs in its main.
+//
+// A CLI runs one command and exits: it has no server bucket and no metrics
+// registry, so it never goes through the runtime's app.Init and never reaches
+// InitService. Client initialization is the one part of it a CLI that calls an
+// HTTP API still needs, so it is exported on its own.
+func (s *EmptyService) InitClients(ctx context.Context, clients []ds.ClientInitializer) error {
+	return s.setClients(ctx, clients)
+}
+{{- end }}
+
 type EmptyServiceToHandle struct{}
 
 func (h *EmptyServiceToHandle) GetEmptySrv(aSrv any) (*EmptyService, error) {
