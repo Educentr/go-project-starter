@@ -247,8 +247,8 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 что «sys-ность» транспорта видна только по его `generator_template`.
 
 Реализация: `internal/pkg/config/metrics_export.go` (`AppMetrics`, `Config.ResolveAppMetricsExport`,
-сентинелы), `ds.MetricsExport` + `App.MetricsExport` (`internal/pkg/ds/metrics.go`,
-`internal/pkg/ds/const.go`), шаблон `app/cmd/main.go.tmpl`. Документация:
+сентинелы), `ds.MetricsExport` (`internal/pkg/ds/metrics_export.go`) + `App.MetricsExport`
+(`internal/pkg/ds/const.go`), шаблон `app/cmd/main.go.tmpl`. Документация:
 [docs/configuration/applications.md](docs/configuration/applications.md#метрики-приложения-metricsexport).
 
 ## Docker Build Args и Labels
