@@ -628,12 +628,21 @@ func TestIntegrationCLIClient(t *testing.T) {
 	// After stage 1, not through runTestWithExtraAssertions: that hook fires
 	// right after the generator, before `make generate` — there is no binary to
 	// run yet. Running one is the only way to see that the client is
-	// initialized at startup: with no URL configured, a non-optional client
-	// must fail the command with a readable message instead of handing the
-	// handler a nil client to panic on.
+	// initialized at startup rather than handed to the handler as a nil
+	// pointer: the binary has no OnlineConf tree here, so a non-optional client
+	// cannot be built and the command must not run at all.
+	//
+	// Asserted on the two messages that are the wiring, not on the reason the
+	// client was unusable: whether the read reports "URL not configured" (empty
+	// value) or a missing TREE module depends on what onlineconf state the host
+	// happens to have.
 	out := runCLI(t.Context(), t, GetContainer(), "/workspace/output/cli-client", "status")
-	require.Contains(t, out, "client URL not configured",
-		"an unconfigured client must be reported at startup:\n%s", out)
+	require.Contains(t, out, "can't initialize clients",
+		"the CLI's main must initialize its clients at startup:\n%s", out)
+	require.Contains(t, out, "error init billing client",
+		"the client init has to go through the service's setClients:\n%s", out)
+	require.NotContains(t, out, "is not implemented",
+		"a command must not be dispatched after client init failed:\n%s", out)
 }
 
 // runCLI builds the generated CLI binary (once per call is cheap — the build
