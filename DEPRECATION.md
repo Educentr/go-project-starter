@@ -13,6 +13,38 @@ This document describes the deprecation policy for go-project-starter configurat
 
 No active deprecations.
 
+## Breaking changes in config validation
+
+Эти изменения отвергают `project.yaml`, который прежний релиз загружал. Миграция —
+правка конфига, но `go-project-starter migrate` их не трогает: автоматически выбрать
+замену нельзя, в отвергнутой записи нет правильного значения.
+
+### `auth_params` валидируются на загрузке конфига (TOOLS-90, unreleased)
+
+`Rest.IsValid` валидирует секцию `auth_params` там, где она применима, —
+`generator_type: ogen_client`. До этого секция не проверялась **вообще**: валидация жила
+в мёртвой ветке `case "auth_params"` switch-а по `generator_type` (значения
+`auth_params` у `generator_type` не бывает), поэтому опечатка доезжала до генерации,
+а то и до рантайма — клиентом без авторизации.
+
+| Конфиг | Было | Стало | Миграция |
+|--------|------|-------|----------|
+| `auth_params` на `generator_type` ≠ `ogen_client` (`ogen`, `template`, `sys`) | молча игнорировались | ошибка: `auth_params are only supported for generator_type ogen_client` | удалить секцию; аутентификация сервера — `generator_params.auth_handler` / `auth_scheme` |
+| `transport` ≠ `header` | игнорировалось, клиент без `SecuritySource` | ошибка: `auth_params: invalid transport: … (supported: header)` | `transport: header` |
+| `type` вне {`apikey`, `bearer`, `basic`} | то же | ошибка: `auth_params: invalid type: … (supported: apikey, bearer, basic)` | один из поддерживаемых типов (таблица в [transports.md](docs/configuration/transports.md#параметры-аутентификации)) |
+| задано одно поле из двух | то же | ошибка: `auth_params: both transport and type are required` | указать оба поля либо удалить секцию |
+
+**Почему ошибка, а не игнорирование.** Молча проигнорированная настройка
+аутентификации — худший из исходов: проект собирается, клиент ходит во внешний API без
+креденшелов, и выясняется это по 401 в рантайме. Ошибка загрузки конфига называет файл,
+транспорт и допустимые значения.
+
+**Почему не «починить ветку как есть».** Мёртвая проверка разрешала только
+`type: apikey`, тогда как шаблоны поддерживают `apikey`, `bearer` и `basic` (TOOLS-85).
+Перенос ветки без изменений сломал бы валидные проекты с bearer/basic, поэтому список
+допустимых значений теперь один на весь генератор — `ds.SupportedAuthTypes()`, та же
+функция, на которой ветвится `ds.Transport.UsesSecuritySource`.
+
 ## Breaking changes in generated code
 
 Эти изменения касаются не формата `project.yaml`, а **кода, который получает проект**,

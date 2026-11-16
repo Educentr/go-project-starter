@@ -139,6 +139,10 @@ rest:
 | `bearer` | `BearerAuth` | `token` |
 | `basic` | `BasicAuth` | `username`, `password` |
 
+Секция `auth_params` допустима только при `generator_type: ogen_client`; на остальных
+REST-транспортах — ошибка загрузки конфига. Оба поля обязательны, если секция задана,
+`transport` — только `header`, `type` — только значения из таблицы выше.
+
 Имя схемы в `components.securitySchemes` обязано совпадать с колонкой «Имя схемы в
 спеке» — из него ogen выводит метод `SecuritySource`, который реализует сгенерированная
 обёртка. Подробнее — [Транспорты](../configuration/transports.md#параметры-аутентификации).

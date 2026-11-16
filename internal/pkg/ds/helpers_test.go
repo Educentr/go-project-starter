@@ -254,6 +254,45 @@ func TestTransport_UsesSecuritySource(t *testing.T) {
 	}
 }
 
+func TestIsSupportedAuthType(t *testing.T) {
+	tests := []struct {
+		authType string
+		want     bool
+	}{
+		{authType: AuthTypeAPIKey, want: true},
+		{authType: AuthTypeBearer, want: true},
+		{authType: AuthTypeBasic, want: true},
+		{authType: "oauth2", want: false},
+		{authType: "APIKEY", want: false},
+		{authType: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.authType, func(t *testing.T) {
+			if got := IsSupportedAuthType(tt.authType); got != tt.want {
+				t.Errorf("IsSupportedAuthType(%q) = %v, want %v", tt.authType, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSupportedAuthTypesMatchSecuritySource keeps the advertised list and the
+// client templates' branch condition in sync: every type the list names must
+// make the client emit a SecuritySource, and nothing outside the list may.
+func TestSupportedAuthTypesMatchSecuritySource(t *testing.T) {
+	for _, authType := range SupportedAuthTypes() {
+		tr := Transport{AuthParams: AuthParams{Transport: AuthTransportHeader, Type: authType}}
+		if !tr.UsesSecuritySource() {
+			t.Errorf("auth type %q is advertised as supported but emits no SecuritySource", authType)
+		}
+	}
+
+	tr := Transport{AuthParams: AuthParams{Transport: AuthTransportHeader, Type: "oauth2"}}
+	if tr.UsesSecuritySource() {
+		t.Error("unsupported auth type must not emit a SecuritySource")
+	}
+}
+
 func TestApp_GetRestTransport(t *testing.T) {
 	app := App{
 		Transports: Transports{

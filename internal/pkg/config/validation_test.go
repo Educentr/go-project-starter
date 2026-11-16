@@ -1880,3 +1880,104 @@ func TestValidateSecretName(t *testing.T) {
 		})
 	}
 }
+
+func TestRest_IsValid_AuthParams(t *testing.T) {
+	// Remote path: validateSpecPath skips the on-disk existence check for it,
+	// so these cases exercise auth_params only.
+	const specPath = "https://example.com/api.yaml"
+
+	tests := []struct {
+		name    string
+		rest    Rest
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name:   "ogen_client without auth_params",
+			rest:   Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath}},
+			wantOK: true,
+		},
+		{
+			name: "ogen_client with apikey in header",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK: true,
+		},
+		{
+			name: "ogen_client with bearer in header",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "bearer"}},
+			wantOK: true,
+		},
+		{
+			name: "ogen_client with basic in header",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "basic"}},
+			wantOK: true,
+		},
+		{
+			name: "unsupported auth transport",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "query", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params: invalid transport: query (supported: header)",
+		},
+		{
+			name: "unsupported auth type",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "oauth"}},
+			wantOK:  false,
+			wantMsg: "auth_params: invalid type: oauth (supported: apikey, bearer, basic)",
+		},
+		{
+			name: "auth transport without type",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header"}},
+			wantOK:  false,
+			wantMsg: "auth_params: both transport and type are required",
+		},
+		{
+			name: "auth type without transport",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params: both transport and type are required",
+		},
+		{
+			name: "auth_params on ogen server",
+			rest: Rest{Name: "api", GeneratorType: "ogen", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params are only supported for generator_type ogen_client",
+		},
+		{
+			name: "auth_params on template transport",
+			rest: Rest{Name: "static", GeneratorType: "template", GeneratorTemplate: "static",
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params are only supported for generator_type ogen_client",
+		},
+		{
+			// The sys shortcut returns early from IsValid; auth_params are
+			// still rejected there instead of being silently ignored.
+			name: "auth_params on sys transport",
+			rest: Rest{Name: "sys", GeneratorType: "template", GeneratorTemplate: "sys",
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params are only supported for generator_type ogen_client",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.rest.IsValid("")
+			if gotOK != tt.wantOK {
+				t.Errorf("Rest.IsValid() ok = %v, want %v (msg=%q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("Rest.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
