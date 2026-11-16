@@ -92,6 +92,10 @@ endif
 # Docker variables
 REGISTRY_SERVER ?= {{ .Docker.ImagePrefix }}
 DOCKER_TAG ?= $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+{{- if .Applications.HasDockerPlatforms }}
+# Buildx builder the cross-built images are built with (see buildx-builder).
+BUILDX_BUILDER ?= $(SERVICE_NAME)-builder
+{{- end }}
 {{- if .Docker.BuildArgs }}
 # Docker build arguments (docker.build_args in project.yaml). Each is passed to
 # `docker build` as --build-arg; `?=` keeps an environment or command line
@@ -290,7 +294,16 @@ test: unit-tests
 .PHONY: dep-ci
 dep-ci: ## Install dependencies
 	GOPRIVATE=$(GOPRIVATE) go mod download
-
+{{ if .Applications.HasDockerPlatforms }}
+# Buildx builder the cross-built images are built with. The default "docker"
+# builder cannot build for another platform and cannot hold an image index, so
+# those images need the docker-container driver. Created on first use and
+# reused afterwards; `docker buildx rm $(BUILDX_BUILDER)` drops it.
+.PHONY: buildx-builder
+buildx-builder:
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || \
+		docker buildx create --name $(BUILDX_BUILDER) --driver docker-container --bootstrap >/dev/null
+{{ end }}
 {{ range $_, $a := .Applications }}
 {{ if $a.HasDocker -}}
 # Build service {{ $a.Name }} in container
@@ -299,13 +312,31 @@ build_in_docker-{{ $a.Name }}:
 	go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
 
 # Build docker image for service {{ $a.Name }}
+{{ if $a.Docker.HasPlatforms -}}
+# Cross-built for {{ $a.Docker.PlatformList }} (docker.platforms of the application).
+{{- if $a.Docker.MultiPlatform }}
+# The result is an image index, which the local image store cannot hold, so this
+# target only fills the builder cache; the push target below publishes it.
+{{- end }}
+.PHONY: docker-{{ $a.Name }}
+docker-{{ $a.Name }}: buildx-builder
+	docker buildx build . --builder $(BUILDX_BUILDER){{ $a.Docker.PlatformFlag }}{{ $a.Docker.BuildOutputFlag }} -f ./Dockerfile-{{ $a.Name }} --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+{{ else -}}
 .PHONY: docker-{{ $a.Name }}
 docker-{{ $a.Name }}:
 	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
-
+{{ end }}
+{{ if $a.Docker.MultiPlatform -}}
+# An image index cannot be pushed from the local store, so publishing it is a
+# build as well: it reuses the cache the target above filled.
+.PHONY: docker-{{ $a.Name }}-push
+docker-{{ $a.Name }}-push: buildx-builder
+	docker buildx build . --builder $(BUILDX_BUILDER){{ $a.Docker.PlatformFlag }} --push -f ./Dockerfile-{{ $a.Name }} --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+{{ else -}}
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:
 	docker push $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+{{ end -}}
 {{ end }}
 # Run service {{ $a.Name }}
 .PHONY: run-{{ $a.Name }}

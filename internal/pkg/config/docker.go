@@ -101,8 +101,8 @@ var dockerReservedArgNames = map[string]struct{}{
 	// Dockerfile template (app/files/Dockerfile.tmpl).
 	"binary": {},
 	// Makefile template (main/Makefile.tmpl).
-	"ARGENVERSION": {}, "BUF_VERSION": {}, "BUILD_DATE": {}, "CGO_ENABLED": {},
-	"COMMIT_BRANCH": {}, "COVERAGE_DIR": {}, "COVERAGE_FILTER": {},
+	"ARGENVERSION": {}, "BUF_VERSION": {}, "BUILD_DATE": {}, "BUILDX_BUILDER": {},
+	"CGO_ENABLED": {}, "COMMIT_BRANCH": {}, "COVERAGE_DIR": {}, "COVERAGE_FILTER": {},
 	"DOCKER_BUILDKIT": {}, "DOCKER_TAG": {}, "DOCS_PREFIX": {}, "DOCS_REGION": {},
 	"ENVIRONMENT_PREFIX": {}, "FLAGS": {}, "GOATSERVICESVERSION": {},
 	"GOATVERSION": {}, "GOCOVERDIR": {}, "GOLANGCI_BIN": {},

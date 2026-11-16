@@ -45,6 +45,22 @@ type DockerConfig struct {
 	Labels []DockerLabel
 }
 
+// AppDockerConfig holds the per-application docker section of project.yaml —
+// the target platforms of the application image, declared in
+// applications[].docker.platforms. It is per-application because the audience
+// of the images differs: a CLI image is run on developer machines (amd64 and
+// Apple Silicon), while the server images of the same project usually need one
+// platform.
+//
+// Values are validated on config load (see config.AppDocker.Parse), so they are
+// safe to emit into the Dockerfile and the Makefile without further escaping.
+type AppDockerConfig struct {
+	// Platforms are the declared target platforms ("linux/amd64"), in config
+	// order. Empty means the platform is not expressed at all: the image is
+	// built for the platform of the builder, as before the section existed.
+	Platforms []string
+}
+
 // Docker build stages a build argument can be declared in. A build argument is
 // only visible in the stages that declare it, so the stage list of every
 // argument decides where `ARG <name>` is emitted.
@@ -142,4 +158,67 @@ func (d DockerConfig) ComposeBuildArgs() []string {
 	}
 
 	return entries
+}
+
+// HasPlatforms reports whether the application declares target platforms, i.e.
+// whether its image is built through buildx with an explicit --platform.
+func (d AppDockerConfig) HasPlatforms() bool {
+	return len(d.Platforms) > 0
+}
+
+// MultiPlatform reports whether the image covers more than one platform, i.e.
+// whether the build produces an OCI image index. The index decides the shape of
+// the recipes: the classic image store cannot hold one, so the build cannot
+// --load it and the push has to be the build itself (--push), not a later
+// `docker push` of a local image.
+func (d AppDockerConfig) MultiPlatform() bool {
+	return len(d.Platforms) > 1
+}
+
+// PlatformList renders the value of the buildx `--platform` flag: the declared
+// platforms in config order, comma-separated.
+func (d AppDockerConfig) PlatformList() string {
+	return strings.Join(d.Platforms, ",")
+}
+
+// HasDockerPlatforms reports whether any application declares target platforms.
+// The Makefile emits the shared buildx builder target only then, so a project
+// without the section keeps its output byte for byte.
+func (a Apps) HasDockerPlatforms() bool {
+	for _, app := range a {
+		if app.Docker.HasPlatforms() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// PlatformFlag renders the `--platform` flag of the buildx call in the
+// generated `docker-<app>` recipe. The result starts with a space so it appends
+// to the command line, and is empty when no platform is declared.
+func (d AppDockerConfig) PlatformFlag() string {
+	if !d.HasPlatforms() {
+		return ""
+	}
+
+	return " --platform " + d.PlatformList()
+}
+
+// BuildOutputFlag renders the output flag of the buildx call in the generated
+// `docker-<app>` recipe. One platform lands in the local image store (`--load`),
+// so the recipe behaves exactly like the `docker build` it replaces. Several
+// platforms produce an image index, which the local store cannot hold, so the
+// build keeps the result in the builder cache and the push recipe publishes the
+// index from there. The result starts with a space, and is empty when no
+// platform is declared.
+func (d AppDockerConfig) BuildOutputFlag() string {
+	switch {
+	case !d.HasPlatforms():
+		return ""
+	case d.MultiPlatform():
+		return " --output type=cacheonly"
+	default:
+		return " --load"
+	}
 }

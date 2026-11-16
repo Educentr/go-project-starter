@@ -687,6 +687,13 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			}
 		}
 
+		// Process the per-application docker section. Config validation already
+		// rejected malformed platforms, so this only normalizes them.
+		appDocker, errDocker := app.Docker.Parse()
+		if errDocker != nil {
+			return errors.Wrapf(errDocker, "application %q: invalid docker configuration", app.Name)
+		}
+
 		// Process per-application artifacts
 		// If application has its own artifacts, use those; otherwise fall back to global
 		var appArtifacts []ds.ArtifactType
@@ -712,6 +719,13 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GoatTests:             goatTests,
 			GoatTestsConfig:       goatTestsConfig,
 			Artifacts:             appArtifacts,
+			Docker:                appDocker,
+		}
+
+		// Platforms on an application that builds no image would generate
+		// nothing at all: the recipes they shape live in the docker artifact.
+		if appDocker.HasPlatforms() && !application.HasDocker() {
+			return errors.Wrapf(cfg.ErrAppDockerNoImage, "application %q", app.Name)
 		}
 
 		// Resolve Grafana datasources for this app

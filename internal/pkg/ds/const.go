@@ -488,6 +488,7 @@ type App struct {
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 	Artifacts             []ArtifactType   // Per-application artifacts
+	Docker                AppDockerConfig  // Per-application image settings (target platforms)
 }
 
 // CLIFlag represents a flag for a CLI command (computed Go names included)

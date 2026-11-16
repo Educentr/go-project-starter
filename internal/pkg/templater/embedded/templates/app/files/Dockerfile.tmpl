@@ -1,6 +1,16 @@
+{{ if .Application.Docker.HasPlatforms }}# Target platforms: {{ .Application.Docker.PlatformList }} (applications[].docker.platforms).
+# The builder runs natively on the platform of the build host (BUILDPLATFORM) and
+# cross-compiles for TARGETARCH — Go cross-compiles itself, so no emulation of the
+# target architecture is involved in the build of the binary.
+FROM --platform=$BUILDPLATFORM golang:{{ .GoLangVersion }}-alpine AS builder
+ARG binary=bin/{{ .Application.Name }}
+ARG GOPROXY
+ARG TARGETARCH
+{{- else -}}
 FROM golang:{{ .GoLangVersion }}-alpine AS builder
 ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
+{{- end }}
 {{- range $_, $arg := .Docker.BuilderArgs }}
 ARG {{ $arg.Name }}
 {{- end }}
@@ -52,13 +62,26 @@ RUN --mount=type=ssh --mount=type=secret,id=github_token \
         ssh-keyscan github.com > ~/.ssh/known_hosts && \
         git config --global url."git@github.com:".insteadOf "https://github.com/"; \
     fi && \
+{{- if .Application.Docker.HasPlatforms }}
+    GOARCH=${TARGETARCH:?TARGETARCH is empty, build the image with BuildKit} \
+        make build_in_docker-{{ .Application.Name }} && \
+{{- else }}
     make build_in_docker-{{ .Application.Name }} && \
+{{- end }}
     cp ${binary} /service && \
     rm -f ~/.gitconfig
 
 RUN mkdir -p /public
 ADD public /public
 RUN chmod -R 755 /public
+{{- if .Application.Docker.HasPlatforms }}
+
+# The runtime stage of a cross-built image must not RUN anything: a RUN there
+# runs for the target architecture and so needs emulation, while the binary it
+# would accompany is already cross-compiled. Directories the runtime stage needs
+# are therefore created here, in the native builder stage, and copied over.
+RUN mkdir -p /etc/onlineconf
+{{- end }}
 {{- range $dir := .Application.StaticDirs }}
 
 RUN mkdir -p /{{ $dir }}
@@ -72,7 +95,11 @@ COPY --from=builder /public /public
 {{- range $dir := .Application.StaticDirs }}
 COPY --from=builder /{{ $dir }} /{{ $dir }}
 {{- end }}
+{{- if .Application.Docker.HasPlatforms }}
+COPY --from=builder /etc/onlineconf /etc/onlineconf
+{{- else }}
 RUN mkdir -p /etc/onlineconf
+{{- end }}
 CMD ["/service"]
 
 {{- range $_, $t := .Applications.GetRestTransport }}

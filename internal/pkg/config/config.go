@@ -244,6 +244,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 				fmt.Sprintf("application[%d] '%s': use_envs can only be true or omitted, false is not allowed", i, app.Name))
 		}
 
+		// Валидация docker.platforms приложения: сломанная платформа должна
+		// падать здесь, а не в сборке сгенерированного проекта.
+		if _, err := app.Docker.Parse(); err != nil {
+			return config, errors.WithMessage(ErrInvalidConfig,
+				fmt.Sprintf("application[%d] '%s': %s", i, app.Name, err.Error()))
+		}
+
 		for _, transport := range app.TransportList {
 			_, exRest := config.RestMap[transport.Name]
 			_, exGrpc := config.GrpcMap[transport.Name]
