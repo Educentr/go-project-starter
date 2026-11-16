@@ -419,7 +419,19 @@ func TestEvaluateRefAlgorithm(t *testing.T) {
 	}
 	must("common.yaml")
 
-	allowed := map[string]struct{}{"common.yaml": {}}
+	// A directory named like a spec: existence alone would make the ref eligible,
+	// and the rewritten "./dir.yaml#/X" would resolve to nothing.
+	if err := os.Mkdir(filepath.Join(dir, "dir.yaml"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// A symlink to a spec is a fine rewrite target: whoever resolves the
+	// rewritten ref follows it just as os.Stat does.
+	if err := os.Symlink(filepath.Join(dir, "common.yaml"), filepath.Join(dir, "link.yaml")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	allowed := map[string]struct{}{"common.yaml": {}, "dir.yaml": {}, "link.yaml": {}}
 
 	tests := []struct {
 		raw     string
@@ -435,6 +447,8 @@ func TestEvaluateRefAlgorithm(t *testing.T) {
 		{raw: "../common/common.yaml", want: "./common.yaml", rewrote: true, skip: false},
 		{raw: "sub/common.yaml#/X", want: "./common.yaml#/X", rewrote: true, skip: false},
 		{raw: "../missing/zzz.yaml#/X", want: "", rewrote: false, skip: true},
+		{raw: "../common/dir.yaml#/X", want: "", rewrote: false, skip: true},
+		{raw: "../common/link.yaml#/X", want: "./link.yaml#/X", rewrote: true, skip: false},
 	}
 
 	for _, tc := range tests {
