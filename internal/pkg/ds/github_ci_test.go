@@ -117,3 +117,100 @@ func TestGithubCIConfig_DoctlFromImage(t *testing.T) {
 		})
 	}
 }
+
+func TestGithubCIConfig_PushBranchesBlock(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  GithubCIConfig
+		want string
+	}{
+		{
+			name: "zero config renders the historical branch list",
+			cfg:  GithubCIConfig{},
+			want: "- main\n      - staging",
+		},
+		{
+			name: "configured branches replace the defaults",
+			cfg:  GithubCIConfig{PushBranches: []string{"trunk"}},
+			want: "- trunk",
+		},
+		{
+			name: "glob metacharacters stay plain",
+			cfg:  GithubCIConfig{PushBranches: []string{"main", "release/**", "v1.?"}},
+			want: "- main\n      - release/**\n      - v1.?",
+		},
+		{
+			name: "leading exclamation mark is quoted",
+			cfg:  GithubCIConfig{PushBranches: []string{"releases/**", "!releases/**-alpha"}},
+			want: "- releases/**\n      - '!releases/**-alpha'",
+		},
+		{
+			name: "character range brackets are quoted",
+			cfg:  GithubCIConfig{PushBranches: []string{"release/[0-9]*"}},
+			want: "- 'release/[0-9]*'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.PushBranchesBlock(); got != tt.want {
+				t.Errorf("GithubCIConfig.PushBranchesBlock() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGithubCIConfig_PushBranchesFlow(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  GithubCIConfig
+		want string
+	}{
+		{
+			name: "zero config renders the historical branch list",
+			cfg:  GithubCIConfig{},
+			want: "[main, staging]",
+		},
+		{
+			name: "configured branches replace the defaults",
+			cfg:  GithubCIConfig{PushBranches: []string{"main", "release/**"}},
+			want: "[main, release/**]",
+		},
+		{
+			name: "flow indicators are quoted so the sequence stays parseable",
+			cfg:  GithubCIConfig{PushBranches: []string{"release/[0-9]*", "!main"}},
+			want: "['release/[0-9]*', '!main']",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.PushBranchesFlow(); got != tt.want {
+				t.Errorf("GithubCIConfig.PushBranchesFlow() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestGithubCIConfig_PushBranchesDefaultNotMutated guards defaultPushBranches
+// against being handed out and then appended to by a caller: the package-level
+// slice backs the output of every project that does not configure the key.
+func TestGithubCIConfig_PushBranchesDefaultNotMutated(t *testing.T) {
+	want := []string{"main", "staging"}
+
+	cfg := GithubCIConfig{}
+
+	if got := cfg.PushBranchesFlow(); got != "[main, staging]" {
+		t.Fatalf("unexpected default rendering: %q", got)
+	}
+
+	if len(defaultPushBranches) != len(want) {
+		t.Fatalf("defaultPushBranches = %v, want %v", defaultPushBranches, want)
+	}
+
+	for i, branch := range want {
+		if defaultPushBranches[i] != branch {
+			t.Errorf("defaultPushBranches[%d] = %q, want %q", i, defaultPushBranches[i], branch)
+		}
+	}
+}

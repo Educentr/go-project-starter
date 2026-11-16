@@ -12,7 +12,23 @@ import (
 // githubWorkflow is the subset of a GitHub Actions workflow the github_ci
 // parameters affect.
 type githubWorkflow struct {
+	// On carries the workflow triggers. The key is quoted in the tag because
+	// `on` is also a YAML 1.1 boolean; yaml.v3 reads it as the string key the
+	// generated workflow means.
+	On   githubTriggers       `yaml:"on"`
 	Jobs map[string]githubJob `yaml:"jobs"`
+}
+
+// githubTriggers is the subset of the `on:` section the github_ci parameters
+// affect.
+type githubTriggers struct {
+	Push githubPushTrigger `yaml:"push"`
+}
+
+// githubPushTrigger is the subset of the `on.push` trigger the github_ci
+// parameters affect.
+type githubPushTrigger struct {
+	Branches []string `yaml:"branches"`
 }
 
 // githubJob is the subset of a workflow job the github_ci parameters affect.
@@ -90,6 +106,22 @@ func parseWorkflow(t *testing.T, targetDir, relPath string) githubWorkflow {
 	return wf
 }
 
+// assertPushBranches checks the `on.push.branches` filters of both generated
+// workflows against want. The two templates render the list in different YAML
+// styles (block in ci_cd.yml, flow in go-version-check.yml), so both are
+// parsed back rather than compared as text.
+func assertPushBranches(t *testing.T, targetDir string, want []string) {
+	t.Helper()
+
+	for _, name := range generatedWorkflowNames {
+		got := parseWorkflow(t, targetDir, name).On.Push.Branches
+
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%s: on.push.branches = %#v, want %#v", name, got, want)
+		}
+	}
+}
+
 // doctlVersions collects the version input of every digitalocean/action-doctl
 // step of a workflow. A nil entry means the step has no version input.
 func doctlVersions(wf githubWorkflow) []any {
@@ -144,6 +176,9 @@ func TestGenerateGithubCIDefaults(t *testing.T) {
 			}
 		}
 	}
+
+	// Both workflows must keep the historical push trigger.
+	assertPushBranches(t, tmpDir, []string{"main", "staging"})
 
 	// action-doctl must keep installing the latest release.
 	wf := parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml")
@@ -267,6 +302,12 @@ func TestGenerateGithubCI(t *testing.T) {
 			}
 		}
 	}
+
+	// Mirrors push_branches in github-ci/project.yaml, which carries both a
+	// glob pattern and an exclusion pattern: the latter needs quoting in the
+	// generated YAML, so a round trip through the parser proves the filter
+	// survived as one scalar.
+	assertPushBranches(t, tmpDir, []string{"main", "release/**", "!release/**-alpha"})
 
 	// Both action-doctl steps live in ci_cd.yml and must carry the pinned
 	// version.

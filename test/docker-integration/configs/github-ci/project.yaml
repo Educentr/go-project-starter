@@ -20,6 +20,10 @@ github_ci:
     labels: [linux, x64]
   job_timeout_minutes: 30
   doctl_version: 1.170.0
+  push_branches:
+    - main
+    - 'release/**'
+    - '!release/**-alpha'
 
 rest:
   - name: api
