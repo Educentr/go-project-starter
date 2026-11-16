@@ -27,9 +27,12 @@ type (
 	//	    build: npm run build
 	//	    output: static
 	//	    codegen:
-	//	      cmd: npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts
-	//	      rest: [api]
-	//	      jsonschema: [models]
+	//	      rest:
+	//	        cmd: npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts
+	//	        inputs: [api]
+	//	      jsonschema:
+	//	        cmd: npx json2ts {{ .Spec }} -o src/models/{{ .SpecName }}.d.ts
+	//	        inputs: [models]
 	//
 	// Omitting the section keeps the previous behavior: no web targets, no
 	// build stage, a Makefile and a Dockerfile unchanged to the byte.
@@ -69,15 +72,32 @@ type (
 	// by path: the specs the generator already fetches and copies
 	// (api/rest/<name>/<version>/…, api/schema/<name>/…) are the inputs, and a
 	// second copy of the same contract is exactly what this avoids.
+	//
+	// The command is declared per channel rather than once for both, because a
+	// TS generator reads one of the two formats and not the other:
+	// openapi-typescript takes OpenAPI, json-schema-to-typescript takes JSON
+	// Schema. A single command would fail on the first spec of the other
+	// channel and, since generate-web-<name> is a prerequisite of `generate`,
+	// take `make generate` and `make regenerate` down with it.
 	WebCodegen struct {
+		// Rest generates from the rest[] entries the frontend consumes.
+		// Optional, but at least one channel must be declared.
+		Rest *WebCodegenChannel `mapstructure:"rest"`
+		// JSONSchema generates from the jsonschema[] entries it consumes.
+		// Optional, but at least one channel must be declared.
+		JSONSchema *WebCodegenChannel `mapstructure:"jsonschema"`
+	}
+
+	// WebCodegenChannel is the codegen of one input channel: the command and
+	// the entries of that section it is run over.
+	WebCodegenChannel struct {
 		// Cmd generates the client from one spec file. It is run once per spec
-		// file of every declared input. Required.
+		// file of every input listed here. Required.
 		// Template variables: .Spec, .SpecName, .Input.
 		Cmd string `mapstructure:"cmd"`
-		// Rest lists rest[] entry names the frontend consumes.
-		Rest []string `mapstructure:"rest"`
-		// JSONSchema lists jsonschema[] entry names the frontend consumes.
-		JSONSchema []string `mapstructure:"jsonschema"`
+		// Inputs names the entries of this channel's section the frontend
+		// consumes. At least one. Required.
+		Inputs []string `mapstructure:"inputs"`
 	}
 
 	WebAppList []WebApp
@@ -87,6 +107,14 @@ type (
 	webField struct {
 		name  string
 		value string
+	}
+
+	// webChannel pairs a declared codegen channel with the config section it
+	// draws its inputs from, so that validation and rendering walk the
+	// channels in one fixed order.
+	webChannel struct {
+		section string
+		codegen *WebCodegenChannel
 	}
 )
 
@@ -102,6 +130,11 @@ const (
 	// WebVarInput is the name of the rest[]/jsonschema[] entry the spec file
 	// belongs to.
 	WebVarInput = "Input"
+
+	// WebChannelRest and WebChannelJSONSchema name the codegen channels the
+	// way project.yaml spells them, and the way the error messages do.
+	WebChannelRest       = "rest"
+	WebChannelJSONSchema = "jsonschema"
 )
 
 // webVars is the variable vocabulary of the web codegen command, in the order
@@ -135,6 +168,10 @@ func (w WebApp) IsValid() (bool, string) {
 		}
 	}
 
+	if ok, msg := validateWebLayout(w); !ok {
+		return false, prefix + msg
+	}
+
 	if strings.TrimSpace(w.Build) == "" {
 		return false, prefix + "empty build"
 	}
@@ -145,6 +182,10 @@ func (w WebApp) IsValid() (bool, string) {
 		if strings.Contains(f.value, "{{") {
 			return false, prefix + f.name + " takes no template variables"
 		}
+
+		if ok, msg := validateSingleLineCommand(f.name, f.value); !ok {
+			return false, prefix + msg
+		}
 	}
 
 	if strings.ContainsAny(w.NodeImage, " \t\n") {
@@ -154,6 +195,41 @@ func (w WebApp) IsValid() (bool, string) {
 	return w.Codegen.isValid(prefix)
 }
 
+// validateWebLayout rejects a frontend whose sources live inside its own build
+// output. The output directory belongs to the build: the generated .gitignore
+// ignores it whole (`<output>/*`), so the sources would silently stop being
+// tracked, and the image copies the build over it.
+func validateWebLayout(w WebApp) (bool, string) {
+	if w.Dir == w.Output || strings.HasPrefix(w.Dir, w.Output+"/") {
+		return false, "dir '" + w.Dir + "' is inside output '" + w.Output +
+			"': the output directory belongs to the build (it is git-ignored whole and overwritten in the image), " +
+			"so the sources cannot live in it"
+	}
+
+	return true, ""
+}
+
+// channels returns the declared codegen channels in a fixed order, paired with
+// the config section each draws its inputs from.
+func (c *WebCodegen) channels() []webChannel {
+	if c == nil {
+		return nil
+	}
+
+	var out []webChannel
+
+	for _, ch := range []webChannel{
+		{section: WebChannelRest, codegen: c.Rest},
+		{section: WebChannelJSONSchema, codegen: c.JSONSchema},
+	} {
+		if ch.codegen != nil {
+			out = append(out, ch)
+		}
+	}
+
+	return out
+}
+
 // isValid validates the codegen block of a web entry. A nil block is valid:
 // a frontend that hand-writes its API client is still a frontend.
 func (c *WebCodegen) isValid(prefix string) (bool, string) {
@@ -161,39 +237,55 @@ func (c *WebCodegen) isValid(prefix string) (bool, string) {
 		return true, ""
 	}
 
+	channels := c.channels()
+
+	// A codegen with no channel generates nothing, which is a declaration that
+	// looks like it works and silently does not.
+	if len(channels) == 0 {
+		return false, prefix + "codegen: declares no channel (list the inputs it consumes under " +
+			WebChannelRest + ": and/or " + WebChannelJSONSchema + ":)"
+	}
+
+	for _, ch := range channels {
+		if ok, msg := ch.codegen.isValid(prefix + "codegen: " + ch.section + ": "); !ok {
+			return false, msg
+		}
+	}
+
+	return true, ""
+}
+
+// isValid validates one codegen channel. prefix already names the entry and
+// the channel, so the messages only have to name the field.
+func (c *WebCodegenChannel) isValid(prefix string) (bool, string) {
 	if strings.TrimSpace(c.Cmd) == "" {
-		return false, prefix + "codegen: empty cmd"
+		return false, prefix + "empty cmd"
+	}
+
+	if ok, msg := validateSingleLineCommand("cmd", c.Cmd); !ok {
+		return false, prefix + msg
 	}
 
 	if _, err := commandVars(c.Cmd, webVars); err != nil {
-		return false, prefix + "codegen: cmd: " + err.Error()
+		return false, prefix + "cmd: " + err.Error()
 	}
 
-	// A codegen with no input generates nothing, which is a declaration that
-	// looks like it works and silently does not.
-	if len(c.Rest) == 0 && len(c.JSONSchema) == 0 {
-		return false, prefix + "codegen: declares no input (list the rest/jsonschema entries it consumes)"
+	if len(c.Inputs) == 0 {
+		return false, prefix + "declares no input (list the entries it consumes)"
 	}
 
-	seen := make(map[string]struct{}, len(c.Rest)+len(c.JSONSchema))
+	seen := make(map[string]struct{}, len(c.Inputs))
 
-	for _, in := range []struct {
-		section string
-		names   []string
-	}{{section: "rest", names: c.Rest}, {section: "jsonschema", names: c.JSONSchema}} {
-		for _, name := range in.names {
-			if name == "" {
-				return false, prefix + "codegen: empty " + in.section + " input name"
-			}
-
-			key := in.section + ":" + name
-
-			if _, dup := seen[key]; dup {
-				return false, prefix + "codegen: duplicate " + in.section + " input: " + name
-			}
-
-			seen[key] = struct{}{}
+	for _, name := range c.Inputs {
+		if name == "" {
+			return false, prefix + "empty input name"
 		}
+
+		if _, dup := seen[name]; dup {
+			return false, prefix + "duplicate input: " + name
+		}
+
+		seen[name] = struct{}{}
 	}
 
 	return true, ""
@@ -207,6 +299,7 @@ func (c *WebCodegen) isValid(prefix string) (bool, string) {
 // says which directories are actually served.
 func ValidateWeb(config *Config) (bool, string) {
 	byName := make(map[string]struct{}, len(config.WebList))
+	byOutput := make(map[string]string, len(config.WebList))
 
 	for _, w := range config.WebList {
 		if ok, msg := w.IsValid(); !ok {
@@ -218,6 +311,16 @@ func ValidateWeb(config *Config) (bool, string) {
 		}
 
 		byName[w.Name] = struct{}{}
+
+		// Two frontends writing the same directory overwrite each other: in
+		// the image the stage copied last wins, locally whichever build ran
+		// last does.
+		if other, dup := byOutput[w.Output]; dup {
+			return false, "web '" + w.Name + "': output '" + w.Output + "' is already built by web '" + other +
+				"' (two builds writing the same directory overwrite each other)"
+		}
+
+		byOutput[w.Output] = w.Name
 
 		if ok, msg := validateWebTargets(config, w); !ok {
 			return false, msg
@@ -277,31 +380,39 @@ func validateWebOutput(config *Config, w WebApp) (bool, string) {
 // spec with it: an entry with no spec file (a template transport, an empty
 // schema block) would render the codegen command zero times.
 func validateWebInputs(config *Config, w WebApp) (bool, string) {
-	if w.Codegen == nil {
-		return true, ""
+	for _, ch := range w.Codegen.channels() {
+		prefix := "web '" + w.Name + "': codegen: " + ch.section + ": "
+
+		for _, name := range ch.codegen.Inputs {
+			if ok, msg := validateWebInput(config, ch.section, name); !ok {
+				return false, prefix + msg
+			}
+		}
 	}
 
-	prefix := "web '" + w.Name + "': codegen: "
+	return true, ""
+}
 
-	for _, name := range w.Codegen.Rest {
+// validateWebInput checks one input name against the section it names.
+func validateWebInput(config *Config, section, name string) (bool, string) {
+	switch section {
+	case WebChannelRest:
 		rest, ex := config.RestMap[name]
 		if !ex {
-			return false, prefix + "unknown rest input: " + name
+			return false, "unknown rest input: " + name
 		}
 
 		if len(rest.Path) == 0 {
-			return false, prefix + "rest input '" + name + "' has no path, so there is no spec to generate from"
+			return false, "rest input '" + name + "' has no path, so there is no spec to generate from"
 		}
-	}
-
-	for _, name := range w.Codegen.JSONSchema {
+	case WebChannelJSONSchema:
 		schema, ex := config.JSONSchemaMap[name]
 		if !ex {
-			return false, prefix + "unknown jsonschema input: " + name
+			return false, "unknown jsonschema input: " + name
 		}
 
 		if len(schema.Schemas) == 0 && len(schema.Path) == 0 {
-			return false, prefix + "jsonschema input '" + name + "' declares no schema file"
+			return false, "jsonschema input '" + name + "' declares no schema file"
 		}
 	}
 

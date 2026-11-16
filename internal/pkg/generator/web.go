@@ -65,8 +65,11 @@ func (g *Generator) processWebApps(config cfg.Config) error {
 	return nil
 }
 
-// renderWebCodegen renders the codegen command once per spec file of the
-// inputs the frontend consumes, rest entries first, in declaration order.
+// renderWebCodegen renders the codegen command of each declared channel once
+// per spec file of the inputs that channel consumes — the rest channel first,
+// inputs in declaration order. Each channel brings its own command: one TS
+// generator reads OpenAPI, another reads JSON Schema, and a command run over
+// the format it does not understand fails the whole `make generate`.
 func (g *Generator) renderWebCodegen(w cfg.WebApp) ([]string, error) {
 	if w.Codegen == nil {
 		return nil, nil
@@ -74,45 +77,49 @@ func (g *Generator) renderWebCodegen(w cfg.WebApp) ([]string, error) {
 
 	cmds := []string{}
 
-	for _, name := range w.Codegen.Rest {
-		transport, ex := g.Transports[name]
-		if !ex {
-			return nil, fmt.Errorf("%w: rest %s", errWebInputUnknown, name)
-		}
+	if ch := w.Codegen.Rest; ch != nil {
+		for _, name := range ch.Inputs {
+			transport, ex := g.Transports[name]
+			if !ex {
+				return nil, fmt.Errorf("%w: rest %s", errWebInputUnknown, name)
+			}
 
-		rendered, err := renderCodegenForInput(
-			w, name, filepath.ToSlash(transport.GetTargetSpecDir("")), transport.SpecPath,
-		)
-		if err != nil {
-			return nil, err
-		}
+			rendered, err := renderCodegenForInput(
+				ch.Cmd, w.Dir, name, filepath.ToSlash(transport.GetTargetSpecDir("")), transport.SpecPath,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		cmds = append(cmds, rendered...)
+			cmds = append(cmds, rendered...)
+		}
 	}
 
-	for _, name := range w.Codegen.JSONSchema {
-		schema, ex := g.JSONSchemas[name]
-		if !ex {
-			return nil, fmt.Errorf("%w: jsonschema %s", errWebInputUnknown, name)
-		}
+	if ch := w.Codegen.JSONSchema; ch != nil {
+		for _, name := range ch.Inputs {
+			schema, ex := g.JSONSchemas[name]
+			if !ex {
+				return nil, fmt.Errorf("%w: jsonschema %s", errWebInputUnknown, name)
+			}
 
-		rendered, err := renderCodegenForInput(
-			w, name, filepath.ToSlash(schema.GetTargetSpecDir("")), schemaSourcePaths(schema),
-		)
-		if err != nil {
-			return nil, err
-		}
+			rendered, err := renderCodegenForInput(
+				ch.Cmd, w.Dir, name, filepath.ToSlash(schema.GetTargetSpecDir("")), schemaSourcePaths(schema),
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		cmds = append(cmds, rendered...)
+			cmds = append(cmds, rendered...)
+		}
 	}
 
 	return cmds, nil
 }
 
-// renderCodegenForInput renders the command for every spec of one input.
-// specDir is where the generator copies that input's specs to, raw holds the
-// sources as written in project.yaml.
-func renderCodegenForInput(w cfg.WebApp, input, specDir string, raw []string) ([]string, error) {
+// renderCodegenForInput renders a channel's command for every spec of one
+// input. dir is where the command runs, specDir is where the generator copies
+// that input's specs to, raw holds the sources as written in project.yaml.
+func renderCodegenForInput(cmd, dir, input, specDir string, raw []string) ([]string, error) {
 	cmds := make([]string, 0, len(raw))
 
 	for _, source := range raw {
@@ -127,9 +134,9 @@ func renderCodegenForInput(w cfg.WebApp, input, specDir string, raw []string) ([
 
 		file := src.TargetFilename()
 
-		cmd, err := cfg.RenderWebCodegenCommand(
-			w.Codegen.Cmd,
-			relFromWebDir(w.Dir, path.Join(specDir, file)),
+		rendered, err := cfg.RenderWebCodegenCommand(
+			cmd,
+			relFromWebDir(dir, path.Join(specDir, file)),
 			strings.TrimSuffix(file, path.Ext(file)),
 			input,
 		)
@@ -137,7 +144,7 @@ func renderCodegenForInput(w cfg.WebApp, input, specDir string, raw []string) ([
 			return nil, err
 		}
 
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, rendered)
 	}
 
 	return cmds, nil

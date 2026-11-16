@@ -41,9 +41,14 @@ func TestProcessWebApps_RendersCodegenPerSpec(t *testing.T) {
 				Build:   "npm run build",
 				Output:  "static",
 				Codegen: &cfg.WebCodegen{
-					Cmd:        "npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts # {{ .Input }}",
-					Rest:       []string{"api"},
-					JSONSchema: []string{"models"},
+					Rest: &cfg.WebCodegenChannel{
+						Cmd:    "npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts # {{ .Input }}",
+						Inputs: []string{"api"},
+					},
+					JSONSchema: &cfg.WebCodegenChannel{
+						Cmd:    "npx json2ts {{ .Spec }} -o src/models/{{ .SpecName }}.d.ts # {{ .Input }}",
+						Inputs: []string{"models"},
+					},
 				},
 			},
 			{Name: "landing", Dir: "web/landing", Build: "npm run build", Output: "public_web", NodeImage: "node:20-alpine"},
@@ -64,10 +69,14 @@ func TestProcessWebApps_RendersCodegenPerSpec(t *testing.T) {
 	// The commands are handed the generator's own copies of the inputs —
 	// api/rest/<name>/<version>/ and api/schema/<name>/ — relative to the
 	// frontend directory, which is where they run. No second copy exists.
+	//
+	// Each channel is generated with its own command: a JSON Schema fed to an
+	// OpenAPI generator fails the recipe, and with it the whole
+	// `make generate` that generate-web-admin is part of.
 	wantCmds := []string{
 		"npx openapi-typescript ../../api/rest/api/v1/api.swagger.yml -o src/api/api.swagger.ts # api",
 		"npx openapi-typescript ../../api/rest/api/v1/common.yaml -o src/api/common.ts # api",
-		"npx openapi-typescript ../../api/schema/models/user.schema.json -o src/api/user.schema.ts # models",
+		"npx json2ts ../../api/schema/models/user.schema.json -o src/models/user.schema.d.ts # models",
 	}
 
 	if len(admin.CodegenCmds) != len(wantCmds) {
@@ -124,7 +133,9 @@ func TestProcessWebApps_UnknownInput(t *testing.T) {
 	config := cfg.Config{
 		WebList: cfg.WebAppList{{
 			Name: "admin", Dir: "web/admin", Build: "npm run build", Output: "static",
-			Codegen: &cfg.WebCodegen{Cmd: "gen {{ .Spec }}", Rest: []string{"missing"}},
+			Codegen: &cfg.WebCodegen{
+				Rest: &cfg.WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{"missing"}},
+			},
 		}},
 	}
 

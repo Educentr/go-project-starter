@@ -44,9 +44,15 @@ func TestGenerateWebApp(t *testing.T) {
 		// The paths are the generator's own copies of the declared inputs,
 		// relative to the frontend directory — no second copy of a spec the
 		// generator already fetches.
+		//
+		// Each channel runs its own tool: openapi-typescript over the OpenAPI
+		// spec, json2ts over the JSON Schema. One tool over both would fail on
+		// the format it does not read, and generate-web-admin is a
+		// prerequisite of `generate` — the whole `make generate` would fail
+		// with it.
 		want := []string{
 			"cd web/admin && npx openapi-typescript ../../api/rest/api/v1/api.swagger.yml -o src/api/api.swagger.ts",
-			"cd web/admin && npx openapi-typescript ../../api/schema/models/user.schema.json -o src/api/user.schema.ts",
+			"cd web/admin && npx json2ts ../../api/schema/models/user.schema.json -o src/models/user.schema.d.ts",
 		}
 
 		if len(recipe) != len(want) {

@@ -449,15 +449,18 @@ web:
     build: string             # [required] сборка в output, без переменных
     output: string            # [required] каталог сборки; обязан раздаваться транспортом static
     node_image: string        # [optional] образ стадии сборки (по умолчанию node:22-alpine)
-    codegen:                  # [optional]
-      cmd: string             # [required] команда генерации; {{ .Spec }}, {{ .SpecName }}, {{ .Input }}
-      rest: [string]          # имена записей rest[], которые потребляет фронт
-      jsonschema: [string]    # имена записей jsonschema[]
+    codegen:                  # [optional] хотя бы один канал
+      rest:                   # [optional] канал входов rest[]
+        cmd: string           # [required] команда генерации; {{ .Spec }}, {{ .SpecName }}, {{ .Input }}
+        inputs: [string]      # [required] имена записей rest[], которые потребляет фронт
+      jsonschema:             # [optional] канал входов jsonschema[]
+        cmd: string           # [required] своя команда: генератор TS читает один формат, не оба
+        inputs: [string]      # [required] имена записей jsonschema[]
 ```
 
 Make-цели: `install-web-<name>` → в `install-tools`, `build-web-<name>`,
-`generate-web-<name>` → в `generate` (после встроенных генераторов). `cmd` кодогена
-вызывается по разу на каждый файл спеки каждого входа. Фронт собирается в образе отдельной
+`generate-web-<name>` → в `generate` (после встроенных генераторов). `cmd` канала
+вызывается по разу на каждый файл спеки каждого его входа. Фронт собирается в образе отдельной
 node-стадией, поэтому `docker-<app>` от `build-web-<name>` не зависит.
 
 ---

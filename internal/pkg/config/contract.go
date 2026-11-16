@@ -5,6 +5,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -197,6 +198,14 @@ func (g CustomGenerator) IsValid() (bool, string) {
 	// there would have no value to resolve to.
 	if strings.Contains(g.Install, "{{") {
 		return false, "generator '" + g.Name + "': install takes no template variables"
+	}
+
+	for _, c := range []generatorCommand{
+		{field: "install", text: g.Install}, {field: "cmd", text: g.Cmd}, {field: "lint", text: g.Lint},
+	} {
+		if ok, msg := validateSingleLineCommand(c.field, c.text); !ok {
+			return false, "generator '" + g.Name + "': " + msg
+		}
 	}
 
 	for _, c := range g.commands() {
@@ -475,6 +484,24 @@ func recordTemplateField(ident []string, used map[string]bool, allowed []string)
 	used[name] = true
 
 	return nil
+}
+
+// validateSingleLineCommand checks a command as it is written in project.yaml.
+// A command is one make recipe line and one Dockerfile RUN line: an embedded
+// newline leaves everything after it as an unindented make line (`missing
+// separator`, which breaks every target of the project) and as a broken RUN
+// instruction.
+//
+// renderCommand checks the rendered form for the same reason; this check is
+// what catches the literal commands, which are never rendered (`install`,
+// `build`), and what lets the templated ones fail at config load, naming the
+// field they came from.
+func validateSingleLineCommand(field, cmd string) (bool, string) {
+	if strings.ContainsAny(cmd, "\n\r") {
+		return false, field + " must be a single line (it becomes one make recipe line), got: " + strconv.Quote(cmd)
+	}
+
+	return true, ""
 }
 
 // validateProjectRelPath checks that p is usable as a path inside the

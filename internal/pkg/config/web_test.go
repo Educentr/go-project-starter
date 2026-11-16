@@ -15,6 +15,12 @@ func webEntry() WebApp {
 	}
 }
 
+// restCodegen is a codegen block over the rest channel only — the shape most
+// tests need when the channel itself is not what they are checking.
+func restCodegen(cmd string, inputs ...string) *WebCodegen {
+	return &WebCodegen{Rest: &WebCodegenChannel{Cmd: cmd, Inputs: inputs}}
+}
+
 func TestWebApp_IsValid(t *testing.T) {
 	withCodegen := func(c *WebCodegen) WebApp {
 		w := webEntry()
@@ -35,11 +41,16 @@ func TestWebApp_IsValid(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name: "install, build and codegen",
+			name: "install, build and a codegen per channel",
 			web: withCodegen(&WebCodegen{
-				Cmd:        "npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts",
-				Rest:       []string{"api"},
-				JSONSchema: []string{"models"},
+				Rest: &WebCodegenChannel{
+					Cmd:    "npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts",
+					Inputs: []string{"api"},
+				},
+				JSONSchema: &WebCodegenChannel{
+					Cmd:    "npx json2ts {{ .Spec }} -o src/models/{{ .SpecName }}.d.ts",
+					Inputs: []string{"models"},
+				},
 			}),
 			wantOK: true,
 		},
@@ -69,6 +80,25 @@ func TestWebApp_IsValid(t *testing.T) {
 			wantMsg: "output is required",
 		},
 		{
+			// The output directory is git-ignored whole and overwritten by the
+			// build, so sources kept in it would silently stop being tracked.
+			name:    "dir is the output directory",
+			web:     WebApp{Name: "admin", Dir: "static", Build: "x", Output: "static"},
+			wantMsg: "dir 'static' is inside output 'static'",
+		},
+		{
+			name:    "dir nested in the output directory",
+			web:     WebApp{Name: "admin", Dir: "static/src", Build: "x", Output: "static"},
+			wantMsg: "is inside output",
+		},
+		{
+			// A sibling directory whose name merely starts the same is not
+			// nested: static-src is not inside static.
+			name:   "dir only shares a prefix with the output",
+			web:    WebApp{Name: "admin", Dir: "static-src", Build: "x", Output: "static"},
+			wantOK: true,
+		},
+		{
 			name:    "empty build",
 			web:     WebApp{Name: "admin", Dir: "web", Output: "static"},
 			wantMsg: "empty build",
@@ -84,46 +114,75 @@ func TestWebApp_IsValid(t *testing.T) {
 			wantMsg: "install takes no template variables",
 		},
 		{
+			// A second line would land in the Makefile without a tab
+			// ("missing separator", which breaks every target) and in the
+			// Dockerfile as a broken RUN.
+			name:    "multiline build",
+			web:     WebApp{Name: "admin", Dir: "web", Build: "npm run build\n  echo done", Output: "static"},
+			wantMsg: "build must be a single line",
+		},
+		{
+			name: "multiline install",
+			web: WebApp{
+				Name: "admin", Dir: "web", Install: "npm ci\nnpm dedupe", Build: "x", Output: "static",
+			},
+			wantMsg: "install must be a single line",
+		},
+		{
+			name:    "multiline codegen cmd",
+			web:     withCodegen(restCodegen("gen {{ .Spec }}\ngen2", "api")),
+			wantMsg: "cmd must be a single line",
+		},
+		{
 			name:    "node_image with arguments",
 			web:     WebApp{Name: "admin", Dir: "web", Build: "x", Output: "static", NodeImage: "node:22 --rm"},
 			wantMsg: "single image reference",
 		},
 		{
-			name:    "codegen without cmd",
-			web:     withCodegen(&WebCodegen{Rest: []string{"api"}}),
-			wantMsg: "codegen: empty cmd",
+			name:    "codegen channel without cmd",
+			web:     withCodegen(&WebCodegen{Rest: &WebCodegenChannel{Inputs: []string{"api"}}}),
+			wantMsg: "codegen: rest: empty cmd",
 		},
 		{
-			name:    "codegen without inputs",
-			web:     withCodegen(&WebCodegen{Cmd: "npx openapi-typescript {{ .Spec }}"}),
-			wantMsg: "declares no input",
+			name:    "codegen without channels",
+			web:     withCodegen(&WebCodegen{}),
+			wantMsg: "declares no channel",
+		},
+		{
+			name:    "codegen channel without inputs",
+			web:     withCodegen(restCodegen("npx openapi-typescript {{ .Spec }}")),
+			wantMsg: "codegen: rest: declares no input",
 		},
 		{
 			name:    "unknown variable in codegen cmd",
-			web:     withCodegen(&WebCodegen{Cmd: "gen {{ .Target }}", Rest: []string{"api"}}),
+			web:     withCodegen(restCodegen("gen {{ .Target }}", "api")),
 			wantMsg: "unknown generator command variable: .Target",
 		},
 		{
 			name:    "unparsable codegen cmd",
-			web:     withCodegen(&WebCodegen{Cmd: "gen {{ .Spec", Rest: []string{"api"}}),
+			web:     withCodegen(restCodegen("gen {{ .Spec", "api")),
 			wantMsg: "invalid template",
 		},
 		{
-			name:    "duplicate rest input",
-			web:     withCodegen(&WebCodegen{Cmd: "gen {{ .Spec }}", Rest: []string{"api", "api"}}),
-			wantMsg: "duplicate rest input: api",
+			name:    "duplicate input in a channel",
+			web:     withCodegen(restCodegen("gen {{ .Spec }}", "api", "api")),
+			wantMsg: "codegen: rest: duplicate input: api",
 		},
 		{
-			name:    "empty input name",
-			web:     withCodegen(&WebCodegen{Cmd: "gen {{ .Spec }}", JSONSchema: []string{""}}),
-			wantMsg: "empty jsonschema input name",
-		},
-		{
-			// Same name in two sections is not a duplicate: they are
-			// different inputs that happen to share a name.
-			name: "same name in both sections",
+			name: "empty input name",
 			web: withCodegen(&WebCodegen{
-				Cmd: "gen {{ .Spec }}", Rest: []string{"models"}, JSONSchema: []string{"models"},
+				JSONSchema: &WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{""}},
+			}),
+			wantMsg: "codegen: jsonschema: empty input name",
+		},
+		{
+			// Same name in two channels is not a duplicate: they are
+			// different inputs that happen to share a name, and each channel
+			// generates from it with its own command.
+			name: "same name in both channels",
+			web: withCodegen(&WebCodegen{
+				Rest:       &WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{"models"}},
+				JSONSchema: &WebCodegenChannel{Cmd: "gen2 {{ .Spec }}", Inputs: []string{"models"}},
 			}),
 			wantOK: true,
 		},
@@ -171,9 +230,9 @@ func webConfig(web ...WebApp) *Config {
 }
 
 func TestValidateWeb(t *testing.T) {
-	codegen := func(c WebCodegen) WebApp {
+	codegen := func(c *WebCodegen) WebApp {
 		w := webEntry()
-		w.Codegen = &c
+		w.Codegen = c
 
 		return w
 	}
@@ -195,9 +254,10 @@ func TestValidateWeb(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name: "codegen over both input channels",
-			config: webConfig(codegen(WebCodegen{
-				Cmd: "gen {{ .Spec }}", Rest: []string{"api"}, JSONSchema: []string{"models"},
+			name: "a codegen command per input channel",
+			config: webConfig(codegen(&WebCodegen{
+				Rest:       &WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{"api"}},
+				JSONSchema: &WebCodegenChannel{Cmd: "gen2 {{ .Spec }}", Inputs: []string{"models"}},
 			})),
 			wantOK: true,
 		},
@@ -209,6 +269,19 @@ func TestValidateWeb(t *testing.T) {
 				return c
 			}(),
 			wantMsg: "duplicate web name: admin",
+		},
+		{
+			// Both builds write the same directory: in the image the stage
+			// copied last wins, so one of the two frontends is simply lost.
+			name: "two frontends building the same output",
+			config: func() *Config {
+				other := webEntry()
+				other.Name = "landing"
+				other.Dir = "web/landing"
+
+				return webConfig(webEntry(), other)
+			}(),
+			wantMsg: "output 'static' is already built by web 'admin'",
 		},
 		{
 			name: "output nobody serves",
@@ -232,23 +305,36 @@ func TestValidateWeb(t *testing.T) {
 		},
 		{
 			name:    "unknown rest input",
-			config:  webConfig(codegen(WebCodegen{Cmd: "gen {{ .Spec }}", Rest: []string{"nope"}})),
-			wantMsg: "unknown rest input: nope",
+			config:  webConfig(codegen(restCodegen("gen {{ .Spec }}", "nope"))),
+			wantMsg: "codegen: rest: unknown rest input: nope",
 		},
 		{
 			name:    "rest input without a spec",
-			config:  webConfig(codegen(WebCodegen{Cmd: "gen {{ .Spec }}", Rest: []string{"tpl"}})),
+			config:  webConfig(codegen(restCodegen("gen {{ .Spec }}", "tpl"))),
 			wantMsg: "has no path",
 		},
 		{
-			name:    "unknown jsonschema input",
-			config:  webConfig(codegen(WebCodegen{Cmd: "gen {{ .Spec }}", JSONSchema: []string{"nope"}})),
-			wantMsg: "unknown jsonschema input: nope",
+			name: "unknown jsonschema input",
+			config: webConfig(codegen(&WebCodegen{
+				JSONSchema: &WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{"nope"}},
+			})),
+			wantMsg: "codegen: jsonschema: unknown jsonschema input: nope",
 		},
 		{
-			name:    "jsonschema input without a schema",
-			config:  webConfig(codegen(WebCodegen{Cmd: "gen {{ .Spec }}", JSONSchema: []string{"empty"}})),
+			name: "jsonschema input without a schema",
+			config: webConfig(codegen(&WebCodegen{
+				JSONSchema: &WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{"empty"}},
+			})),
 			wantMsg: "declares no schema file",
+		},
+		{
+			// A rest entry named like a jsonschema one must be looked up in
+			// its own section: the channel says which section to ask.
+			name: "input resolved in the channel's own section",
+			config: webConfig(codegen(&WebCodegen{
+				Rest: &WebCodegenChannel{Cmd: "gen {{ .Spec }}", Inputs: []string{"models"}},
+			})),
+			wantMsg: "codegen: rest: unknown rest input: models",
 		},
 		{
 			name: "make targets collide with an application",

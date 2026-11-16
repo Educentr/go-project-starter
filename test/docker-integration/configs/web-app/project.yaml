@@ -24,10 +24,15 @@ web:
     install: npm ci
     build: npm run build
     output: static
+    # A command per channel: openapi-typescript reads OpenAPI and nothing else,
+    # json2ts reads JSON Schema and nothing else.
     codegen:
-      cmd: npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts
-      rest: [api]
-      jsonschema: [models]
+      rest:
+        cmd: npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts
+        inputs: [api]
+      jsonschema:
+        cmd: npx json2ts {{ .Spec }} -o src/models/{{ .SpecName }}.d.ts
+        inputs: [models]
   - name: landing
     dir: web/landing
     build: npm run build
