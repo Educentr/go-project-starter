@@ -40,7 +40,7 @@ applications:
 | `driver` | Нет | Драйверы интеграций |
 | `cli` | Нет | CLI транспорт (эксклюзивен) |
 | `use_active_record` | Нет | Override use_active_record для приложения |
-| `use_envs` | Нет | Использовать переменные окружения |
+| `use_envs` | Нет | Брать конфигурацию из переменных окружения вместо OnlineConf (только `true`; требует своей CI-джобы, см. ниже) |
 | `deploy` | Нет | Настройки деплоя (volumes) |
 | `depends_on_docker_images` | Нет | Docker образы для pre-pull |
 | `dev_ports` | Нет | Дополнительные порты контейнера в `docker-compose-dev.yaml` (`"host:container"`, можно `"${VAR:-8102}:8102"`); порты REST-транспортов пробрасываются сами |
@@ -135,6 +135,35 @@ checker:
     cool-app-image-puller:
       condition: service_completed_successfully
 ```
+
+### `use_envs`: конфигурация из переменных окружения
+
+`use_envs: true` переводит приложение на переменные окружения вместо OnlineConf: в
+`docker-compose` не монтируется дерево конфигурации, `run-<app>` не зависит от
+`onlineconf-update`, а `goat-tests-<app>` не поднимает тестовое дерево. Значение может быть
+только `true` — `false` отвергается на загрузке конфига (отсутствие ключа и есть «нет»).
+
+```yaml
+applications:
+  - name: api
+    use_envs: true
+    transport: [api, sys]
+```
+
+**Для приложения с `use_envs: true` проект обязан сам объявить CI-джобу
+`create_<app>_env_files`** — в пользовательской секции `.github/workflows/ci_cd.yml` (ниже
+disclaimer-маркера, иначе она пропадёт при следующем `make regenerate`). Генератор её **не
+создаёт**: откуда брать значения переменных — секреты, S3, vault — знает только проект.
+Генератор добавляет её в `needs` джобы `deploy`, и джоба, которую никто не объявил, делает
+**весь** workflow невалидным.
+
+Имя джобы — имя приложения с дефисами, заменёнными на подчёркивания (`api-gateway` →
+`create_api_gateway_env_files`). Джоба должна выкладывать env-файлы артефактом `envs-*`:
+именно их `deploy` скачивает и rsync'ит на сервер.
+
+Запись в `needs` появляется только у приложений, которые реально едут в `deploy`, то есть у
+собираемых в docker-образ. Приложение с `artifacts: [deb]` (или любым набором без `docker`)
+env-файл в `deploy` не отдаёт, джоба ему не нужна и в `needs` оно не попадает.
 
 ### GOAT тесты
 

@@ -496,12 +496,6 @@ func (o OnlineConfConfig) NeedsStringsImport() bool {
 	return o.HasRequired()
 }
 
-// NeedsErrorsImport reports whether the generated package needs "errors": only
-// ErrKeyNotSet does, and only a required key can return it.
-func (o OnlineConfConfig) NeedsErrorsImport() bool {
-	return o.HasRequired()
-}
-
 // TreeRoot returns the service tree the generated code reads under.
 func (o OnlineConfConfig) TreeRoot() string {
 	return o.ServiceTree

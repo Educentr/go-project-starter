@@ -261,17 +261,6 @@ onlineconf-validate: install-lint
 coverage:
 	go test -timeout=$(TEST_TIMEOUT) -v -coverprofile=coverage.out $(PKG_LIST_FOR_TEST)  && go tool cover -html=coverage.out
 
-# Run an integration testing with all dependencies using a single command
-.PHONY: test-integration-with-deps
-test-integration-with-deps: test-int-up-deps test-integration
-
-# Up all dependencies required for an integration testing
-.PHONY: test-int-up-deps
-test-int-up-deps:
-	@echo "Up testing dependencies: \n"
-	docker compose up -d --build --force-recreate wiremock
-	@echo "Successful up testing dependencies"
-
 # Run unit testing (excludes GOAT integration tests)
 .PHONY: unit-tests
 unit-tests:
