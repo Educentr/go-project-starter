@@ -836,6 +836,9 @@ type (
 		GoatTestsConfig *GoatTestsConfig `mapstructure:"goat_tests_config"`
 		// Artifacts overrides global artifacts for this application.
 		Artifacts []ArtifactType `mapstructure:"artifacts"`
+		// Docker configures the runtime stage of the application Dockerfile:
+		// base image, runtime packages, working directory and start command.
+		Docker AppDocker `mapstructure:"docker"`
 	}
 
 	LogCollector struct {

@@ -141,11 +141,97 @@ IMAGE_VERSION=v1.2.3 make docker-api          # переменной окруж�
 выбор конфига, а не ошибка. Если лейбл обязан быть заполнен всегда, задайте
 `default`.
 
+## Runtime-стадия приложения (`applications[].docker`)
+
+Финальная стадия сгенерированного `Dockerfile-<app>` была зафиксирована:
+`FROM alpine` и `CMD ["/service"]`. Приложению, которому нужен другой дистрибутив
+или рантайм-зависимость (`git`, `curl`, `ca-certificates`), сказать об этом было
+нечем: стадия генерируется, а пользовательский маркер спасает только то, что
+лежит **ниже** него. Оставался обходной путь — отдельный
+`Dockerfile-<app>.custom` плюс переопределённая цель `docker-<app>` в секции
+после маркера.
+
+```yaml
+applications:
+  - name: vt
+    docker:
+      base_image: ubuntu:24.04       # по умолчанию alpine
+      packages:                      # рантайм-пакеты
+        - git
+        - curl
+        - ca-certificates
+      package_manager: apt           # опционально; выводится из base_image
+      workdir: /workspace            # по умолчанию нет WORKDIR (докеровский "/")
+      entrypoint: ["/service"]       # по умолчанию CMD ["/service"]
+```
+
+Секция опциональна и объявляется **у приложения**, а не у проекта: образы
+приложений одного сервиса собираются из разных наборов зависимостей. Без неё
+вывод побайтно совпадает с прежним — регенерация существующих проектов ничего не
+меняет.
+
+Настраивается только финальная (runtime) стадия. Builder-стадия компилирует
+статический Go-бинарник, и её базовый образ определяет `tools.golang_version`.
+
+| Поле | Обязательное | Значение |
+|---|---|---|
+| `base_image` | Нет | Базовый образ runtime-стадии (`FROM`). По умолчанию `alpine`. Ссылка без пробелов, кавычек и `#` — допустимы registry с портом, тег и digest |
+| `packages` | Нет | Рантайм-пакеты. Ставятся **одной** инструкцией `RUN` до копирования бинарника, поэтому слой переиспользуется, пока не изменится сам список. Порядок — как в конфиге. Допустим пин версии (`curl=8.5.0-2`) |
+| `package_manager` | Нет | Чем ставить: `apk`, `apt` или `dnf`. Выводится из `base_image` для `alpine`, `debian`, `ubuntu`, `fedora`; для любого другого образа с `packages` — объявить явно |
+| `workdir` | Нет | `WORKDIR` runtime-стадии, абсолютный путь. По умолчанию инструкция не генерируется (докеровский дефолт `/`) |
+| `entrypoint` | Нет | `ENTRYPOINT` в exec-форме. **Заменяет** `CMD`, а не дополняет его: Docker передаёт `CMD` энтрипойнту аргументами, поэтому дефолтный `/service` приехал бы энтрипойнту параметром |
+
+**Почему `package_manager` не угадывается для произвольного образа.** Менеджер
+выводится из имени репозитория образа (`registry.example:5000/mirror/ubuntu:24.04`
+→ `ubuntu`) и только для дистрибутивов, у которых он однозначен. Для
+`gcr.io/distroless/...` или собственного базового образа угаданный менеджер дал
+бы Dockerfile, который падает на сборке, — поэтому генерация останавливается с
+требованием объявить менеджер. Объявленный `package_manager` без `packages` —
+тоже ошибка: ставить нечего.
+
+Значения проверяются на загрузке конфига: образ и рабочий каталог — без пробелов
+и кавычек, имена пакетов — из `[A-Za-z0-9._+-=:~/]`, элементы `entrypoint` —
+непустые однострочные строки без `"` и `\`. Всё это попадает в инструкции
+Dockerfile как есть, поэтому строка с пробелом или кавычкой ломала бы файл (а в
+`RUN` — дописывала бы команду).
+
+### Что получается на выходе
+
+Для примера выше:
+
+```dockerfile
+# Dockerfile-vt, финальная стадия
+FROM ubuntu:24.04
+
+# Runtime packages, declared in the docker section of the application in
+# project.yaml. Installed before the binary is copied, so the layer is reused
+# until the package list itself changes.
+RUN set -eux && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /service /service
+COPY --from=builder /public /public
+RUN mkdir -p /etc/onlineconf
+WORKDIR /workspace
+ENTRYPOINT ["/service"]
+```
+
+Индекс/кеш пакетного менеджера удаляется в той же инструкции (`rm -rf
+/var/lib/apt/lists/*` для apt, `dnf clean all` для dnf, `--no-cache` для apk):
+отдельный `RUN` оставил бы скачанные метаданные в слое ниже.
+
+Приложение без секции `docker` получает прежнюю стадию — `FROM alpine` и
+`CMD ["/service"]`.
+
 ## Реализация
 
-- парсинг и валидация секции — `internal/pkg/config/docker.go`
-  (`Docker.Parse`), вызывается из `GetConfig` через `Docker.IsValid`;
+- парсинг и валидация секций — `internal/pkg/config/docker.go` (`Docker.Parse` и
+  `AppDocker.Parse`), вызывается из `GetConfig` через `Docker.IsValid` и
+  `AppDocker.IsValid`;
 - нормализованный вид и хелперы шаблонов — `internal/pkg/ds/docker.go`
-  (`ds.DockerConfig`);
+  (`ds.DockerConfig`, `ds.AppDockerConfig`);
 - шаблоны — `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`,
   `main/docker-compose-dev.yaml.tmpl`.
+

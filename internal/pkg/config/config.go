@@ -232,6 +232,12 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
 		}
 
+		// Validate the runtime stage settings of the application image
+		if ok, msg := app.Docker.IsValid(); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig,
+				fmt.Sprintf("application[%d] '%s': %s", i, app.Name, msg))
+		}
+
 		// Валидация use_active_record: может быть только false (для отключения AR)
 		if app.UseActiveRecord != nil && *app.UseActiveRecord == true {
 			return config, errors.WithMessage(ErrInvalidConfig,

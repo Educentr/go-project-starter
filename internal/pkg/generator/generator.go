@@ -699,6 +699,13 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			appArtifacts = g.Artifacts.Types
 		}
 
+		// The runtime stage of the application image. Config validation
+		// already rejected malformed values, so this only normalizes them.
+		appDocker, err := app.Docker.Parse()
+		if err != nil {
+			return errors.Wrapf(err, "application %s: invalid docker configuration", app.Name)
+		}
+
 		application := ds.App{
 			Name:                  app.Name,
 			Transports:            make(ds.Transports),
@@ -712,6 +719,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GoatTests:             goatTests,
 			GoatTestsConfig:       goatTestsConfig,
 			Artifacts:             appArtifacts,
+			Docker:                appDocker,
 		}
 
 		// Resolve Grafana datasources for this app
