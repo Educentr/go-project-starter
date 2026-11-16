@@ -432,6 +432,17 @@ const (
 	KafkaTransportType TransportType = "kafka"
 	CLITransportType   TransportType = "cli"
 
+	// GeneratorTypeTemplate is the generator type of a transport built from one
+	// of the generator's own templates rather than from a spec.
+	GeneratorTypeTemplate = "template"
+
+	// GeneratorTemplateSys is the template of the sys server — the one that
+	// carries /metrics, /live, /ready and pprof. Shared with the config
+	// package, which decides the metrics export channel by the same test: a
+	// transport is the sys server because of the template it comes from, not
+	// because of its name.
+	GeneratorTemplateSys = "sys"
+
 	// Path components for schema directories
 	schemaDir = "schema"
 	pkgDir    = "pkg"
@@ -488,6 +499,10 @@ type App struct {
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 	Artifacts             []ArtifactType   // Per-application artifacts
+	// MetricsExport is the resolved export channel of the application: where
+	// the metrics it collects go. Always set — an application that declares
+	// nothing gets the channel derived from its transports.
+	MetricsExport MetricsExport
 }
 
 // CLIFlag represents a flag for a CLI command (computed Go names included)
@@ -573,7 +588,7 @@ func (a App) GetCLITransport() *CLIApp {
 // HasSysTransport returns true if application has a SYS transport configured
 func (a App) HasSysTransport() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "sys" {
+		if transport.GeneratorType == GeneratorTypeTemplate && transport.GeneratorTemplate == GeneratorTemplateSys {
 			return true
 		}
 	}

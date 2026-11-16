@@ -836,6 +836,9 @@ type (
 		GoatTestsConfig *GoatTestsConfig `mapstructure:"goat_tests_config"`
 		// Artifacts overrides global artifacts for this application.
 		Artifacts []ArtifactType `mapstructure:"artifacts"`
+		// Metrics declares where the metrics of this application go. Read via
+		// Config.ResolveAppMetricsExport, which applies the derived default.
+		Metrics AppMetrics `mapstructure:"metrics"`
 	}
 
 	LogCollector struct {

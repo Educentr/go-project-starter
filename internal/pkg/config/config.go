@@ -290,6 +290,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			}
 		}
 
+		// Validate the metrics export channel. Checked here and not in
+		// Application.IsValid because deciding it needs the transport
+		// definitions: the sys transport is what serves /metrics.
+		if _, err := config.ResolveAppMetricsExport(app); err != nil {
+			return config, errors.WithMessage(ErrInvalidConfig, err.Error())
+		}
+
 		// Validate Grafana datasource references
 		for _, dsName := range app.Grafana.Datasources {
 			if _, ex := config.GrafanaDatasourceMap[dsName]; !ex {

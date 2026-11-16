@@ -699,6 +699,14 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			appArtifacts = g.Artifacts.Types
 		}
 
+		// Resolve the metrics export channel. Config validation already
+		// rejected a channel the application cannot provide, so this only
+		// applies the derived default.
+		metricsExport, err := config.ResolveAppMetricsExport(app)
+		if err != nil {
+			return errors.Wrap(err, "invalid metrics configuration")
+		}
+
 		application := ds.App{
 			Name:                  app.Name,
 			Transports:            make(ds.Transports),
@@ -712,6 +720,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GoatTests:             goatTests,
 			GoatTestsConfig:       goatTestsConfig,
 			Artifacts:             appArtifacts,
+			MetricsExport:         metricsExport,
 		}
 
 		// Resolve Grafana datasources for this app
