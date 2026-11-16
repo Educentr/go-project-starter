@@ -623,18 +623,17 @@ func TestIntegrationCLIClient(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	runTestWithExtraAssertions(t, "cli-client", "cli-client",
-		func(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
-			t.Helper()
+	runTest(t, "cli-client", "cli-client")
 
-			// Running the binary is the only way to see that the client is
-			// initialized at startup: with no URL configured, a non-optional
-			// client must fail the command with a readable message instead of
-			// handing the handler a nil client to panic on.
-			out := runCLI(ctx, t, container, outputDir, "status")
-			require.Contains(t, out, "client URL not configured",
-				"an unconfigured client must be reported at startup:\n%s", out)
-		})
+	// After stage 1, not through runTestWithExtraAssertions: that hook fires
+	// right after the generator, before `make generate` — there is no binary to
+	// run yet. Running one is the only way to see that the client is
+	// initialized at startup: with no URL configured, a non-optional client
+	// must fail the command with a readable message instead of handing the
+	// handler a nil client to panic on.
+	out := runCLI(t.Context(), t, GetContainer(), "/workspace/output/cli-client", "status")
+	require.Contains(t, out, "client URL not configured",
+		"an unconfigured client must be reported at startup:\n%s", out)
 }
 
 // runCLI builds the generated CLI binary (once per call is cheap — the build
