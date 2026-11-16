@@ -1,0 +1,87 @@
+main:
+  name: webtest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/webtest.git
+  module_path: github.com/test/webtest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.27"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+# Two frontends on purpose: one declares an install command and a client
+# codegen over both input channels, the other only a build. The second one must
+# get a build- target and nothing else — no empty install- or generate- target.
+web:
+  - name: admin
+    dir: web/admin
+    install: npm ci
+    build: npm run build
+    output: static
+    codegen:
+      cmd: npx openapi-typescript {{ .Spec }} -o src/api/{{ .SpecName }}.ts
+      rest: [api]
+      jsonschema: [models]
+  - name: landing
+    dir: web/landing
+    build: npm run build
+    output: public_web
+    node_image: node:20-alpine
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: static
+    port: 8086
+    version: "v1"
+    generator_type: template
+    generator_template: static
+    public_service: true
+    generator_params:
+      route: /static/
+      dir: static
+  - name: landing_static
+    port: 8087
+    version: "v1"
+    generator_type: template
+    generator_template: static
+    public_service: true
+    generator_params:
+      route: /
+      dir: public_web
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+jsonschema:
+  - name: models
+    schemas:
+      - id: user
+        path: ./user.schema.json
+        type: UserSchema
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: static
+      - name: sys
+  - name: landing
+    transport:
+      - name: landing_static

@@ -583,7 +583,7 @@ func (a App) HasSysTransport() bool {
 // HasStaticTransport returns true if application has a static-files template transport configured
 func (a App) HasStaticTransport() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "static" {
+		if transport.GeneratorType == "template" && transport.GeneratorTemplate == StaticTransportTemplate {
 			return true
 		}
 	}
@@ -599,13 +599,13 @@ func (a App) StaticDirs() []string {
 	dirs := []string{}
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType != "template" || transport.GeneratorTemplate != "static" {
+		if transport.GeneratorType != "template" || transport.GeneratorTemplate != StaticTransportTemplate {
 			continue
 		}
 
 		dir := transport.GeneratorParams["dir"]
 		if dir == "" {
-			dir = "static"
+			dir = DefaultStaticDir
 		}
 
 		if !seen[dir] {

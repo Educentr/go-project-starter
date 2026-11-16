@@ -2150,10 +2150,14 @@ func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
 	data := struct {
 		UseActiveRecord  bool
 		CustomGenerators ds.CustomGenerators
+		WebApps          ds.WebApps
 		Applications     ds.Apps
 	}{
 		UseActiveRecord:  true,
 		CustomGenerators: ds.CustomGenerators{{Name: "runtime_limits_ts"}},
+		// A frontend contributes a prerequisite only when it declares a
+		// codegen, which is what rendered commands mean.
+		WebApps: ds.WebApps{{Name: "admin", CodegenCmds: []string{"npx openapi-typescript spec.yml"}}},
 		// An application that gets mock scaffolding (GOAT tests + an
 		// ogen_client transport) is what turns generate-mocks on.
 		Applications: ds.Apps{{
@@ -2170,7 +2174,7 @@ func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
 
 	for _, want := range []string{
 		"proto", "generate-ogen", "sqlc", "generate-argen",
-		"generate-jsonschema", "generate-runtime_limits_ts", "generate-mocks",
+		"generate-jsonschema", "generate-runtime_limits_ts", "generate-web-admin", "generate-mocks",
 	} {
 		if !slices.Contains(prereqs, want) {
 			t.Errorf("generate: prerequisites %q must contain %q as a separate target", prereqs, want)

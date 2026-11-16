@@ -200,7 +200,46 @@ CLI и queue-worker spec'и (которые парсятся inline во вре�
 
 Реализация: `internal/pkg/config/contract.go` (типы секций, валидация, разбор и рендер шаблонов команд), `internal/pkg/ds/contract.go` (то, что видит шаблон Makefile — генераторы с уже отрендеренными командами), `internal/pkg/generator/contract.go` (`processGenerators`, `resolveContracts`, `checkContractDrift`, `copyContracts`), `main/Makefile.tmpl` (цели). Провенанс приезжает из `specsource.ResolvedSpec.Commit` (`gitHeadCommit`). Полная документация: [docs/configuration/custom-generators.md](docs/configuration/custom-generators.md).
 
+## Веб-приложение (`web`)
+
+Секция `web` объявляет фронтенд как сущность: `dir` (исходники), `install` (зависимости),
+`build` (сборка), `output` (каталог, который раздаёт транспорт `generator_template: static`),
+`node_image` и опциональный `codegen`. Команды — проектные, как в `generator`: стартер владеет
+проводкой (make-цели, стадия сборки в образе), а не выбором сборщика и генератора клиента. Без
+секции вывод не меняется ни на байт (`TestGenerateWithoutWebApp_OutputUnchanged`).
+
+**Привязка фронта к приложению выводится, а не объявляется вторично:** фронт попадает в образ
+того приложения, чей `static`-транспорт раздаёт его `output` (`ds.WebApps.ForApp`). `output`,
+который никто не раздаёт, — ошибка конфига: это сборка, результат которой не попадает ни в
+ответ сервиса, ни в образ.
+
+**`codegen` называет входы по имени (`rest: [...]`, `jsonschema: [...]`), а не по пути.** Команде
+отдаётся **своя копия** спеки, которую стартер уже забрал (`api/rest/<имя>/<версия>/…`,
+`api/schema/<имя>/…`) — второй копии не возникает, в отличие от `contract:`, которому нужны
+свои `path` и `copy`. Путь приезжает **относительно `dir`**: все команды записи выполняются в
+`dir`, где лежит манифест фронта. Переменные `cmd`: `.Spec`, `.SpecName`, `.Input`; поля `target`
+нет намеренно — вход может принести несколько файлов, и единственный путь вывода они бы
+перезаписали друг другом.
+
+Цели: `install-web-<name>` → в `install-tools`, `build-web-<name>`, `generate-web-<name>` → в
+`generate` (после встроенных генераторов, то есть и в `regenerate` через `call_generate`).
+**`docker-<app>` от `build-web-<name>` не зависит:** фронт собирается node-стадией внутри
+Dockerfile (`COPY --from=web-<name> /src/<output>/ /<output>/` поверх `ADD <output>`), поэтому
+node на хосте и в CI-раннере не нужен, а node-тулчейн не попадает в runtime-образ.
+`build-web-<name>` — для локального цикла.
+
+Команды рендерятся **до** resolve-пре-пасса: имена скопированных файлов выводятся из
+`specsource.ParseSpecSource(...).TargetFilename()` — так же, как их выводит `resolveAllSources`
+(иначе Makefile рендерился бы раньше, чем известны пути).
+
+Реализация: `internal/pkg/config/web.go` (типы секции, валидация, рендер команды),
+`internal/pkg/ds/web.go` (модель для шаблонов, `ForApp`, константы `static`-каталога и
+node-образа), `internal/pkg/generator/web.go` (`processWebApps`), шаблоны
+`main/Makefile.tmpl`, `app/files/Dockerfile.tmpl`, `main/.gitignore.tmpl`. Полная документация:
+[docs/configuration/web.md](docs/configuration/web.md).
+
 ## Rewrite Refs
+
 
 Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `project.yaml`. После `CopySpecs`/`CopySchemas` стартер сканирует target-директорию (`api/rest/<svc>/<ver>/` или `api/schema/<name>/`) и переписывает кросс-директорные `$ref` (`../common/foo.yaml#/X`) в локальные (`./foo.yaml#/X`) — при условии, что sibling-файл с этим basename уже скопирован рядом и входит в whitelist `SpecTargetFiles`/`SchemaTargetFiles`.
 
