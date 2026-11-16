@@ -64,6 +64,18 @@ func TestGenerateWebApp(t *testing.T) {
 				t.Errorf("generate recipe[%d] = %q, want %q", i, recipe[i], want[i])
 			}
 		}
+
+		// Comparing the recipe text says nothing about whether the command
+		// would find anything to read. The spec path is relative to the
+		// frontend directory, because that is where the command runs, so it is
+		// resolved from there — against the project the generator just wrote.
+		for _, line := range recipe {
+			spec := specArg(t, line)
+
+			if _, err := os.Stat(filepath.Join(tmpDir, "web", "admin", spec)); err != nil {
+				t.Errorf("codegen reads %q, which the generator did not produce: %v", spec, err)
+			}
+		}
 	})
 
 	// A frontend declaring only `build` must not produce an empty install- or
@@ -186,6 +198,23 @@ func TestGenerateWebApp(t *testing.T) {
 			}
 		}
 	})
+}
+
+// specArg returns the spec path of a rendered codegen recipe line — the copy
+// of the input the command is run over, written relative to the frontend
+// directory.
+func specArg(t *testing.T, line string) string {
+	t.Helper()
+
+	for _, field := range strings.Fields(line) {
+		if strings.HasPrefix(field, "../") {
+			return field
+		}
+	}
+
+	t.Fatalf("recipe line %q carries no spec path", line)
+
+	return ""
 }
 
 // TestGenerateWithoutWebApp_OutputUnchanged pins the regression the feature
