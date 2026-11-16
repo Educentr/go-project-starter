@@ -414,7 +414,7 @@ git-config для приватных репозиториев, `GOPRIVATE`, от
 
 - Конфиг: `GithubCIConfig` в `internal/pkg/config/github_ci.go` (парсинг и
   валидация `runs_on` — `ParseRunsOn`, нормализация `doctl` — `DoctlMode`,
-  веток — `ValidatePushBranches`, проверок — `validateChecks`), проверка
+  веток — `validatePushBranches`, проверок — `validateChecks`), проверка
   вызывается из `config.GetConfig` и получает `main.registry_type`: режим
   doctl валидируется против типа реестра.
 - Нормализованный вид: `ds.GithubCIConfig` / `ds.RunsOnSpec` / `ds.DoctlMode` /

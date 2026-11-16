@@ -210,12 +210,12 @@ func parseRunsOnGroup(raw map[string]any) (ds.RunsOnSpec, error) {
 	return spec, nil
 }
 
-// ValidatePushBranches verifies the github_ci.push_branches entries. A nil
+// validatePushBranches verifies the github_ci.push_branches entries. A nil
 // slice is valid and means the generated workflows keep the default branches
 // (main and staging). An explicit empty list is not: the `on.push` trigger
 // cannot be rendered without branch filters, and omitting the key is the way
 // to ask for the defaults.
-func (g GithubCIConfig) ValidatePushBranches() error {
+func (g GithubCIConfig) validatePushBranches() error {
 	if g.PushBranches == nil {
 		return nil
 	}
@@ -274,7 +274,7 @@ func (g GithubCIConfig) IsValid(registryType string) (bool, string) {
 		return false, fmt.Sprintf("github_ci.job_timeout_minutes must be greater than 0, got %d", *g.JobTimeoutMinutes)
 	}
 
-	if err := g.ValidatePushBranches(); err != nil {
+	if err := g.validatePushBranches(); err != nil {
 		return false, err.Error()
 	}
 

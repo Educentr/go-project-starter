@@ -382,22 +382,22 @@ func TestGithubCIConfig_ValidatePushBranches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := GithubCIConfig{PushBranches: tt.branches}.ValidatePushBranches()
+			err := GithubCIConfig{PushBranches: tt.branches}.validatePushBranches()
 
 			if tt.wantErr == "" {
 				if err != nil {
-					t.Fatalf("ValidatePushBranches() unexpected error: %v", err)
+					t.Fatalf("validatePushBranches() unexpected error: %v", err)
 				}
 
 				return
 			}
 
 			if err == nil {
-				t.Fatalf("ValidatePushBranches() = nil, want error containing %q", tt.wantErr)
+				t.Fatalf("validatePushBranches() = nil, want error containing %q", tt.wantErr)
 			}
 
 			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("ValidatePushBranches() error = %q, want it to contain %q", err, tt.wantErr)
+				t.Errorf("validatePushBranches() error = %q, want it to contain %q", err, tt.wantErr)
 			}
 		})
 	}
