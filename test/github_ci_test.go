@@ -26,9 +26,12 @@ type githubTriggers struct {
 }
 
 // githubPushTrigger is the subset of the `on.push` trigger the github_ci
-// parameters affect.
+// parameters affect. The filters are decoded as []any, not []string, because
+// GitHub wants them as strings and a filter the generator emitted unquoted
+// resolves to whatever YAML makes of it (`1.10` to the float 1.1). Decoding
+// into []string would convert such a value back to a string and hide it.
 type githubPushTrigger struct {
-	Branches []string `yaml:"branches"`
+	Branches []any `yaml:"branches"`
 }
 
 // githubJob is the subset of a workflow job the github_ci parameters affect.
@@ -107,17 +110,34 @@ func parseWorkflow(t *testing.T, targetDir, relPath string) githubWorkflow {
 }
 
 // assertPushBranches checks the `on.push.branches` filters of both generated
-// workflows against want. The two templates render the list in different YAML
-// styles (block in ci_cd.yml, flow in go-version-check.yml), so both are
-// parsed back rather than compared as text.
+// workflows against want, each as the string it was configured as. The two
+// templates render the list in different YAML styles (block in ci_cd.yml, flow
+// in go-version-check.yml), so both are parsed back rather than compared as
+// text.
 func assertPushBranches(t *testing.T, targetDir string, want []string) {
 	t.Helper()
 
 	for _, name := range generatedWorkflowNames {
 		got := parseWorkflow(t, targetDir, name).On.Push.Branches
 
-		if strings.Join(got, ",") != strings.Join(want, ",") {
+		if len(got) != len(want) {
 			t.Errorf("%s: on.push.branches = %#v, want %#v", name, got, want)
+
+			continue
+		}
+
+		for i, wantBranch := range want {
+			gotBranch, isStr := got[i].(string)
+			if !isStr {
+				t.Errorf("%s: on.push.branches[%d] = %#v (%T), want the string %q",
+					name, i, got[i], got[i], wantBranch)
+
+				continue
+			}
+
+			if gotBranch != wantBranch {
+				t.Errorf("%s: on.push.branches[%d] = %q, want %q", name, i, gotBranch, wantBranch)
+			}
 		}
 	}
 }
@@ -303,11 +323,12 @@ func TestGenerateGithubCI(t *testing.T) {
 		}
 	}
 
-	// Mirrors push_branches in github-ci/project.yaml, which carries both a
-	// glob pattern and an exclusion pattern: the latter needs quoting in the
-	// generated YAML, so a round trip through the parser proves the filter
-	// survived as one scalar.
-	assertPushBranches(t, tmpDir, []string{"main", "release/**", "!release/**-alpha"})
+	// Mirrors push_branches in github-ci/project.yaml, which carries a glob
+	// pattern, an exclusion pattern and a branch name YAML resolves as a
+	// float: each needs quoting in the generated YAML for a different reason,
+	// so a round trip through the parser proves every filter survived as the
+	// string it was configured as.
+	assertPushBranches(t, tmpDir, []string{"main", "release/**", "!release/**-alpha", "1.10"})
 
 	// Both action-doctl steps live in ci_cd.yml and must carry the pinned
 	// version.

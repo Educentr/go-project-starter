@@ -24,6 +24,8 @@ github_ci:
     - main
     - 'release/**'
     - '!release/**-alpha'
+    # A branch name YAML reads as a float unless the generator quotes it.
+    - '1.10'
 
 rest:
   - name: api

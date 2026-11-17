@@ -2,6 +2,8 @@ package ds
 
 import (
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestRunsOnSpec_YAML(t *testing.T) {
@@ -149,6 +151,11 @@ func TestGithubCIConfig_PushBranchesBlock(t *testing.T) {
 			cfg:  GithubCIConfig{PushBranches: []string{"release/[0-9]*"}},
 			want: "- 'release/[0-9]*'",
 		},
+		{
+			name: "branch names YAML reads as another type are quoted",
+			cfg:  GithubCIConfig{PushBranches: []string{"1.10", "true", "2026-11-17"}},
+			want: "- '1.10'\n      - 'true'\n      - '2026-11-17'",
+		},
 	}
 
 	for _, tt := range tests {
@@ -181,6 +188,11 @@ func TestGithubCIConfig_PushBranchesFlow(t *testing.T) {
 			cfg:  GithubCIConfig{PushBranches: []string{"release/[0-9]*", "!main"}},
 			want: "['release/[0-9]*', '!main']",
 		},
+		{
+			name: "branch names YAML reads as another type are quoted",
+			cfg:  GithubCIConfig{PushBranches: []string{"1.10", "true", "2026-11-17"}},
+			want: "['1.10', 'true', '2026-11-17']",
+		},
 	}
 
 	for _, tt := range tests {
@@ -212,5 +224,61 @@ func TestGithubCIConfig_PushBranchesDefaultNotMutated(t *testing.T) {
 		if defaultPushBranches[i] != branch {
 			t.Errorf("defaultPushBranches[%d] = %q, want %q", i, defaultPushBranches[i], branch)
 		}
+	}
+}
+
+// TestGithubCIConfig_PushBranchesStayStrings renders filters whose characters
+// allow a plain scalar but whose YAML resolution is not a string, then reads
+// both styles back as []any. GitHub wants on.push.branches as a sequence of
+// strings, and a bare `1.10` is read as the float 1.1 — a filter that no
+// longer names the branch it was written for. Decoding into []string would
+// hide the defect: yaml.v3 converts the number back to a string, GitHub does
+// not.
+func TestGithubCIConfig_PushBranchesStayStrings(t *testing.T) {
+	branches := []string{
+		"main", "1.10", "123", "0x1F", "1e3", "1_000",
+		"true", "False", "null", "yes", "off",
+		"2026-11-17", "release/**", "!release/**-alpha",
+	}
+
+	cfg := GithubCIConfig{PushBranches: branches}
+
+	styles := []struct {
+		name string
+		doc  string
+	}{
+		// Both documents put the rendered list where its template does, so
+		// the indentation of the block sequence is part of what is checked.
+		{name: "PushBranchesBlock", doc: "branches:\n" + pushBranchIndent + cfg.PushBranchesBlock()},
+		{name: "PushBranchesFlow", doc: "branches: " + cfg.PushBranchesFlow()},
+	}
+
+	for _, style := range styles {
+		t.Run(style.name, func(t *testing.T) {
+			var parsed struct {
+				Branches []any `yaml:"branches"`
+			}
+
+			if err := yaml.Unmarshal([]byte(style.doc), &parsed); err != nil {
+				t.Fatalf("generated YAML does not parse: %v\n%s", err, style.doc)
+			}
+
+			if len(parsed.Branches) != len(branches) {
+				t.Fatalf("parsed %d filters, want %d:\n%s", len(parsed.Branches), len(branches), style.doc)
+			}
+
+			for i, want := range branches {
+				got, isStr := parsed.Branches[i].(string)
+				if !isStr {
+					t.Errorf("filter %d = %#v (%T), want the string %q", i, parsed.Branches[i], parsed.Branches[i], want)
+
+					continue
+				}
+
+				if got != want {
+					t.Errorf("filter %d = %q, want %q", i, got, want)
+				}
+			}
+		})
 	}
 }

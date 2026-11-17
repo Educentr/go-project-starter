@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+	"gopkg.in/yaml.v3"
 )
 
 type TransportType string
@@ -99,14 +100,50 @@ const pushBranchIndent = "      "
 // that does not configure the key regenerates byte for byte.
 var defaultPushBranches = []string{"main", "staging"}
 
-// branchPlainRx matches the branch filters that are safe to emit as a plain
-// YAML scalar in both the block sequence of ci_cd.yml and the flow sequence of
+// branchPlainRx matches the branch filters whose characters allow a plain YAML
+// scalar in both the block sequence of ci_cd.yml and the flow sequence of
 // go-version-check.yml. A filter outside this set is single-quoted instead:
 // the glob metacharacters `*`, `?`, `+` and `-` carry no meaning inside a
 // plain scalar, but a leading `!` is a YAML tag indicator and `[`, `]` are
 // flow indicators, and GitHub filter patterns legitimately use all of them
 // (`!main`, `release/[0-9]*`).
+//
+// Matching characters is necessary but not sufficient — see plainScalarIsStr.
 var branchPlainRx = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/*?+-]*$`)
+
+// yaml11BoolNull are the plain scalars that YAML 1.1 resolves to a boolean or
+// null while the YAML 1.2 core schema — the one gopkg.in/yaml.v3 implements —
+// keeps them strings. GitHub does not document the schema its workflow parser
+// follows, so these are quoted as well: a branch named `no` has to reach the
+// filter as the string it is under either schema. Compared lowercased, which
+// also quotes mixed-case spellings YAML 1.1 would have left alone — quoting a
+// filter that did not need it costs nothing, not quoting one does.
+var yaml11BoolNull = map[string]bool{
+	"y": true, "yes": true, "n": true, "no": true,
+	"on": true, "off": true, "true": true, "false": true,
+	"null": true, "~": true,
+}
+
+// plainScalarIsStr reports whether branch, emitted as a plain YAML scalar,
+// reads back as the string it is rather than as a number, a boolean, null or a
+// timestamp. Branch names like `1.10`, `123` or `true` are made of plain-safe
+// characters yet resolve to other types: a bare `1.10` is read as the float
+// 1.1, so the filter would stop matching the branch it names (and GitHub
+// requires `branches` to be a sequence of strings in the first place).
+//
+// The resolution is delegated to yaml.v3's own resolver instead of being
+// restated as a pattern here, so the two cannot drift apart.
+func plainScalarIsStr(branch string) bool {
+	if yaml11BoolNull[strings.ToLower(branch)] {
+		return false
+	}
+
+	node := yaml.Node{Kind: yaml.ScalarNode, Value: branch}
+
+	// yaml.v3 does not export its tag constants; "!!str" is the resolved tag
+	// of a scalar that reads back as the string it spells.
+	return node.ShortTag() == "!!str"
+}
 
 // Enabled reports whether at least one check is declared. When false the checks
 // job is not generated and the CI graph stays exactly as it was.
@@ -221,11 +258,12 @@ func (c GithubCIConfig) pushBranches() []string {
 	return c.PushBranches
 }
 
-// yamlBranch renders a branch filter as a YAML scalar: plain when the pattern
-// allows it, single-quoted otherwise. Quoting is decided per filter rather
-// than for the whole list so the default `main`/`staging` stay unquoted.
+// yamlBranch renders a branch filter as a YAML scalar: plain when the filter
+// both is representable as one (branchPlainRx) and reads back as a string
+// (plainScalarIsStr), single-quoted otherwise. Quoting is decided per filter
+// rather than for the whole list so the default `main`/`staging` stay unquoted.
 func yamlBranch(branch string) string {
-	if branchPlainRx.MatchString(branch) {
+	if branchPlainRx.MatchString(branch) && plainScalarIsStr(branch) {
 		return branch
 	}
 
