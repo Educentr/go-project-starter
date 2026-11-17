@@ -596,6 +596,22 @@ func TestIntegrationRESTLogrus(t *testing.T) {
 	runTest(t, "rest-logrus", "rest-logrus")
 }
 
+// TestIntegrationOnlineConfMap builds a project whose OnlineConf key map
+// declares keys of every shape, runtime segments included.
+//
+// The accessor package is generated Go that nothing in this repository compiles:
+// the unit tests parse it and read signatures out of it, which is why a key map
+// could name a runtime segment after an identifier the package uses itself and
+// produce a package that parses, generates and does not build (TOOLS-89). Here
+// the generated project is actually built.
+func TestIntegrationOnlineConfMap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "onlineconf-map", "onlineconf-map")
+}
+
 // TestIntegrationCLIOnly tests CLI-only project generation and then exercises the
 // built binary: the CLI scaffold's help output is only verifiable by running it.
 func TestIntegrationCLIOnly(t *testing.T) {
