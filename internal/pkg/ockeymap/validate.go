@@ -244,17 +244,7 @@ func (k Key) segmentProblems(segments []string) []string {
 					"with <runtimeSegment> for a segment the service computes while running",
 				k.Path, segment))
 		case strings.HasPrefix(segment, "<"), strings.HasSuffix(segment, ">"):
-			switch {
-			case !runtimeParamRx.MatchString(segment):
-				problems = append(problems, fmt.Sprintf(
-					"path %q has an invalid runtime segment %q, expected %s: the name becomes a "+
-						"parameter of the generated accessor", k.Path, segment, runtimeParamRx.String()))
-			case i == 0:
-				problems = append(problems, fmt.Sprintf(
-					"path %q starts with the runtime segment %q: the first segment is the service "+
-						"tree the whole map lives in, and it is known before the service runs",
-					k.Path, segment))
-			}
+			problems = append(problems, k.serviceRuntimeSegmentProblems(i, segment)...)
 		case !segmentRx.MatchString(segment):
 			problems = append(problems, fmt.Sprintf(
 				"path %q has an invalid segment %q, expected %s or a <runtimeSegment>",
@@ -263,6 +253,41 @@ func (k Key) segmentProblems(segments []string) []string {
 	}
 
 	return problems
+}
+
+// runtimeSegmentProblems checks one segment the service computes while running:
+// the grammar of the segment, and the name it gives the parameter of the
+// generated accessor. Both halves of the map check it with this, because the
+// accessor they generate is the same shape.
+//
+// The two are reported one at a time on purpose: the grammar decides whether
+// there is a name to judge at all.
+func runtimeSegmentProblems(path, segment string) []string {
+	if !runtimeParamRx.MatchString(segment) {
+		return []string{fmt.Sprintf(
+			"path %q has an invalid runtime segment %q, expected %s: the name becomes a "+
+				"parameter of the generated accessor", path, segment, runtimeParamRx.String())}
+	}
+
+	if problem := runtimeParamProblem(path, segment); problem != "" {
+		return []string{problem}
+	}
+
+	return nil
+}
+
+// serviceRuntimeSegmentProblems adds the one position a service key's runtime
+// segment cannot stand in: the tree root, which is the one segment of the map
+// that is known before the service starts.
+func (k Key) serviceRuntimeSegmentProblems(i int, segment string) []string {
+	if i == 0 && runtimeParamRx.MatchString(segment) {
+		return []string{fmt.Sprintf(
+			"path %q starts with the runtime segment %q: the first segment is the service "+
+				"tree the whole map lives in, and it is known before the service runs",
+			k.Path, segment)}
+	}
+
+	return runtimeSegmentProblems(k.Path, segment)
 }
 
 // paramProblems checks the parameters the runtime segments of the path turn

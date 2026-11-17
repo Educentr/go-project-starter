@@ -1,14 +1,18 @@
 package test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 )
 
 // registryEntry is one row of the generated OnlineConf registry, decoded with a
@@ -248,6 +252,78 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 	}
 
 	assertOnlineConfRegistry(t, tmpDir)
+	assertAccessorsShadowNothing(t, occonfFile)
+}
+
+// assertAccessorsShadowNothing keeps the accessor template and the list of names
+// a runtime segment may not carry (ockeymap.ReservedParamNames) in step.
+//
+// The name of a runtime segment becomes a parameter of the generated accessor,
+// so a name the package already uses — a local of the body, an import it calls,
+// a declaration of its own — yields a package that does not compile. The map
+// comes from a contract repository, so such a name is refused while the map is
+// read; this is the other side of that rule: every identifier the template puts
+// in the package has to be on the list it is refused against. A local added to
+// the template without the list growing fails here, not in a user's project.
+//
+// Parameters are left out: those are the names the two halves of the map choose,
+// and they are exactly what the list protects.
+func assertAccessorsShadowNothing(t *testing.T, occonfFile string) {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), "psg_occonf_gen.go", occonfFile,
+		parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("generated accessor package does not parse: %v", err)
+	}
+
+	params := make(map[string]bool)
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		decl, ok := n.(*ast.FuncDecl)
+		if !ok || decl.Type.Params == nil {
+			return true
+		}
+
+		for _, field := range decl.Type.Params.List {
+			for _, name := range field.Names {
+				params[name.Name] = true
+			}
+		}
+
+		return true
+	})
+
+	// Reported names go in here too: one missing identifier is one defect,
+	// however many times the package writes it out.
+	reported := make(map[string]bool)
+	for _, name := range ockeymap.ReservedParamNames() {
+		reported[name] = true
+	}
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if !ok || ident == file.Name || params[ident.Name] || reported[ident.Name] {
+			return true
+		}
+
+		// The grammar of a runtime segment is `<name>` with a lowercase first
+		// letter, so nothing else can collide with one; a predeclared
+		// identifier or a keyword is reserved by the language rather than by
+		// the list.
+		if ident.Name[0] < 'a' || ident.Name[0] > 'z' ||
+			types.Universe.Lookup(ident.Name) != nil || token.IsKeyword(ident.Name) {
+			return true
+		}
+
+		reported[ident.Name] = true
+
+		t.Errorf("the generated accessor package uses %q, which is not in "+
+			"ockeymap.ReservedParamNames(): a key map could name a runtime segment after it and "+
+			"the package would not compile", ident.Name)
+
+		return true
+	})
 }
 
 // assertOnlineConfRegistry checks the generated registry of the whole OnlineConf
@@ -399,6 +475,43 @@ func TestGenerateRejectsRequiredRuntimeSegment(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("generator error should mention %q, got:\n%s", want, out)
 		}
+	}
+}
+
+// TestGenerateRejectsReservedRuntimeSegmentNames pins what used to be a
+// generation that reported `done` and left a project that did not build: the
+// name of a runtime segment becomes a parameter of the generated accessor, and
+// a name the accessor package already uses — or a Go keyword — made the
+// generated package invalid Go.
+//
+// The map comes from a contract repository, so it is refused while the map is
+// read, with every offending segment named at once.
+func TestGenerateRejectsReservedRuntimeSegmentNames(t *testing.T) {
+	out, targetDir := generateWithOnlineConfMap(t,
+		"keys:\n"+
+			"  - path: /octest/qa/<path>/a\n    type: string\n"+
+			"  - path: /octest/qa/<dst>/b\n    type: struct\n"+
+			"  - path: /octest/qa/<v>/c\n    type: int\n"+
+			"  - path: /octest/qa/<ctx>/d\n    type: string\n"+
+			"  - path: /octest/qa/<type>/e\n    type: string\n"+
+			"  - path: /octest/qa/<string>/f\n    type: strings\n")
+
+	for _, want := range []string{
+		// Each offending declaration, so the map takes one round trip to fix.
+		"<path>", "<dst>", "<v>", "<ctx>", "<type>", "<string>",
+		// And why, in the three forms the reason takes.
+		"the generated accessor package uses it itself",
+		"it is a Go keyword",
+		"it is a predeclared Go identifier",
+		"rename the segment",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generator error should mention %q, got:\n%s", want, out)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(targetDir, "internal", "pkg", "occonf")); err == nil {
+		t.Error("a rejected map must not leave an accessor package behind")
 	}
 }
 

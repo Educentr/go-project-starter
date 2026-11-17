@@ -95,6 +95,7 @@ quota, err := occonf.AccountQuota(ctx, accountID)   // 100, если ключа 
 Правила:
 
 - грамматика имени — `^<[a-z][A-Za-z0-9]*>$`: имя становится Go-параметром. Параметры идут **в порядке пути**; у `type: struct` — перед `dst`;
+- **имя не может быть занятым идентификатором** — ключевым словом Go (`<type>`, `<range>`), предобъявленным идентификатором (`<string>`, `<error>`, `<len>`) или именем, которое сгенерированный пакет использует сам (`<ctx>`, `<dst>`, `<path>`, `<v>`, `<ok>`, `<err>`, `<fallback>`, `<fmt>`, `<onlineconf>`, `<serviceTree>`). Иначе аксессор не компилируется: `path := AccountQuotaPath(path)` ничего не объявляет, у затенённого `fmt` нет `Errorf`. Это ошибка **чтения карты**, а не сломанная генерация: карта приезжает из контрактного репозитория, и её содержимым нельзя получить проект, который не собирается. Переименование ничего не стоит — имя называет параметр, а путь собирается из аргумента;
 - **корнем дерева runtime-сегмент быть не может**: дерево у карты одно и известно до запуска;
 - два сегмента с одним именем — ошибка: аксессор нельзя было бы написать;
 - в имя аксессора runtime-сегмент **не входит** (`/myservice/account/<account>/quota` → `AccountQuota`): это параметр, а не часть ключа. Если из пути после этого не выходит идентификатора (`/myservice/<account>`) — задайте `name`. Два объявления, различающиеся только параметром, дают один идентификатор — это коллизия имён, и она сообщается;
@@ -687,6 +688,8 @@ keys:
 | `keys[0]: path "/svc/transport/rest/{transport}/timeout" uses the dimension placeholder "{transport}"` | `{измерение}` — это половина генератора; сегмент, который вычисляет сервис, пишется `<name>` |
 | `keys[0]: path "/svc/account/<Account id>/quota" has an invalid runtime segment "<Account id>"` | имя runtime-сегмента становится Go-параметром |
 | `keys[0]: path "/<service>/quota" starts with the runtime segment "<service>"` | корень дерева известен до запуска сервиса |
+| `keys[0]: path "/svc/qa/<type>/a" has the runtime segment "<type>", whose name cannot be a parameter of the generated accessor: it is a Go keyword` | имя занято языком (`it is a predeclared Go identifier` — предобъявленным идентификатором) |
+| `keys[0]: path "/svc/qa/<path>/a" has the runtime segment "<path>", … : the generated accessor package uses it itself` | имя занято самим сгенерированным пакетом (локальная переменная, импорт, его собственное объявление) |
 | `keys[0]: path "/svc/a/<id>/b/<id>/quota" uses the parameter name "id" twice` | два runtime-сегмента с одним именем |
 | `keys[0]: path "/svc/<account>" derives no accessor name` | ниже корня одни runtime-сегменты — задайте `name` |
 | `keys[0]: path "…" is `required` but has a runtime segment` | `required` у ключа, путь которого собирается в рантайме |

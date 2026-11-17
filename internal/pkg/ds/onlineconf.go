@@ -204,9 +204,14 @@ var ErrOnlineConfNameTaken = errors.New("onlineconf accessor name is already tak
 // onlineConfReserved are the names the accessor package carries itself: the
 // library's lifecycle, the subscription helper, the startup check and its
 // sentinel error. A declaration cannot have one of them.
+// ActiveRecordConfig is reserved unconditionally, although it is generated only
+// for a project that uses ActiveRecord: a name the map may carry must not
+// depend on a setting of project.yaml, or the same map would generate in one
+// project and not in another.
 var onlineConfReserved = map[string]struct{}{
 	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
 	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
+	"ActiveRecordConfig": {},
 }
 
 // NewOnlineConfConfig assembles a project's whole OnlineConf key map: the

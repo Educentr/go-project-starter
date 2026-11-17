@@ -80,6 +80,25 @@ func TestServiceAccessorPathBuilderCollision(t *testing.T) {
 	}
 }
 
+// The exported names the accessor package carries itself are the other half of
+// the same rule, and ActiveRecordConfig is one of them: the hand-off is
+// generated for a project that uses ActiveRecord, so a key named after it would
+// generate one function twice there and pass everywhere else.
+func TestServiceAccessorReservedNameCollision(t *testing.T) {
+	for _, name := range []string{"ActiveRecordConfig", "Subscribe", "Paths", "CheckRequired"} {
+		_, err := NewOnlineConfConfig("svc", []ockeymap.Key{
+			{Path: "/svc/other", Type: ockeymap.TypeString, Name: name},
+		}, nil, nil)
+		if err == nil {
+			t.Fatalf("NewOnlineConfConfig() accepted a key named %s, want a name collision", name)
+		}
+
+		if !errors.Is(err, ErrOnlineConfNameTaken) {
+			t.Errorf("%s: error = %v, want errors.Is(..., ErrOnlineConfNameTaken)", name, err)
+		}
+	}
+}
+
 // A map made only of keys with runtime segments has no constant path at all, so
 // neither the constant block nor Paths() is generated: there would be nothing to
 // put in either.

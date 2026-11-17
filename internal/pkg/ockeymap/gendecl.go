@@ -545,11 +545,9 @@ func (k GenKey) segmentProblems(allowed []string) []string {
 					k.Path, segment, strings.Join(allowed, ", ")))
 			}
 		case strings.HasPrefix(segment, "<"), strings.HasSuffix(segment, ">"):
-			if !runtimeParamRx.MatchString(segment) {
-				problems = append(problems, fmt.Sprintf(
-					"path %q has an invalid runtime segment %q, expected %s",
-					k.Path, segment, runtimeParamRx.String()))
-			}
+			// The name is judged by the same rule as a service key's, and for
+			// the same reason: it names a parameter of the generated accessor.
+			problems = append(problems, runtimeSegmentProblems(k.Path, segment)...)
 		case !segmentRx.MatchString(segment):
 			problems = append(problems, fmt.Sprintf("path %q has an invalid segment %q, expected %s, "+
 				"a {dimension} or a <runtimeSegment>", k.Path, segment, segmentRx.String()))

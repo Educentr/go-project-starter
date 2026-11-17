@@ -536,6 +536,16 @@ func TestParseGenDeclRejectsDefects(t *testing.T) {
 			wantMsg: "invalid runtime segment",
 		},
 		{
+			// The name of a runtime segment is a parameter of the generated
+			// accessor, and the accessor template declares `path` in the body
+			// it would sit in. Our own declaration is held to the rule the
+			// service map is held to, because both generate the same accessor.
+			name: "a runtime segment named like the package's own identifier",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<path>/x\"\n        name: X\n" +
+				"        type: bool\n        description: d\n",
+			wantMsg: "the generated accessor package uses it itself",
+		},
+		{
 			name: "required with a runtime segment",
 			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<id>\"\n        name: X\n" +
 				"        type: bool\n        required: true\n        description: d\n",

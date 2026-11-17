@@ -205,6 +205,33 @@ func TestParseErrors(t *testing.T) {
 			wantMsg:  `parameter name "id" twice`,
 		},
 		{
+			// A Go keyword as the name of the parameter is not even a parse
+			// error of the generated package — it is a syntax error, and the map
+			// comes from a contract repository, so it is refused here.
+			name:     "runtime segment named like a Go keyword",
+			yaml:     "keys:\n  - path: /svc/qa/<type>/a\n    type: string\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "it is a Go keyword",
+		},
+		{
+			// `string` would shadow the type the body writes out: the declared
+			// default of a `strings` key is a []string literal.
+			name:     "runtime segment named like a predeclared identifier",
+			yaml:     "keys:\n  - path: /svc/qa/<string>/a\n    type: strings\n    default: a\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "it is a predeclared Go identifier",
+		},
+		{
+			// An identifier the accessor package carries itself: `path` is the
+			// local the body reads at, so `path := AccountQuotaPath(path)`
+			// would declare nothing new. Every such name is covered by
+			// TestValidateRejectsReservedRuntimeParams.
+			name:     "runtime segment named like an identifier of the generated package",
+			yaml:     "keys:\n  - path: /svc/qa/<path>/a\n    type: string\n",
+			sentinel: ockeymap.ErrInvalidMap,
+			wantMsg:  "the generated accessor package uses it itself",
+		},
+		{
 			// Every segment below the root is a parameter, so the derivation has
 			// nothing left to build a name from.
 			name:     "nothing to derive a name from",
@@ -438,6 +465,57 @@ func TestRuntimeSegmentKey(t *testing.T) {
 	// whether or not the path takes an argument.
 	if shape := byPath["/svc/account/<account>/quota"].Shape(); shape != ockeymap.ShapeDefault {
 		t.Errorf("Shape() = %q, want %q", shape, ockeymap.ShapeDefault)
+	}
+}
+
+// Every name a runtime segment cannot carry is refused while the map is read.
+// The map comes from a contract repository: a name that cannot be a Go
+// parameter has to be an error of the map, not a generation that reports `done`
+// and leaves a project that does not build.
+//
+// The list of names the accessor package claims drives the test, so a name
+// added to it without the rule being applied shows up here.
+func TestValidateRejectsReservedRuntimeParams(t *testing.T) {
+	names := append([]string{
+		// Keywords, including the ones that are not even a parse error of the
+		// generated package but a syntax error: `func X(ctx context.Context,
+		// type string)`.
+		"type", "range", "func", "map", "select", "var", "return",
+		// Predeclared identifiers.
+		"string", "int", "error", "any", "nil", "true", "len", "make",
+	}, ockeymap.ReservedParamNames()...)
+
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			_, err := ockeymap.Parse([]byte(
+				"keys:\n  - path: /svc/qa/<" + name + ">/a\n    type: string\n"))
+			if err == nil {
+				t.Fatalf("Parse() accepted <%s> as a runtime segment, want an error", name)
+			}
+
+			if !errors.Is(err, ockeymap.ErrInvalidMap) {
+				t.Errorf("Parse() error = %v, want errors.Is(..., ErrInvalidMap)", err)
+			}
+
+			// The message has to name the segment and say that renaming it is
+			// free: the name names the parameter, not the path.
+			for _, want := range []string{"<" + name + ">", "rename the segment"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Parse() error = %q, want it to mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// A name that is nobody's identifier is still accepted: the rule is about the
+// package the accessor lands in, not about bracketed segments.
+func TestValidateAcceptsOrdinaryRuntimeParams(t *testing.T) {
+	for _, name := range []string{"account", "action", "shardID", "userId", "tgID"} {
+		if _, err := ockeymap.Parse([]byte(
+			"keys:\n  - path: /svc/qa/<" + name + ">/a\n    type: string\n")); err != nil {
+			t.Errorf("Parse() rejected <%s> as a runtime segment: %v", name, err)
+		}
 	}
 }
 
