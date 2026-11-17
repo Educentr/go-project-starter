@@ -25,9 +25,9 @@ import (
 // nothing else — the path is composed from the argument — so renaming the
 // segment costs the declaration nothing.
 //
-// TestGeneratedAccessorsShadowNothing (test/onlineconf_map_test.go) reads the
-// identifiers back out of a generated package and fails when one of them is
-// missing here.
+// assertAccessorsShadowNothing (test/onlineconf_map_test.go, called from
+// TestGenerateOnlineConfMap) reads the identifiers back out of a generated
+// package and fails when one of them is missing here.
 var occonfIdents = []string{
 	// Imports the bodies call.
 	"context", "errors", "fmt", "onlineconf", "strings", "time",

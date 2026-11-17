@@ -154,7 +154,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 		"rest-shared-spec-rewrite-refs", "cli-only", "rest-client-basic-auth",
-		"rest-client-mocks", "rest-envs-goat",
+		"rest-client-mocks", "rest-envs-goat", "onlineconf-map",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
