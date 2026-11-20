@@ -48,6 +48,13 @@ applications:
         - ca-certificates
       workdir: /workspace
       entrypoint: ["/service", "--verbose"]
+  # A shell-less base image and no packages: the runtime stage must not contain
+  # a single RUN, or the image would not build.
+  - name: slim
+    transport:
+      - name: sys
+    docker:
+      base_image: gcr.io/distroless/static
   # No docker section: the historical runtime stage.
   - name: plain
     transport:

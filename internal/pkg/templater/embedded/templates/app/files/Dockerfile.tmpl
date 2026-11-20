@@ -66,6 +66,11 @@ ADD {{ $dir }} /{{ $dir }}
 RUN chmod -R 755 /{{ $dir }}
 {{- end }}
 
+# The config directory is created here and copied into the runtime stage, not
+# created there: a `RUN mkdir` needs a shell, and a shell-less base image
+# (distroless, scratch) is a valid runtime for a static Go binary.
+RUN mkdir -p /etc/onlineconf
+
 FROM {{ .Application.Docker.Image }}
 {{- with .Application.Docker.PackagesDirective }}
 
@@ -79,7 +84,9 @@ COPY --from=builder /public /public
 {{- range $dir := .Application.StaticDirs }}
 COPY --from=builder /{{ $dir }} /{{ $dir }}
 {{- end }}
-RUN mkdir -p /etc/onlineconf
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
+COPY --from=builder /etc/onlineconf /etc/onlineconf
 {{- with .Application.Docker.WorkdirDirective }}
 {{ . }}
 {{- end }}

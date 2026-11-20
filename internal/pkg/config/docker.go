@@ -48,10 +48,6 @@ type Docker struct {
 	Labels map[string]any `mapstructure:"labels"`
 }
 
-// dockerArgNamePattern is the shape of a build argument name: the intersection
-// of what a Dockerfile `ARG` and a Makefile variable accept. Shared by the name
-// check and the reference scan of the label values.
-
 // AppDocker is the docker section of one application: the runtime stage of its
 // generated Dockerfile.
 //
@@ -88,6 +84,9 @@ type AppDocker struct {
 	Entrypoint []string `mapstructure:"entrypoint"`
 }
 
+// dockerArgNamePattern is the shape of a build argument name: the intersection
+// of what a Dockerfile `ARG` and a Makefile variable accept. Shared by the name
+// check and the reference scan of the label values.
 const dockerArgNamePattern = `[A-Za-z_][A-Za-z0-9_]*`
 
 // Sentinel errors of the docker section. Use errors.Is to distinguish.

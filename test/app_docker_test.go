@@ -11,7 +11,8 @@ import (
 // without the section keeps the historical stage.
 //
 // The test config (test/docker-integration/configs/app-docker-runtime) declares
-// the section in full for the "api" application and nothing for "plain".
+// the section in full for the "api" application, a shell-less base image for
+// "slim" and nothing for "plain".
 func TestGenerateAppDockerRuntime(t *testing.T) {
 	tmpDir := generateProject(t, "app-docker-runtime")
 
@@ -51,6 +52,32 @@ func TestGenerateAppDockerRuntime(t *testing.T) {
 		t.Errorf("runtime stage keeps a CMD next to the declared ENTRYPOINT:\n%s", final)
 	}
 
+	// A shell-less base image without packages: the runtime stage must have no
+	// RUN at all, otherwise the image does not build (there is no /bin/sh to
+	// run it with). The config directory therefore arrives from the builder
+	// stage instead of being created here.
+	slim := readGenerated(t, tmpDir, "Dockerfile-slim")
+
+	_, slimFinal, ok := strings.Cut(slim, "\nFROM gcr.io/distroless/static\n")
+	if !ok {
+		t.Fatalf("Dockerfile-slim runtime stage does not use the declared base image:\n%s", slim)
+	}
+
+	if strings.Contains(slimFinal, "\nRUN ") {
+		t.Errorf("runtime stage of a shell-less base image contains a RUN:\n%s", slimFinal)
+	}
+
+	if !strings.Contains(slimFinal, "\nCOPY --from=builder /etc/onlineconf /etc/onlineconf\n") {
+		t.Errorf("Dockerfile-slim runtime stage does not copy the config directory:\n%s", slimFinal)
+	}
+
+	// The directory is created in the builder stage, which is where the copy
+	// above takes it from.
+	slimBuilder, _, _ := strings.Cut(slim, "\nFROM gcr.io/distroless/static\n")
+	if !strings.Contains(slimBuilder, "\nRUN mkdir -p /etc/onlineconf\n") {
+		t.Errorf("builder stage does not create the config directory:\n%s", slimBuilder)
+	}
+
 	// The application without the section keeps the stage every generated
 	// project had before it existed.
 	plain := readGenerated(t, tmpDir, "Dockerfile-plain")
@@ -68,9 +95,9 @@ func TestGenerateAppDockerRuntime(t *testing.T) {
 		t.Errorf("Dockerfile-plain runtime stage does not start the service binary:\n%s", plainFinal)
 	}
 
-	for _, unwanted := range []string{"WORKDIR", "ENTRYPOINT", "apk add"} {
+	for _, unwanted := range []string{"WORKDIR", "ENTRYPOINT", "apk add", "\nRUN "} {
 		if strings.Contains(plainFinal, unwanted) {
-			t.Errorf("Dockerfile-plain runtime stage has an unexpected %s:\n%s", unwanted, plainFinal)
+			t.Errorf("Dockerfile-plain runtime stage has an unexpected %q:\n%s", unwanted, plainFinal)
 		}
 	}
 }

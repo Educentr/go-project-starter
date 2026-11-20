@@ -166,9 +166,18 @@ applications:
 ```
 
 Секция опциональна и объявляется **у приложения**, а не у проекта: образы
-приложений одного сервиса собираются из разных наборов зависимостей. Без неё
-вывод побайтно совпадает с прежним — регенерация существующих проектов ничего не
-меняет.
+приложений одного сервиса собираются из разных наборов зависимостей. Приложение
+без секции получает прежнюю стадию — `FROM alpine` и `CMD ["/service"]`.
+
+Одна строка финальной стадии при этом изменилась у **всех** проектов: каталог
+`/etc/onlineconf` теперь создаётся в builder-стадии и приезжает в финальную через
+`COPY --from=builder /etc/onlineconf /etc/onlineconf` вместо
+`RUN mkdir -p /etc/onlineconf` (владелец и права те же — `root:root`, `0755`).
+Это нужно, чтобы финальная стадия не требовала shell: без `packages` в ней не
+остаётся ни одной инструкции `RUN`, и базовым образом может быть
+shell-less образ (`gcr.io/distroless/static`, `scratch`) — самый частый рантайм
+для статического Go-бинарника. Сборку это не меняет, только содержимое
+`Dockerfile-<app>`.
 
 Настраивается только финальная (runtime) стадия. Builder-стадия компилирует
 статический Go-бинарник, и её базовый образ определяет `tools.golang_version`.
@@ -176,18 +185,28 @@ applications:
 | Поле | Обязательное | Значение |
 |---|---|---|
 | `base_image` | Нет | Базовый образ runtime-стадии (`FROM`). По умолчанию `alpine`. Ссылка без пробелов, кавычек и `#` — допустимы registry с портом, тег и digest |
-| `packages` | Нет | Рантайм-пакеты. Ставятся **одной** инструкцией `RUN` до копирования бинарника, поэтому слой переиспользуется, пока не изменится сам список. Порядок — как в конфиге. Допустим пин версии (`curl=8.5.0-2`) |
-| `package_manager` | Нет | Чем ставить: `apk`, `apt` или `dnf`. Выводится из `base_image` для `alpine`, `debian`, `ubuntu`, `fedora`; для любого другого образа с `packages` — объявить явно |
+| `packages` | Нет | Рантайм-пакеты. Ставятся **одной** инструкцией `RUN` до копирования бинарника, поэтому слой переиспользуется, пока не изменится сам список. Порядок — как в конфиге. Допустим пин версии (`curl=8.5.0-2`). Требует от `base_image` shell и пакетного менеджера — для shell-less образа объявлять нечем, см. ниже |
+| `package_manager` | Нет | Чем ставить: `apk`, `apt` или `dnf`. Выводится из `base_image` для `alpine`, `debian`, `ubuntu`, `fedora`; для любого другого образа **с пакетным менеджером** и объявленными `packages` — объявить явно |
 | `workdir` | Нет | `WORKDIR` runtime-стадии, абсолютный путь. По умолчанию инструкция не генерируется (докеровский дефолт `/`) |
 | `entrypoint` | Нет | `ENTRYPOINT` в exec-форме. **Заменяет** `CMD`, а не дополняет его: Docker передаёт `CMD` энтрипойнту аргументами, поэтому дефолтный `/service` приехал бы энтрипойнту параметром |
 
 **Почему `package_manager` не угадывается для произвольного образа.** Менеджер
 выводится из имени репозитория образа (`registry.example:5000/mirror/ubuntu:24.04`
 → `ubuntu`) и только для дистрибутивов, у которых он однозначен. Для
-`gcr.io/distroless/...` или собственного базового образа угаданный менеджер дал
-бы Dockerfile, который падает на сборке, — поэтому генерация останавливается с
-требованием объявить менеджер. Объявленный `package_manager` без `packages` —
-тоже ошибка: ставить нечего.
+собственного или производного базового образа (`registry.example/org/base:2024`)
+угаданный менеджер дал бы Dockerfile, который падает на сборке, — поэтому
+генерация останавливается с требованием объявить менеджер. Объявленный
+`package_manager` без `packages` — тоже ошибка: ставить нечего.
+
+**Shell-less образ и `packages` несовместимы.** `gcr.io/distroless/...` и
+`scratch` не содержат ни shell, ни пакетного менеджера, поэтому `packages` для
+них не объявляются вовсе — объявленный `package_manager` тут не помогает, `RUN`
+в таком образе падает с `/bin/sh: no such file or directory`. Рантайм-зависимость
+для такого образа добирается иначе: либо берётся вариант базового образа, который
+её уже несёт (`gcr.io/distroless/static` поставляется с `ca-certificates`), либо
+нужные файлы доставляются в финальную стадию ручным `COPY --from=builder` в
+секции после маркера. Без `packages` финальная стадия вообще не содержит `RUN`,
+поэтому такой образ собирается.
 
 Значения проверяются на загрузке конфига: образ и рабочий каталог — без пробелов
 и кавычек, имена пакетов — из `[A-Za-z0-9._+-=:~/]`, элементы `entrypoint` —
@@ -213,7 +232,9 @@ RUN set -eux && \
 
 COPY --from=builder /service /service
 COPY --from=builder /public /public
-RUN mkdir -p /etc/onlineconf
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
+COPY --from=builder /etc/onlineconf /etc/onlineconf
 WORKDIR /workspace
 ENTRYPOINT ["/service"]
 ```
@@ -225,6 +246,18 @@ ENTRYPOINT ["/service"]
 Приложение без секции `docker` получает прежнюю стадию — `FROM alpine` и
 `CMD ["/service"]`.
 
+Для shell-less образа (`packages` не объявлены) `RUN` в стадии не остаётся
+вообще:
+
+```dockerfile
+# Dockerfile-vt, финальная стадия для base_image: gcr.io/distroless/static
+FROM gcr.io/distroless/static
+COPY --from=builder /service /service
+COPY --from=builder /public /public
+COPY --from=builder /etc/onlineconf /etc/onlineconf
+CMD ["/service"]
+```
+
 ## Реализация
 
 - парсинг и валидация секций — `internal/pkg/config/docker.go` (`Docker.Parse` и
@@ -234,4 +267,3 @@ ENTRYPOINT ["/service"]
   (`ds.DockerConfig`, `ds.AppDockerConfig`);
 - шаблоны — `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`,
   `main/docker-compose-dev.yaml.tmpl`.
-
