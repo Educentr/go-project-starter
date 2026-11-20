@@ -86,6 +86,7 @@ nav:
     - Карта метрик: configuration/metrics-map.md
     - Карта ключей OnlineConf: configuration/onlineconf-keys.md
     - Свои генераторы: configuration/custom-generators.md
+    - Веб-приложение: configuration/web.md
     - Конфиг линтера: configuration/lint-config.md
   - Рабочий процесс:
     - workflow/index.md

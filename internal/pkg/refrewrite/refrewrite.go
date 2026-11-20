@@ -90,6 +90,19 @@ func RewriteLocalRefs(dir string, expected []string, opts Options) (Report, erro
 			continue
 		}
 
+		// os.ReadDir types entries from lstat, so a symlink reaches this point with
+		// IsDir() == false. Reading one that points at a directory fails with
+		// "is a directory" and aborts the whole run; one that points at a regular
+		// file is worse — the write-back below follows the link and rewrites a file
+		// outside the project tree. Same reasoning as the non-regular guard in the
+		// target tree walk (templater.ErrNonRegularTarget).
+		if !entry.Type().IsRegular() {
+			report.Warnings = append(report.Warnings,
+				fmt.Sprintf("%s: skipped: not a regular file", name))
+
+			continue
+		}
+
 		full := filepath.Join(dir, name)
 		report.FilesScanned++
 

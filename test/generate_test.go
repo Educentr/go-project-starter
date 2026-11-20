@@ -1278,6 +1278,29 @@ func TestGenerateCLIOnly(t *testing.T) {
 		"if errors.Is(err, flag.ErrHelp) {",
 	})
 
+	// TOOLS-96 / issue #124 item 3: a repeated flag is refused instead of
+	// silently resolving to its last value. Every flag of a generated command
+	// is scalar — the spec has no list type, so a list travels as one CSV
+	// value — which is what makes '--label a --label b' a mistake rather than
+	// an addition. The behavioral half of this is in the docker-integration
+	// suite, which runs the built binary.
+	assertFileContains(t, handlerFile, []string{
+		"func checkRepeatedFlags(fs *flag.FlagSet, args []string) error",
+		"func isBoolFlag(f *flag.Flag) bool",
+		`return fmt.Errorf("flag --%s is specified more than once", name)`,
+	})
+
+	// Checked before fs.Parse, not after: FlagSet keeps the last value of a
+	// repeated flag, so by the time Parse returns the earlier ones are gone.
+	for _, before := range []string{
+		"if err := checkRepeatedFlags(fs, args); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\n\t\t\tif err := fs.Parse(args); err != nil {",
+		"if err := checkRepeatedFlags(fs, args); err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n\n\t\t\t\t\tif err := fs.Parse(args); err != nil {",
+	} {
+		if !strings.Contains(string(handlerContent), before) {
+			t.Error("checkRepeatedFlags must be called immediately before fs.Parse, for commands and subcommands alike")
+		}
+	}
+
 	// Defect 6: generator self-tests must not be shipped into user projects.
 	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); err == nil {
 		t.Error("generated project must not contain psg_handler_test.go — " +

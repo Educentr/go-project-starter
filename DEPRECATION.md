@@ -90,6 +90,33 @@ middleware REST-транспорта падало (`MustRegister` на `nil`) е
 выводится из транспортов, поэтому существующие `project.yaml` менять не нужно —
 [docs/configuration/applications.md](docs/configuration/applications.md#метрики-приложения-metricsexport).
 
+### Цели `test-integration-with-deps` и `test-int-up-deps` (TOOLS-96, unreleased)
+
+Обе цели удалены из сгенерированного `Makefile`: ни одна из них не работала с момента
+появления. `test-integration-with-deps` зависела от цели `test-integration`, которую
+генератор никогда не создавал, а `test-int-up-deps` поднимала compose-сервис `wiremock`,
+которого нет ни в одном сгенерированном compose-файле. Заодно из `go.mod.tmpl` убран
+`github.com/walkerus/go-wiremock` — он был там только ради этих целей, и ни одна строка
+сгенерированного кода его не импортирует (`go mod tidy` выкидывал его и раньше).
+
+**Миграция.** Если проект определил `test-integration` в своей секции (ниже
+disclaimer-маркера) и звал `test-integration-with-deps` — перенесите обёртку туда же, к
+самой цели:
+
+```make
+# ниже disclaimer-маркера, рядом со своей test-integration
+.PHONY: test-integration-with-deps
+test-integration-with-deps: test-int-up-deps test-integration
+
+.PHONY: test-int-up-deps
+test-int-up-deps:
+	docker compose up -d --build --force-recreate <ваш сервис>
+```
+
+Зависимости интеграционных тестов объявляет проект: что именно поднимать, генератор не знает.
+Штатный путь для интеграционных тестов в сгенерированном проекте — GOAT
+(`goat_tests`, цель `goat-tests-<app>`), см. [docs/testing/goat.md](docs/testing/goat.md).
+
 ## Go version policy
 
 Generated projects target a **supported** Go release. Go upstream supports the

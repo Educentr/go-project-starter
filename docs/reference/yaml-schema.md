@@ -314,7 +314,7 @@ applications:
       - string
     worker:                     # [optional] Воркеры
       - string
-    cli: string                 # [optional] CLI транспорт (исключает transport/worker)
+    cli: string                 # [optional] CLI транспорт (исключает worker; из transport — только ogen_client)
 
     driver:                     # [optional] Драйверы с параметрами
       - name: string            # Имя драйвера
@@ -354,6 +354,15 @@ applications:
       export: string            # [optional] pull|push|none — канал вывода метрик.
                                 #            По умолчанию: pull при sys-транспорте, иначе none.
                                 #            push зарезервирован и пока не реализован.
+
+    # Runtime-стадия образа приложения:
+    docker:
+      base_image: string        # [optional] Базовый образ финальной стадии (default: alpine)
+      packages:                 # [optional] Рантайм-пакеты (одна инструкция RUN)
+        - string
+      package_manager: string   # [optional] apk|apt|dnf (выводится из base_image)
+      workdir: string           # [optional] WORKDIR, абсолютный путь (default: нет инструкции)
+      entrypoint: [string]      # [optional] ENTRYPOINT в exec-форме (заменяет CMD ["/service"])
 ```
 
 !!! warning "CLI приложения"
@@ -444,6 +453,35 @@ contract:
 Make-цели: `install-<name>` → в `install-tools`, `generate-<name>` → в `generate`,
 `lint-<name>` → в `lint`. Одна цель на генератор, `cmd`/`lint` вызываются по разу на каждую
 его спеку.
+
+---
+
+## Секция `web`
+
+Фронтенды проекта: сборка и кодоген клиента из входов `rest:`/`jsonschema:`.
+Подробно — [Веб-приложение](../configuration/web.md).
+
+```yaml
+web:
+  - name: string              # [required] ^[a-z0-9_-]+$
+    dir: string               # [required] каталог исходников; в нём выполняются команды
+    install: string           # [optional] установка зависимостей, без переменных
+    build: string             # [required] сборка в output, без переменных
+    output: string            # [required] каталог сборки; обязан раздаваться транспортом static
+    node_image: string        # [optional] образ стадии сборки (по умолчанию node:22-alpine)
+    codegen:                  # [optional] хотя бы один канал
+      rest:                   # [optional] канал входов rest[]
+        cmd: string           # [required] команда генерации; {{ .Spec }}, {{ .SpecName }}, {{ .Input }}
+        inputs: [string]      # [required] имена записей rest[], которые потребляет фронт
+      jsonschema:             # [optional] канал входов jsonschema[]
+        cmd: string           # [required] своя команда: генератор TS читает один формат, не оба
+        inputs: [string]      # [required] имена записей jsonschema[]
+```
+
+Make-цели: `install-web-<name>` → в `install-tools`, `build-web-<name>`,
+`generate-web-<name>` → в `generate` (после встроенных генераторов). `cmd` канала
+вызывается по разу на каждый файл спеки каждого его входа. Фронт собирается в образе отдельной
+node-стадией, поэтому `docker-<app>` от `build-web-<name>` не зависит.
 
 ---
 
