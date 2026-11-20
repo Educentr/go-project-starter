@@ -48,22 +48,22 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
   needs:
     - prepare-env
   before_script:
-    {{ if eq $.RegistryType "github" -}}
+    {{- if eq $.RegistryType "github" }}
     - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-    {{ else if eq $.RegistryType "digitalocean" -}}
+    {{- else if eq $.RegistryType "digitalocean" }}
     - apt-get update && apt-get install -y snapd
     - snap install doctl
     - doctl registry login -t "$REGISTRY_PASSWORD"
-    {{ else if eq $.RegistryType "aws" -}}
+    {{- else if eq $.RegistryType "aws" }}
     - apt-get update && apt-get install -y awscli
     - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
-    {{ else if eq $.RegistryType "selfhosted" -}}
+    {{- else if eq $.RegistryType "selfhosted" }}
     - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
-    {{ end -}}
+    {{- end }}
     - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
-    {{ if $.PrivateRepos -}}
+    {{- if $.PrivateRepos }}
     - go env -w GOPRIVATE="gitlab.com{{ if $.PrivateRepos }},{{ $.PrivateRepos }}{{ end }}"
-    {{ end -}}
+    {{- end }}
   script:
     - make goat-tests-{{ $a.Name }}
   rules:
@@ -79,18 +79,18 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
       optional: true
 {{ end }}{{ end }}
   before_script:
-    {{ if eq .RegistryType "github" -}}
+    {{- if eq .RegistryType "github" }}
     - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-    {{ else if eq .RegistryType "digitalocean" -}}
+    {{- else if eq .RegistryType "digitalocean" }}
     - apk add --no-cache curl
     - curl -sL https://github.com/digitalocean/doctl/releases/download/v1.94.0/doctl-1.94.0-linux-amd64.tar.gz | tar xz -C /usr/local/bin
     - doctl registry login -t "$REGISTRY_PASSWORD"
-    {{ else if eq .RegistryType "aws" -}}
+    {{- else if eq .RegistryType "aws" }}
     - apk add --no-cache aws-cli
     - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_LOGIN_SERVER"
-    {{ else if eq .RegistryType "selfhosted" -}}
+    {{- else if eq .RegistryType "selfhosted" }}
     - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
-    {{ end -}}
+    {{- end }}
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "staging"
 
