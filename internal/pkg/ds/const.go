@@ -745,8 +745,9 @@ const (
 
 // SupportedAuthTypes returns every auth_params.type the ogen_client templates
 // can render, in documentation order. Config validation reports the list and
-// UsesSecuritySource branches on it, so adding an auth.go.tmpl branch means
-// extending this one place.
+// UsesSecuritySource branches on it. A new type needs both a branch in
+// ogen_client/files/auth.go.tmpl and an entry here: no test ties the template
+// branches to this list.
 func SupportedAuthTypes() []string {
 	return []string{AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic}
 }
