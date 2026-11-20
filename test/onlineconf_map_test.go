@@ -970,8 +970,9 @@ func TestRequiredKeysAreAlsoRequiredAtInit(t *testing.T) {
 //
 // The fixture wires one REST client optional in the application that can run
 // without it and mandatory in another, one Kafka producer optional in the only
-// application that wires it, and a second producer optional in one application
-// and mandatory in another. Published the other way round, each is the failure
+// application that wires it, a second producer optional in one application and
+// mandatory in another, and a third sharing the client of that second one while
+// being optional everywhere. Published the other way round, each is the failure
 // this flag exists to prevent: a key nothing demands while a process refuses to
 // start without it, and a key demanded while no process reads it.
 func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
@@ -1016,14 +1017,25 @@ func TestRequiredAtInitFollowsEveryWiring(t *testing.T) {
 	// is never nil, so ValidateFor<App> says nothing about it: the startup check
 	// of this key is the only thing that keeps the worker from coming up without
 	// brokers, and the row has to say so.
+	//
+	// debug_producer sits under the same client and is optional in the only
+	// application that wires it. The brokers key belongs to the client, so the
+	// two producers answer about one row: taken from either one, the tolerant
+	// sibling would clear the flags of a key the worker does not start without.
 	auditBrokers, ok := byPath["/octolerant/kafka/audit_kafka/brokers"]
 	if !ok {
 		t.Fatal("registry should list the brokers of the mixed-wiring producer")
 	}
 
 	if !auditBrokers.Required || !auditBrokers.RequiredAtInit {
-		t.Errorf("brokers row = %+v, want both flags: one wiring of the producer has no `optional`",
-			auditBrokers)
+		t.Errorf("brokers row = %+v, want both flags: one wiring of a producer of this client "+
+			"has no `optional`", auditBrokers)
+	}
+
+	// The sibling is really generated, and really reads under the same client:
+	// without its own row the fold above would have nothing to fold.
+	if _, ok := byPath["/octolerant/kafka/audit_kafka/events/debug_events/topic"]; !ok {
+		t.Error("registry should list the event topic of the second producer of the client")
 	}
 
 	if !slices.Contains(checks["worker"], auditBrokers.Path) {

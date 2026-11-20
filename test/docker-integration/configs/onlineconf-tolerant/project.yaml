@@ -47,8 +47,9 @@ rest:
     generator_type: template
     generator_template: sys
 
-# Two producers, so that both answers to "does any process need the brokers" are
-# in one project.
+# Three producers, so that both answers to "does any process need the brokers"
+# are in one project — and so that one client carries two producers that answer
+# differently.
 kafka:
   # Optional in the single application that wires it: nothing of this project
   # refuses to start without the brokers, so the required key of the producer is
@@ -69,6 +70,16 @@ kafka:
     client: audit_kafka
     events:
       - name: audit_events
+  # A second producer under the client of the one above, optional in the only
+  # application that wires it. The brokers key belongs to the client, not to a
+  # producer, so this one must not answer for audit_producer: the worker still
+  # does not come up without the key.
+  - name: debug_producer
+    type: producer
+    driver: segmentio
+    client: audit_kafka
+    events:
+      - name: debug_events
 
 applications:
   - name: api
@@ -82,6 +93,8 @@ applications:
       - name: events_producer
         optional: true
       - name: audit_producer
+        optional: true
+      - name: debug_producer
         optional: true
 
   - name: worker

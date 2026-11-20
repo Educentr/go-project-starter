@@ -1410,7 +1410,7 @@ func readsItsAddress(config cfg.Config, name, declared string) bool {
 func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 	surface := ockeymap.ProjectSurface{
 		Service:  config.Main.Name,
-		Tolerant: map[string]bool{},
+		Tolerant: map[ockeymap.TolerantComponent]bool{},
 	}
 
 	for _, rest := range config.RestList {
@@ -1424,7 +1424,9 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 			surface.RESTClients = append(surface.RESTClients, client)
 
 			if optionalEverywhere(config, rest.Name) || !readsItsAddress(config, rest.Name, rest.Instantiation) {
-				surface.Tolerant[client] = true
+				surface.Tolerant[ockeymap.TolerantComponent{
+					Dimension: ockeymap.DimensionRESTClient, Name: client,
+				}] = true
 			}
 
 			continue
@@ -1437,7 +1439,9 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		})
 
 		if optionalEverywhere(config, rest.Name) {
-			surface.Tolerant[server] = true
+			surface.Tolerant[ockeymap.TolerantComponent{
+				Dimension: ockeymap.DimensionRESTServer, Name: server,
+			}] = true
 		}
 	}
 
@@ -1452,14 +1456,26 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		surface.GRPCClients = append(surface.GRPCClients, grpc.Name)
 
 		if optionalEverywhere(config, grpc.Name) || !readsItsAddress(config, grpc.Name, grpc.Instantiation) {
-			surface.Tolerant[grpc.Name] = true
+			surface.Tolerant[ockeymap.TolerantComponent{
+				Dimension: ockeymap.DimensionGRPCClient, Name: grpc.Name,
+			}] = true
 		}
 	}
+
+	// Tolerance belongs to the client segment, and several producers may be
+	// configured under one client (config.Kafka's own godoc shows two). They
+	// read the one brokers key under it, so the segment is tolerant only if
+	// every one of them is — folded in with AND. Taken from any one producer,
+	// the one the project can do without would answer for the one it cannot,
+	// and the key would leave the registry while a startup check still demanded
+	// it.
+	tolerantClients := make(map[string]bool, len(config.KafkaList))
 
 	for _, kafka := range config.KafkaList {
 		// A custom driver is the project's own code: the generator emits no
 		// config.go for it, so it reads none of these keys (see
-		// GetKafkaDriverTemplates).
+		// GetKafkaDriverTemplates). It is left out of the fold for the same
+		// reason: it is not a reader of the brokers key.
 		if kafka.Type != ds.KafkaTypeProducer || kafka.Driver == ds.KafkaDriverCustom {
 			continue
 		}
@@ -1474,8 +1490,19 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 			Events: events,
 		})
 
-		if optionalEverywhere(config, kafka.Name) {
-			surface.Tolerant[kafka.Client] = true
+		tolerant := optionalEverywhere(config, kafka.Name)
+		if folded, seen := tolerantClients[kafka.Client]; seen {
+			tolerant = tolerant && folded
+		}
+
+		tolerantClients[kafka.Client] = tolerant
+	}
+
+	for client, tolerant := range tolerantClients {
+		if tolerant {
+			surface.Tolerant[ockeymap.TolerantComponent{
+				Dimension: ockeymap.DimensionKafkaClient, Name: client,
+			}] = true
 		}
 	}
 

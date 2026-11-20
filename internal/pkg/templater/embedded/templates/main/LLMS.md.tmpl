@@ -714,7 +714,9 @@ service's own, from a contract repository.
   defaults to the port declared in `project.yaml`. `optional: true` removes a component's
   keys from the list only when **every** application that wires it says so — the
   application that wired it without `optional` still refuses to start, and
-  `{{ .OnlineConf.GetPackageName }}.CheckRequired` carries exactly that application's check
+  `{{ .OnlineConf.GetPackageName }}.CheckRequired` carries exactly that application's check.
+  A Kafka client's `brokers` answers for every producer configured under that client, so it
+  leaves the list only when all of them are optional everywhere
 {{- if .DevStand }}
 
 ## Dev Environment

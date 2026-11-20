@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -328,21 +329,21 @@ func TestOnlineConfSurfaceMarksTolerantComponents(t *testing.T) {
 
 	surface := onlineConfSurface(config)
 
-	want := map[string]bool{
-		"api_v1":      false,
-		"extra_v1":    true,
-		"billing_v1":  false,
-		"audit_v1":    true,
-		"legacy_v1":   true,
-		"ItemService": false,
-		"Reporting":   true,
-		"main":        false,
-		"audits":      true,
+	want := map[ockeymap.TolerantComponent]bool{
+		{Dimension: ockeymap.DimensionRESTServer, Name: "api_v1"}:      false,
+		{Dimension: ockeymap.DimensionRESTServer, Name: "extra_v1"}:    true,
+		{Dimension: ockeymap.DimensionRESTClient, Name: "billing_v1"}:  false,
+		{Dimension: ockeymap.DimensionRESTClient, Name: "audit_v1"}:    true,
+		{Dimension: ockeymap.DimensionRESTClient, Name: "legacy_v1"}:   true,
+		{Dimension: ockeymap.DimensionGRPCClient, Name: "ItemService"}: false,
+		{Dimension: ockeymap.DimensionGRPCClient, Name: "Reporting"}:   true,
+		{Dimension: ockeymap.DimensionKafkaClient, Name: "main"}:       false,
+		{Dimension: ockeymap.DimensionKafkaClient, Name: "audits"}:     true,
 	}
 
 	for component, tolerant := range want {
 		if surface.Tolerant[component] != tolerant {
-			t.Errorf("Tolerant[%q] = %v, want %v", component, surface.Tolerant[component], tolerant)
+			t.Errorf("Tolerant[%v] = %v, want %v", component, surface.Tolerant[component], tolerant)
 		}
 	}
 }
@@ -485,16 +486,145 @@ func TestOnlineConfSurfaceTolerantNeedsEveryWiringOptional(t *testing.T) {
 
 	surface := onlineConfSurface(config)
 
-	want := map[string]bool{
-		"billing_v1": false,
-		"audit_v1":   true,
-		"main":       true,
+	want := map[ockeymap.TolerantComponent]bool{
+		{Dimension: ockeymap.DimensionRESTClient, Name: "billing_v1"}: false,
+		{Dimension: ockeymap.DimensionRESTClient, Name: "audit_v1"}:   true,
+		{Dimension: ockeymap.DimensionKafkaClient, Name: "main"}:      true,
 	}
 
 	for component, tolerant := range want {
 		if surface.Tolerant[component] != tolerant {
-			t.Errorf("Tolerant[%q] = %v, want %v", component, surface.Tolerant[component], tolerant)
+			t.Errorf("Tolerant[%v] = %v, want %v", component, surface.Tolerant[component], tolerant)
 		}
+	}
+}
+
+// A Kafka client is one segment and one brokers key, and several producers may
+// be configured under it. Tolerance is therefore folded over all of them with
+// AND: one producer the project can do without must not answer for one it
+// cannot.
+//
+// Taken from any single producer, as it used to be, this is the crash-loop the
+// flag exists to prevent — the producer optional everywhere cleared the flags
+// of a client whose other producer the worker could not start without, and the
+// startup check of that worker stayed where it was.
+func TestOnlineConfSurfaceKafkaToleranceFoldsEveryProducerOfTheClient(t *testing.T) {
+	// Each entry is one producer under the shared client: true means every
+	// application wiring it declares it optional.
+	tests := []struct {
+		name      string
+		producers []bool
+		want      bool
+	}{
+		{name: "the only producer is mandatory", producers: []bool{false}, want: false},
+		{name: "the only producer is optional", producers: []bool{true}, want: true},
+		{name: "one optional, one mandatory", producers: []bool{true, false}, want: false},
+		{name: "mandatory first, optional second", producers: []bool{false, true}, want: false},
+		{name: "every producer optional", producers: []bool{true, true}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := cfg.Config{Main: cfg.Main{Name: "svc"}}
+			app := cfg.Application{Name: "worker"}
+
+			for i, optional := range tt.producers {
+				name := fmt.Sprintf("producer%d", i)
+
+				config.KafkaList = append(config.KafkaList, cfg.Kafka{
+					Name: name, Type: ds.KafkaTypeProducer, Client: "shared",
+					Events: []cfg.KafkaEvent{{Name: name}},
+				})
+
+				app.KafkaList = append(app.KafkaList, cfg.AppKafka{Name: name, Optional: optional})
+			}
+
+			config.Applications = []cfg.Application{app}
+
+			client := ockeymap.TolerantComponent{Dimension: ockeymap.DimensionKafkaClient, Name: "shared"}
+			if got := onlineConfSurface(config).Tolerant[client]; got != tt.want {
+				t.Errorf("Tolerant[%v] = %v, want %v", client, got, tt.want)
+			}
+		})
+	}
+}
+
+// Tolerance belongs to a component, and a component is a name plus the kind of
+// thing it names. Nothing keeps the names of two kinds apart: a gRPC client
+// `audit` and a Kafka client `audit` are different components reading different
+// subtrees, and so are a gRPC client and the name_version segment of a REST
+// one.
+//
+// Answered by the name alone, the component the project can do without answers
+// for the one it cannot — and the answer that travels is "needs no
+// configuration", so the key a process does not start without leaves the
+// registry while its startup check stays where it is. Rare, silent, and the
+// same crash-loop as the rest of this flag's history.
+func TestOnlineConfSurfaceToleranceIsPerDimension(t *testing.T) {
+	config := cfg.Config{
+		Main: cfg.Main{Name: "svc"},
+		RestList: cfg.RestList{
+			// Reads under audit_v1_v1 — the segment of the gRPC client below.
+			{Name: "audit_v1", Version: "v1", GeneratorType: cfg.GeneratorTypeOgenClient},
+		},
+		GrpcList: cfg.GrpcList{
+			{Name: "audit", GeneratorType: grpcGeneratorBufClient},
+			{Name: "audit_v1_v1", GeneratorType: grpcGeneratorBufClient},
+		},
+		KafkaList: cfg.KafkaList{
+			{
+				Name: "audit_producer", Type: ds.KafkaTypeProducer, Client: "audit",
+				Events: []cfg.KafkaEvent{{Name: "logged"}},
+			},
+		},
+		Applications: []cfg.Application{{
+			Name: "worker",
+			TransportList: []cfg.AppTransport{
+				{Name: "audit", Config: cfg.AppTransportConfig{Optional: true}},
+				{Name: "audit_v1", Config: cfg.AppTransportConfig{Optional: true}},
+				// Mandatory, and sharing its segment with the optional REST
+				// client above.
+				{Name: "audit_v1_v1"},
+			},
+			KafkaList: []cfg.AppKafka{{Name: "audit_producer"}},
+		}},
+	}
+
+	decls, err := templater.LoadOnlineConfKeyDecls()
+	if err != nil {
+		t.Fatalf("LoadOnlineConfKeyDecls() error: %v", err)
+	}
+
+	generated, err := ockeymap.ExpandGenDecls(decls, onlineConfSurface(config))
+	if err != nil {
+		t.Fatalf("ExpandGenDecls() error: %v", err)
+	}
+
+	// The brokers of the Kafka client, and the address of the mandatory gRPC
+	// client: both are keys this project's worker does not come up without.
+	want := map[string]bool{
+		"/svc/kafka/audit/brokers":             true,
+		"/svc/transport/grpc/audit_v1_v1/host": true,
+		"/svc/transport/grpc/audit_v1_v1/port": true,
+		"/svc/transport/grpc/audit/host":       false,
+		"/svc/transport/rest/audit_v1_v1/host": false,
+	}
+
+	for _, key := range generated.Keys {
+		requiredAtInit, checked := want[key.Path]
+		if !checked {
+			continue
+		}
+
+		if key.RequiredAtInit != requiredAtInit {
+			t.Errorf("%s: RequiredAtInit = %v, want %v", key.Path, key.RequiredAtInit, requiredAtInit)
+		}
+
+		delete(want, key.Path)
+	}
+
+	for path := range want {
+		t.Errorf("registry should list %s", path)
 	}
 }
 

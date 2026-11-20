@@ -41,7 +41,10 @@
 # the project's own configuration makes unnecessary, so the whole list applies.
 # `optional: true` makes a key unnecessary only where EVERY application wiring
 # the component declares it so: one wiring without it is one process that
-# refuses to start, and that is a key to seed.
+# refuses to start, and that is a key to seed. The component is the one the
+# path segment names, which for a Kafka client is all the producers configured
+# under it: the brokers key is on the list unless every one of them is optional
+# in every application wiring it.
 #
 # This file is for reading and diffing: nothing in the service loads it. It is
 # regenerated on every run, so a diff here is a change to the configuration

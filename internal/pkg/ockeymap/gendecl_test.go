@@ -778,7 +778,9 @@ func TestExpandRejectsSurfaceWithoutService(t *testing.T) {
 func TestExpandRequiredAtInitFollowsTheComponent(t *testing.T) {
 	surface := fullSurface()
 	surface.RESTClients = []string{"billing_v1", "audit_v1"}
-	surface.Tolerant = map[string]bool{"audit_v1": true}
+	surface.Tolerant = map[ockeymap.TolerantComponent]bool{
+		{Dimension: ockeymap.DimensionRESTClient, Name: "audit_v1"}: true,
+	}
 
 	got := expand(t,
 		"groups:\n  - scope: rest_client\n    keys:\n      - path: \"{service}/transport/rest/{transport}/host\"\n"+
@@ -822,7 +824,9 @@ func TestExpandRequiredAtInitIgnoresTheApplicationDimension(t *testing.T) {
 			{Transport: "api", Apps: []string{"web"}},
 			{Transport: "sys", Apps: []string{"web"}},
 		},
-		Tolerant: map[string]bool{"sys": true},
+		Tolerant: map[ockeymap.TolerantComponent]bool{
+			{Dimension: ockeymap.DimensionRESTServer, Name: "sys"}: true,
+		},
 	}
 
 	got := expand(t,
@@ -878,7 +882,9 @@ func TestExpandRequiredFollowsTheComponentToo(t *testing.T) {
 		{Client: "main", Events: []string{"created"}},
 		{Client: "audits", Events: []string{"logged"}},
 	}
-	surface.Tolerant = map[string]bool{"audits": true}
+	surface.Tolerant = map[ockeymap.TolerantComponent]bool{
+		{Dimension: ockeymap.DimensionKafkaClient, Name: "audits"}: true,
+	}
 
 	got := expand(t,
 		"groups:\n  - scope: kafka_producer\n    keys:\n      - path: \"{service}/kafka/{client}/brokers\"\n"+

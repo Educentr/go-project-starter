@@ -138,6 +138,21 @@ type KafkaProducer struct {
 	Events []string
 }
 
+// TolerantComponent names one component of a project: the kind it is, and the
+// segment its keys are read under.
+//
+// The kind is part of the identity because the segment alone is not: a gRPC
+// client and a Kafka client may both be called `audit`, and the keys they read
+// are different keys under different subtrees. Keyed by the segment alone, one
+// would answer for the other — and the answer that travels is "no configuration
+// needed", so a key no process starts without would quietly leave the registry.
+type TolerantComponent struct {
+	// Dimension is the kind of the component, one of the Dimension* constants.
+	Dimension string
+	// Name is the segment the component's keys are read under.
+	Name string
+}
+
 // ProjectSurface carries the project dimensions the declarations expand over.
 // It is deliberately a plain description of the project rather than the
 // generator's config type: the expansion is a pure function of these names, and
@@ -166,15 +181,19 @@ type ProjectSurface struct {
 	// template.
 	TelegramWorkers []string
 	// Tolerant are the components whose start a missing key does not stop,
-	// named as they appear in the expanded paths — a transport's, client's or
-	// worker's own segment. Two project.yaml settings put a component here:
-	// `optional: true`, whose generated reader treats an absent key as "not
-	// configured, skip", and `instantiation: dynamic`, whose generated client
-	// takes its address as an argument and does not read the key at all. Either
-	// way a key declared `required_at_init` is not one for this component, and
-	// a guard demanding it would demand configuration the project says is not
-	// needed.
-	Tolerant map[string]bool
+	// each named by its kind and by the segment it is read under. Two
+	// project.yaml settings put a component here: `optional: true`, whose
+	// generated reader treats an absent key as "not configured, skip", and
+	// `instantiation: dynamic`, whose generated client takes its address as an
+	// argument and does not read the key at all. Either way a key declared
+	// `required_at_init` is not one for this component, and a guard demanding
+	// it would demand configuration the project says is not needed.
+	//
+	// Tolerance belongs to the component the path segment names, which is not
+	// always one wiring of project.yaml: every producer sharing a Kafka client
+	// reads the one brokers key under that client, so the segment is tolerant
+	// only if all of them are.
+	Tolerant map[TolerantComponent]bool
 }
 
 // GeneratorKey is one concrete OnlineConf path the generated code of a concrete
@@ -368,6 +387,29 @@ const (
 	ScopeTelegramDriver = "telegram_driver"
 )
 
+// Component dimensions — the kinds of component a tolerance answer is about.
+//
+// A dimension is not a scope: the two Kafka scopes read keys of one client, so
+// they share a dimension, and the scopes reading keys for no component at all
+// have none.
+const (
+	// DimensionRESTServer is a REST server transport, named by its server
+	// segment (name_version).
+	DimensionRESTServer = "rest_server"
+	// DimensionRESTClient is a generated REST client, named by its package
+	// segment (name_version).
+	DimensionRESTClient = "rest_client"
+	// DimensionGRPCClient is a generated gRPC client, named by its transport
+	// name.
+	DimensionGRPCClient = "grpc_client"
+	// DimensionKafkaClient is a Kafka client — the segment the producers
+	// configured under it read their brokers from. One client may carry
+	// several producers.
+	DimensionKafkaClient = "kafka_client"
+	// DimensionWorker is a worker, named by its own name.
+	DimensionWorker = "worker"
+)
+
 // ErrGenDeclDefect reports a broken declaration shipped with the generator: a
 // declaration file that does not parse, names an unknown scope, uses a
 // placeholder its scope cannot fill, or contradicts another declaration of the
@@ -395,9 +437,11 @@ var scopePlaceholders = map[string][]string{
 // unexported Go identifier.
 var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
 
-// componentPlaceholders are the placeholders naming the component a key is read
-// for — the thing a project.yaml setting can declare `optional: true`.
-var componentPlaceholders = []string{PlaceholderTransport, PlaceholderClient, PlaceholderWorker}
+// noComponent is the component of an expansion whose keys are read for no one
+// component: the service scope, and the telegram driver, generated once for the
+// project. Nothing ever puts it in Tolerant, so such an expansion is never
+// tolerant.
+var noComponent = TolerantComponent{}
 
 // genKeyFields is the closed set of fields a declaration entry may carry.
 var genKeyFields = map[string]struct{}{
@@ -1201,32 +1245,32 @@ func (s ProjectSurface) substitutions(scope string) []substitution {
 
 	switch scope {
 	case ScopeService:
-		return []substitution{s.substitute(base)}
+		return []substitution{s.substitute(noComponent, base)}
 	case ScopeRESTServer:
 		return s.restServerSubstitutions()
 	case ScopeRESTClient:
-		return s.oneDimension(base, PlaceholderTransport, s.RESTClients)
+		return s.oneDimension(base, PlaceholderTransport, DimensionRESTClient, s.RESTClients)
 	case ScopeGRPCClient:
-		return s.oneDimension(base, PlaceholderTransport, s.GRPCClients)
+		return s.oneDimension(base, PlaceholderTransport, DimensionGRPCClient, s.GRPCClients)
 	case ScopeKafkaProducer:
 		clients := make([]string, 0, len(s.KafkaProducers))
 		for _, producer := range s.KafkaProducers {
 			clients = append(clients, producer.Client)
 		}
 
-		return s.oneDimension(base, PlaceholderClient, clients)
+		return s.oneDimension(base, PlaceholderClient, DimensionKafkaClient, clients)
 	case ScopeKafkaProducerEvent:
 		return s.kafkaEventSubstitutions()
 	case ScopeWorkerDaemon:
-		return s.oneDimension(base, PlaceholderWorker, s.DaemonWorkers)
+		return s.oneDimension(base, PlaceholderWorker, DimensionWorker, s.DaemonWorkers)
 	case ScopeWorkerTelegram:
-		return s.oneDimension(base, PlaceholderWorker, s.TelegramWorkers)
+		return s.oneDimension(base, PlaceholderWorker, DimensionWorker, s.TelegramWorkers)
 	case ScopeTelegramDriver:
 		if len(s.TelegramWorkers) == 0 {
 			return nil
 		}
 
-		return []substitution{s.substitute(base)}
+		return []substitution{s.substitute(noComponent, base)}
 	default:
 		// Unreachable: ParseGenDecl rejects an unknown scope.
 		return nil
@@ -1234,30 +1278,17 @@ func (s ProjectSurface) substitutions(scope string) []substitution {
 }
 
 // substitute pairs a placeholder mapping with what the project says about the
-// component it names.
-func (s ProjectSurface) substitute(values map[string]string) substitution {
-	return substitution{values: values, tolerant: s.tolerates(values)}
-}
-
-// tolerates reports whether the component this expansion is for is one whose
-// start a missing key does not stop.
+// component the expansion is for.
 //
-// Only the placeholders naming a component are consulted. {app} is who does the
-// reading rather than what is read for — an application is not something a
-// project declares optional — and {event} is a setting of the producer that
-// publishes it, so the producer's own segment already answers for it.
-func (s ProjectSurface) tolerates(values map[string]string) bool {
-	if len(s.Tolerant) == 0 {
-		return false
-	}
-
-	for _, placeholder := range componentPlaceholders {
-		if value := values[placeholder]; value != "" && s.Tolerant[value] {
-			return true
-		}
-	}
-
-	return false
+// The component is named by the caller rather than read back out of the
+// mapping: the mapping holds segment values, and a segment value is not a
+// component until its kind is attached. The kind is what the caller knows — it
+// is the dimension it is expanding over. {app} and {event} name no component of
+// their own: an application is not something a project declares optional, and
+// an event is a setting of the producer publishing it, so the producer's
+// segment already answers for it.
+func (s ProjectSurface) substitute(component TolerantComponent, values map[string]string) substitution {
+	return substitution{values: values, tolerant: s.Tolerant[component]}
 }
 
 // restServerSubstitutions yields one mapping per (transport, application) pair,
@@ -1267,13 +1298,15 @@ func (s ProjectSurface) restServerSubstitutions() []substitution {
 	out := make([]substitution, 0, len(s.RESTServers))
 
 	for _, server := range s.RESTServers {
-		out = append(out, s.substitute(map[string]string{
+		component := TolerantComponent{Dimension: DimensionRESTServer, Name: server.Transport}
+
+		out = append(out, s.substitute(component, map[string]string{
 			PlaceholderService:   s.Service,
 			PlaceholderTransport: server.Transport,
 		}))
 
 		for _, app := range server.Apps {
-			out = append(out, s.substitute(map[string]string{
+			out = append(out, s.substitute(component, map[string]string{
 				PlaceholderService:   s.Service,
 				PlaceholderTransport: server.Transport,
 				PlaceholderApp:       app,
@@ -1289,8 +1322,10 @@ func (s ProjectSurface) kafkaEventSubstitutions() []substitution {
 	out := make([]substitution, 0, len(s.KafkaProducers))
 
 	for _, producer := range s.KafkaProducers {
+		component := TolerantComponent{Dimension: DimensionKafkaClient, Name: producer.Client}
+
 		for _, event := range producer.Events {
-			out = append(out, s.substitute(map[string]string{
+			out = append(out, s.substitute(component, map[string]string{
 				PlaceholderService: s.Service,
 				PlaceholderClient:  producer.Client,
 				PlaceholderEvent:   event,
@@ -1301,9 +1336,10 @@ func (s ProjectSurface) kafkaEventSubstitutions() []substitution {
 	return out
 }
 
-// oneDimension yields one expansion per value of a single placeholder.
+// oneDimension yields one expansion per value of a single placeholder, every
+// value naming a component of the given dimension.
 func (s ProjectSurface) oneDimension(
-	base map[string]string, placeholder string, values []string,
+	base map[string]string, placeholder, dimension string, values []string,
 ) []substitution {
 	out := make([]substitution, 0, len(values))
 
@@ -1314,7 +1350,7 @@ func (s ProjectSurface) oneDimension(
 		}
 
 		next[placeholder] = value
-		out = append(out, s.substitute(next))
+		out = append(out, s.substitute(TolerantComponent{Dimension: dimension, Name: value}, next))
 	}
 
 	return out
