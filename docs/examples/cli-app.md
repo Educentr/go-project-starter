@@ -247,6 +247,14 @@ applications:
           optional: true
 ```
 
+Клиент с `instantiation: dynamic` в `main` не регистрируется: его создаёт место вызова, как и в
+сервисном приложении.
+
+При `main.skip_service_init: true` Service-слой пишет пользователь, и `EmptyService.InitClients`
+не генерируется. Если CLI хостит статический клиент, `main` CLI всё равно вызывает
+`(*service.EmptyService).InitClients(ctx, []ds.ClientInitializer) error`: этот метод (как и сам
+тип `EmptyService`, на который опирается `main` сервисного приложения) нужно объявить самому.
+
 ## Сравнение подходов
 
 | Без спецификации | Со спецификацией (`commands.yaml`) |
