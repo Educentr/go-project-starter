@@ -928,13 +928,20 @@ jobs:
           # Символы для экранирования: _ * [ ] ( ) ~ ` > # + - = | { } . !
           ESCAPED_COMMIT_MSG=$(echo "$COMMIT_MSG" | head -1 | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
 
+          # Имя ветки экранируется тем же правилом: среди имён, которые
+          # допускает github_ci.push_branches, спецсимволы MarkdownV2 — обычное
+          # дело (release/1.2, hotfix-x, feature_x), а на неэкранированном
+          # Telegram отвечает 400 и сообщения нет — причём незаметно, потому
+          # что `curl -s` этой ошибки не видит и job остаётся зелёным.
+          ESCAPED_BRANCH=$(echo "$BRANCH" | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
+
           # Формирование сообщения
           MESSAGE="Репозиторий: *$(echo "${{"{{"}} github.repository {{"}}"}}" | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')*
           Коммит: _${ESCAPED_COMMIT_MSG}_"
 
           if [[ "$STATUS" == "success" ]]; then
             MESSAGE="$MESSAGE
-            ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$BRANCH*"
+            ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$ESCAPED_BRANCH*"
 {{- if .Artifacts.HasDocker }}
             DOCKER_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
             MESSAGE="$MESSAGE
@@ -951,7 +958,7 @@ jobs:
 {{- end }}
           else
             MESSAGE="$MESSAGE
-            ❌ Ошибка: *${{"{{"}} github.workflow {{"}}"}}* завершился с ошибкой на ветке *$BRANCH*"
+            ❌ Ошибка: *${{"{{"}} github.workflow {{"}}"}}* завершился с ошибкой на ветке *$ESCAPED_BRANCH*"
           fi
 
           MESSAGE="$MESSAGE
