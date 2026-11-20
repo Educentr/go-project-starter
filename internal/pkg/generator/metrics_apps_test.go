@@ -30,8 +30,8 @@ func TestAppComponentsCoversEveryKnownOwner(t *testing.T) {
 func TestResolveMetricsApps(t *testing.T) {
 	g := &Generator{
 		Applications: ds.Apps{
-			{Name: "api", Transports: sysTransports()},
-			{Name: "worker"},
+			pullApp("api"),
+			noExportApp("worker"),
 		},
 		Metrics: ds.MetricsConfig{
 			Enabled: true,
@@ -62,7 +62,7 @@ func TestResolveMetricsApps(t *testing.T) {
 // against the project's real applications.
 func TestResolveMetricsAppsRejectsUnknownApp(t *testing.T) {
 	g := &Generator{
-		Applications: ds.Apps{{Name: "api", Transports: sysTransports()}},
+		Applications: ds.Apps{pullApp("api")},
 		Metrics: ds.MetricsConfig{
 			Enabled: true,
 			Metrics: []metricsmap.Metric{
@@ -88,8 +88,8 @@ func TestResolveMetricsAppsRejectsUnknownApp(t *testing.T) {
 func TestResolveMetricsAppsDedupesNames(t *testing.T) {
 	g := &Generator{
 		Applications: ds.Apps{
-			{Name: "api", Transports: sysTransports()},
-			{Name: "api", Transports: sysTransports()},
+			pullApp("api"),
+			pullApp("api"),
 		},
 		Metrics: ds.MetricsConfig{Enabled: true},
 	}
@@ -108,4 +108,22 @@ func sysTransports() ds.Transports {
 	return ds.Transports{
 		"sys": {GeneratorType: "template", GeneratorTemplate: "sys"},
 	}
+}
+
+// pullApp returns an application as the generator resolves it: a sys transport
+// serving /metrics and the export channel that follows from it. The scope is
+// built from the resolved channel, so a test app that carries the transport
+// without the channel would describe a project config.Config rejects.
+func pullApp(name string) ds.App {
+	return ds.App{
+		Name:          name,
+		Transports:    sysTransports(),
+		MetricsExport: ds.MetricsExportPull,
+	}
+}
+
+// noExportApp returns an application nothing reads: no sys transport, hence
+// the "none" channel.
+func noExportApp(name string) ds.App {
+	return ds.App{Name: name, MetricsExport: ds.MetricsExportNone}
 }

@@ -50,6 +50,26 @@ const MinRuntimeVersion = "vX.Y.Z"  // <- обновить до последне
 
 **Важно:** Release notes составлять относительно коммита последнего релиза, а не последнего тега!
 
+### 4. Skills Plugin Update (ОБЯЗАТЕЛЬНО)
+
+Инструкции, по которым AI-агенты работают с генератором, лежат в
+[`Educentr/claude`](https://github.com/Educentr/claude/tree/main/plugins/go-project-starter) —
+агент читает их вместо этого репозитория. Плагин, оставшийся на прошлой версии, продолжает учить
+прошлой версии: ставит `go install …@<прошлый тег>` и выдаёт снятые ограничения как актуальные.
+
+```bash
+# что в плагине ещё указывает на прошлую версию (код 1 — не догнал)
+make check-skills-plugin SKILLS_VERSION=vX.Y.Z
+```
+
+Обновляется отдельным PR в `Educentr/claude` (отдельный репозиторий → отдельная задача с меткой
+`repo:github.com/Educentr/claude`): версия в version-statement **каждого** скила, пины команд
+(`@vX.Y.Z`, `STARTER_VERSION`), ссылки на документацию по тегу, затронутые релизом `references/`,
+`version` в `.claude-plugin/plugin.json`.
+
+Что с чем связано и что намеренно не правится (исторические упоминания версий) —
+[docs/development/skills-plugin.md](docs/development/skills-plugin.md).
+
 ## Build/Test/Lint Commands
 
 ```bash
@@ -72,6 +92,9 @@ make lint                # Check diffs with origin/main — this is the CI gate 
 make lint-config-verify  # Check configs/golangci.yml against the pinned version's schema
 make lint-full           # Full code lint — currently red on main (~600 pre-existing issues)
 make lint-fix            # Auto-fix linting issues
+
+# Release checks
+make check-skills-plugin SKILLS_VERSION=vX.Y.Z  # Claude skills plugin caught up with the release
 
 # Coverage report
 make coverage            # Generate HTML coverage report
@@ -200,7 +223,57 @@ CLI и queue-worker spec'и (которые парсятся inline во вре�
 
 Реализация: `internal/pkg/config/contract.go` (типы секций, валидация, разбор и рендер шаблонов команд), `internal/pkg/ds/contract.go` (то, что видит шаблон Makefile — генераторы с уже отрендеренными командами), `internal/pkg/generator/contract.go` (`processGenerators`, `resolveContracts`, `checkContractDrift`, `copyContracts`), `main/Makefile.tmpl` (цели). Провенанс приезжает из `specsource.ResolvedSpec.Commit` (`gitHeadCommit`). Полная документация: [docs/configuration/custom-generators.md](docs/configuration/custom-generators.md).
 
+## Веб-приложение (`web`)
+
+Секция `web` объявляет фронтенд как сущность: `dir` (исходники), `install` (зависимости),
+`build` (сборка), `output` (каталог, который раздаёт транспорт `generator_template: static`),
+`node_image` и опциональный `codegen`. Команды — проектные, как в `generator`: стартер владеет
+проводкой (make-цели, стадия сборки в образе), а не выбором сборщика и генератора клиента. Без
+секции вывод не меняется ни на байт (`TestGenerateWithoutWebApp_OutputUnchanged`).
+
+**Привязка фронта к приложению выводится, а не объявляется вторично:** фронт попадает в образ
+того приложения, чей `static`-транспорт раздаёт его `output` (`ds.WebApps.ForApp`). `output`,
+который никто не раздаёт, — ошибка конфига: это сборка, результат которой не попадает ни в
+ответ сервиса, ни в образ.
+
+**`codegen` называет входы по имени, а не по пути**, и состоит из **каналов** — `rest:` и
+`jsonschema:`, у каждого свои `cmd` и `inputs`. Команда на канал, а не одна на оба: генератор TS
+читает один из двух форматов (`openapi-typescript` — OpenAPI, `json2ts` — JSON Schema), поэтому
+единственная команда падает на первой же спеке чужого формата, а вместе с ней — весь
+`make generate`, в который входит `generate-web-<name>`. Команде отдаётся **своя копия** спеки,
+которую стартер уже забрал (`api/rest/<имя>/<версия>/…`, `api/schema/<имя>/…`) — второй копии не
+возникает, в отличие от `contract:`, которому нужны свои `path` и `copy`. Путь приезжает
+**относительно `dir`**: все команды записи выполняются в `dir`, где лежит манифест фронта.
+Переменные `cmd`: `.Spec`, `.SpecName`, `.Input`; поля `target` нет намеренно — вход может
+принести несколько файлов, и единственный путь вывода они бы перезаписали друг другом.
+
+Валидация секции на загрузке конфига: `dir` внутри `output` отвергается (каталог сборки целиком
+уходит в `.gitignore` и перезаписывается в образе — исходники в нём молча перестали бы
+версионироваться), как и два фронта с одним `output` (в образе выигрывает стадия, скопированная
+последней). Многострочная команда (`install`, `build`, `cmd`) — тоже ошибка загрузки: команда
+становится одной строкой make-рецепта, хвост второй строки ломает Makefile целиком
+(`missing separator`). Та же проверка стоит на командах секции `generator`
+(`validateSingleLineCommand` в `internal/pkg/config/contract.go`).
+
+Цели: `install-web-<name>` → в `install-tools`, `build-web-<name>`, `generate-web-<name>` → в
+`generate` (после встроенных генераторов, то есть и в `regenerate` через `call_generate`).
+**`docker-<app>` от `build-web-<name>` не зависит:** фронт собирается node-стадией внутри
+Dockerfile (`COPY --from=web-<name> /src/<output>/ /<output>/` поверх `ADD <output>`), поэтому
+node на хосте и в CI-раннере не нужен, а node-тулчейн не попадает в runtime-образ.
+`build-web-<name>` — для локального цикла.
+
+Команды рендерятся **до** resolve-пре-пасса: имена скопированных файлов выводятся из
+`specsource.ParseSpecSource(...).TargetFilename()` — так же, как их выводит `resolveAllSources`
+(иначе Makefile рендерился бы раньше, чем известны пути).
+
+Реализация: `internal/pkg/config/web.go` (типы секции, валидация, рендер команды),
+`internal/pkg/ds/web.go` (модель для шаблонов, `ForApp`, константы `static`-каталога и
+node-образа), `internal/pkg/generator/web.go` (`processWebApps`), шаблоны
+`main/Makefile.tmpl`, `app/files/Dockerfile.tmpl`, `main/.gitignore.tmpl`. Полная документация:
+[docs/configuration/web.md](docs/configuration/web.md).
+
 ## Rewrite Refs
+
 
 Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `project.yaml`. После `CopySpecs`/`CopySchemas` стартер сканирует target-директорию (`api/rest/<svc>/<ver>/` или `api/schema/<name>/`) и переписывает кросс-директорные `$ref` (`../common/foo.yaml#/X`) в локальные (`./foo.yaml#/X`) — при условии, что sibling-файл с этим basename уже скопирован рядом и входит в whitelist `SpecTargetFiles`/`SchemaTargetFiles`.
 
@@ -230,7 +303,32 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации; `apps.go` — `AppScope`, `Publishes`, `ValidateApps`), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора, `ForApp`/`CollectorsByApp`/`HasGeneratedFor`), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()` + `Generator.resolveMetricsApps()` (второй шаг — потому что карта парсится до того, как построены приложения: её наличие нужно `collectFiles`). Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
-## Docker Build Args и Labels
+## Канал вывода метрик (`applications[].metrics.export`)
+
+**Реестр метрик инициализируется у каждого приложения, всегда** — `application.InitMetrics(mainCtx)`
+в `cmd/<app>/psg_main_gen.go` безусловен, как и регистрация коллекторов карты метрик. Реестр
+принадлежит приложению, а не эндпоинту `/metrics`: middleware REST-транспорта регистрируется в нём
+(`MustRegister`) во время инициализации транспорта, поэтому приложение, которому реестр не создали,
+умирало на nil-разыменовании ещё до первого запроса — ровно дефект TOOLS-94, и генератор такую
+конфигурацию принимал молча.
+
+Настраивается **канал вывода** — куда метрики уходят: `pull` (`/metrics` на `sys`-транспорте),
+`push` (внешний приёмник; значение зарезервировано, не реализовано — генерация падает) и `none`
+(собираются и не отдаются). `none` — рабочая конфигурация: до процесса на машине пользователя
+скрейпер не дотянется, а лишний слушающий порт — поверхность без читателя.
+
+Ключ **необязателен**: без него канал выводится из транспортов приложения (есть `sys` → `pull`,
+нет → `none`), поэтому существующие `project.yaml` не меняются ни в тексте, ни в смысле.
+Объявленное значение проверяется против транспортов: `pull` без `sys` и `none` при `sys` — ошибки
+конфигурации, а не предпочтение. Проверка живёт на `Config`, а не на `Application.IsValid`, потому
+что «sys-ность» транспорта видна только по его `generator_template`.
+
+Реализация: `internal/pkg/config/metrics_export.go` (`AppMetrics`, `Config.ResolveAppMetricsExport`,
+сентинелы), `ds.MetricsExport` (`internal/pkg/ds/metrics_export.go`) + `App.MetricsExport`
+(`internal/pkg/ds/const.go`), шаблон `app/cmd/main.go.tmpl`. Документация:
+[docs/configuration/applications.md](docs/configuration/applications.md#метрики-приложения-metricsexport).
+
+## Docker Build Args, Labels и runtime-стадия приложения
 
 Секция `docker:` помимо `image_prefix` несёт `build_args` (объявление build-аргументов образа) и `labels` (OCI-лейблы финальной стадии). Нужна потому, что `LABEL` статичен и не умеет вызвать `git`: версия/ревизия обязаны приехать через `--build-arg`, а стадия, которая их использует, обязана объявить `ARG` — а builder-стадия Dockerfile целиком генерируемая, и дописанный туда руками `ARG` стирался на каждом `make regenerate`.
 
@@ -240,7 +338,11 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Валидация на загрузке конфига (`config.Docker.Parse`): имя не может совпасть с `ARG`-ами шаблона (`binary`, `GOPROXY`) и переменными сгенерированного Makefile (`DOCKER_TAG`, `RELEASE`, …); ссылка `${NAME}` в значении лейбла требует аргумента, объявленного в стадии `final` (иначе лейбл молча отрендерился бы пустым). Ключи лейблов — только нижний регистр: viper приводит ключи конфига к нижнему регистру, а дотовые ключи (`org.opencontainers.image.version`) он разбивает в вложенные map'ы, которые `Parse` собирает обратно.
 
-Реализация: `internal/pkg/config/docker.go` (парсинг/валидация), `internal/pkg/ds/docker.go` (`ds.DockerConfig` + хелперы шаблонов `BuilderArgs`/`FinalArgs`/`LabelDirective`/`BuildArgFlags`/`ComposeBuildArgs`), шаблоны `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`, `main/docker-compose-dev.yaml.tmpl`. Полная документация: [docs/configuration/docker.md](docs/configuration/docker.md).
+**Своя секция `docker:` есть и у приложения** (`applications[].docker`) — она описывает **финальную (runtime) стадию** его `Dockerfile-<app>`, которая раньше была зафиксирована (`FROM alpine` + `CMD ["/service"]`): стадия генерируется, пользовательский маркер спасает только то, что ниже него, поэтому другой дистрибутив или рантайм-зависимость приходилось заводить отдельным `Dockerfile-<app>.custom` с переопределённой целью `docker-<app>`. Поля: `base_image` (по умолчанию `alpine`), `packages` (одна инструкция `RUN` **до** `COPY` бинарника — слой переиспользуется, пока не изменится список; индекс/кеш удаляется в той же инструкции), `package_manager` (`apk`/`apt`/`dnf`; выводится из `base_image` для `alpine`/`debian`/`ubuntu`/`fedora`, для остальных образов с `packages` требуется явно — угаданный менеджер дал бы Dockerfile, падающий на сборке), `workdir` (по умолчанию инструкции нет), `entrypoint` (**заменяет** `CMD`, а не дополняет: `CMD` уехал бы энтрипойнту аргументом). Builder-стадия не настраивается — она компилирует статический Go-бинарник, её образ задаёт `tools.golang_version`. Приложение без секции получает прежнюю стадию (`FROM alpine` + `CMD ["/service"]`).
+
+**Финальная стадия не зависит от shell.** `/etc/onlineconf` создаётся в builder-стадии и приезжает в финальную через `COPY --from=builder` (владелец и права те же — `root:root`, `0755`) вместо прежнего `RUN mkdir -p /etc/onlineconf` — это единственная строка, изменившаяся у **всех** проектов. Без `packages` в финальной стадии не остаётся ни одной `RUN`, поэтому shell-less базовый образ (`gcr.io/distroless/static`, `scratch` — самый частый рантайм статического Go-бинарника) собирается. `packages`, наоборот, требуют от образа shell и пакетного менеджера: для distroless их объявлять нечем, и явный `package_manager` тут не помогает.
+
+Реализация: `internal/pkg/config/docker.go` (парсинг/валидация обеих секций — `Docker.Parse`, `AppDocker.Parse`), `internal/pkg/ds/docker.go` (`ds.DockerConfig` + хелперы шаблонов `BuilderArgs`/`FinalArgs`/`LabelDirective`/`BuildArgFlags`/`ComposeBuildArgs`; `ds.AppDockerConfig` + `Image`/`PackagesDirective`/`WorkdirDirective`/`StartDirective`), шаблоны `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`, `main/docker-compose-dev.yaml.tmpl`. Полная документация: [docs/configuration/docker.md](docs/configuration/docker.md).
 
 ## Lint Config
 
@@ -273,7 +375,11 @@ git+https; `--sourceRef` действует; карта читается во в
 - `internal/pkg/occonf/psg_occonf_gen.go` — **единственное** место, где вызывается библиотека
   `onlineconf`: типизированный аксессор на каждый ключ обеих половин, построитель пути
   `<Name>Path(...)`, фасад жизненного цикла (`Initialize`, `StartWatcher`, `StopWatcher`),
-  `Paths()`, `Subscribe(ctx, paths, cb)` и `CheckRequired(ctx, app)`. Плюс
+  `Paths()`, `Subscribe(ctx, paths, cb)` и `CheckRequired(ctx, app)`. Плюс `Initialized(ctx)`
+  и пара `Clone`/`Release` — для кода, который может выполниться на контексте вне сервисной
+  обвязки (юнит-тест на `context.Background()`): спросить про дерево или положить его туда
+  иначе нечем, прямое обращение к библиотеке запрещает валидатор. Коду сервиса `Initialized`
+  не нужен — инвариант границы валидируется один раз на старте процесса. Плюс
   `ActiveRecordConfig(ctx)` — только при `use_active_record: true`: ActiveRecord читает дерево
   сам через `activerecord.ConfigInterface`, а это весь набор читателей библиотеки, поэтому
   узкий интерфейс ему отдать нельзя. Это известная дыра в карте (чтения ActiveRecord не
@@ -308,7 +414,7 @@ git+https; `--sourceRef` действует; карта читается во в
 
 **Объявления генератора** (`<шаблон>.ockeys.yaml` рядом с шаблоном; из вывода генерации
 исключаются в `GetTemplates`) несут `path`, `name`, `type`, `required`, `shared`, `read_via`,
-`default` (проза), `description`. В пути два вида переменных сегментов: `{service}`,
+`open`, `default` (проза), `description`. В пути два вида переменных сегментов: `{service}`,
 `{transport}`, `{app}`, `{worker}`, `{client}`, `{event}` — измерения проекта, известные на
 генерации, и `<urlPath>`, `<tgID>`, `<action>` — сегменты, которые сгенерированный код вычисляет в
 рантайме. **Оба становятся параметрами аксессора**: сгенерированные читатели generic по
@@ -317,7 +423,13 @@ git+https; `--sourceRef` действует; карта читается во в
 старте: шаблон, который генерируется, зовёт свои аксессоры безусловно (провайдер REST
 генерируется и в проекте, где единственный REST-транспорт — клиент). Запись без `type` —
 построитель пути (имя обязано кончаться на `Path`), отдаёт генератору всё поддерево; запись с
-`<runtimeСегментом>` — с него и ниже. `shared: true` — аксессор, путь которого целиком собирает
+`<runtimeСегментом>` — с него и ниже. `open: true` на такой записи **сужает** претензию до
+объявленных путей: сам префикс и чтения под ним зарезервированы, остальное поддерево карта
+сервиса объявлять может. Ставится только там, где все чтения ниже известны по именам — префикс
+воркера (уходит логгеру, этапные ключи объявлены через `read_via`) и префикс middleware метрик
+REST открыты, префикс обработчиков REST закрыт (его получает библиотека рантайма, её чтения
+здесь не объявлены). До этого интервал тика воркера, который читает рукописный код, объявить
+было нечем — TOOLS-87. `shared: true` — аксессор, путь которого целиком собирает
 вызывающий (уровень логирования), поддерева не отдаёт, а конкретные пути объявляются у вызывающих
 с `read_via: <Имя>`. Запись с `shared: true` — **единственная**, которая начинается не с
 `{service}`, а с `<runtimeСегмента>`: префикс приходит уже абсолютным (его собирают
@@ -338,7 +450,11 @@ git+https; `--sourceRef` действует; карта читается во в
 клиент с `instantiation: dynamic` получает адрес аргументом и ключ не читает.
 
 Совпадение пути из карты сервиса с путём генератора — ошибка генерации с указанием
-шаблона-читателя: точное совпадение либо объявление внутри отданного генератору поддерева.
+шаблона-читателя: точное совпадение, совпадение по форме с чтением, объявленным через
+`<runtimeСегмент>` (сегмент в угловых скобках матчится с одним **или несколькими** сегментами:
+вычисленное в рантайме значение может само содержать `/`, и построитель пути их сохраняет —
+middleware отдаёт логгеру `r.URL.Path` целиком, так что уровень для `/v1/users` читается в
+`…/mw/metrics/v1/users/log_level`), либо объявление внутри закрытого (не `open`) поддерева.
 Проверка идёт по **фактическому** проекту: ключ измерения, которого в проекте нет (Kafka без
 Kafka-клиента), сервис объявить может — второго читателя не возникает.
 
@@ -414,7 +530,7 @@ manifest:
   `.gitignore`, `README.md`, `LICENSE.txt`, `CLAUDE.md`, `static/**`), в манифест **не**
   попадают.
 
-Манифест даёт четыре вещи:
+Манифест даёт пять вещей:
 
 1. **Точную orphan-детекцию.** Удаляются только файлы, которые есть в предыдущем манифесте и
    выпали из текущего вывода. Посторонние файлы в дереве (`*_gen.go.orig` от merge-конфликта,
@@ -444,6 +560,24 @@ manifest:
    со списком путей); `--dry-run` сообщает о конфликте так же.
 4. **Запрет правки скопированных спек** (`kind: copied`). Расхождение хеша на диске с манифестом —
    **ошибка генерации**, ненулевой код выхода (см. ниже).
+5. **Запись того, что успел упавший прогон.** Прогон, который записал файлы и затем упал,
+   сохраняет манифест по факту записанного — **поверх** манифеста предыдущего прогона, не вместо
+   него (`Manifest.Merge`): свои записи теряют только файлы, которые этот прогон перезаписал.
+   Иначе скопированные им спеки следующий прогон читал бы как ручную правку (пункт 4) и падал бы
+   на них **до** записи манифеста, который говорит обратное, — петля, из которой не выходил ни
+   один следующий прогон (TOOLS-80). Записываются только файлы, реально оказавшиеся на диске;
+   после того как манифест прогона записан целиком, чекпоинт уже не трогает его (падение в
+   `post_generate` оставляет полную картину, а не частичную).
+
+   **Прогон без предыдущего манифеста не чекпоинтится вовсе** (`len(prev) == 0`): манифест — он
+   же выключатель между точным и legacy-путём, поэтому частичный манифест объявил бы проект
+   «проектом с манифестом», и всё, что записали прогоны до этого, а этот не дошёл перезаписать
+   (спеки в `api/`, сгенерированные файлы после точки падения), стало бы конфликтом — та же
+   «прогон не проходит без ручной чистки дерева», только через conflict, а не через drift.
+   `meta.yaml` остаётся как был, следующий прогон снова идёт legacy-путём, полный манифест
+   пишет тот прогон, который дойдёт до конца. Ничего при этом не теряется: без записей все
+   проверки, которые чекпоинт кормит (copied-drift, contract-drift, conflict), и так no-op,
+   так что в петлю ради которой он есть такой проект попасть не может.
 
 Хеши обновляются по диску после `post_generate` (goimports, `go mod tidy`, `make generate`
 переписывают только что сгенерированные файлы) — иначе каждый следующий прогон сообщал бы о
@@ -453,7 +587,9 @@ manifest:
 (обход дерева + поиск disclaimer в содержимом, конфликты не детектируются) и записывает манифест,
 со второго — точный путь.
 Реализация: `internal/pkg/meta/meta.go`, `templater.GetUserCodeFromFiles()`,
-`internal/pkg/templater/conflict.go`, `generator.checkCopyTargetConflicts()`.
+`internal/pkg/templater/conflict.go`, `generator.checkCopyTargetConflicts()`, чекпоинт —
+`internal/pkg/generator/checkpoint.go` (`runWrites`, `Generator.checkpoint()`, defer в
+`Generate()`).
 
 ### Скопированные спеки не правятся внутри проекта (`kind: copied`)
 
@@ -475,7 +611,10 @@ files from version control.
 
 - **Идёт pre-pass'ом до любой записи** (первым делом в `Generate()`), поэтому при ошибке дерево
   проекта остаётся нетронутым — правку ещё можно вытащить и перенести в контрактный репозиторий.
-  `--dry-run` тоже падает: это предпросмотр прогона, а прогон не состоится.
+  `--dry-run` тоже падает: это предпросмотр прогона, а прогон не состоится. Тем же pre-pass'ом
+  проверяются спеки контрактов (`Generator.checkContractDrift`): раньше эта проверка стояла
+  непосредственно перед `copyContracts`, то есть падала уже после копирования спек REST/gRPC и
+  JSON Schema и оставляла дерево, в котором следующий прогон видел ручную правку (TOOLS-80).
 - **Сравнивается диск с записанным хешем**, а не с источником: контракт мог законно уехать вперёд
   в своём репозитории, и это не дрейф.
 - **В тексте — исходный `path` из `project.yaml`** (для remote — URI с именем token-переменной, без

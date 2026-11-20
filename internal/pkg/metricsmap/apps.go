@@ -19,10 +19,11 @@ import (
 type AppScope struct {
 	// Name is the application name as written in project.yaml.
 	Name string
-	// ExposesMetrics reports whether the application serves /metrics, i.e.
-	// whether it has a sys transport. It decides who gets the DEFAULT surface
-	// (a declaration with no `apps`) and whether the generated main registers
-	// anything at all — not whether the application may be named in `apps`.
+	// ExposesMetrics reports whether anything reads the application's metrics,
+	// i.e. whether its resolved export channel is pull (/metrics on its sys
+	// transport). It decides who gets the DEFAULT surface (a declaration with
+	// no `apps`) and whether the generated main registers anything at all —
+	// not whether the application may be named in `apps`.
 	ExposesMetrics bool
 	// Components holds the generator components the application runs.
 	Components map[string]bool

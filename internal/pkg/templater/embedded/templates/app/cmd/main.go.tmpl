@@ -43,7 +43,7 @@ import (
 	{{ $imp }}
 	{{- end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
-{{- if and .Application.HasSysTransport .Metrics.IsEnabled (.Metrics.HasGeneratedFor .Application.Name) }}
+{{- if and .Application.MetricsExport.IsPull .Metrics.IsEnabled (.Metrics.HasGeneratedFor .Application.Name) }}
 	"{{ .ProjectPath }}/{{ .Metrics.GetPackagePath }}"
 {{- end }}
 	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
@@ -142,15 +142,19 @@ func main() {
 	}
 
 	{{ .Logger.InfoMsg "mainCtx" "application created" }}
-{{- if .Application.HasSysTransport }}
 
-	// Initialize metrics (only when sys transport is available for /metrics endpoint)
+	// The metrics registry belongs to the application, not to the /metrics
+	// endpoint: the REST middleware, the generated collectors and ActiveRecord
+	// all get it on initialization and register into it unconditionally, so it
+	// has to exist even when nothing reads this process.
+	//
+	// Export channel of this application: {{ .Application.MetricsExport.Comment }}.
 	err = application.InitMetrics(mainCtx)
 	if err != nil {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize metrics" }}
 		os.Exit(ExitCodeErrorApp)
 	}
-{{- if and .Metrics.IsEnabled (.Metrics.HasGeneratedFor .Application.Name) }}
+{{- if and .Application.MetricsExport.IsPull .Metrics.IsEnabled (.Metrics.HasGeneratedFor .Application.Name) }}
 
 	// Register the collectors this application publishes, per the `apps` field
 	// of the service's metrics map — not the whole map. A collector registered
@@ -158,9 +162,11 @@ func main() {
 	// /metrics, and an always-zero series says nothing about whether the
 	// feature behind it works.
 	//
-	// Only an application with a /metrics endpoint registers from main. One
-	// without an endpoint registers its collectors itself, into whatever
-	// registry it keeps — there is nothing here to put them on.
+	// Only an application whose export channel is pull registers from main:
+	// the registration puts the collectors on the /metrics endpoint, and an
+	// application without one has nothing here to put them on. Such an
+	// application registers its collectors itself, into whatever registry it
+	// keeps.
 	//
 	// The registerer is explicit: tests use a throwaway registry, and several
 	// applications can share one binary.
@@ -172,7 +178,6 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't register declared metrics" }}
 		os.Exit(ExitCodeErrorApp)
 	}
-{{- end }}
 {{- end }}
 
 	// initializing graceful stop for application

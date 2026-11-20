@@ -172,10 +172,10 @@ func (m MetricsConfig) CollectorsByApp() []MetricsAppCollectors {
 // to a sibling would otherwise import a package it never calls.
 //
 // It answers over the same set CollectorsByApp emits, so the import guard and
-// the map it guards cannot disagree. The /metrics endpoint is not part of the
-// question — the generated main gates the registration call on the sys
-// transport separately, because an application with no endpoint registers from
-// its own code, not from main.
+// the map it guards cannot disagree. The export channel is not part of the
+// question — the generated main gates the registration call on the pull
+// channel separately, because an application with no /metrics endpoint
+// registers from its own code, not from main.
 func (m MetricsConfig) HasGeneratedFor(name string) bool {
 	scope, ok := m.appScope(name)
 	if !ok {
