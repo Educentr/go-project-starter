@@ -3,6 +3,10 @@
 # wiring, so one application saying it can run without a component does not
 # answer for another that cannot — and the two have to read it the same way, or
 # the registry publishes a key to seed that no process verifies.
+#
+# The component is the one the path segment names, which for a Kafka client is
+# every producer configured under it: one producer the project can do without
+# does not answer for one it cannot either.
 main:
   name: octolerant
   logger: zerolog
