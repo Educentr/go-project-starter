@@ -264,10 +264,11 @@ jobs:
     name: checks (${{"{{"}} matrix.name {{"}}"}})
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Full history: `make lint` diffs against origin/main.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -336,7 +337,7 @@ jobs:
 
       - name: Configure Git for private repos
         env:
-          GH_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+          GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
 

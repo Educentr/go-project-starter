@@ -2721,13 +2721,15 @@ func TestGenerateRESTEnvsGoat(t *testing.T) {
 }
 
 // TestGeneratePrivateReposTokenSecret covers git.private_repos_token_secret:
-// the name of the CI secret the generated GitHub workflow reads to fetch
+// the name of the CI secret the generated GitHub workflows read to fetch
 // private Go modules.
 //
 // Both cases render from the same fixture, so the configured secret name is
 // the only difference between them: unset must keep the historical GH_PAT
 // (existing projects regenerate unchanged), and a configured name must replace
-// every occurrence.
+// every occurrence. The count spans both generated workflows: go-version-check
+// downloads modules too, and the checks job of ci_cd.yml used to hardcode
+// GH_PAT regardless of the configured name.
 func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
@@ -2738,7 +2740,7 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 
 	// generate renders the fixture, optionally dropping the
 	// private_repos_token_secret line to exercise the default, and returns the
-	// generated workflow.
+	// generated workflows.
 	generate := func(t *testing.T, withTokenSecret bool) string {
 		t.Helper()
 
@@ -2799,18 +2801,24 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 			t.Fatalf("Error creating project: %s\n%s", err, out)
 		}
 
-		workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
-		if err != nil {
-			t.Fatalf("Error reading generated workflow: %v", err)
+		workflows := ""
+
+		for _, name := range generatedWorkflowNames {
+			content, err := os.ReadFile(filepath.Join(tmpDir, filepath.FromSlash(name)))
+			if err != nil {
+				t.Fatalf("Error reading generated workflow %s: %v", name, err)
+			}
+
+			workflows += string(content)
 		}
 
-		return string(workflow)
+		return workflows
 	}
 
-	// The fixture enables goat tests plus docker and deb artifacts so that
-	// every job referencing the token is rendered. Pinning the count keeps a
-	// newly added reference from escaping the check.
-	const wantRefs = 4
+	// The fixture enables goat tests, a CI check plus docker and deb artifacts
+	// so that every job referencing the token is rendered. Pinning the count
+	// keeps a newly added reference from escaping the check.
+	const wantRefs = 6
 
 	t.Run("configured name replaces every occurrence", func(t *testing.T) {
 		workflow := generate(t, true)
