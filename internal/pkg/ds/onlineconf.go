@@ -140,8 +140,11 @@ type OnlineConfSurfaceEntry struct {
 	// ReadVia names the shared accessor a generated read goes through, empty
 	// otherwise.
 	ReadVia string
-	// Owns is the path from which the subtree belongs to the generated code,
-	// empty when the path claims no subtree.
+	// Owns is the path from which the subtree belongs to the generated code as a
+	// whole, empty when the path claims no such subtree. A prefix row whose
+	// subtree is open carries none: there the generated code owns the paths the
+	// registry already shows and nothing else, so the service may declare its
+	// own keys beside them.
 	Owns string
 	// HasDefault reports that a fallback is applied when the key is absent.
 	// Separate from Default because a declared default can be the empty string
@@ -398,6 +401,11 @@ func onlineConfSurfaceRows(
 
 	if generated != nil {
 		for _, key := range generated.Keys {
+			owns := key.OwnedPrefix
+			if key.OpenSubtree {
+				owns = ""
+			}
+
 			out = append(out, OnlineConfSurfaceEntry{
 				Path:        key.Path,
 				Origin:      OnlineConfOriginGenerated,
@@ -405,7 +413,7 @@ func onlineConfSurfaceRows(
 				Required:    key.Required,
 				Accessor:    key.Accessor,
 				ReadVia:     key.ReadVia,
-				Owns:        key.OwnedPrefix,
+				Owns:        owns,
 				HasDefault:  key.Default != "",
 				Default:     key.Default,
 				ReadBy:      key.ReadBy,
