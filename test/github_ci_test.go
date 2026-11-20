@@ -2,7 +2,9 @@ package test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -38,6 +40,7 @@ type githubPushTrigger struct {
 type githubJob struct {
 	RunsOn         any          `yaml:"runs-on"`
 	TimeoutMinutes *int         `yaml:"timeout-minutes"`
+	If             string       `yaml:"if"`
 	Steps          []githubStep `yaml:"steps"`
 }
 
@@ -54,12 +57,35 @@ type githubStep struct {
 // DigitalOcean Container Registry in both jobs that push images.
 const doRegistryLoginStepName = "Log in to DO Container Registry"
 
+// branchVarsStepName is the name of the prepare-env step that resolves the
+// per-branch names of the repository variables and secrets the build reads.
+const branchVarsStepName = "Get branch"
+
+// envFileStepName is the name of the deploy step that writes the env file of
+// the branch being deployed.
+const envFileStepName = "Create env file"
+
+// notifyJobName is the job of ci_cd.yml that sends the build notification.
+const notifyJobName = "artifact_version"
+
+// branchSanitizePattern is the shell pattern both the `Get branch` step and
+// the env file name derive from the branch name. Asserting on the pattern,
+// rather than on a name produced by it, is what the env file step allows: its
+// recipe is full of workflow expressions, so it cannot be executed in a test
+// the way `Get branch` can.
+const branchSanitizePattern = `[^A-Za-z0-9_]`
+
 // generatedWorkflowNames lists the GitHub Actions workflows the generator
 // produces; the github_ci parameters apply to every job of both.
 var generatedWorkflowNames = []string{
 	".github/workflows/ci_cd.yml",
 	".github/workflows/go-version-check.yml",
 }
+
+// githubVarNameRx matches the characters GitHub allows in the name of a
+// repository variable or secret. A name outside this set cannot exist, so a
+// step that builds one sends the whole run down the "branch not enabled" path.
+var githubVarNameRx = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 // generateProject runs the generator for a config dir from
 // test/docker-integration/configs and returns the target directory.
@@ -330,6 +356,8 @@ func TestGenerateGithubCI(t *testing.T) {
 	// string it was configured as.
 	assertPushBranches(t, tmpDir, []string{"main", "release/**", "!release/**-alpha", "1.10"})
 
+	assertNotifyFollowsEnabledBuild(t, tmpDir)
+
 	// Both action-doctl steps live in ci_cd.yml and must carry the pinned
 	// version.
 	versions := doctlVersions(parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml"))
@@ -342,4 +370,190 @@ func TestGenerateGithubCI(t *testing.T) {
 			t.Errorf("action-doctl step %d: version = %#v, want \"1.170.0\"", i, v)
 		}
 	}
+}
+
+// branchVarNames runs the `Get branch` step of the generated prepare-env job
+// with GITHUB_REF set to ref and returns the variables it exported, keyed by
+// name. The step is plain shell without workflow expressions, so executing it
+// is what proves the suffix it derives for a branch name GitHub does not admit
+// in a variable name (`release/1.2`); reading the YAML only shows the recipe.
+func branchVarNames(t *testing.T, targetDir, ref string) map[string]string {
+	t.Helper()
+
+	wf := parseWorkflow(t, targetDir, ".github/workflows/ci_cd.yml")
+
+	job, ok := wf.Jobs["prepare-env"]
+	if !ok {
+		t.Fatalf("ci_cd.yml has no prepare-env job, got jobs %v", wf.Jobs)
+	}
+
+	var step githubStep
+
+	for _, s := range job.Steps {
+		if s.Name == branchVarsStepName {
+			step = s
+
+			break
+		}
+	}
+
+	// A `uses:` step cannot be it: the action used before
+	// (noliran/branch-based-secrets) is exactly what pasted the branch name
+	// into the variable name unchanged.
+	if step.Run == "" || step.Uses != "" {
+		t.Fatalf("prepare-env step %q = %#v, want a run step resolving the branch variable names",
+			branchVarsStepName, step)
+	}
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "get-branch.sh")
+	envPath := filepath.Join(dir, "github_env")
+
+	if err := os.WriteFile(scriptPath, []byte(step.Run), 0o600); err != nil {
+		t.Fatalf("Error writing the step script: %v", err)
+	}
+
+	if err := os.WriteFile(envPath, nil, 0o600); err != nil {
+		t.Fatalf("Error creating the GITHUB_ENV file: %v", err)
+	}
+
+	cmd := exec.Command("bash", scriptPath)
+
+	cmd.Env = append(os.Environ(), "GITHUB_REF="+ref, "GITHUB_ENV="+envPath)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Error running the %q step for %s: %v\n%s", branchVarsStepName, ref, err, out)
+	}
+
+	content, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("Error reading the GITHUB_ENV file: %v", err)
+	}
+
+	vars := map[string]string{}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		if line == "" {
+			continue
+		}
+
+		name, value, found := strings.Cut(line, "=")
+		if !found {
+			t.Fatalf("the %q step wrote %q to GITHUB_ENV, want NAME=VALUE", branchVarsStepName, line)
+		}
+
+		vars[name] = value
+	}
+
+	if len(vars) == 0 {
+		t.Fatalf("the %q step exported nothing for %s\n%s", branchVarsStepName, ref, out)
+	}
+
+	return vars
+}
+
+// TestGenerateGithubCIBranchVarNames verifies that the names of the per-branch
+// repository variables and secrets the generated prepare-env job reads are
+// legal GitHub names for every branch github_ci.push_branches admits, and that
+// main and staging keep the names existing projects already configured.
+//
+// Without it a branch with `/` or `-` in the name (`release/**`, the pattern
+// the key exists for) asked for a variable that cannot exist, so the push
+// triggered the workflow, every job was skipped and the run went green with
+// nothing built.
+func TestGenerateGithubCIBranchVarNames(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci")
+
+	tests := []struct {
+		ref    string
+		suffix string
+	}{
+		{ref: "refs/heads/main", suffix: "MAIN"},
+		{ref: "refs/heads/staging", suffix: "STAGING"},
+		{ref: "refs/heads/release/1.2", suffix: "RELEASE_1_2"},
+		{ref: "refs/heads/hotfix-x", suffix: "HOTFIX_X"},
+		{ref: "refs/heads/feature/ABC-1_x", suffix: "FEATURE_ABC_1_X"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			vars := branchVarNames(t, tmpDir, tt.ref)
+
+			// ENABLED is the variable that gates every job of ci_cd.yml, so it
+			// is the one the whole run hangs on.
+			if got, want := vars["ENABLED_NAME"], "ENABLED_"+tt.suffix; got != want {
+				t.Errorf("ENABLED_NAME = %q, want %q", got, want)
+			}
+
+			for name, value := range vars {
+				if !githubVarNameRx.MatchString(value) {
+					t.Errorf("%s = %q, which GitHub cannot have as a variable name", name, value)
+				}
+
+				if !strings.HasSuffix(value, "_"+tt.suffix) {
+					t.Errorf("%s = %q, want the branch suffix %q", name, value, tt.suffix)
+				}
+			}
+		})
+	}
+
+	assertEnvFileNameSanitized(t, tmpDir)
+}
+
+// assertNotifyFollowsEnabledBuild checks that the notification job reports
+// every branch whose build is enabled instead of a hardcoded pair of branch
+// names: it is gated on the same ENABLE_BUILD output as the build itself, and
+// no step narrows that down to a branch literal. A literal `main`/`staging`
+// check would leave a branch added through github_ci.push_branches building
+// without any notification.
+func assertNotifyFollowsEnabledBuild(t *testing.T, targetDir string) {
+	t.Helper()
+
+	wf := parseWorkflow(t, targetDir, ".github/workflows/ci_cd.yml")
+
+	job, ok := wf.Jobs[notifyJobName]
+	if !ok {
+		t.Fatalf("ci_cd.yml has no %s job, got jobs %v", notifyJobName, wf.Jobs)
+	}
+
+	if !strings.Contains(job.If, "ENABLE_BUILD") {
+		t.Errorf("job %s if = %q, want it gated on the ENABLE_BUILD output", notifyJobName, job.If)
+	}
+
+	for _, step := range job.Steps {
+		for _, branch := range []string{"main", "staging"} {
+			if strings.Contains(step.Run, `"`+branch+`"`) {
+				t.Errorf("job %s step %q compares the branch to the literal %q, want it to follow ENABLE_BUILD",
+					notifyJobName, step.Name, branch)
+			}
+		}
+	}
+}
+
+// assertEnvFileNameSanitized checks that the deploy step builds the env file
+// name out of a sanitized branch name. With the raw name a branch containing
+// `/` turned `.env.` into a path to a directory that does not exist, and the
+// step died on its first redirect.
+func assertEnvFileNameSanitized(t *testing.T, targetDir string) {
+	t.Helper()
+
+	wf := parseWorkflow(t, targetDir, ".github/workflows/ci_cd.yml")
+
+	for jobName, job := range wf.Jobs {
+		for _, step := range job.Steps {
+			if step.Name != envFileStepName {
+				continue
+			}
+
+			if !strings.Contains(step.Run, branchSanitizePattern) {
+				t.Errorf("job %q step %q builds the env file name without sanitizing the branch (%s): %s",
+					jobName, envFileStepName, branchSanitizePattern, step.Run)
+			}
+
+			return
+		}
+	}
+
+	t.Fatalf("ci_cd.yml has no %q step, expected it in the deploy job", envFileStepName)
 }
