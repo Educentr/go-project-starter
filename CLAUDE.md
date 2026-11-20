@@ -273,7 +273,11 @@ git+https; `--sourceRef` действует; карта читается во в
 - `internal/pkg/occonf/psg_occonf_gen.go` — **единственное** место, где вызывается библиотека
   `onlineconf`: типизированный аксессор на каждый ключ обеих половин, построитель пути
   `<Name>Path(...)`, фасад жизненного цикла (`Initialize`, `StartWatcher`, `StopWatcher`),
-  `Paths()`, `Subscribe(ctx, paths, cb)` и `CheckRequired(ctx, app)`. Плюс
+  `Paths()`, `Subscribe(ctx, paths, cb)` и `CheckRequired(ctx, app)`. Плюс `Initialized(ctx)`
+  и пара `Clone`/`Release` — для кода, который может выполниться на контексте вне сервисной
+  обвязки (юнит-тест на `context.Background()`): спросить про дерево или положить его туда
+  иначе нечем, прямое обращение к библиотеке запрещает валидатор. Коду сервиса `Initialized`
+  не нужен — инвариант границы валидируется один раз на старте процесса. Плюс
   `ActiveRecordConfig(ctx)` — только при `use_active_record: true`: ActiveRecord читает дерево
   сам через `activerecord.ConfigInterface`, а это весь набор читателей библиотеки, поэтому
   узкий интерфейс ему отдать нельзя. Это известная дыра в карте (чтения ActiveRecord не

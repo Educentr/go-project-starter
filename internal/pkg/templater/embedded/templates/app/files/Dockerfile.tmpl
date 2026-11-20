@@ -92,7 +92,11 @@ COPY --from=builder /etc/onlineconf /etc/onlineconf
 {{- end }}
 {{ .Application.Docker.StartDirective }}
 
-{{- range $_, $t := .Applications.GetRestTransport }}
+{{- /* This application's own listening transports, not the project's: the
+       image of a CLI application used to announce the ports of its neighbors,
+       and a client transport used to render EXPOSE 0 — ports `docker run -P`,
+       the image metadata and image scanners would look for and not find. */}}
+{{- range $_, $t := .Application.GetRestServerTransport }}
 # {{ $t.Name }}/{{ $t.Type }}
 EXPOSE {{ $t.Port }}
 {{- end }}

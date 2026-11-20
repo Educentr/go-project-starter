@@ -605,6 +605,7 @@ func TestIntegrationCLIOnly(t *testing.T) {
 
 	runTest(t, "cli-only", "cli-only")
 	assertCLIHelpBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
+	assertCLIRepeatedFlagBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
 }
 
 // TestIntegrationCLIClient covers a CLI application that consumes an
@@ -722,6 +723,49 @@ func assertCLIHelpBehavior(ctx context.Context, t *testing.T, container *GolangB
 		require.Contains(t, out, "Requires --email",
 			"%q must print the FULL subcommand description:\n%s", args, out)
 	}
+}
+
+// assertCLIRepeatedFlagBehavior checks that the generated CLI refuses a flag
+// given twice (TOOLS-96 / issue #124 item 3).
+//
+// Behavioral on purpose: the defect was flag.FlagSet's own documented
+// behavior — it keeps the last value and drops the rest — so nothing in the
+// generated source looked wrong, and the only way to see the answer silently
+// change is to ask the binary for it.
+func assertCLIRepeatedFlagBehavior(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	t.Log("Checking a repeated flag is refused rather than resolved to its last value...")
+
+	for _, args := range []string{
+		"migrate --dir up --dir down",     // separate values
+		"migrate --dir=up --dir=down",     // inline values
+		"migrate -dir up --dir down",      // the flag package accepts one dash or two
+		"user create --email a --email b", // on a subcommand too
+	} {
+		out := runCLI(ctx, t, container, outputDir, args)
+		require.Contains(t, out, "is specified more than once",
+			"%q must be refused, not resolved to the last value:\n%s", args, out)
+	}
+
+	// The scan must not mistake a value for a flag of its own: a negative
+	// number is the ordinary case, and counting it as a repeat would reject a
+	// command line that is perfectly well formed.
+	t.Log("Checking a value that looks like a flag is not counted as one...")
+
+	negative := runCLI(ctx, t, container, outputDir, "migrate --dir -1 --steps -1")
+	require.NotContains(t, negative, "is specified more than once",
+		"a value starting with '-' must not be counted as a repeated flag:\n%s", negative)
+
+	// Distinct flags of the same command stay acceptable; the only error left
+	// is the unimplemented handler the scaffold ships.
+	t.Log("Checking distinct flags still parse...")
+
+	distinct := runCLI(ctx, t, container, outputDir, "migrate --dir up --steps 3")
+	require.NotContains(t, distinct, "is specified more than once",
+		"distinct flags must parse:\n%s", distinct)
+	require.Contains(t, distinct, "is not implemented",
+		"distinct flags must reach the handler:\n%s", distinct)
 }
 
 // assertSpecDownloaded verifies that the named OpenAPI spec was materialized

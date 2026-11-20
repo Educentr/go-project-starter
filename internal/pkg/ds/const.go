@@ -1157,6 +1157,28 @@ func (app App) GetRestTransport() []Transport {
 	return app.getTransport(RestTransportType)
 }
 
+// GetRestServerTransport returns the app's REST transports that listen on a
+// port of their own, i.e. everything GetRestTransport returns except the
+// clients.
+//
+// A client transport has no port — it dials one — so it carries none, and
+// anything describing the app's listening surface (the EXPOSE directives of its
+// image) has to leave it out rather than announce port 0.
+func (a App) GetRestServerTransport() []Transport {
+	transports := a.GetRestTransport()
+	servers := make([]Transport, 0, len(transports))
+
+	for _, transport := range transports {
+		if transport.GeneratorType == "ogen_client" || transport.GeneratorType == "buf_client" {
+			continue
+		}
+
+		servers = append(servers, transport)
+	}
+
+	return servers
+}
+
 func (a App) GetGrpcTransport() []Transport {
 	return a.getTransport(GrpcTransportType)
 }
