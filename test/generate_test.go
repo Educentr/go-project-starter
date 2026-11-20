@@ -2312,6 +2312,58 @@ func appendToProjectFile(t *testing.T, targetDir, rel, line string) string {
 	return content
 }
 
+// TestSpecDestCollisionAbortsRun covers the rule that two `path:` entries may
+// not copy to the same file inside the project. Files are copied under the
+// basename of their source, so two sources with one basename in a single
+// target directory used to overwrite each other silently — the project then
+// built against whichever contract happened to be copied last.
+func TestSpecDestCollisionAbortsRun(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	configDir := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "spec-dest-collision")
+	tmpDir := t.TempDir()
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with colliding copy destinations ("+tmpDir+")")
+	if err == nil {
+		t.Fatalf("Generation must fail on colliding copy destinations:\n%s", out)
+	}
+
+	// Both collisions are reported at once — a config that got one basename
+	// wrong usually got more — and each one names its two `path:` entries.
+	for _, want := range []string{
+		"api/rest/api/v1/common.swagger.yml",
+		"./runtime/common.swagger.yml",
+		"./orchestrator/common.swagger.yml",
+		"api/schema/models/user.schema.json",
+		"./schemas/a/user.schema.json",
+		"./schemas/b/user.schema.json",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Error must mention %q:\n%s", want, out)
+		}
+	}
+
+	// Refused before the first write: nothing of the project exists.
+	for _, rel := range []string{
+		"Makefile",
+		"api",
+		"cmd",
+		filepath.Join(".project-config", "meta.yaml"),
+	} {
+		if _, err := os.Stat(filepath.Join(tmpDir, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s must not be written when the run is refused (stat err: %v)", rel, err)
+		}
+	}
+}
+
 // TestCopiedSpecDriftAbortsRun covers the rule that specs live in the contract
 // repository: a spec or JSON schema edited inside the project tree stops the
 // generator instead of being silently overwritten. The run must be refused

@@ -1,0 +1,53 @@
+# Intentionally invalid config: two `path:` entries of one REST transport and
+# two of one jsonschema block carry the same basename, so both pairs would be
+# copied onto the same file inside the project. Generation must stop before it
+# writes anything (TestSpecDestCollisionAbortsRun).
+#
+# Not part of the docker-integration suite (see the configDirs list in
+# integration_test.go) — nothing here can be generated, let alone built.
+main:
+  name: collisiontest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/collisiontest.git
+  module_path: github.com/test/collisiontest
+
+tools:
+  protobuf_version: 1.7.0
+  golang_version: "1.27"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+jsonschema:
+  - name: models
+    path:
+      - ./schemas/a/user.schema.json
+      - ./schemas/b/user.schema.json
+
+rest:
+  - name: api
+    path:
+      - ./runtime/common.swagger.yml
+      - ./orchestrator/common.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: api
+    transport:
+      - name: api
+      - name: sys

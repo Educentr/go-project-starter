@@ -98,19 +98,23 @@ func schemaSourcePaths(schema ds.JSONSchema) []string {
 	return paths
 }
 
-// copiedSpecTargets lists every file the copy pass (specCopyTargets /
+// plannedCopies lists every file the copy pass (specCopyTargets /
 // schemaCopyTargets) will write into the project, paired with the source it
-// comes from. targetPath must be absolute.
+// comes from — one entry per `path:` element of all three copying channels
+// (REST and gRPC transport specs, JSON schemas). targetPath must be absolute.
+//
+// Entries are NOT deduplicated: a destination reached twice is what
+// checkCopyDestCollisions looks at. Callers that need one entry per file (the
+// drift check) pass the result through dedupCopies.
 //
 // It MUST be called before resolveAllSources: afterwards SpecPath points into
-// the per-run staging directory, and a staging path in a drift message tells
-// the reader nothing about where to actually fix the contract. Destination
-// names are derived exactly the way the resolve pre-pass derives
+// the per-run staging directory, and a staging path in a drift or collision
+// message tells the reader nothing about where to actually fix the contract.
+// Destination names are derived exactly the way the resolve pre-pass derives
 // SpecTargetFiles (SpecSource.TargetFilename), so they match the files the copy
 // pass goes on to write.
-func (g *Generator) copiedSpecTargets(targetPath string) ([]meta.CopiedFile, error) {
+func (g *Generator) plannedCopies(targetPath string) ([]meta.CopiedFile, error) {
 	targets := []meta.CopiedFile{}
-	seen := map[string]struct{}{}
 
 	add := func(dir, raw string) error {
 		src, err := specsource.ParseSpecSource(raw)
@@ -127,14 +131,6 @@ func (g *Generator) copiedSpecTargets(targetPath string) ([]meta.CopiedFile, err
 		if err != nil {
 			return fmt.Errorf(errRelPathFmt, dest, err)
 		}
-
-		// A transport is snapshotted into every application that serves it, so
-		// the same destination is reached more than once.
-		if _, dup := seen[rel]; dup {
-			return nil
-		}
-
-		seen[rel] = struct{}{}
 
 		targets = append(targets, meta.CopiedFile{Path: rel, Source: src.Describe()})
 
@@ -164,6 +160,28 @@ func (g *Generator) copiedSpecTargets(targetPath string) ([]meta.CopiedFile, err
 	}
 
 	return targets, nil
+}
+
+// dedupCopies collapses plannedCopies entries that name the same destination.
+// A transport is snapshotted into every application that serves it, so the
+// same destination is planned more than once; by the time this runs,
+// checkCopyDestCollisions has already established that every repeat comes from
+// the same source.
+func dedupCopies(planned []meta.CopiedFile) []meta.CopiedFile {
+	targets := make([]meta.CopiedFile, 0, len(planned))
+	seen := map[string]struct{}{}
+
+	for _, target := range planned {
+		if _, dup := seen[target.Path]; dup {
+			continue
+		}
+
+		seen[target.Path] = struct{}{}
+
+		targets = append(targets, target)
+	}
+
+	return targets
 }
 
 // ensureSchemaDirs creates the target directory of every configured JSON
