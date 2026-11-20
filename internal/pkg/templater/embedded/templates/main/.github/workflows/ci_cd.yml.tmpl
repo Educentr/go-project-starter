@@ -44,10 +44,27 @@ jobs:
 {{- end }}
 
     steps:
+      # Переменные и секреты ветки называются <NAME>_<СУФФИКС>, где суффикс —
+      # имя ветки в верхнем регистре, в котором всё, что не [A-Za-z0-9_],
+      # заменено на `_`: других символов GitHub в именах переменных и секретов
+      # не допускает, поэтому ветка release/1.2 ищет ENABLED_RELEASE_1_2.
+      # Шаг заменяет noliran/branch-based-secrets@v1: тот подставлял имя ветки
+      # как есть (ENABLED_RELEASE/1.2), то есть имя, которого не может быть, —
+      # и любая ветка со `/` или `-` в github_ci.push_branches оставалась без
+      # сборки при зелёном run'е.
       - name: Get branch
-        uses: noliran/branch-based-secrets@v1
-        with:
-          secrets: ENABLED{{ if .Artifacts.HasDocker }},ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}{{ if $a.HasDocker }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET{{ end }}
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          SUFFIX="${BRANCH//[^A-Za-z0-9_]/_}"
+          SUFFIX="${SUFFIX^^}"
+
+          echo "Target branch: $BRANCH (variable suffix: $SUFFIX)"
+
+          for NAME in ENABLED{{ if .Artifacts.HasDocker }} ENV_TYPE OC_USER OC_PASSWORD OC_HOST OC_PORT{{- range $_, $a := .Applications }}{{ if $a.HasDocker }} PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }} PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}{{ if $t.PublicService }} DOMAIN_{{ $t.Name | ToUpper }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end }} SSH_HOST INTERNAL_SUBNET{{ end }}; do
+            # tee: имена переменных ветки видно в логе шага — по ним понятно,
+            # что надо завести в настройках репозитория для новой ветки.
+            echo "${NAME}_NAME=${NAME}_${SUFFIX}" | tee -a "$GITHUB_ENV"
+          done
 
       - name: Use vars
         id: vars_enabled
@@ -64,7 +81,8 @@ jobs:
             echo "DEPLOY_ENVS=[]" >> $GITHUB_OUTPUT
 {{- end }}
           else
-            echo "Skip branch ${GITHUB_REF}"
+            echo "::notice title=Build is not enabled for this branch::Repository variable ${{"{{"}} env.ENABLED_NAME {{"}}"}} is set to neither ENABLED nor ENABLED_ONLY_BUILD, so every job of this run is skipped"
+            echo "Skip branch ${GITHUB_REF}: expected the repository variable ${{"{{"}} env.ENABLED_NAME {{"}}"}}"
             echo "ENABLE_BUILD=false" >> $GITHUB_OUTPUT
 {{- if .Artifacts.HasDocker }}
             echo "ENABLE_DEPLOY=false" >> $GITHUB_OUTPUT
@@ -370,7 +388,11 @@ jobs:
       - name: Create env file
         id: create_env_file
         run: |
-          fname=".env."${{"{{"}} github.ref_name {{"}}"}}
+          # Имя ветки нормализуется тем же правилом, что и имена переменных
+          # ветки (шаг `Get branch`): `/` в имени ветки сделал бы из `.env.`
+          # путь в несуществующий каталог, и шаг падал бы на первом `>>`.
+          BRANCH="${{"{{"}} github.ref_name {{"}}"}}"
+          fname=".env.${BRANCH//[^A-Za-z0-9_]/_}"
 
           ENV_TYPE=${{"{{"}} fromJSON(needs.prepare-env.outputs.ENV_TYPE)[matrix.envs] {{"}}"}}
           if [ ! -z "$ENV_TYPE" ]; then
@@ -885,11 +907,9 @@ jobs:
             exit 0
           fi
 
-          # Проверка ветки
-          if [[ "$BRANCH" != "main" && "$BRANCH" != "staging" ]]; then
-            echo "MESSAGE=" >> $GITHUB_ENV
-            exit 0
-          fi
+          # Ветка не проверяется: job гейтится на
+          # needs.prepare-env.outputs.ENABLE_BUILD == 'true', то есть
+          # уведомление приходит о каждой ветке, на которой включена сборка.
 
           # Определяем общий статус
           STATUS="success"
