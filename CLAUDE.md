@@ -226,7 +226,7 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
-## Docker Build Args и Labels
+## Docker Build Args, Labels и runtime-стадия приложения
 
 Секция `docker:` помимо `image_prefix` несёт `build_args` (объявление build-аргументов образа) и `labels` (OCI-лейблы финальной стадии). Нужна потому, что `LABEL` статичен и не умеет вызвать `git`: версия/ревизия обязаны приехать через `--build-arg`, а стадия, которая их использует, обязана объявить `ARG` — а builder-стадия Dockerfile целиком генерируемая, и дописанный туда руками `ARG` стирался на каждом `make regenerate`.
 
@@ -236,7 +236,11 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Валидация на загрузке конфига (`config.Docker.Parse`): имя не может совпасть с `ARG`-ами шаблона (`binary`, `GOPROXY`) и переменными сгенерированного Makefile (`DOCKER_TAG`, `RELEASE`, …); ссылка `${NAME}` в значении лейбла требует аргумента, объявленного в стадии `final` (иначе лейбл молча отрендерился бы пустым). Ключи лейблов — только нижний регистр: viper приводит ключи конфига к нижнему регистру, а дотовые ключи (`org.opencontainers.image.version`) он разбивает в вложенные map'ы, которые `Parse` собирает обратно.
 
-Реализация: `internal/pkg/config/docker.go` (парсинг/валидация), `internal/pkg/ds/docker.go` (`ds.DockerConfig` + хелперы шаблонов `BuilderArgs`/`FinalArgs`/`LabelDirective`/`BuildArgFlags`/`ComposeBuildArgs`), шаблоны `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`, `main/docker-compose-dev.yaml.tmpl`. Полная документация: [docs/configuration/docker.md](docs/configuration/docker.md).
+**Своя секция `docker:` есть и у приложения** (`applications[].docker`) — она описывает **финальную (runtime) стадию** его `Dockerfile-<app>`, которая раньше была зафиксирована (`FROM alpine` + `CMD ["/service"]`): стадия генерируется, пользовательский маркер спасает только то, что ниже него, поэтому другой дистрибутив или рантайм-зависимость приходилось заводить отдельным `Dockerfile-<app>.custom` с переопределённой целью `docker-<app>`. Поля: `base_image` (по умолчанию `alpine`), `packages` (одна инструкция `RUN` **до** `COPY` бинарника — слой переиспользуется, пока не изменится список; индекс/кеш удаляется в той же инструкции), `package_manager` (`apk`/`apt`/`dnf`; выводится из `base_image` для `alpine`/`debian`/`ubuntu`/`fedora`, для остальных образов с `packages` требуется явно — угаданный менеджер дал бы Dockerfile, падающий на сборке), `workdir` (по умолчанию инструкции нет), `entrypoint` (**заменяет** `CMD`, а не дополняет: `CMD` уехал бы энтрипойнту аргументом). Builder-стадия не настраивается — она компилирует статический Go-бинарник, её образ задаёт `tools.golang_version`. Приложение без секции получает прежнюю стадию (`FROM alpine` + `CMD ["/service"]`).
+
+**Финальная стадия не зависит от shell.** `/etc/onlineconf` создаётся в builder-стадии и приезжает в финальную через `COPY --from=builder` (владелец и права те же — `root:root`, `0755`) вместо прежнего `RUN mkdir -p /etc/onlineconf` — это единственная строка, изменившаяся у **всех** проектов. Без `packages` в финальной стадии не остаётся ни одной `RUN`, поэтому shell-less базовый образ (`gcr.io/distroless/static`, `scratch` — самый частый рантайм статического Go-бинарника) собирается. `packages`, наоборот, требуют от образа shell и пакетного менеджера: для distroless их объявлять нечем, и явный `package_manager` тут не помогает.
+
+Реализация: `internal/pkg/config/docker.go` (парсинг/валидация обеих секций — `Docker.Parse`, `AppDocker.Parse`), `internal/pkg/ds/docker.go` (`ds.DockerConfig` + хелперы шаблонов `BuilderArgs`/`FinalArgs`/`LabelDirective`/`BuildArgFlags`/`ComposeBuildArgs`; `ds.AppDockerConfig` + `Image`/`PackagesDirective`/`WorkdirDirective`/`StartDirective`), шаблоны `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`, `main/docker-compose-dev.yaml.tmpl`. Полная документация: [docs/configuration/docker.md](docs/configuration/docker.md).
 
 ## Lint Config
 

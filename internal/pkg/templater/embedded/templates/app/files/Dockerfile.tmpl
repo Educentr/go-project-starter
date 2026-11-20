@@ -66,14 +66,31 @@ ADD {{ $dir }} /{{ $dir }}
 RUN chmod -R 755 /{{ $dir }}
 {{- end }}
 
-FROM alpine
+# The config directory is created here and copied into the runtime stage, not
+# created there: a `RUN mkdir` needs a shell, and a shell-less base image
+# (distroless, scratch) is a valid runtime for a static Go binary.
+RUN mkdir -p /etc/onlineconf
+
+FROM {{ .Application.Docker.Image }}
+{{- with .Application.Docker.PackagesDirective }}
+
+# Runtime packages, declared in the docker section of the application in
+# project.yaml. Installed before the binary is copied, so the layer is reused
+# until the package list itself changes.
+{{ . }}
+{{ end }}
 COPY --from=builder /service /service
 COPY --from=builder /public /public
 {{- range $dir := .Application.StaticDirs }}
 COPY --from=builder /{{ $dir }} /{{ $dir }}
 {{- end }}
-RUN mkdir -p /etc/onlineconf
-CMD ["/service"]
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
+COPY --from=builder /etc/onlineconf /etc/onlineconf
+{{- with .Application.Docker.WorkdirDirective }}
+{{ . }}
+{{- end }}
+{{ .Application.Docker.StartDirective }}
 
 {{- range $_, $t := .Applications.GetRestTransport }}
 # {{ $t.Name }}/{{ $t.Type }}

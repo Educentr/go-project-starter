@@ -348,6 +348,15 @@ applications:
     artifacts:
       - docker
       - deb
+
+    # Runtime-стадия образа приложения:
+    docker:
+      base_image: string        # [optional] Базовый образ финальной стадии (default: alpine)
+      packages:                 # [optional] Рантайм-пакеты (одна инструкция RUN)
+        - string
+      package_manager: string   # [optional] apk|apt|dnf (выводится из base_image)
+      workdir: string           # [optional] WORKDIR, абсолютный путь (default: нет инструкции)
+      entrypoint: [string]      # [optional] ENTRYPOINT в exec-форме (заменяет CMD ["/service"])
 ```
 
 !!! warning "CLI приложения"
