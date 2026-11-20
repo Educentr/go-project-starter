@@ -109,6 +109,8 @@ applications:
 4. **ActiveRecord требует указания ArgenVersion**
 5. **Registry type: только `github`, `digitalocean`, `aws`, или `selfhosted`**
 6. **Порты обязательны для REST (кроме шаблона `sys`)**
+7. **Канал вывода метрик должен быть выполним приложением** — `metrics.export: pull` требует
+   `sys`-транспорта, `none` с ним несовместим (см. [Applications](applications.md#метрики-приложения-metricsexport))
 
 ## Следующие шаги
 

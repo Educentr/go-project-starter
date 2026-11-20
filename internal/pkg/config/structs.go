@@ -838,6 +838,9 @@ type (
 		GoatTestsConfig *GoatTestsConfig `mapstructure:"goat_tests_config"`
 		// Artifacts overrides global artifacts for this application.
 		Artifacts []ArtifactType `mapstructure:"artifacts"`
+		// Metrics declares where the metrics of this application go. Read via
+		// Config.ResolveAppMetricsExport, which applies the derived default.
+		Metrics AppMetrics `mapstructure:"metrics"`
 		// Docker configures the runtime stage of the application Dockerfile:
 		// base image, runtime packages, working directory and start command.
 		Docker AppDocker `mapstructure:"docker"`

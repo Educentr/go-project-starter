@@ -43,7 +43,7 @@ import (
 	{{ $imp }}
 	{{- end }}
 	"{{ .ProjectPath }}/internal/pkg/service"
-{{- if and .Application.HasSysTransport .Metrics.IsEnabled .Metrics.HasGenerated }}
+{{- if and .Metrics.IsEnabled .Metrics.HasGenerated }}
 	"{{ .ProjectPath }}/{{ .Metrics.GetPackagePath }}"
 {{- end }}
 	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
@@ -142,9 +142,13 @@ func main() {
 	}
 
 	{{ .Logger.InfoMsg "mainCtx" "application created" }}
-{{- if .Application.HasSysTransport }}
 
-	// Initialize metrics (only when sys transport is available for /metrics endpoint)
+	// The metrics registry belongs to the application, not to the /metrics
+	// endpoint: the REST middleware, the generated collectors and ActiveRecord
+	// all get it on initialization and register into it unconditionally, so it
+	// has to exist even when nothing reads this process.
+	//
+	// Export channel of this application: {{ .Application.MetricsExport.Comment }}.
 	err = application.InitMetrics(mainCtx)
 	if err != nil {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't initialize metrics" }}
@@ -160,7 +164,6 @@ func main() {
 		{{ .Logger.ErrorMsg "mainCtx" "err" "can't register declared metrics" }}
 		os.Exit(ExitCodeErrorApp)
 	}
-{{- end }}
 {{- end }}
 
 	// initializing graceful stop for application

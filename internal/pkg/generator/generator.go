@@ -703,6 +703,14 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			appArtifacts = g.Artifacts.Types
 		}
 
+		// Resolve the metrics export channel. Config validation already
+		// rejected a channel the application cannot provide, so this only
+		// applies the derived default.
+		metricsExport, err := config.ResolveAppMetricsExport(app)
+		if err != nil {
+			return errors.Wrap(err, "invalid metrics configuration")
+		}
+
 		// The runtime stage of the application image. Config validation
 		// already rejected malformed values, so this only normalizes them.
 		appDocker, err := app.Docker.Parse()
@@ -724,6 +732,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			GoatTestsConfig:       goatTestsConfig,
 			Artifacts:             appArtifacts,
 			Docker:                appDocker,
+			MetricsExport:         metricsExport,
 		}
 
 		// Resolve Grafana datasources for this app

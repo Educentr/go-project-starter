@@ -349,6 +349,12 @@ applications:
       - docker
       - deb
 
+    # Метрики:
+    metrics:
+      export: string            # [optional] pull|push|none — канал вывода метрик.
+                                #            По умолчанию: pull при sys-транспорте, иначе none.
+                                #            push зарезервирован и пока не реализован.
+
     # Runtime-стадия образа приложения:
     docker:
       base_image: string        # [optional] Базовый образ финальной стадии (default: alpine)
@@ -361,6 +367,11 @@ applications:
 
 !!! warning "CLI приложения"
     Если указан `cli`, нельзя использовать `transport` и `worker`.
+
+!!! note "Реестр метрик есть всегда"
+    `metrics.export` настраивает только **канал вывода**. Сам реестр инициализируется у каждого
+    приложения независимо от транспортов — см.
+    [Applications](../configuration/applications.md#метрики-приложения-metricsexport).
 
 ---
 
@@ -600,6 +611,9 @@ post_generate:
 | `cmd`/`lint` ссылается на `{{ .Target }}` | Запись `contract` обязана задать `target` |
 | `generator.name` | `^[a-z0-9_-]+$`, без коллизии со встроенной make-целью |
 | `contract.copy` / `contract.target` | Относительный очищенный путь внутри проекта |
+| `applications[].metrics.export: pull` | Требуется `sys`-транспорт в приложении |
+| `applications[].metrics.export: none` | Несовместимо с `sys`-транспортом приложения |
+| `applications[].metrics.export: push` | Зарезервировано, пока не реализовано |
 
 ---
 

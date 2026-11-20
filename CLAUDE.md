@@ -276,6 +276,31 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()`. Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## Канал вывода метрик (`applications[].metrics.export`)
+
+**Реестр метрик инициализируется у каждого приложения, всегда** — `application.InitMetrics(mainCtx)`
+в `cmd/<app>/psg_main_gen.go` безусловен, как и регистрация коллекторов карты метрик. Реестр
+принадлежит приложению, а не эндпоинту `/metrics`: middleware REST-транспорта регистрируется в нём
+(`MustRegister`) во время инициализации транспорта, поэтому приложение, которому реестр не создали,
+умирало на nil-разыменовании ещё до первого запроса — ровно дефект TOOLS-94, и генератор такую
+конфигурацию принимал молча.
+
+Настраивается **канал вывода** — куда метрики уходят: `pull` (`/metrics` на `sys`-транспорте),
+`push` (внешний приёмник; значение зарезервировано, не реализовано — генерация падает) и `none`
+(собираются и не отдаются). `none` — рабочая конфигурация: до процесса на машине пользователя
+скрейпер не дотянется, а лишний слушающий порт — поверхность без читателя.
+
+Ключ **необязателен**: без него канал выводится из транспортов приложения (есть `sys` → `pull`,
+нет → `none`), поэтому существующие `project.yaml` не меняются ни в тексте, ни в смысле.
+Объявленное значение проверяется против транспортов: `pull` без `sys` и `none` при `sys` — ошибки
+конфигурации, а не предпочтение. Проверка живёт на `Config`, а не на `Application.IsValid`, потому
+что «sys-ность» транспорта видна только по его `generator_template`.
+
+Реализация: `internal/pkg/config/metrics_export.go` (`AppMetrics`, `Config.ResolveAppMetricsExport`,
+сентинелы), `ds.MetricsExport` (`internal/pkg/ds/metrics_export.go`) + `App.MetricsExport`
+(`internal/pkg/ds/const.go`), шаблон `app/cmd/main.go.tmpl`. Документация:
+[docs/configuration/applications.md](docs/configuration/applications.md#метрики-приложения-metricsexport).
+
 ## Docker Build Args, Labels и runtime-стадия приложения
 
 Секция `docker:` помимо `image_prefix` несёт `build_args` (объявление build-аргументов образа) и `labels` (OCI-лейблы финальной стадии). Нужна потому, что `LABEL` статичен и не умеет вызвать `git`: версия/ревизия обязаны приехать через `--build-arg`, а стадия, которая их использует, обязана объявить `ARG` — а builder-стадия Dockerfile целиком генерируемая, и дописанный туда руками `ARG` стирался на каждом `make regenerate`.
