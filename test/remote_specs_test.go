@@ -633,3 +633,63 @@ func TestRemoteSpec_SharedBasename_AcrossTransports_LandsAtCanonicalName(t *test
 		}
 	}
 }
+
+// TestRemoteSpec_MakefileNamesSpecByBasename covers the generated
+// `generate-ogen` recipe, which `cd`s into the transport's spec dir and hands
+// ogen a bare filename. That filename is baked in while the templates are
+// rendered — before the resolve pre-pass fills SpecTargetFiles — so it is
+// derived from the raw `path:` entry. Reading that entry as a filesystem path
+// glued the URI's query onto the name here (and, for a git URI with a
+// top-level fragment, the repository name: "contracts.git#api.swagger.yml" —
+// issue #24), so `make regenerate` failed with "no such file or directory"
+// while the spec itself sat next to the recipe under its proper basename.
+func TestRemoteSpec_MakefileNamesSpecByBasename(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, fakeOpenAPIBody) //nolint:errcheck // test fixture server, as in the other cases here
+	}))
+	defer srv.Close()
+
+	t.Setenv("REMOTE_SPEC_MAKEFILE_TOKEN", "test-token")
+
+	configDir := t.TempDir()
+	targetDir := t.TempDir()
+	writeRemoteSpecConfig(t, configDir, srv.URL+"/specs/openapi.yaml?token_env=REMOTE_SPEC_MAKEFILE_TOKEN")
+
+	out, err := runGenerator(t, configDir, targetDir)
+	if err != nil {
+		t.Fatalf("generator failed: %v\n%s", err, out)
+	}
+
+	makefile, err := os.ReadFile(filepath.Join(targetDir, "Makefile"))
+	if err != nil {
+		t.Fatalf("read generated Makefile: %v", err)
+	}
+
+	ogenLine := ""
+
+	for _, line := range strings.Split(string(makefile), "\n") {
+		if strings.Contains(line, "cmd/ogen@") && strings.Contains(line, "api/rest/api/v1") {
+			ogenLine = line
+
+			break
+		}
+	}
+
+	if ogenLine == "" {
+		t.Fatalf("generate-ogen recipe not found in generated Makefile:\n%s", makefile)
+	}
+
+	// The recipe must end with the plain basename the copy pass wrote next to it.
+	if !strings.Contains(ogenLine, " openapi.yaml ") {
+		t.Errorf("ogen recipe does not reference the copied spec basename:\n%s", ogenLine)
+	}
+
+	if strings.Contains(ogenLine, "token_env") {
+		t.Errorf("URI query leaked into the ogen spec filename:\n%s", ogenLine)
+	}
+
+	// Sanity: the file the recipe names is the one that was actually copied.
+	if _, err := os.Stat(filepath.Join(targetDir, "api", "rest", "api", "v1", "openapi.yaml")); err != nil {
+		t.Errorf("expected copied spec at api/rest/api/v1/openapi.yaml: %v", err)
+	}
+}

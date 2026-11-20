@@ -38,7 +38,7 @@ applications:
 | `kafka` | Нет | Kafka producers/consumers |
 | `worker` | Нет | Фоновые воркеры |
 | `driver` | Нет | Драйверы интеграций |
-| `cli` | Нет | CLI транспорт (эксклюзивен) |
+| `cli` | Нет | CLI транспорт. Исключает `worker`; из транспортов допускает только клиентские (`generator_type: ogen_client`) |
 | `use_active_record` | Нет | Override use_active_record для приложения |
 | `use_envs` | Нет | Использовать переменные окружения |
 | `deploy` | Нет | Настройки деплоя (volumes) |

@@ -154,7 +154,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 		"rest-shared-spec-rewrite-refs", "cli-only", "rest-client-basic-auth",
-		"rest-client-mocks", "rest-envs-goat",
+		"rest-client-mocks", "rest-envs-goat", "cli-client",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -605,6 +605,44 @@ func TestIntegrationCLIOnly(t *testing.T) {
 
 	runTest(t, "cli-only", "cli-only")
 	assertCLIHelpBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
+}
+
+// TestIntegrationCLIClient covers a CLI application that consumes an
+// ogen_client (issue #24): a CLI tool calling an HTTP API — ops script, bot,
+// wrapper agent — used to be unrepresentable, because a rest entry had to be
+// hosted by some application and a CLI was not allowed to host one.
+//
+// The CLI wires the client into the service in its own main: it has no HTTP
+// listener and no metrics registry, so it never reaches the runtime's app.Init,
+// where a server application's clients are initialized. Stage 1 (make generate
+// + go mod tidy + go build) is the assertion that matters — that wiring has to
+// compile against the generated service and the ogen client alike. No Docker
+// stage: there is no long-running process to boot.
+func TestIntegrationCLIClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "cli-client", "cli-client")
+
+	// After stage 1, not through runTestWithExtraAssertions: that hook fires
+	// right after the generator, before `make generate` — there is no binary to
+	// run yet. Running one is the only way to see that the client is
+	// initialized at startup rather than handed to the handler as a nil
+	// pointer: the binary has no OnlineConf tree here, so a non-optional client
+	// cannot be built and the command must not run at all.
+	//
+	// Asserted on the two messages that are the wiring, not on the reason the
+	// client was unusable: whether the read reports "URL not configured" (empty
+	// value) or a missing TREE module depends on what onlineconf state the host
+	// happens to have.
+	out := runCLI(t.Context(), t, GetContainer(), "/workspace/output/cli-client", "status")
+	require.Contains(t, out, "can't initialize clients",
+		"the CLI's main must initialize its clients at startup:\n%s", out)
+	require.Contains(t, out, "error init billing client",
+		"the client init has to go through the service's setClients:\n%s", out)
+	require.NotContains(t, out, "is not implemented",
+		"a command must not be dispatched after client init failed:\n%s", out)
 }
 
 // runCLI builds the generated CLI binary (once per call is cheap — the build

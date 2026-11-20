@@ -314,7 +314,7 @@ applications:
       - string
     worker:                     # [optional] Воркеры
       - string
-    cli: string                 # [optional] CLI транспорт (исключает transport/worker)
+    cli: string                 # [optional] CLI транспорт (исключает worker; из transport — только ogen_client)
 
     driver:                     # [optional] Драйверы с параметрами
       - name: string            # Имя драйвера
