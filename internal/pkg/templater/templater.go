@@ -102,6 +102,11 @@ type GeneratorParams struct {
 	// section), with their commands already rendered per contract. Empty when
 	// the project declares none, and then the generated Makefile is unchanged.
 	CustomGenerators ds.CustomGenerators
+	// WebApps are the project's frontends (the `web` section): the build
+	// commands and the client codegen rendered per consumed input. Empty when
+	// the project declares none, and then the generated Makefile and
+	// Dockerfiles are unchanged.
+	WebApps ds.WebApps
 }
 
 // PrivateReposTokenSecretName returns the name of the CI secret that holds the

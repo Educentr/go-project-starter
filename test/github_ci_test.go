@@ -35,11 +35,36 @@ type githubStep struct {
 // DigitalOcean Container Registry in both jobs that push images.
 const doRegistryLoginStepName = "Log in to DO Container Registry"
 
+// The GitHub Actions workflows the generator produces.
+const (
+	ciCDWorkflow           = ".github/workflows/ci_cd.yml"
+	goVersionCheckWorkflow = ".github/workflows/go-version-check.yml"
+)
+
 // generatedWorkflowNames lists the GitHub Actions workflows the generator
 // produces; the github_ci parameters apply to every job of both.
 var generatedWorkflowNames = []string{
-	".github/workflows/ci_cd.yml",
-	".github/workflows/go-version-check.yml",
+	ciCDWorkflow,
+	goVersionCheckWorkflow,
+}
+
+// privateReposStepNames are the two steps that give a job access to private Go
+// modules: the git credential rewrite and GOPRIVATE. Every job that downloads
+// modules needs both.
+var privateReposStepNames = []string{
+	"Configure Git for private repos",
+	"Set GOPRIVATE",
+}
+
+// stepsByName indexes the steps of a job by step name.
+func stepsByName(job githubJob) map[string]githubStep {
+	steps := map[string]githubStep{}
+
+	for _, step := range job.Steps {
+		steps[step.Name] = step
+	}
+
+	return steps
 }
 
 // generateProject runs the generator for a config dir from
@@ -146,7 +171,7 @@ func TestGenerateGithubCIDefaults(t *testing.T) {
 	}
 
 	// action-doctl must keep installing the latest release.
-	wf := parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml")
+	wf := parseWorkflow(t, tmpDir, ciCDWorkflow)
 
 	versions := doctlVersions(wf)
 	if len(versions) == 0 {
@@ -175,7 +200,7 @@ func TestGenerateGithubCIDefaults(t *testing.T) {
 func TestGenerateGithubCIDoctlImage(t *testing.T) {
 	tmpDir := generateProject(t, "github-ci-doctl-image")
 
-	wf := parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml")
+	wf := parseWorkflow(t, tmpDir, ciCDWorkflow)
 
 	// No doctl may be installed: neither by action-doctl nor by a hand-rolled
 	// download. A runner image without doctl has to turn the job red.
@@ -270,7 +295,7 @@ func TestGenerateGithubCI(t *testing.T) {
 
 	// Both action-doctl steps live in ci_cd.yml and must carry the pinned
 	// version.
-	versions := doctlVersions(parseWorkflow(t, tmpDir, ".github/workflows/ci_cd.yml"))
+	versions := doctlVersions(parseWorkflow(t, tmpDir, ciCDWorkflow))
 	if len(versions) == 0 {
 		t.Fatal("ci_cd.yml has no digitalocean/action-doctl steps, expected the digitalocean registry branch")
 	}
@@ -278,6 +303,84 @@ func TestGenerateGithubCI(t *testing.T) {
 	for i, v := range versions {
 		if v != "1.170.0" {
 			t.Errorf("action-doctl step %d: version = %#v, want \"1.170.0\"", i, v)
+		}
+	}
+}
+
+// TestGenerateGoVersionCheckPrivateRepos verifies that the Go version policy
+// workflow gets private-module access when git.private_repos is declared.
+// Its script downloads the direct dependencies (`go list -m all`, `go mod
+// download`), so without those steps the job fails on the first private
+// dependency and the check is red on every push.
+func TestGenerateGoVersionCheckPrivateRepos(t *testing.T) {
+	// private-token-secret declares git.private_repos plus a non-default
+	// private_repos_token_secret, so the steps must also read the configured
+	// secret name rather than the GH_PAT default.
+	tmpDir := generateProject(t, "private-token-secret")
+
+	wf := parseWorkflow(t, tmpDir, goVersionCheckWorkflow)
+
+	const jobName = "check-go-mod-version"
+
+	job, ok := wf.Jobs[jobName]
+	if !ok {
+		t.Fatalf("%s has no %q job, got %v", goVersionCheckWorkflow, jobName, wf.Jobs)
+	}
+
+	steps := stepsByName(job)
+
+	for _, name := range privateReposStepNames {
+		if _, ok := steps[name]; !ok {
+			t.Errorf("job %q has no %q step, got steps %v", jobName, name, job.Steps)
+		}
+	}
+
+	if got, want := steps[privateReposStepNames[0]].Env["GH_TOKEN"], "${{ secrets.GO_MODULES_TOKEN }}"; got != want {
+		t.Errorf("job %q: git config step env GH_TOKEN = %q, want %q", jobName, got, want)
+	}
+
+	// Mirrors private-token-secret/project.yaml: the declared glob has to reach
+	// GOPRIVATE, otherwise the proxy is still asked for the private modules.
+	if run := steps[privateReposStepNames[1]].Run; !strings.Contains(run, "github.com/myorg/*") {
+		t.Errorf("job %q: GOPRIVATE step run = %q, want it to carry the declared private repos", jobName, run)
+	}
+
+	// Both steps have to precede the check itself: configuring access after the
+	// download would not help it.
+	checkIdx := -1
+	lastSetupIdx := -1
+
+	for i, step := range job.Steps {
+		switch {
+		case strings.HasPrefix(step.Name, "Check go.mod version"):
+			checkIdx = i
+		case step.Name == privateReposStepNames[0], step.Name == privateReposStepNames[1]:
+			lastSetupIdx = i
+		}
+	}
+
+	if checkIdx < 0 {
+		t.Fatalf("job %q has no go.mod version check step, got steps %v", jobName, job.Steps)
+	}
+
+	if lastSetupIdx > checkIdx {
+		t.Errorf("job %q configures private-module access after the check (step %d vs %d)", jobName, lastSetupIdx, checkIdx)
+	}
+}
+
+// TestGenerateGoVersionCheckWithoutPrivateRepos verifies that a project
+// without git.private_repos keeps the previous workflow: no token is read and
+// no GOPRIVATE is set where there is nothing private to fetch.
+func TestGenerateGoVersionCheckWithoutPrivateRepos(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci-defaults")
+
+	wf := parseWorkflow(t, tmpDir, goVersionCheckWorkflow)
+
+	for jobName, job := range wf.Jobs {
+		for _, name := range privateReposStepNames {
+			if _, ok := stepsByName(job)[name]; ok {
+				t.Errorf("job %q has a %q step without git.private_repos", jobName, name)
+			}
 		}
 	}
 }

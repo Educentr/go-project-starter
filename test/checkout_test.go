@@ -77,8 +77,8 @@ func assertCheckoutHardened(t *testing.T, step checkoutStep) {
 // TestGenerateCheckoutPersistCredentials verifies that every generated
 // actions/checkout step pins @v4 and sets persist-credentials: false, so the
 // job token is not left in .git/config for the build steps that follow.
-// private-token-secret builds both a container and a deb package, which is the
-// config that emits all four ci_cd.yml checkouts.
+// private-token-secret builds both a container and a deb package and declares a
+// CI check, which is the config that emits every ci_cd.yml checkout.
 func TestGenerateCheckoutPersistCredentials(t *testing.T) {
 	tmpDir := generateProject(t, "private-token-secret")
 
@@ -86,7 +86,7 @@ func TestGenerateCheckoutPersistCredentials(t *testing.T) {
 
 	// Guards against a template change that stops emitting a checkout and
 	// would otherwise make the assertions below pass vacuously.
-	wantJobs := []string{"build", "build-packages", "check-go-mod-version", "prepare-env", "run-goat-tests-api"}
+	wantJobs := []string{"build", "build-packages", "check-go-mod-version", "checks", "prepare-env", "run-goat-tests-api"}
 
 	if got := checkoutJobs(steps); !equalStrings(got, wantJobs) {
 		t.Errorf("jobs with a checkout step = %v, want %v", got, wantJobs)

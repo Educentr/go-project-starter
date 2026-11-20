@@ -48,6 +48,42 @@ type Docker struct {
 	Labels map[string]any `mapstructure:"labels"`
 }
 
+// AppDocker is the docker section of one application: the runtime stage of its
+// generated Dockerfile.
+//
+// The runtime stage used to be fixed — `FROM alpine` with `CMD ["/service"]` —
+// so an application that needs another distribution or a runtime dependency
+// (git, curl, ca-certificates) had no way to say so: the stage is generated,
+// and the user marker only keeps what is written below it. This section
+// declares it instead.
+//
+// YAML example:
+//
+//	applications:
+//	  - name: vt
+//	    docker:
+//	      base_image: ubuntu:24.04      # default: alpine
+//	      packages: [git, curl]         # runtime packages
+//	      workdir: /workspace           # default: none (Docker default "/")
+//	      entrypoint: ["/service"]      # default: CMD ["/service"]
+//
+// See docs/configuration/docker.md for full documentation.
+type AppDocker struct {
+	// BaseImage is the base image of the runtime stage. Defaults to
+	// ds.DefaultDockerBaseImage.
+	BaseImage string `mapstructure:"base_image"`
+	// PackageManager selects how Packages are installed: "apk", "apt" or
+	// "dnf". Optional — resolved from BaseImage for the known distributions.
+	PackageManager string `mapstructure:"package_manager"`
+	// Packages are the runtime packages installed in the runtime stage.
+	Packages []string `mapstructure:"packages"`
+	// Workdir is the working directory of the runtime stage. Optional.
+	Workdir string `mapstructure:"workdir"`
+	// Entrypoint is the ENTRYPOINT of the runtime stage in exec form.
+	// Optional — replaces the default CMD when set.
+	Entrypoint []string `mapstructure:"entrypoint"`
+}
+
 // dockerArgNamePattern is the shape of a build argument name: the intersection
 // of what a Dockerfile `ARG` and a Makefile variable accept. Shared by the name
 // check and the reference scan of the label values.
@@ -116,6 +152,53 @@ var dockerReservedArgNames = map[string]struct{}{ //nolint:gochecknoglobals // f
 	"PKG_VERSION": {}, "PWD": {}, "REGISTRY_SERVER": {}, "RELEASE": {},
 	"SERVICE_NAME": {}, "SOURCE_REF": {}, "TAGS": {}, "TEST_TIMEOUT": {},
 	"UPLOAD_PREFIX": {}, "UPLOAD_REGION": {}, "VERSION": {},
+}
+
+// Sentinel errors of the application docker section. Use errors.Is to
+// distinguish.
+var (
+	ErrAppDockerBaseImage = errors.New(
+		"applications.docker.base_image: must be an image reference without whitespace, quotes or '#'",
+	)
+	ErrAppDockerPackage = errors.New(
+		"applications.docker.packages: package name must start with a letter or digit and " +
+			"contain only letters, digits and '._+-=:~/'",
+	)
+	ErrAppDockerPackageManager = errors.New(
+		`applications.docker.package_manager: unknown package manager, expected "apk", "apt" or "dnf"`,
+	)
+	ErrAppDockerPackageManagerUnknown = errors.New(
+		"applications.docker.package_manager: cannot be resolved from base_image, declare it explicitly",
+	)
+	ErrAppDockerPackageManagerUnused = errors.New(
+		"applications.docker.package_manager: declared without packages, nothing would install them",
+	)
+	ErrAppDockerWorkdir    = errors.New("applications.docker.workdir: must be an absolute path without whitespace or quotes")
+	ErrAppDockerEntrypoint = errors.New(`applications.docker.entrypoint: every element must be a non-empty single-line string without '"' and '\'`)
+)
+
+// dockerBaseImageRx matches an image reference: a registry with an optional
+// port, a repository path, and an optional tag or digest. Whitespace, quotes
+// and '#' are what would break the generated FROM instruction.
+var dockerBaseImageRx = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]*$`)
+
+// dockerPackageRx matches a package name. The punctuation beyond a plain name
+// is what a version pin needs: `curl=8.5.0-2` (apt, apk), `pkg~=1.2` and
+// `pkg/bookworm-backports` (apt release pin).
+var dockerPackageRx = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+\-=:~/]*$`)
+
+// dockerWorkdirRx matches an absolute path safe to emit as a WORKDIR operand.
+var dockerWorkdirRx = regexp.MustCompile(`^/[^\s"'\\#]*$`)
+
+// dockerBaseImageManagers maps the name of a base image to the package manager
+// of its distribution. Only the images whose manager is unambiguous are listed:
+// for anything else the section has to declare package_manager, because a
+// guessed manager produces a Dockerfile that fails at build time.
+var dockerBaseImageManagers = map[string]string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
+	"alpine": ds.DockerPackageManagerAPK,
+	"debian": ds.DockerPackageManagerAPT,
+	"ubuntu": ds.DockerPackageManagerAPT,
+	"fedora": ds.DockerPackageManagerDNF,
 }
 
 // Parse normalizes the docker section into ds.DockerConfig: it validates the
@@ -359,4 +442,108 @@ func checkDockerLabelRefs(labels []ds.DockerLabel, args []ds.DockerBuildArg) err
 	}
 
 	return nil
+}
+
+// Parse normalizes the application docker section into ds.AppDockerConfig: it
+// validates the values and resolves the package manager of the base image. The
+// base image default is applied by ds.AppDockerConfig.Image, so an application
+// without the section carries a zero value.
+func (d AppDocker) Parse() (ds.AppDockerConfig, error) {
+	if d.BaseImage != "" && !dockerBaseImageRx.MatchString(d.BaseImage) {
+		return ds.AppDockerConfig{}, fmt.Errorf(errFmtGotValue, ErrAppDockerBaseImage, d.BaseImage)
+	}
+
+	for _, pkg := range d.Packages {
+		if !dockerPackageRx.MatchString(pkg) {
+			return ds.AppDockerConfig{}, fmt.Errorf(errFmtGotValue, ErrAppDockerPackage, pkg)
+		}
+	}
+
+	manager, err := d.packageManager()
+	if err != nil {
+		return ds.AppDockerConfig{}, err
+	}
+
+	if d.Workdir != "" && !dockerWorkdirRx.MatchString(d.Workdir) {
+		return ds.AppDockerConfig{}, fmt.Errorf(errFmtGotValue, ErrAppDockerWorkdir, d.Workdir)
+	}
+
+	for _, part := range d.Entrypoint {
+		if part == "" || dockerUnsafeValueRx.MatchString(part) {
+			return ds.AppDockerConfig{}, fmt.Errorf(errFmtGotValue, ErrAppDockerEntrypoint, part)
+		}
+	}
+
+	return ds.AppDockerConfig{
+		BaseImage:      d.BaseImage,
+		PackageManager: manager,
+		Packages:       d.Packages,
+		Workdir:        d.Workdir,
+		Entrypoint:     d.Entrypoint,
+	}, nil
+}
+
+// IsValid validates the application docker section.
+func (d AppDocker) IsValid() (bool, string) {
+	if _, err := d.Parse(); err != nil {
+		return false, err.Error()
+	}
+
+	return true, ""
+}
+
+// packageManager resolves which package manager installs the declared
+// packages: the explicit one, or the one of a known base image.
+func (d AppDocker) packageManager() (string, error) {
+	if d.PackageManager != "" {
+		switch d.PackageManager {
+		case ds.DockerPackageManagerAPK, ds.DockerPackageManagerAPT, ds.DockerPackageManagerDNF:
+		default:
+			return "", fmt.Errorf(errFmtGotValue, ErrAppDockerPackageManager, d.PackageManager)
+		}
+
+		// A manager without packages installs nothing — most likely the
+		// package list was meant to be there and is missing.
+		if len(d.Packages) == 0 {
+			return "", fmt.Errorf(errFmtGotValue, ErrAppDockerPackageManagerUnused, d.PackageManager)
+		}
+
+		return d.PackageManager, nil
+	}
+
+	if len(d.Packages) == 0 {
+		return "", nil
+	}
+
+	image := d.BaseImage
+	if image == "" {
+		image = ds.DefaultDockerBaseImage
+	}
+
+	manager, known := dockerBaseImageManagers[dockerImageName(image)]
+	if !known {
+		return "", fmt.Errorf(errFmtGotValue, ErrAppDockerPackageManagerUnknown, image)
+	}
+
+	return manager, nil
+}
+
+// dockerImageName reduces an image reference to the name of its repository —
+// "registry.example:5000/org/ubuntu:24.04" to "ubuntu" — which is what the
+// package manager is resolved by.
+func dockerImageName(image string) string {
+	if digest := strings.Index(image, "@"); digest >= 0 {
+		image = image[:digest]
+	}
+
+	// A tag follows the last '/', a registry port precedes it.
+	if tag := strings.LastIndex(image, ":"); tag > strings.LastIndex(image, "/") {
+		image = image[:tag]
+	}
+
+	if slash := strings.LastIndex(image, "/"); slash >= 0 {
+		image = image[slash+1:]
+	}
+
+	return strings.ToLower(image)
 }
