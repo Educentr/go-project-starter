@@ -68,6 +68,19 @@ const envFileStepName = "Create env file"
 // notifyJobName is the job of ci_cd.yml that sends the build notification.
 const notifyJobName = "artifact_version"
 
+// notifyStepName is the step of the notify job that composes the Telegram
+// message and sends it.
+const notifyStepName = "Check conditions and set message"
+
+// curlArgSeparator separates the arguments the curl stub of the notify step
+// records, one marker line after each.
+const curlArgSeparator = "===CURL-ARG==="
+
+// markdownV2Specials are the characters Telegram reserves in the MarkdownV2
+// parse mode the notify step sends the message with: an unescaped one makes
+// Telegram answer 400 instead of delivering the message.
+const markdownV2Specials = "_*[]()~`>#+-=|{}.!"
+
 // branchSanitizePattern is the shell pattern both the `Get branch` step and
 // the env file name derive from the branch name. Asserting on the pattern,
 // rather than on a name produced by it, is what the env file step allows: its
@@ -86,6 +99,15 @@ var generatedWorkflowNames = []string{
 // repository variable or secret. A name outside this set cannot exist, so a
 // step that builds one sends the whole run down the "branch not enabled" path.
 var githubVarNameRx = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+// notifyBranchRx captures the branch name as the notify step rendered it into
+// the message. The greedy group stops at the last `*` of the line, which is
+// the one closing the bold branch name.
+var notifyBranchRx = regexp.MustCompile(`(?m)на ветке \*(.*)\*\s*$`)
+
+// workflowExprRx matches a GitHub Actions expression, which the runner
+// substitutes before the shell ever sees the recipe.
+var workflowExprRx = regexp.MustCompile(`\$\{\{\s*([^{}]+?)\s*\}\}`)
 
 // generateProject runs the generator for a config dir from
 // test/docker-integration/configs and returns the target directory.
@@ -556,4 +578,176 @@ func assertEnvFileNameSanitized(t *testing.T, targetDir string) {
 	}
 
 	t.Fatalf("ci_cd.yml has no %q step, expected it in the deploy job", envFileStepName)
+}
+
+// escapeMarkdownV2 is what the generated step's sed does to a value before
+// pasting it into the message.
+func escapeMarkdownV2(s string) string {
+	var b strings.Builder
+
+	for _, r := range s {
+		if strings.ContainsRune(markdownV2Specials, r) {
+			b.WriteRune('\\')
+		}
+
+		b.WriteRune(r)
+	}
+
+	return b.String()
+}
+
+// notifyStepScript returns the recipe of the notify step with every workflow
+// expression replaced by the value the runner would substitute, so the recipe
+// can be executed as the shell script it becomes on a runner. An expression
+// without a stub fails the test: a silently empty substitution would hide
+// whatever the step does with that value.
+func notifyStepScript(t *testing.T, targetDir, branch, buildResult string) string {
+	t.Helper()
+
+	wf := parseWorkflow(t, targetDir, ".github/workflows/ci_cd.yml")
+
+	job, ok := wf.Jobs[notifyJobName]
+	if !ok {
+		t.Fatalf("ci_cd.yml has no %s job, got jobs %v", notifyJobName, wf.Jobs)
+	}
+
+	var step githubStep
+
+	for _, s := range job.Steps {
+		if s.Name == notifyStepName {
+			step = s
+
+			break
+		}
+	}
+
+	if step.Run == "" {
+		t.Fatalf("job %s has no %q step, got steps %#v", notifyJobName, notifyStepName, job.Steps)
+	}
+
+	stubs := map[string]string{
+		"github.ref_name":                     branch,
+		"github.repository":                   "Educentr/github-ci-test",
+		"github.workflow":                     "CI Pipeline",
+		"github.run_id":                       "42",
+		"needs.build.result":                  buildResult,
+		"needs.build-packages.result":         buildResult,
+		"needs.prepare-env.outputs.ARTIFACTS": `["registry/github-ci-test:1.0"]`,
+		"needs.prepare-env.outputs.PACKAGES":  `["github-ci-test-1.0.rpm"]`,
+	}
+
+	var unknown []string
+
+	script := workflowExprRx.ReplaceAllStringFunc(step.Run, func(match string) string {
+		expr := workflowExprRx.FindStringSubmatch(match)[1]
+
+		value, ok := stubs[expr]
+		if !ok {
+			unknown = append(unknown, expr)
+		}
+
+		return value
+	})
+
+	if len(unknown) != 0 {
+		t.Fatalf("the %q step uses the workflow expressions %v the test has no stub for", notifyStepName, unknown)
+	}
+
+	return script
+}
+
+// notifyMessage runs the notify step for a branch and returns the message text
+// it handed to curl. Executing the step is what proves the message Telegram
+// receives: reading the YAML only shows the recipe, and the recipe is where a
+// value gets pasted into MarkdownV2 unescaped.
+func notifyMessage(t *testing.T, targetDir, branch, buildResult string) string {
+	t.Helper()
+
+	script := notifyStepScript(t, targetDir, branch, buildResult)
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "notify.sh")
+	argsPath := filepath.Join(dir, "curl-args")
+	binDir := filepath.Join(dir, "bin")
+
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatalf("Error creating the stub bin directory: %v", err)
+	}
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("Error writing the step script: %v", err)
+	}
+
+	// The stub stands in for curl so the step's request is captured instead of
+	// sent. The arguments are separated by a marker line rather than by a
+	// newline: the message is itself multi-line.
+	curlStub := "#!/bin/sh\nfor arg in \"$@\"; do printf '%s\\n" + curlArgSeparator + "\\n' \"$arg\" >> \"$CURL_ARGS_FILE\"; done\n"
+	if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte(curlStub), 0o700); err != nil {
+		t.Fatalf("Error writing the curl stub: %v", err)
+	}
+
+	cmd := exec.Command("bash", scriptPath)
+
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"CURL_ARGS_FILE="+argsPath,
+		// The step gives up early without both secrets.
+		"TELEGRAM_BOT_TOKEN=stub-token",
+		"TELEGRAM_CHAT_ID=1",
+		"COMMIT_MSG=fix: a commit",
+		"GITHUB_ENV="+filepath.Join(dir, "github_env"),
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Error running the %q step for %s: %v\n%s", notifyStepName, branch, err, out)
+	}
+
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("the %q step sent no request for %s: %v\n%s", notifyStepName, branch, err, out)
+	}
+
+	for _, arg := range strings.Split(string(args), "\n"+curlArgSeparator+"\n") {
+		if text, found := strings.CutPrefix(arg, "text="); found {
+			return text
+		}
+	}
+
+	t.Fatalf("the %q step sent no text for %s, got the arguments:\n%s", notifyStepName, branch, args)
+
+	return ""
+}
+
+// TestGenerateGithubCINotifyEscapesBranch verifies that the branch name
+// reaches the Telegram message escaped for MarkdownV2, the parse mode the
+// notify step sends it with.
+//
+// Without it a branch carrying a reserved character — which `release/1.2`,
+// `hotfix-x` and `feature_x` all do, and which only became reachable once the
+// notify job stopped being limited to main and staging — made Telegram answer
+// 400 and drop the message, invisibly: `curl -s` does not see that error, so
+// the job stayed green with no notification sent.
+func TestGenerateGithubCINotifyEscapesBranch(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci")
+
+	// Both outcomes are checked because the message is composed twice, once
+	// per branch of the status check, and each pastes the branch name itself.
+	for _, buildResult := range []string{"success", "failure"} {
+		for _, branch := range []string{"main", "release/1.2", "hotfix-x", "feature_x", "1.10"} {
+			t.Run(buildResult+"/"+branch, func(t *testing.T) {
+				message := notifyMessage(t, tmpDir, branch, buildResult)
+
+				match := notifyBranchRx.FindStringSubmatch(message)
+				if match == nil {
+					t.Fatalf("the message names no branch, got:\n%s", message)
+				}
+
+				if got, want := match[1], escapeMarkdownV2(branch); got != want {
+					t.Errorf("the message names the branch as %q, want %q (MarkdownV2 escaped)\n%s",
+						got, want, message)
+				}
+			})
+		}
+	}
 }
