@@ -884,6 +884,9 @@ type (
 		GeneratorList CustomGeneratorList `mapstructure:"generator"`
 		// ContractList declares specs fetched for those generators.
 		ContractList ContractList `mapstructure:"contract"`
+		// WebList declares the project's frontends: sources, build commands
+		// and the client codegen fed by the rest/jsonschema inputs they consume.
+		WebList WebAppList `mapstructure:"web"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc

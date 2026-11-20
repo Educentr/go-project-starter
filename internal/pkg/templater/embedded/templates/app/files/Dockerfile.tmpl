@@ -1,4 +1,18 @@
-FROM golang:{{ .GoLangVersion }}-alpine AS builder
+{{ range $_, $w := $.WebApps.ForApp $.Application }}# Frontend '{{ $w.Name }}', declared in the `web` section of project.yaml. It
+# is built here rather than taken from the host so the image carries the
+# frontend the sources describe, and so the node toolchain never reaches the
+# runtime stage. The whole context is copied, as in the builder stage below: a
+# frontend build reads more than {{ $w.Dir }} (the generated client, shared
+# configs), and which files exactly is the project's business.
+FROM {{ $w.NodeImage }} AS {{ $w.StageName }}
+WORKDIR /src
+COPY . .
+{{- if $w.Install }}
+RUN cd {{ $w.Dir }} && {{ $w.Install }}
+{{- end }}
+RUN cd {{ $w.Dir }} && {{ $w.Build }}
+
+{{ end }}FROM golang:{{ .GoLangVersion }}-alpine AS builder
 ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
 {{- range $_, $arg := .Docker.BuilderArgs }}
@@ -64,6 +78,13 @@ RUN chmod -R 755 /public
 RUN mkdir -p /{{ $dir }}
 ADD {{ $dir }} /{{ $dir }}
 RUN chmod -R 755 /{{ $dir }}
+{{- end }}
+{{- range $_, $w := $.WebApps.ForApp $.Application }}
+
+# Built frontend '{{ $w.Name }}' over whatever {{ $w.Output }}/ carries in the
+# build context: the build is the authority on what the service serves.
+COPY --from={{ $w.StageName }} /src/{{ $w.Output }}/ /{{ $w.Output }}/
+RUN chmod -R 755 /{{ $w.Output }}
 {{- end }}
 
 # The config directory is created here and copied into the runtime stage, not

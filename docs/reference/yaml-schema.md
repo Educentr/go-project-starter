@@ -445,6 +445,35 @@ Make-цели: `install-<name>` → в `install-tools`, `generate-<name>` → в
 
 ---
 
+## Секция `web`
+
+Фронтенды проекта: сборка и кодоген клиента из входов `rest:`/`jsonschema:`.
+Подробно — [Веб-приложение](../configuration/web.md).
+
+```yaml
+web:
+  - name: string              # [required] ^[a-z0-9_-]+$
+    dir: string               # [required] каталог исходников; в нём выполняются команды
+    install: string           # [optional] установка зависимостей, без переменных
+    build: string             # [required] сборка в output, без переменных
+    output: string            # [required] каталог сборки; обязан раздаваться транспортом static
+    node_image: string        # [optional] образ стадии сборки (по умолчанию node:22-alpine)
+    codegen:                  # [optional] хотя бы один канал
+      rest:                   # [optional] канал входов rest[]
+        cmd: string           # [required] команда генерации; {{ .Spec }}, {{ .SpecName }}, {{ .Input }}
+        inputs: [string]      # [required] имена записей rest[], которые потребляет фронт
+      jsonschema:             # [optional] канал входов jsonschema[]
+        cmd: string           # [required] своя команда: генератор TS читает один формат, не оба
+        inputs: [string]      # [required] имена записей jsonschema[]
+```
+
+Make-цели: `install-web-<name>` → в `install-tools`, `build-web-<name>`,
+`generate-web-<name>` → в `generate` (после встроенных генераторов). `cmd` канала
+вызывается по разу на каждый файл спеки каждого его входа. Фронт собирается в образе отдельной
+node-стадией, поэтому `docker-<app>` от `build-web-<name>` не зависит.
+
+---
+
 ## Секция `artifacts`
 
 Типы артефактов для сборки.

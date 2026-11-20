@@ -310,6 +310,13 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 		}
 	}
 
+	// Validate the web section once the applications are normalized: which
+	// directories are actually served is what says where a frontend build
+	// lands, and it is only known from the application transport lists.
+	if ok, msg := ValidateWeb(&config); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config web section: "+msg)
+	}
+
 	// ToDo ws, ...
 
 	// Validate dev_stand requires git_install in post_generate

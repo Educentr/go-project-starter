@@ -87,6 +87,10 @@ type Generator struct {
 	CustomGenerators ds.CustomGenerators
 	// Contracts are the specs fetched for those generators.
 	Contracts ds.Contracts
+	// WebApps are the project's frontends (the `web` section) with their
+	// codegen commands rendered per consumed input — what the web make
+	// targets and the Dockerfile build stages are built from.
+	WebApps ds.WebApps
 	// BasePath is the directory containing the source project.yaml. Used to
 	// resolve LocalSource paths during the spec resolve pre-pass.
 	BasePath string
@@ -882,6 +886,13 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 	}
 
+	// The web section is folded in last: its codegen commands are rendered
+	// against the copy destinations of the rest/jsonschema inputs, which only
+	// exist once those sections have been processed.
+	if err := g.processWebApps(config); err != nil {
+		return err
+	}
+
 	// for _, e := range config.Applications {
 
 	// for i, e := range config.RestList {
@@ -979,6 +990,7 @@ func (g *Generator) GetTmplParams() templater.GeneratorParams {
 		OnlineConf:              g.OnlineConf,
 		GithubCI:                g.GithubCI,
 		CustomGenerators:        g.CustomGenerators,
+		WebApps:                 g.WebApps,
 	}
 }
 

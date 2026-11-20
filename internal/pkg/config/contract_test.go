@@ -84,6 +84,24 @@ func TestCustomGenerator_IsValid(t *testing.T) {
 			wantMsg: "install takes no template variables",
 		},
 		{
+			// install is never rendered, so nothing else would catch it: the
+			// second line lands in the Makefile without a tab and breaks every
+			// target of the project with "missing separator".
+			name:    "multiline install",
+			gen:     CustomGenerator{Name: "limits_ts", Install: "npm ci\nnpm dedupe", Cmd: "x"},
+			wantMsg: "install must be a single line",
+		},
+		{
+			name:    "multiline cmd",
+			gen:     CustomGenerator{Name: "limits_ts", Cmd: "node gen.mjs {{ .Spec }}\necho done"},
+			wantMsg: "cmd must be a single line",
+		},
+		{
+			name:    "multiline lint",
+			gen:     CustomGenerator{Name: "limits_ts", Cmd: "x", Lint: "lint {{ .Spec }}\necho done"},
+			wantMsg: "lint must be a single line",
+		},
+		{
 			name:    "unparsable cmd template",
 			gen:     CustomGenerator{Name: "limits_ts", Cmd: "node gen.mjs {{ .Spec"},
 			wantMsg: "invalid template",
