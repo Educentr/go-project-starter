@@ -100,6 +100,16 @@ type Generator struct {
 	// GPS_SOURCE_REF env, never from the config file. Nil means every source
 	// keeps the ref written in the config.
 	SourceRefs *specsource.SourceRefs
+
+	// sourceProvenance maps the local path a source was materialized into to
+	// where it came from. Filled by the two resolve helpers for every channel
+	// alike, read when the manifest records are built — the copy step knows
+	// only the staging path, and the manifest has to carry the provenance of
+	// the source instead.
+	sourceProvenance map[string]meta.Provenance
+	// inputs are the resolver inputs that leave no file in the project, in the
+	// order they were read; normalized when the manifest is written.
+	inputs []meta.InputRecord
 }
 
 type ExecCmd struct {
@@ -386,7 +396,9 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		// (local paths join with BasePath, remote URIs resolve into a
 		// scratch staging dir that is wiped right after the parse).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, w.Path[0], g.SourceRefs)
+			specPath, cleanup, err := g.resolveInlineSpec(
+				context.Background(), config.BasePath, fmt.Sprintf(channelWorkerSpecFmt, w.Name), w.Path[0],
+			)
 			if err != nil {
 				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
 			}
@@ -827,7 +839,9 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			// (git+ssh://, git+https://, https://) materialize into a
 			// scratch staging dir that is wiped right after the parse.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath, cleanup, err := resolveInlineSpec(context.Background(), config.BasePath, cli.Path[0], g.SourceRefs)
+				specPath, cleanup, err := g.resolveInlineSpec(
+					context.Background(), config.BasePath, fmt.Sprintf(channelCLISpecFmt, cli.Name), cli.Path[0],
+				)
 				if err != nil {
 					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
 				}
@@ -1079,8 +1093,8 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	var serviceMap *metricsmap.Map
 
 	if config.Metrics.IsEnabled() {
-		mapPath, cleanup, err := resolveInlineSpec(
-			context.Background(), config.BasePath, config.Metrics.Path, g.SourceRefs,
+		mapPath, cleanup, err := g.resolveInlineSpec(
+			context.Background(), config.BasePath, channelMetricsPath, config.Metrics.Path,
 		)
 		if err != nil {
 			return errors.Wrapf(err, "metrics.path: resolve %s", config.Metrics.Path)
@@ -1203,8 +1217,8 @@ func (g *Generator) processLintConfig(config cfg.Config) error {
 		return nil
 	}
 
-	overridesPath, cleanup, err := resolveInlineSpec(
-		context.Background(), config.BasePath, lintCfg.Overrides, g.SourceRefs,
+	overridesPath, cleanup, err := g.resolveInlineSpec(
+		context.Background(), config.BasePath, channelLintOverrides, lintCfg.Overrides,
 	)
 	if err != nil {
 		return errors.Wrapf(err, errResolveFmt, errLintOverridesCtx, lintCfg.Overrides)
@@ -1269,8 +1283,8 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 	var serviceKeys []ockeymap.Key
 
 	if config.OnlineConf.IsEnabled() {
-		mapPath, cleanup, err := resolveInlineSpec(
-			context.Background(), config.BasePath, config.OnlineConf.Path, g.SourceRefs,
+		mapPath, cleanup, err := g.resolveInlineSpec(
+			context.Background(), config.BasePath, channelOnlineConfPath, config.OnlineConf.Path,
 		)
 		if err != nil {
 			return errors.Wrapf(err, errResolveFmt, errOnlineConfPathCtx, config.OnlineConf.Path)
@@ -1649,59 +1663,6 @@ func appsServingTransport(config cfg.Config, transportName string) []string {
 	return apps
 }
 
-// resolveInlineSpec materializes a spec source into a local file for
-// one-shot parsing during config load (CLI commands.yaml, queue worker
-// contracts). Unlike resolveAllSources — which runs as a pre-pass and keeps
-// staged files alive for the spec/schema copy step — inline specs are read and
-// parsed immediately, so the caller invokes the returned cleanup right
-// after the parse and the staging dir is gone before Generate() runs.
-//
-// LocalSource short-circuits: returns filepath.Join(basePath, raw) without
-// touching the filesystem, so existing local-only flows incur zero cost.
-//
-// sourceRefs is the ref override set for non-pinned git sources; it must be
-// the same set the resolve pre-pass uses — the very same pointer, so that
-// selector usage accumulates across both paths — otherwise the inline
-// channels (queue, CLI) would be built from a different state of the
-// contracts than the REST/gRPC/JSON Schema ones.
-func resolveInlineSpec(
-	ctx context.Context, basePath, raw string, sourceRefs *specsource.SourceRefs,
-) (specPath string, cleanup func(), err error) {
-	src, perr := specsource.ParseSpecSource(raw)
-	if perr != nil {
-		return "", func() {}, perr
-	}
-	if local, ok := src.(specsource.LocalSource); ok {
-		return filepath.Join(basePath, local.RawPath), func() {}, nil
-	}
-
-	stagingDir, mkErr := os.MkdirTemp("", "gps-inline-spec-")
-	if mkErr != nil {
-		return "", func() {}, fmt.Errorf("create inline-spec staging dir: %w", mkErr)
-	}
-	cleanupStaging := func() { _ = os.RemoveAll(stagingDir) }
-
-	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{
-		SourceRefs: sourceRefs,
-	})
-	if rerr != nil {
-		cleanupStaging()
-		return "", func() {}, rerr
-	}
-
-	res, resErr := resolver.Resolve(ctx, src)
-	if resErr != nil {
-		_ = resolver.Close()
-		cleanupStaging()
-		return "", func() {}, resErr
-	}
-
-	return res.LocalPath, func() {
-		_ = resolver.Close()
-		cleanupStaging()
-	}, nil
-}
-
 // resolveAllSources fetches every remote spec source referenced by the
 // generator (REST/gRPC SpecPath, JSONSchema Path/Schemas) and rewrites the
 // in-memory paths to point at materialized files under a per-run staging
@@ -1741,12 +1702,13 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		}
 		targets := make([]string, len(t.SpecPath))
 		for i, raw := range t.SpecPath {
-			res, tf, rerr := resolveOne(ctx, resolver, raw)
+			res, rerr := g.resolveOne(ctx, resolver, raw)
 			if rerr != nil {
 				return cleanup, errors.Wrapf(rerr, "transport %q path[%d]=%s", name, i, raw)
 			}
-			t.SpecPath[i] = res
-			targets[i] = tf
+
+			t.SpecPath[i] = res.LocalPath
+			targets[i] = res.Source.TargetFilename()
 		}
 		t.SpecTargetFiles = targets
 		g.Transports[name] = t
@@ -1772,23 +1734,25 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 			targets := make([]string, len(j.Schemas))
 			for i := range j.Schemas {
 				raw := j.Schemas[i].Path
-				res, tf, rerr := resolveOne(ctx, resolver, raw)
+				res, rerr := g.resolveOne(ctx, resolver, raw)
 				if rerr != nil {
 					return cleanup, errors.Wrapf(rerr, "jsonschema %q schemas[%d]=%s", name, i, raw)
 				}
-				j.Schemas[i].Path = res
-				targets[i] = tf
+
+				j.Schemas[i].Path = res.LocalPath
+				targets[i] = res.Source.TargetFilename()
 			}
 			j.SchemaTargetFiles = targets
 		} else if len(j.Path) > 0 {
 			targets := make([]string, len(j.Path))
 			for i, raw := range j.Path {
-				res, tf, rerr := resolveOne(ctx, resolver, raw)
+				res, rerr := g.resolveOne(ctx, resolver, raw)
 				if rerr != nil {
 					return cleanup, errors.Wrapf(rerr, "jsonschema %q path[%d]=%s", name, i, raw)
 				}
-				j.Path[i] = res
-				targets[i] = tf
+
+				j.Path[i] = res.LocalPath
+				targets[i] = res.Source.TargetFilename()
 			}
 			j.SchemaTargetFiles = targets
 		}
@@ -1835,18 +1799,6 @@ func (g *Generator) hasGitSource() bool {
 		}
 	}
 	return false
-}
-
-func resolveOne(ctx context.Context, r *specsource.Resolver, raw string) (string, string, error) {
-	src, err := specsource.ParseSpecSource(raw)
-	if err != nil {
-		return "", "", err
-	}
-	res, err := r.Resolve(ctx, src)
-	if err != nil {
-		return "", "", err
-	}
-	return res.LocalPath, src.TargetFilename(), nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -2226,14 +2178,17 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error copy contracts")
 	}
 
-	// Refs are rewritten in place, so the copied files are hashed only now.
-	copiedRecords, err := copiedFileRecords(targetPath, append(copiedSpecs, copiedSchemas...))
+	// Refs are rewritten in place, so the copied files are hashed only now —
+	// their provenance digest, taken from the bytes the source served, is
+	// what stays comparable with the blob in the contract repository.
+	copiedRecords, err := g.copiedFileRecords(targetPath, append(copiedSpecs, copiedSchemas...))
 	if err != nil {
 		return err
 	}
 
 	manifest = append(manifest, copiedRecords...)
 	g.Meta.SetManifest(append(manifest, contractRecords...))
+	g.Meta.SetInputs(g.inlineInputs())
 
 	// Create .project-config directory in target for meta.yaml and config
 	projectConfigDir := filepath.Join(targetPath, ".project-config")
@@ -2364,11 +2319,11 @@ func (g *Generator) Generate() error {
 // copiedFileRecords builds manifest records for files copied into the project
 // as-is (API specs, JSON schemas). Those carry no disclaimer marker, so the
 // whole file is hashed.
-func copiedFileRecords(targetPath string, paths []string) (meta.Manifest, error) {
-	records := make(meta.Manifest, 0, len(paths))
+func (g *Generator) copiedFileRecords(targetPath string, files []copiedFile) (meta.Manifest, error) {
+	records := make(meta.Manifest, 0, len(files))
 
-	for _, path := range paths {
-		record, err := copiedFileRecord(targetPath, path)
+	for _, file := range files {
+		record, err := g.copiedFileRecord(targetPath, file)
 		if err != nil {
 			return nil, err
 		}
@@ -2379,19 +2334,26 @@ func copiedFileRecords(targetPath string, paths []string) (meta.Manifest, error)
 	return records, nil
 }
 
-// copiedFileRecord is the record of a single copied file, read from disk.
-func copiedFileRecord(targetPath, path string) (meta.FileRecord, error) {
-	content, err := os.ReadFile(path)
+// copiedFileRecord is the record of a single copied file: its hash read from
+// disk — after ref rewriting, which edits the copy in place — and the
+// provenance of the source it was copied from, recorded by the resolver.
+func (g *Generator) copiedFileRecord(targetPath string, file copiedFile) (meta.FileRecord, error) {
+	content, err := os.ReadFile(file.dest)
 	if err != nil {
-		return meta.FileRecord{}, fmt.Errorf("error read copied file %s: %w", path, err)
+		return meta.FileRecord{}, fmt.Errorf("error read copied file %s: %w", file.dest, err)
 	}
 
-	rel, err := meta.RelPath(targetPath, path)
+	rel, err := meta.RelPath(targetPath, file.dest)
 	if err != nil {
-		return meta.FileRecord{}, fmt.Errorf(errRelPathFmt, path, err)
+		return meta.FileRecord{}, fmt.Errorf(errRelPathFmt, file.dest, err)
 	}
 
-	return meta.FileRecord{Path: rel, Kind: meta.KindCopied, Hash: meta.HashContent(content)}, nil
+	return meta.FileRecord{
+		Path:       rel,
+		Kind:       meta.KindCopied,
+		Hash:       meta.HashContent(content),
+		Provenance: g.provenanceOf(file.source),
+	}, nil
 }
 
 // refreshManifestHashes re-reads the manifest files from disk and updates their

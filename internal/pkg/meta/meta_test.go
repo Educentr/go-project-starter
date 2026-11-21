@@ -109,7 +109,7 @@ func TestSaveManifestOneRecordPerLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "version: 5\nmanifest:\n    - {path: a.go, kind: generated, hash: aaa}\n    - {path: b.go, kind: generated, hash: bbb}\n"
+	want := "version: 6\nmanifest:\n    - {path: a.go, kind: generated, hash: aaa}\n    - {path: b.go, kind: generated, hash: bbb}\n"
 	if string(data) != want {
 		t.Errorf("meta.yaml =\n%s\nwant\n%s", data, want)
 	}
@@ -204,14 +204,24 @@ func TestSaveManifestProvenanceOmittedWhenAbsent(t *testing.T) {
 	m.SetManifest(Manifest{
 		{Path: "a.go", Kind: KindGenerated, Hash: "aaa"},
 		{
-			Path:   "api/contract/limits.yaml",
-			Kind:   KindCopied,
-			Hash:   "ccc",
-			Source: "ssh://git@github.com/org/contracts.git@main#limits/limits.yaml",
-			Ref:    "main",
-			Commit: "0123456789abcdef",
+			Path: "api/contract/limits.yaml",
+			Kind: KindCopied,
+			Hash: "ccc",
+			Provenance: Provenance{
+				SourceKind:   SourceKindGit,
+				SourceRepo:   "ssh://git@github.com/org/contracts.git",
+				SourcePath:   "limits/limits.yaml",
+				Ref:          "main",
+				Commit:       "0123456789abcdef",
+				SourceSHA256: "eeee",
+			},
 		},
-		{Path: "api/contract/local.yaml", Kind: KindCopied, Hash: "ddd", Source: "./local.yaml"},
+		{
+			Path:       "api/contract/local.yaml",
+			Kind:       KindCopied,
+			Hash:       "ddd",
+			Provenance: Provenance{SourceKind: SourceKindLocal, SourcePath: "./local.yaml", SourceSHA256: "ddd"},
+		},
 	})
 
 	if err := m.Save(); err != nil {
@@ -223,14 +233,15 @@ func TestSaveManifestProvenanceOmittedWhenAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A generated file keeps exactly the shape it had before contracts
-	// existed; an https/local contract gets a source but no ref or commit,
-	// because it has none.
-	want := "version: 5\nmanifest:\n" +
+	// A generated file keeps exactly the shape it had before provenance
+	// existed; a local source has no ref and no commit, because it has none.
+	want := "version: 6\nmanifest:\n" +
 		"    - {path: a.go, kind: generated, hash: aaa}\n" +
-		"    - {path: api/contract/limits.yaml, kind: copied, hash: ccc, " +
-		"source: 'ssh://git@github.com/org/contracts.git@main#limits/limits.yaml', ref: main, commit: 0123456789abcdef}\n" +
-		"    - {path: api/contract/local.yaml, kind: copied, hash: ddd, source: ./local.yaml}\n"
+		"    - {path: api/contract/limits.yaml, kind: copied, hash: ccc, source_kind: git, " +
+		"source_repo: 'ssh://git@github.com/org/contracts.git', source_path: limits/limits.yaml, " +
+		"ref: main, commit: 0123456789abcdef, source_sha256: eeee}\n" +
+		"    - {path: api/contract/local.yaml, kind: copied, hash: ddd, source_kind: local, " +
+		"source_path: ./local.yaml, source_sha256: ddd}\n"
 
 	if string(data) != want {
 		t.Errorf("meta.yaml =\n%s\nwant\n%s", data, want)
@@ -239,12 +250,17 @@ func TestSaveManifestProvenanceOmittedWhenAbsent(t *testing.T) {
 
 func TestManifestProvenanceRoundTrip(t *testing.T) {
 	rec := FileRecord{
-		Path:   "api/contract/limits.yaml",
-		Kind:   KindCopied,
-		Hash:   "h",
-		Source: "https://example.com/limits.yaml",
-		Ref:    "release/2026.10",
-		Commit: "abc123",
+		Path: "api/contract/limits.yaml",
+		Kind: KindCopied,
+		Hash: "h",
+		Provenance: Provenance{
+			SourceKind:   SourceKindGit,
+			SourceRepo:   "https://example.com/contracts.git",
+			SourcePath:   "limits.yaml",
+			Ref:          "release/2026.10",
+			Commit:       "abc123",
+			SourceSHA256: "deadbeef",
+		},
 	}
 
 	data, err := yaml.Marshal(Manifest{rec})
@@ -276,7 +292,12 @@ func TestManifestMerge(t *testing.T) {
 
 	upd := Manifest{
 		{Path: "api/rest/example/v1/example.yml", Kind: KindCopied, Hash: "spec-v2"},
-		{Path: "api/contract/limits.yaml", Kind: KindCopied, Hash: "limits", Source: "./limits.yaml"},
+		{
+			Path:       "api/contract/limits.yaml",
+			Kind:       KindCopied,
+			Hash:       "limits",
+			Provenance: Provenance{SourceKind: SourceKindLocal, SourcePath: "./limits.yaml"},
+		},
 	}
 
 	merged := prev.Merge(upd)
@@ -303,7 +324,7 @@ func TestManifestMerge(t *testing.T) {
 		t.Errorf("untouched record hash = %q, want the previous run's record kept", got)
 	}
 
-	if got := idx["api/contract/limits.yaml"].Source; got != "./limits.yaml" {
+	if got := idx["api/contract/limits.yaml"].SourcePath; got != "./limits.yaml" {
 		t.Errorf("added record source = %q, want it carried over", got)
 	}
 }

@@ -41,12 +41,11 @@ type Contract struct {
 	// GeneratorName is the CustomGenerator this contract feeds.
 	GeneratorName string
 
-	// Provenance of the fetched spec, filled by the resolve pre-pass and
-	// written to the manifest. Source is token-redacted. Ref and Commit are
-	// set for git sources only.
+	// Source is the fetched spec's source as project.yaml writes it,
+	// token-redacted, filled by the resolve pre-pass. It is what log lines and
+	// the drift message name; the provenance written to the manifest is
+	// recorded by the resolver, the same way it is for every other channel.
 	Source string
-	Ref    string
-	Commit string
 }
 
 type Contracts []Contract
