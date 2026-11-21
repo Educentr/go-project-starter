@@ -61,8 +61,8 @@ func TestSaveAndGetMetaRoundTrip(t *testing.T) {
 		t.Fatalf("Save() error: %v", err)
 	}
 
-	if m.Version != curVer {
-		t.Errorf("Save() must stamp the current version, got %d, want %d", m.Version, curVer)
+	if m.Version != CurrentVersion {
+		t.Errorf("Save() must stamp the current version, got %d, want %d", m.Version, CurrentVersion)
 	}
 
 	got, err := GetMeta(dir, "meta.yaml")
@@ -70,8 +70,8 @@ func TestSaveAndGetMetaRoundTrip(t *testing.T) {
 		t.Fatalf("GetMeta() error: %v", err)
 	}
 
-	if got.Version != curVer {
-		t.Errorf("Version = %d, want %d", got.Version, curVer)
+	if got.Version != CurrentVersion {
+		t.Errorf("Version = %d, want %d", got.Version, CurrentVersion)
 	}
 
 	if len(got.Manifest) != 2 {
