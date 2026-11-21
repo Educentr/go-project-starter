@@ -94,25 +94,16 @@ func (g *Generator) resolveContracts(ctx context.Context, resolver *specsource.R
 	for i := range g.Contracts {
 		raw := g.Contracts[i].RawPath
 
-		src, err := specsource.ParseSpecSource(raw)
-		if err != nil {
-			return errors.Wrapf(err, errContractCtxFmt, i, raw)
-		}
-
-		res, err := resolver.Resolve(ctx, src)
+		res, err := g.resolveOne(ctx, resolver, raw)
 		if err != nil {
 			return errors.Wrapf(err, errContractCtxFmt, i, raw)
 		}
 
 		g.Contracts[i].SpecPath = res.LocalPath
+		// Kept for log lines and the drift message: the source as project.yaml
+		// writes it. The provenance that reaches the manifest is the one the
+		// resolver recorded, shared with every other channel.
 		g.Contracts[i].Source = res.Source.Describe()
-		g.Contracts[i].Commit = res.Commit
-
-		// Only a git source has a ref. For https and local, Source plus the
-		// content hash is the whole of the provenance there is.
-		if git, ok := res.Source.(specsource.GitSource); ok {
-			g.Contracts[i].Ref = git.Ref
-		}
 	}
 
 	return nil
@@ -190,8 +181,8 @@ func contractSourceDesc(c ds.Contract, rec meta.FileRecord) string {
 		return c.Source
 	}
 
-	if rec.Source != "" {
-		return rec.Source
+	if desc := rec.Provenance.Describe(); desc != "" {
+		return desc
 	}
 
 	return c.RawPath
@@ -231,12 +222,10 @@ func (g *Generator) copyContracts(targetPath string) (meta.Manifest, error) {
 		}
 
 		records = append(records, meta.FileRecord{
-			Path:   c.Copy,
-			Kind:   meta.KindCopied,
-			Hash:   meta.HashContent(content),
-			Source: c.Source,
-			Ref:    c.Ref,
-			Commit: c.Commit,
+			Path:       c.Copy,
+			Kind:       meta.KindCopied,
+			Hash:       meta.HashContent(content),
+			Provenance: g.provenanceOf(c.SpecPath),
 		})
 	}
 

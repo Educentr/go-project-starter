@@ -21,11 +21,14 @@ type runWrites struct {
 	// generated holds the records of the template output written so far, in
 	// the form a successful run records them.
 	generated meta.Manifest
-	// copied holds the absolute paths of the files copied verbatim (specs,
-	// schemas). Their hash is taken from disk at checkpoint time: ref
-	// rewriting edits them in place after the copy, so the bytes that landed
-	// are not necessarily the bytes that stay.
-	copied []string
+	// copied holds the files copied verbatim (specs, schemas), each paired
+	// with the local path it came from. Their hash is taken from disk at
+	// checkpoint time: ref rewriting edits them in place after the copy, so the
+	// bytes that landed are not necessarily the bytes that stay. The source
+	// path travels with them so the checkpoint records the same provenance a
+	// full run would — Manifest.Merge replaces a record whole, so a record
+	// without it would drop the provenance of the file it replaces.
+	copied []copiedFile
 	// contracts holds the records of the copied contract specs, provenance
 	// included — that part cannot be rebuilt from the path alone.
 	contracts meta.Manifest
@@ -69,12 +72,12 @@ func (g *Generator) checkpoint(targetPath string, prev meta.Manifest, w runWrite
 	written = append(written, w.generated...)
 	written = append(written, w.contracts...)
 
-	for _, path := range w.copied {
-		record, err := copiedFileRecord(targetPath, path)
+	for _, file := range w.copied {
+		record, err := g.copiedFileRecord(targetPath, file)
 		if err != nil {
 			// The copy this run failed on may not be on disk at all, and
 			// whatever else it copied still has to be recorded.
-			log.Printf("warning: could not record the copied file %s of the failed run: %v", path, err)
+			log.Printf("warning: could not record the copied file %s of the failed run: %v", file.dest, err)
 
 			continue
 		}
@@ -88,6 +91,12 @@ func (g *Generator) checkpoint(targetPath string, prev meta.Manifest, w runWrite
 	}
 
 	g.Meta.SetManifest(prev.Merge(written))
+
+	// The inputs of this run are complete even when its output is not: all of
+	// them are read during config load, before a single file is written. They
+	// replace the previous run's rather than merge with it — the generated code
+	// this run did produce came from these.
+	g.Meta.SetInputs(g.inlineInputs())
 
 	if err := g.Meta.Save(); err != nil {
 		log.Printf("warning: could not record the files written by the failed run in %s: %v", g.Meta.Path, err)

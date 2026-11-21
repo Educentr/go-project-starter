@@ -15,6 +15,15 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/tools"
 )
 
+// copiedFile is a file the copy step wrote, paired with the local path it was
+// read from. The source path is kept because it is the key to the provenance
+// the resolver recorded: the manifest record of a copy has to say where the
+// bytes came from, and the destination alone cannot answer that.
+type copiedFile struct {
+	dest   string
+	source string
+}
+
 // copyTarget is one file the generator places into the project tree verbatim
 // (an API spec or a JSON schema): source outside the project, destination
 // inside it.
@@ -181,24 +190,26 @@ func (g *Generator) ensureSchemaDirs() error {
 	return nil
 }
 
-// copyTargets performs the planned copies and returns the paths it wrote, so
-// they can be recorded in the manifest. A failed copy returns the paths copied
-// before it alongside the error: those files are on disk, and whatever is on
-// disk has to end up in the manifest.
-func copyTargets(targets []copyTarget) ([]string, error) {
-	written := make([]string, 0, len(targets))
+// copyTargets performs the planned copies and returns what it wrote, so it can
+// be recorded in the manifest. A failed copy returns the files copied before it
+// alongside the error: those files are on disk, and whatever is on disk has to
+// end up in the manifest.
+func copyTargets(targets []copyTarget) ([]copiedFile, error) {
+	written := make([]copiedFile, 0, len(targets))
 
 	for _, target := range targets {
 		log.Printf("copy %s: `%s` to `%s`\n", target.kind, target.source, target.dest)
+
+		file := copiedFile{dest: target.dest, source: target.source}
 
 		if err := tools.CopyFile(target.source, target.dest); err != nil {
 			// With the files already copied, and the one that failed: a copy
 			// that failed halfway leaves a truncated file, and an unrecorded
 			// file is a conflict for the next run instead of ours to overwrite.
-			return append(written, target.dest), err
+			return append(written, file), err
 		}
 
-		written = append(written, target.dest)
+		written = append(written, file)
 	}
 
 	return written, nil

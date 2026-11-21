@@ -173,7 +173,7 @@ func TestGenerateCustomGenerators(t *testing.T) {
 
 		for _, want := range []string{
 			"{path: api/contract/runtime_limits.yaml, kind: copied,",
-			"source: ./runtime_limits.yaml}",
+			"source_kind: local, source_path: ./runtime_limits.yaml,",
 		} {
 			if !strings.Contains(manifest, want) {
 				t.Errorf("meta.yaml should contain %q, got:\n%s", want, manifest)

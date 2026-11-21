@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/templater"
 	"gopkg.in/yaml.v3"
 )
@@ -2586,7 +2587,7 @@ func TestManifestMigrationFromV4(t *testing.T) {
 		t.Fatalf("Error reading meta.yaml: %v", err)
 	}
 
-	if !strings.Contains(string(metaData), "version: 5") {
+	if !strings.Contains(string(metaData), fmt.Sprintf("version: %d", meta.CurrentVersion)) {
 		t.Errorf("meta.yaml must be stamped with the current version:\n%s", metaData)
 	}
 

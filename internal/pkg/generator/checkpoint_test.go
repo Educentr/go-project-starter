@@ -75,7 +75,7 @@ func TestCheckpointBreaksTheDriftLoop(t *testing.T) {
 	copied := writeFile(t, dir, rel, after)
 
 	g := checkpointGenerator(t, dir, prev)
-	g.checkpoint(dir, prev, runWrites{copied: []string{copied}})
+	g.checkpoint(dir, prev, runWrites{copied: []copiedFile{{dest: copied}}})
 
 	targets := []meta.CopiedFile{{Path: rel, Source: "./example.swagger.yml"}}
 
@@ -108,7 +108,7 @@ func TestCheckpointKeepsRecordsOfEarlierRuns(t *testing.T) {
 	g := checkpointGenerator(t, dir, prev)
 	g.checkpoint(dir, prev, runWrites{
 		generated: meta.Manifest{{Path: genRel, Kind: meta.KindGenerated, Hash: "abc123"}},
-		copied:    []string{copied},
+		copied:    []copiedFile{{dest: copied}},
 	})
 
 	saved := savedManifest(t, dir).Index()
@@ -177,12 +177,17 @@ func TestCheckpointKeepsContractProvenance(t *testing.T) {
 	writeFile(t, dir, rel, "limits: {}\n")
 
 	record := meta.FileRecord{
-		Path:   rel,
-		Kind:   meta.KindCopied,
-		Hash:   meta.HashContent([]byte("limits: {}\n")),
-		Source: "git+ssh://git@host/org/contracts.git@v1#limits.yaml",
-		Ref:    "v1",
-		Commit: "0123456789abcdef",
+		Path: rel,
+		Kind: meta.KindCopied,
+		Hash: meta.HashContent([]byte("limits: {}\n")),
+		Provenance: meta.Provenance{
+			SourceKind:   meta.SourceKindGit,
+			SourceRepo:   "ssh://git@host/org/contracts.git",
+			SourcePath:   "limits.yaml",
+			Ref:          "v1",
+			Commit:       "0123456789abcdef",
+			SourceSHA256: "fedcba9876543210",
+		},
 	}
 
 	prev := earlierRun()
@@ -211,7 +216,7 @@ func TestCheckpointSkipsCopyThatNeverLanded(t *testing.T) {
 
 	g := checkpointGenerator(t, dir, prev)
 	g.checkpoint(dir, prev, runWrites{
-		copied: []string{copied, filepath.Join(dir, filepath.FromSlash(missedRel))},
+		copied: []copiedFile{{dest: copied}, {dest: filepath.Join(dir, filepath.FromSlash(missedRel))}},
 	})
 
 	saved := savedManifest(t, dir).Index()
@@ -241,7 +246,7 @@ func TestCheckpointSkipsProjectWithoutManifest(t *testing.T) {
 	g := checkpointGenerator(t, dir, nil)
 	g.checkpoint(dir, nil, runWrites{
 		generated: meta.Manifest{{Path: genRel, Kind: meta.KindGenerated, Hash: "abc123"}},
-		copied:    []string{copied},
+		copied:    []copiedFile{{dest: copied}},
 	})
 
 	if _, err := os.Stat(filepath.Join(dir, "meta.yaml")); !os.IsNotExist(err) {
