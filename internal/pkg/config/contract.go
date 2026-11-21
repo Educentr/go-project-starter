@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -101,12 +103,17 @@ const (
 	GeneratorVarTarget = "Target"
 
 	// generatorCommandTmplName names the parsed command template; it only
-	// shows up in text/template's own error messages.
+	// shows up in text/template's own error messages (shared with the web
+	// codegen command, which is parsed the same way).
 	generatorCommandTmplName = "generator-command"
 
 	errMsgEmptyGeneratorName = "Empty generator name"
 	errMsgEmptyContractPath  = "Empty contract path"
 )
+
+// generatorVars is the variable vocabulary of the `generator` commands, in
+// the order the error messages list it.
+var generatorVars = []string{GeneratorVarSpec, GeneratorVarTarget}
 
 // Errors reported for a generator command that parses but cannot be used.
 // Static so that callers can match them; the offending command is wrapped in.
@@ -191,6 +198,14 @@ func (g CustomGenerator) IsValid() (bool, string) {
 	// there would have no value to resolve to.
 	if strings.Contains(g.Install, "{{") {
 		return false, "generator '" + g.Name + "': install takes no template variables"
+	}
+
+	for _, c := range []generatorCommand{
+		{field: "install", text: g.Install}, {field: "cmd", text: g.Cmd}, {field: "lint", text: g.Lint},
+	} {
+		if ok, msg := validateSingleLineCommand(c.field, c.text); !ok {
+			return false, "generator '" + g.Name + "': " + msg
+		}
 	}
 
 	for _, c := range g.commands() {
@@ -320,17 +335,21 @@ func validateContractVars(gen CustomGenerator, c Contract) (bool, string) {
 // Callers validate first (ValidateGenerators), so a failure here means the
 // template was never checked.
 func RenderGeneratorCommand(cmd, spec, target string) (string, error) {
+	return renderCommand(cmd, struct {
+		Spec   string
+		Target string
+	}{Spec: spec, Target: target})
+}
+
+// renderCommand renders one templated command against its variable set and
+// checks that the result is usable as a single make recipe line.
+func renderCommand(cmd string, data any) (string, error) {
 	tmpl, err := template.New(generatorCommandTmplName).Parse(cmd)
 	if err != nil {
 		return "", fmt.Errorf("parse generator command %q: %w", cmd, err)
 	}
 
 	var out strings.Builder
-
-	data := struct {
-		Spec   string
-		Target string
-	}{Spec: spec, Target: target}
 
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render generator command %q: %w", cmd, err)
@@ -355,6 +374,14 @@ func RenderGeneratorCommand(cmd, spec, target string) (string, error) {
 // config load, instead of surfacing as a template execution error in the
 // middle of a generation run.
 func generatorCommandVars(cmd string) (map[string]bool, error) {
+	return commandVars(cmd, generatorVars)
+}
+
+// commandVars is generatorCommandVars for an arbitrary variable set: the
+// `generator` commands take .Spec and .Target, the `web` codegen command has
+// its own three (see web.go). The walk and the rejection of unknown fields are
+// the same for both; only the vocabulary differs.
+func commandVars(cmd string, allowed []string) (map[string]bool, error) {
 	tmpl, err := template.New(generatorCommandTmplName).Parse(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("invalid template: %w", err)
@@ -366,7 +393,7 @@ func generatorCommandVars(cmd string) (map[string]bool, error) {
 		return used, nil
 	}
 
-	if err := collectTemplateFields(tmpl.Tree.Root, used); err != nil {
+	if err := collectTemplateFields(tmpl.Tree.Root, used, allowed); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +402,7 @@ func generatorCommandVars(cmd string) (map[string]bool, error) {
 
 // collectTemplateFields walks a parsed template and records every ".Field"
 // reference, rejecting the ones that are not supported variables.
-func collectTemplateFields(node parse.Node, used map[string]bool) error {
+func collectTemplateFields(node parse.Node, used map[string]bool, allowed []string) error {
 	switch n := node.(type) {
 	case nil:
 		return nil
@@ -385,50 +412,52 @@ func collectTemplateFields(node parse.Node, used map[string]bool) error {
 		}
 
 		for _, child := range n.Nodes {
-			if err := collectTemplateFields(child, used); err != nil {
+			if err := collectTemplateFields(child, used, allowed); err != nil {
 				return err
 			}
 		}
 	case *parse.ActionNode:
-		return collectTemplateFields(n.Pipe, used)
+		return collectTemplateFields(n.Pipe, used, allowed)
 	case *parse.IfNode:
-		return collectBranchFields(n.Pipe, n.List, n.ElseList, used)
+		return collectBranchFields(n.Pipe, n.List, n.ElseList, used, allowed)
 	case *parse.RangeNode:
-		return collectBranchFields(n.Pipe, n.List, n.ElseList, used)
+		return collectBranchFields(n.Pipe, n.List, n.ElseList, used, allowed)
 	case *parse.WithNode:
-		return collectBranchFields(n.Pipe, n.List, n.ElseList, used)
+		return collectBranchFields(n.Pipe, n.List, n.ElseList, used, allowed)
 	case *parse.PipeNode:
 		if n == nil {
 			return nil
 		}
 
 		for _, cmd := range n.Cmds {
-			if err := collectTemplateFields(cmd, used); err != nil {
+			if err := collectTemplateFields(cmd, used, allowed); err != nil {
 				return err
 			}
 		}
 	case *parse.CommandNode:
 		for _, arg := range n.Args {
-			if err := collectTemplateFields(arg, used); err != nil {
+			if err := collectTemplateFields(arg, used, allowed); err != nil {
 				return err
 			}
 		}
 	case *parse.FieldNode:
-		return recordTemplateField(n.Ident, used)
+		return recordTemplateField(n.Ident, used, allowed)
 	case *parse.ChainNode:
-		if err := collectTemplateFields(n.Node, used); err != nil {
+		if err := collectTemplateFields(n.Node, used, allowed); err != nil {
 			return err
 		}
 
-		return recordTemplateField(n.Field, used)
+		return recordTemplateField(n.Field, used, allowed)
 	}
 
 	return nil
 }
 
-func collectBranchFields(pipe *parse.PipeNode, list, elseList *parse.ListNode, used map[string]bool) error {
+func collectBranchFields(
+	pipe *parse.PipeNode, list, elseList *parse.ListNode, used map[string]bool, allowed []string,
+) error {
 	for _, child := range []parse.Node{pipe, list, elseList} {
-		if err := collectTemplateFields(child, used); err != nil {
+		if err := collectTemplateFields(child, used, allowed); err != nil {
 			return err
 		}
 	}
@@ -436,21 +465,18 @@ func collectBranchFields(pipe *parse.PipeNode, list, elseList *parse.ListNode, u
 	return nil
 }
 
-func recordTemplateField(ident []string, used map[string]bool) error {
+func recordTemplateField(ident []string, used map[string]bool, allowed []string) error {
 	if len(ident) == 0 {
 		return nil
 	}
 
 	name := ident[0]
 
-	switch name {
-	case GeneratorVarSpec, GeneratorVarTarget:
-	default:
-		return fmt.Errorf("%w: .%s (supported: .%s, .%s)",
-			ErrGeneratorVarUnknown, name, GeneratorVarSpec, GeneratorVarTarget)
+	if !slices.Contains(allowed, name) {
+		return fmt.Errorf("%w: .%s (supported: %s)", ErrGeneratorVarUnknown, name, listVars(allowed))
 	}
 
-	// Both variables are plain strings; ".Spec.Anything" cannot resolve.
+	// Every variable is a plain string; ".Spec.Anything" cannot resolve.
 	if len(ident) > 1 {
 		return fmt.Errorf("%w: .%s is a string and has no field .%s", ErrGeneratorVarUnknown, name, ident[1])
 	}
@@ -458,6 +484,24 @@ func recordTemplateField(ident []string, used map[string]bool) error {
 	used[name] = true
 
 	return nil
+}
+
+// validateSingleLineCommand checks a command as it is written in project.yaml.
+// A command is one make recipe line and one Dockerfile RUN line: an embedded
+// newline leaves everything after it as an unindented make line (`missing
+// separator`, which breaks every target of the project) and as a broken RUN
+// instruction.
+//
+// renderCommand checks the rendered form for the same reason; this check is
+// what catches the literal commands, which are never rendered (`install`,
+// `build`), and what lets the templated ones fail at config load, naming the
+// field they came from.
+func validateSingleLineCommand(field, cmd string) (bool, string) {
+	if strings.ContainsAny(cmd, "\n\r") {
+		return false, field + " must be a single line (it becomes one make recipe line), got: " + strconv.Quote(cmd)
+	}
+
+	return true, ""
 }
 
 // validateProjectRelPath checks that p is usable as a path inside the
@@ -485,4 +529,16 @@ func validateProjectRelPath(field, p string) (bool, string) {
 	}
 
 	return true, ""
+}
+
+// listVars renders a variable set the way the error messages name it
+// (".Spec, .Target"), in the declared order.
+func listVars(allowed []string) string {
+	dotted := make([]string, 0, len(allowed))
+
+	for _, name := range allowed {
+		dotted = append(dotted, "."+name)
+	}
+
+	return strings.Join(dotted, ", ")
 }

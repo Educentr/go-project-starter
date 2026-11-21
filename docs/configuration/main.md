@@ -163,9 +163,16 @@ git:
 GOPRIVATE=github.com/myorg/internal-pkg,gitlab.com/company/*
 ```
 
+Кроме того, в `.github/workflows/go-version-check.yml` добавляются два шага —
+`git config … insteadOf` с токеном и `go env -w GOPRIVATE=…`. Проверка политики
+версии Go скачивает прямые зависимости (`go list -m all`, `go mod download`), то
+есть без доступа к приватным модулям она красная на каждом push. Без
+`private_repos` workflow не меняется.
+
 ### Имя секрета с токеном
 
-Сгенерированный workflow GitHub Actions (`.github/workflows/ci_cd.yml`) читает токен
+Сгенерированные workflow GitHub Actions (`.github/workflows/ci_cd.yml`,
+`.github/workflows/go-version-check.yml`) читают токен
 для скачивания приватных модулей из секрета `GH_PAT`. Если токены разделены по классу
 привилегии — например, узкий read-only токен на модули отдельно от токенов с правом
 записи — имя секрета задаётся явно:
@@ -179,7 +186,8 @@ git:
 ```
 
 Имя подставляется во все места workflow, где используется этот токен
-(`insteadOf` для `go mod download` и build-секрет для `docker build`):
+(`insteadOf` для `go mod download` — во всех джобах, включая `checks` и
+`go-version-check`, — и build-секрет для `docker build`):
 
 ```yaml
 GH_TOKEN: ${{ secrets.GO_MODULES_TOKEN }}
