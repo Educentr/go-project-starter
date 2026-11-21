@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -809,6 +810,20 @@ const (
 	AuthTypeBasic  = "basic"  // ogen scheme name: BasicAuth
 )
 
+// SupportedAuthTypes returns every auth_params.type the ogen_client templates
+// can render, in documentation order. Config validation reports the list and
+// UsesSecuritySource branches on it. A new type needs both a branch in
+// ogen_client/files/auth.go.tmpl and an entry here: no test ties the template
+// branches to this list.
+func SupportedAuthTypes() []string {
+	return []string{AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic}
+}
+
+// IsSupportedAuthType reports whether authType is one of SupportedAuthTypes.
+func IsSupportedAuthType(authType string) bool {
+	return slices.Contains(SupportedAuthTypes(), authType)
+}
+
 type AuthParams struct {
 	Transport string
 	Type      string
@@ -866,16 +881,7 @@ func (t Transport) HasAuthParams() bool {
 // no SecuritySource type exists, so it must not be passed to ogen's
 // NewClient (the client templates branch on this).
 func (t Transport) UsesSecuritySource() bool {
-	if t.AuthParams.Transport != AuthTransportHeader {
-		return false
-	}
-
-	switch t.AuthParams.Type {
-	case AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic:
-		return true
-	default:
-		return false
-	}
+	return t.AuthParams.Transport == AuthTransportHeader && IsSupportedAuthType(t.AuthParams.Type)
 }
 
 // QueueField represents a single field in a queue definition

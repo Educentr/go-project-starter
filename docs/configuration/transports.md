@@ -126,6 +126,16 @@ rest:
 | `bearer` | `BearerAuth` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/token` | Bearer token в заголовке Authorization |
 | `basic` | `BasicAuth` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/username` и `.../password` | HTTP Basic (`Authorization: Basic …`) |
 
+**`auth_params` допустимы только на `generator_type: ogen_client`** — секция не настраивает
+ничего, кроме `SecuritySource` сгенерированного клиента. На любом другом транспорте
+(`ogen` — сервер, `template`, в том числе `sys`) она отвергается на загрузке конфига:
+`auth_params are only supported for generator_type ogen_client`. Аутентификация сервера
+настраивается не этой секцией, а `generator_params.auth_handler` / `auth_scheme`.
+
+Проверяются и значения: `transport` — только `header`, `type` ∈ {`apikey`, `bearer`,
+`basic`}, и оба поля обязательны, если секция задана вообще. Опечатка (`transport: query`,
+`type: oauth`) — ошибка загрузки конфига, а не молча безавторизационный клиент.
+
 **Имя схемы безопасности в спеке обязательно.** Стартер генерирует обёртку под конкретный
 метод интерфейса `SecuritySource`, который ogen выводит из имени схемы в
 `components.securitySchemes`. Поэтому схема должна называться ровно так, как в колонке
