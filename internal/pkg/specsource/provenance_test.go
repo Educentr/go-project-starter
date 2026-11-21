@@ -197,8 +197,23 @@ func TestRedactRepoURL(t *testing.T) {
 			want: "ssh://git@github.com/org/repo.git",
 		},
 		{
+			name: "ssh password is dropped, the username stays",
+			in:   "ssh://git:ghp_secret@github.com/org/repo.git",
+			want: "ssh://git@github.com/org/repo.git",
+		},
+		{
 			name: "credentials written into the URL are dropped whole",
 			in:   "https://oauth2:ghp_secret@github.com/org/repo.git",
+			want: "https://github.com/org/repo.git",
+		},
+		{
+			name: "https username alone is a token, not a name: dropped too",
+			in:   "https://ghp_secret@github.com/org/repo.git",
+			want: "https://github.com/org/repo.git",
+		},
+		{
+			name: "https x-access-token form is dropped whole",
+			in:   "https://x-access-token:ghp_secret@github.com/org/repo.git",
 			want: "https://github.com/org/repo.git",
 		},
 		{
@@ -228,18 +243,34 @@ func TestRedactRepoURL(t *testing.T) {
 func TestProvenanceNeverCarriesToken(t *testing.T) {
 	const token = "ghp_thisMustNotBeRecorded"
 
-	src := GitSource{
-		Repo:      "https://oauth2:" + token + "@github.com/org/repo.git",
-		Ref:       "main",
-		Subpath:   "api.yaml",
-		Transport: GitTransportHTTPS,
-		TokenEnv:  "GPS_TOKEN",
+	// Every form a token can be written in by hand, as it reaches the resolver
+	// from project.yaml — including the username-only https form, which is how
+	// a GitHub PAT is normally written.
+	raws := []string{
+		"git+https://" + token + "@github.com/org/repo.git@main#api.yaml",
+		"git+https://oauth2:" + token + "@github.com/org/repo.git@main#api.yaml",
+		"git+https://x-access-token:" + token + "@github.com/org/repo.git@main#api.yaml",
+		"https://" + token + "@host/api.yaml",
+		"https://oauth2:" + token + "@host/api.yaml",
 	}
 
-	p := provenanceOf(src, "abc", "def")
+	for _, raw := range raws {
+		t.Run(raw, func(t *testing.T) {
+			src, err := ParseSpecSource(raw)
+			if err != nil {
+				t.Fatalf("parse %q: %v", raw, err)
+			}
 
-	if strings.Contains(p.Repo+p.Path+p.Ref+p.Commit+p.SHA256, token) {
-		t.Errorf("provenance = %+v, want no token in any field", p)
+			p := provenanceOf(src, "abc", "def")
+
+			if strings.Contains(p.Repo+p.Path+p.Ref+p.Commit+p.SHA256, token) {
+				t.Errorf("provenance = %+v, want no token in any field", p)
+			}
+
+			if strings.Contains(p.Describe(), token) {
+				t.Errorf("Describe() = %q, want no token", p.Describe())
+			}
+		})
 	}
 }
 

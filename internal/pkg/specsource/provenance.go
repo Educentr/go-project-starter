@@ -92,21 +92,33 @@ func provenanceOf(src SpecSource, commit, sha256sum string) Provenance {
 }
 
 // redactRepoURL drops credentials from a repository URL while keeping it
-// usable for a re-clone. A plain username is kept (the "git@" of an ssh URL is
-// not a secret and the URL does not clone without it); userinfo carrying a
-// password is dropped whole, since that is where a token would sit if someone
-// wrote one into project.yaml instead of using token_env.
+// usable for a re-clone. Which half of the userinfo is a credential depends on
+// the transport, so the scheme decides:
+//
+//   - ssh: the username ("git@") is not a secret and the URL does not clone
+//     without it, so only a password is dropped;
+//   - anything else (https in practice): the userinfo is dropped whole. A
+//     username alone is the standard way a token is written into an https git
+//     URL ("https://<token>@github.com/org/repo.git"), so keeping it would
+//     record the token — and an http source already keeps only scheme and host
+//     (see splitHTTPURL), which is the same rule.
 func redactRepoURL(repo string) string {
 	u, err := url.Parse(repo)
 	if err != nil || u.User == nil {
 		return repo
 	}
 
+	if u.Scheme != "ssh" {
+		u.User = nil
+
+		return u.String()
+	}
+
 	if _, hasPassword := u.User.Password(); !hasPassword {
 		return repo
 	}
 
-	u.User = nil
+	u.User = url.User(u.User.Username())
 
 	return u.String()
 }
