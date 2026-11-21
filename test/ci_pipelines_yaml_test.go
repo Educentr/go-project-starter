@@ -29,6 +29,25 @@ const registryMatrixConfig = "rest-envs-goat"
 // render the GOPRIVATE step of the goat job.
 const matrixPrivateRepos = "github.com/myorg/*"
 
+// prepareEnvJob is the GitHub job that resolves the deployment variables and
+// hands them to the jobs below it as outputs.
+const prepareEnvJob = "prepare-env"
+
+// sharedDomainConfig is the config fixture whose public REST transport (api)
+// is served by two applications (api and worker) — the shape that made the
+// GitHub workflow invalid. Only two fixtures have it (this one and
+// metrics-map-apps); the rest give each public transport an application of
+// its own, so a sweep over projects of their shape would not have caught the
+// duplicate key.
+const sharedDomainConfig = "metrics-map"
+
+// sharedDomainOutput is the output the domain of that shared transport is
+// declared under, and sharedDomainPortPrefixes are the per-application
+// outputs of the same transport. The port prefixes are asserted next to the
+// domain to pin the property the fixture is chosen for: lose one of the two
+// applications and the domain stops being shared.
+const sharedDomainOutput = "DOMAIN_API"
+
 // registryTypes lists every value config validation accepts for
 // main.registry_type. Each one renders its own branch of the registry login
 // blocks of the pipeline template, so only a matrix over all four covers
@@ -44,19 +63,37 @@ var registryMatrixChecks = map[string]string{
 	".build-template": "rules",
 }
 
+var sharedDomainPortPrefixes = []string{"PORT_PREFIX_API_API", "PORT_PREFIX_WORKER_API"}
+
+// domainEnvWrite matches the line a pipeline script writes a
+// DOMAIN_<transport> variable with, in each of the three forms the templates
+// use: the GitHub job output, the GitHub env file and the GitLab env file
+// heredoc.
+var domainEnvWrite = regexp.MustCompile(`(?m)^\s*(?:echo ')?(DOMAIN_[A-Za-z0-9_]+)=`)
+
 // yamlErrorLine matches the line number a yaml.v3 syntax error reports.
 var yamlErrorLine = regexp.MustCompile(`line (\d+)`)
 
-// TestGitLabCIIsValidYAML verifies that the generated pipeline parses as YAML
-// for every config fixture. Until this check existed the generated file was
-// invalid YAML in every project with a Docker artifact (TOOLS-109): the
-// template closed its registry login branches with a right-trimming
-// `{{ end -}}` that left the indentation of the action behind, which pulled
-// the next key into the before_script list above it.
-func TestGitLabCIIsValidYAML(t *testing.T) {
+// TestCIPipelinesAreValidYAML verifies that both generated CI pipelines parse
+// as YAML for every config fixture. Both were invalid YAML until the sweep
+// existed, and for unrelated reasons, so both are checked from one generated
+// project rather than from a sweep of their own:
+//
+//   - .gitlab-ci.yml, in every project with a Docker artifact (TOOLS-109): the
+//     template closed its registry login branches with a right-trimming
+//     `{{ end -}}` that left the indentation of the action behind, which pulled
+//     the next key into the before_script list above it.
+//   - .github/workflows/ci_cd.yml, in every project where one public REST
+//     transport is served by more than one application (TOOLS-110): the
+//     DOMAIN_<transport> output was emitted once per application, which gave
+//     the outputs map of prepare-env a duplicate key.
+func TestCIPipelinesAreValidYAML(t *testing.T) {
 	for _, name := range configFixtureNames(t) {
 		t.Run(name, func(t *testing.T) {
-			parseGitLabCI(t, generateProject(t, name))
+			targetDir := generateProject(t, name)
+
+			parsePipeline(t, targetDir, gitlabCIPath)
+			parsePipeline(t, targetDir, ciCDWorkflow)
 		})
 	}
 }
@@ -86,7 +123,7 @@ func TestGitLabCIIsValidYAMLForEveryRegistryType(t *testing.T) {
 					t.Fatalf("Error creating project %s: %v\n%s", name, err, out)
 				}
 
-				pipeline := parseGitLabCI(t, targetDir)
+				pipeline := parsePipeline(t, targetDir, gitlabCIPath)
 
 				for jobName, key := range registryMatrixChecks {
 					job, ok := pipeline[jobName].(map[string]any)
@@ -100,6 +137,57 @@ func TestGitLabCIIsValidYAMLForEveryRegistryType(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+// TestCIDeclaresSharedDomainOnce verifies that a public REST transport served
+// by more than one application gets exactly one DOMAIN_<transport>
+// declaration in either pipeline. The sweep above catches the duplicate
+// mapping key the second application used to add to the GitHub workflow, but
+// it says nothing about the repeats that are valid YAML — the GitLab env file
+// got the same line twice — and a fix that dropped the declaration altogether
+// would pass the sweep just as well, which would leave a public service
+// without a domain.
+func TestCIDeclaresSharedDomainOnce(t *testing.T) {
+	targetDir := generateProject(t, sharedDomainConfig)
+
+	// The outputs are read from the untyped parse because githubWorkflow has
+	// no outputs field, so a decode into it would not even look at the
+	// mapping that used to carry the duplicate.
+	outputs := prepareEnvOutputs(t, parsePipeline(t, targetDir, ciCDWorkflow))
+
+	for _, name := range append([]string{sharedDomainOutput}, sharedDomainPortPrefixes...) {
+		if _, ok := outputs[name]; !ok {
+			t.Errorf("job %q declares no output %q, got %v", prepareEnvJob, name, outputs)
+		}
+	}
+
+	// A repeat in the remaining places is valid YAML, so the sweep says
+	// nothing about it: the scripts would check and write the same variable
+	// twice, and the secrets step would fetch it twice.
+	for jobName, job := range parseWorkflow(t, targetDir, ciCDWorkflow).Jobs {
+		for _, step := range job.Steps {
+			for name, count := range domainWrites(step.Run) {
+				if count > 1 {
+					t.Errorf("%s: job %q step %q writes %s %d times, want once",
+						ciCDWorkflow, jobName, step.Name, name, count)
+				}
+			}
+
+			if count := secretsNamed(step, sharedDomainOutput); count > 1 {
+				t.Errorf("%s: job %q step %q requests secret %s %d times, want once",
+					ciCDWorkflow, jobName, step.Name, sharedDomainOutput, count)
+			}
+		}
+	}
+
+	for jobName, script := range gitlabScripts(t, parsePipeline(t, targetDir, gitlabCIPath)) {
+		for name, count := range domainWrites(script) {
+			if count > 1 {
+				t.Errorf("%s: job %q writes %s %d times, want once",
+					gitlabCIPath, jobName, name, count)
+			}
 		}
 	}
 }
@@ -142,26 +230,29 @@ func configFixtureNames(t *testing.T) []string {
 	return names
 }
 
-// parseGitLabCI reads the generated pipeline and unmarshals the whole file,
+// parsePipeline reads a generated CI pipeline and unmarshals the whole file,
 // which asserts that the generated YAML is valid. The file is checked as a
-// whole on purpose: a template trimmer that swallows a newline shifts the
-// next key into the list above it, and substring assertions on the output
-// still pass on such a file while GitLab rejects the pipeline outright.
-func parseGitLabCI(t *testing.T, targetDir string) map[string]any {
+// whole, and into a plain map rather than into a struct of the keys a test
+// looks at, on purpose: a template trimmer that swallows a newline shifts the
+// next key into the list above it, and a key emitted once per application
+// lands in the same mapping twice. Substring assertions on the output still
+// pass on such a file, and so does a decode that skips the mapping holding
+// the duplicate, while the CI provider rejects the pipeline outright.
+func parsePipeline(t *testing.T, targetDir, relPath string) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile(filepath.Join(targetDir, gitlabCIPath))
+	content, err := os.ReadFile(filepath.Join(targetDir, relPath))
 	if err != nil {
-		t.Fatalf("Error reading %s: %v", gitlabCIPath, err)
+		t.Fatalf("Error reading %s: %v", relPath, err)
 	}
 
 	pipeline := map[string]any{}
 	if err := yaml.Unmarshal(content, &pipeline); err != nil {
-		t.Fatalf("%s is not valid YAML: %v\n%s", gitlabCIPath, err, yamlErrorContext(content, err))
+		t.Fatalf("%s is not valid YAML: %v\n%s", relPath, err, yamlErrorContext(content, err))
 	}
 
 	if len(pipeline) == 0 {
-		t.Fatalf("%s has no top-level keys", gitlabCIPath)
+		t.Fatalf("%s has no top-level keys", relPath)
 	}
 
 	return pipeline
@@ -293,4 +384,91 @@ func yamlErrorContext(content []byte, err error) string {
 	}
 
 	return strings.Join(numbered, "\n")
+}
+
+// prepareEnvOutputs returns the outputs mapping of the job that resolves the
+// deployment variables.
+func prepareEnvOutputs(t *testing.T, pipeline map[string]any) map[string]any {
+	t.Helper()
+
+	jobs, ok := pipeline["jobs"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s has no jobs mapping, got %#v", ciCDWorkflow, pipeline["jobs"])
+	}
+
+	job, ok := jobs[prepareEnvJob].(map[string]any)
+	if !ok {
+		t.Fatalf("%s has no job %q, got %#v", ciCDWorkflow, prepareEnvJob, jobs[prepareEnvJob])
+	}
+
+	outputs, ok := job["outputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("job %q has no outputs mapping, got %#v", prepareEnvJob, job["outputs"])
+	}
+
+	return outputs
+}
+
+// domainWrites counts, per variable name, how many times a pipeline script
+// writes a DOMAIN_<transport> variable.
+func domainWrites(script string) map[string]int {
+	counts := map[string]int{}
+
+	for _, match := range domainEnvWrite.FindAllStringSubmatch(script, -1) {
+		counts[match[1]]++
+	}
+
+	return counts
+}
+
+// secretsNamed counts how many times a step lists a variable in its secrets
+// input. The branch-based-secrets action takes the names as one
+// comma-separated string, so a repeat there is a repeated fetch rather than a
+// YAML error.
+func secretsNamed(step githubStep, name string) int {
+	secrets, _ := step.With["secrets"].(string)
+
+	count := 0
+
+	for _, secret := range strings.Split(secrets, ",") {
+		if strings.TrimSpace(secret) == name {
+			count++
+		}
+	}
+
+	return count
+}
+
+// gitlabScripts returns the script of every GitLab job that has one, joined
+// into one string and keyed by job name. The env file the deploy jobs write is
+// a heredoc inside such a script, so a line repeated in it is invisible to the
+// YAML sweep.
+func gitlabScripts(t *testing.T, pipeline map[string]any) map[string]string {
+	t.Helper()
+
+	scripts := map[string]string{}
+
+	for jobName, raw := range pipeline {
+		job, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		lines, ok := job["script"].([]any)
+		if !ok {
+			continue
+		}
+
+		for _, line := range lines {
+			if text, ok := line.(string); ok {
+				scripts[jobName] += text + "\n"
+			}
+		}
+	}
+
+	if len(scripts) == 0 {
+		t.Fatalf("%s has no job with a script", gitlabCIPath)
+	}
+
+	return scripts
 }

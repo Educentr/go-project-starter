@@ -1302,6 +1302,46 @@ func (a Apps) GetRestTransport() []Transport {
 	return a.getTransport(RestTransportType)
 }
 
+// DeclaresPublicDomain reports whether appName is the application under which
+// the generated CI pipeline declares the DOMAIN_<transport> variable of
+// transportName.
+//
+// The domain is keyed by the transport alone: the repository variable the
+// pipeline reads is DOMAIN_<transport>_NAME, one per transport, and the compose
+// file of every application serving that transport reads the same
+// ${DOMAIN_<transport>}. The pipeline templates, however, walk applications and
+// then their transports, so a public transport shared by two applications
+// reached the output twice — which gave the outputs map of the GitHub
+// prepare-env job a duplicate key and made GitHub reject the whole workflow
+// (TOOLS-110).
+//
+// The declaration goes to the first application that serves the transport, in
+// the order the templates walk them, so the output of a project where no
+// transport is shared does not move by a single byte. Applications without a
+// Docker artifact are skipped because the templates emit nothing for them, so
+// one of them holding the declaration would drop it entirely.
+func (a Apps) DeclaresPublicDomain(appName, transportName string) bool {
+	for _, app := range a {
+		if !app.HasDocker() {
+			continue
+		}
+
+		for _, transport := range app.GetRestTransport() {
+			if transport.GeneratorType == generatorTypeOgenClient || !transport.PublicService {
+				continue
+			}
+
+			if transport.Name != transportName {
+				continue
+			}
+
+			return app.Name == appName
+		}
+	}
+
+	return false
+}
+
 // func (a Apps) HasRestHandlers() bool {
 // 	return len(a.getHandlers("rest")) > 0
 // }

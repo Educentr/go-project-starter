@@ -1315,3 +1315,80 @@ func TestApps_RESTServerPorts(t *testing.T) {
 		}
 	}
 }
+
+func TestApps_DeclaresPublicDomain(t *testing.T) {
+	apps := Apps{
+		{
+			// No Docker artifact: the pipeline emits nothing for this
+			// application, so it cannot hold the declaration of a transport the
+			// applications below also serve.
+			Name:      "tool",
+			Artifacts: []ArtifactType{ArtifactRPM},
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", Type: RestTransportType,
+					GeneratorType: "ogen", PublicService: true,
+				},
+			},
+		},
+		{
+			Name:      "web",
+			Artifacts: []ArtifactType{ArtifactDocker},
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", Type: RestTransportType,
+					GeneratorType: "ogen", PublicService: true,
+				},
+				// Internal: it gets no domain at all.
+				"sys": Transport{
+					Name: "sys", Type: RestTransportType,
+					GeneratorType: "template",
+				},
+				// A client dials a domain, it does not publish one.
+				"billing": Transport{
+					Name: "billing", Type: RestTransportType,
+					GeneratorType: "ogen_client", PublicService: true,
+				},
+			},
+		},
+		{
+			// Serves the same public transport as web, and comes second.
+			Name:      "worker",
+			Artifacts: []ArtifactType{ArtifactDocker},
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", Type: RestTransportType,
+					GeneratorType: "ogen", PublicService: true,
+				},
+				"admin": Transport{
+					Name: "admin", Type: RestTransportType,
+					GeneratorType: "ogen", PublicService: true,
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		app       string
+		transport string
+		want      bool
+	}{
+		{name: "first docker application of a shared transport", app: "web", transport: "api", want: true},
+		{name: "second application of a shared transport", app: "worker", transport: "api", want: false},
+		{name: "application without docker", app: "tool", transport: "api", want: false},
+		{name: "transport of a single application", app: "worker", transport: "admin", want: true},
+		{name: "internal transport", app: "web", transport: "sys", want: false},
+		{name: "client transport", app: "web", transport: "billing", want: false},
+		{name: "unknown transport", app: "web", transport: "none", want: false},
+		{name: "unknown application", app: "none", transport: "api", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := apps.DeclaresPublicDomain(tt.app, tt.transport); got != tt.want {
+				t.Errorf("Apps.DeclaresPublicDomain(%q, %q) = %v, want %v", tt.app, tt.transport, got, tt.want)
+			}
+		})
+	}
+}
