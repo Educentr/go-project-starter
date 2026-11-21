@@ -1,10 +1,11 @@
 package {{ .Transport.Name }}
+{{- if .Transport.UsesSecuritySource }}
 
 import (
 	"context"
 
 	"github.com/pkg/errors"
-    
+
 	{{/* Import only the ogen package, like client.go does. Transport.Import
 	     also carries this very wrapper package (the app layer needs both),
 	     and emitting it here is a self-import — an import cycle. */}}
@@ -12,9 +13,8 @@ import (
 	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
-{{ if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "apikey") }}
 type SecuritySource struct {}
-
+{{ if eq .Transport.AuthParams.Type "apikey" }}
 func (ak *SecuritySource) AuthHeader(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.AuthHeader, error) {
     key, _, err := occonf.RESTClientAPIKey(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
@@ -31,9 +31,7 @@ func (ak *SecuritySource) AuthHeader(ctx context.Context, operationName {{ .Tran
         Roles:  []string{"default"}, // You can modify this to include specific roles if needed
     }, nil
 }
-{{ else if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "bearer") }}
-type SecuritySource struct {}
-
+{{ else if eq .Transport.AuthParams.Type "bearer" }}
 func (s *SecuritySource) BearerAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.BearerAuth, error) {
     token, _, err := occonf.RESTClientToken(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
@@ -48,9 +46,7 @@ func (s *SecuritySource) BearerAuth(ctx context.Context, operationName {{ .Trans
         Token: token,
     }, nil
 }
-{{ else if and (eq .Transport.AuthParams.Transport "header") (eq .Transport.AuthParams.Type "basic") }}
-type SecuritySource struct {}
-
+{{ else if eq .Transport.AuthParams.Type "basic" }}
 func (s *SecuritySource) BasicAuth(ctx context.Context, operationName {{ .Transport.PkgName }}.OperationName) ({{ .Transport.PkgName }}.BasicAuth, error) {
     username, _, err := occonf.RESTClientUsername(ctx, "{{ .Transport.PkgName }}")
     if err != nil {
@@ -73,6 +69,9 @@ func (s *SecuritySource) BasicAuth(ctx context.Context, operationName {{ .Transp
         Password: password,
     }, nil
 }
-{{ else if and .Transport.AuthParams.Type (ne .Transport.AuthParams.Type "") }}
-    {{- errorf "Unsupported auth type: %s" .Transport.AuthParams.Type -}}
+{{ else }}
+    {{- errorf "ogen_client %q: auth type %q is accepted by Transport.UsesSecuritySource but has no SecuritySource branch in auth.go.tmpl" .Transport.Name .Transport.AuthParams.Type -}}
+{{- end }}
+{{- else if .Transport.HasAuthParams }}
+    {{- errorf "ogen_client %q: unsupported auth_params (transport=%q, type=%q); supported is transport \"header\" with type apikey, bearer or basic" .Transport.Name .Transport.AuthParams.Transport .Transport.AuthParams.Type -}}
 {{- end }}

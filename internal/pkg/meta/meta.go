@@ -49,7 +49,19 @@ type Meta struct {
 	Manifest Manifest `yaml:"manifest,omitempty"`
 }
 
-const curVer = 5
+// CurrentVersion is the schema version Save writes. A meta.yaml carrying a
+// higher one was produced by a newer generator: its manifest may hold records
+// this binary cannot interpret, so readers are expected to refuse it rather
+// than draw conclusions from the part they recognize.
+const CurrentVersion = 5
+
+// Location of the metadata file inside a generated project. Exported because
+// everything that reads the manifest — generation, the tree check — has to
+// agree on it, and a second string literal is how they stop agreeing.
+const (
+	DirName  = ".project-config"
+	FileName = "meta.yaml"
+)
 
 // Kinds of files recorded in the manifest.
 const (
@@ -125,6 +137,26 @@ func (m Manifest) Normalize() Manifest {
 	return res
 }
 
+// Merge returns the manifest with every record of upd applied on top: a record
+// whose path is already present is replaced, a path not present is added. The
+// result is normalized, as SetManifest expects.
+//
+// Merging rather than substituting is what recording a partial run needs: the
+// files earlier runs wrote keep their records, or the next run would read them
+// as files the generator never wrote.
+func (m Manifest) Merge(upd Manifest) Manifest {
+	if len(upd) == 0 {
+		return m.Normalize()
+	}
+
+	merged := make(Manifest, 0, len(m)+len(upd))
+	merged = append(merged, m...)
+	merged = append(merged, upd...)
+
+	// Normalize keeps the last record of a path, so upd wins.
+	return merged.Normalize()
+}
+
 // HashContent returns the hex-encoded SHA-256 of content. It is the hash
 // function behind FileRecord.Hash.
 func HashContent(content []byte) string {
@@ -185,7 +217,7 @@ func (m *Meta) SetManifest(records Manifest) {
 }
 
 func (m *Meta) Save() error {
-	m.Version = curVer
+	m.Version = CurrentVersion
 
 	data, err := yaml.Marshal(m)
 	if err != nil {

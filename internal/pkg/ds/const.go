@@ -4,12 +4,36 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
+
+// specBasename returns the file name under which a raw `path:` entry lands in
+// the project tree. A URI is not a filesystem path, so the name has to come
+// from the source itself (the git subpath, the URL path) — filepath.Base of
+// "git+ssh://git@host/org/contracts.git#api.swagger.yml" is
+// "contracts.git#api.swagger.yml", and of an https URL carrying
+// "?token_env=NAME" it is the basename with the query glued to it.
+//
+// This mirrors what the resolve pre-pass records in SpecTargetFiles /
+// SchemaTargetFiles, and is what callers that run before that pre-pass — the
+// templates, the Makefile among them — have to use to name the same file.
+func specBasename(raw string) string {
+	src, err := specsource.ParseSpecSource(raw)
+	if err != nil {
+		// A malformed entry is the resolve pass's error to report, with the
+		// transport name and entry index attached; here keep the plain-path
+		// reading it had before URIs existed.
+		return filepath.Base(raw)
+	}
+
+	return src.TargetFilename()
+}
 
 type TransportType string
 
@@ -432,6 +456,25 @@ const (
 	KafkaTransportType TransportType = "kafka"
 	CLITransportType   TransportType = "cli"
 
+	// GeneratorTypeTemplate is the generator type of a transport built from one
+	// of the generator's own templates rather than from a spec.
+	GeneratorTypeTemplate = "template"
+
+	// GeneratorTemplateSys is the template of the sys server — the one that
+	// carries /metrics, /live, /ready and pprof. Shared with the config
+	// package, which decides the metrics export channel by the same test: a
+	// transport is the sys server because of the template it comes from, not
+	// because of its name.
+	GeneratorTemplateSys = "sys"
+
+	// generatorTypeOgenClient is the generator_type of a REST transport that
+	// calls an API instead of serving one.
+	generatorTypeOgenClient = "ogen_client"
+
+	// generatorTypeBufClient is the generator_type of a gRPC transport that
+	// calls a service instead of serving one.
+	generatorTypeBufClient = "buf_client"
+
 	// Path components for schema directories
 	schemaDir = "schema"
 	pkgDir    = "pkg"
@@ -488,6 +531,11 @@ type App struct {
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 	Artifacts             []ArtifactType   // Per-application artifacts
+	Docker                AppDockerConfig  // Runtime stage and target platforms of the application image
+	// MetricsExport is the resolved export channel of the application: where
+	// the metrics it collects go. Always set — an application that declares
+	// nothing gets the channel derived from its transports.
+	MetricsExport MetricsExport
 }
 
 // CLIFlag represents a flag for a CLI command (computed Go names included)
@@ -573,17 +621,37 @@ func (a App) GetCLITransport() *CLIApp {
 // HasSysTransport returns true if application has a SYS transport configured
 func (a App) HasSysTransport() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "sys" {
+		if transport.GeneratorType == GeneratorTypeTemplate && transport.GeneratorTemplate == GeneratorTemplateSys {
 			return true
 		}
 	}
 	return false
 }
 
+// HasRestServer returns true if the application serves at least one REST
+// transport, i.e. has a REST transport that is not a client.
+//
+// This is not the same as having a REST transport at all: an application whose
+// only REST transport is an `ogen_client` calls an API, it does not serve one.
+// Only a served transport gets a `rest.NewServer(..., restconfig.New...)`
+// initializer in main (see Transport.Init), so this — not GetRestTransport — is
+// the condition under which main uses the REST server runtime and the config
+// provider. Gating their imports on GetRestTransport emitted two unused imports
+// into a client-only main, which does not compile.
+func (a App) HasRestServer() bool {
+	for _, transport := range a.Transports {
+		if transport.Type == RestTransportType && transport.GeneratorType != generatorTypeOgenClient {
+			return true
+		}
+	}
+
+	return false
+}
+
 // HasStaticTransport returns true if application has a static-files template transport configured
 func (a App) HasStaticTransport() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "static" {
+		if transport.GeneratorType == "template" && transport.GeneratorTemplate == StaticTransportTemplate {
 			return true
 		}
 	}
@@ -599,13 +667,13 @@ func (a App) StaticDirs() []string {
 	dirs := []string{}
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType != "template" || transport.GeneratorTemplate != "static" {
+		if transport.GeneratorType != "template" || transport.GeneratorTemplate != StaticTransportTemplate {
 			continue
 		}
 
 		dir := transport.GeneratorParams["dir"]
 		if dir == "" {
-			dir = "static"
+			dir = DefaultStaticDir
 		}
 
 		if !seen[dir] {
@@ -742,6 +810,20 @@ const (
 	AuthTypeBasic  = "basic"  // ogen scheme name: BasicAuth
 )
 
+// SupportedAuthTypes returns every auth_params.type the ogen_client templates
+// can render, in documentation order. Config validation reports the list and
+// UsesSecuritySource branches on it. A new type needs both a branch in
+// ogen_client/files/auth.go.tmpl and an entry here: no test ties the template
+// branches to this list.
+func SupportedAuthTypes() []string {
+	return []string{AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic}
+}
+
+// IsSupportedAuthType reports whether authType is one of SupportedAuthTypes.
+func IsSupportedAuthType(authType string) bool {
+	return slices.Contains(SupportedAuthTypes(), authType)
+}
+
 type AuthParams struct {
 	Transport string
 	Type      string
@@ -770,8 +852,8 @@ type Transport struct {
 	// SpecTargetFiles, when non-empty, holds the basename under which each
 	// SpecPath[i] should be saved into api/. Populated when sources are
 	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
-	// "users.yaml"). Empty for legacy local-only flows; in that case
-	// GetTargetSpecFile falls back to filepath.Base(SpecPath[i]).
+	// "users.yaml"). Empty until the resolve pre-pass runs; until then
+	// GetTargetSpecFile derives the same name from SpecPath[i] itself.
 	SpecTargetFiles []string
 	ApiVersion      string // перенесено из Hendler
 	Port            string // перенесено из Hendler
@@ -798,17 +880,13 @@ func (t Transport) HasAuthParams() bool {
 // shapes that auth.go.tmpl knows how to render qualify; for any other value
 // no SecuritySource type exists, so it must not be passed to ogen's
 // NewClient (the client templates branch on this).
+//
+// auth.go.tmpl gates its whole body on this, imports included: a client to an
+// API without authentication declares no SecuritySource, and the file has to
+// come out as a bare package clause rather than a package clause plus imports
+// nothing uses — unused imports do not compile.
 func (t Transport) UsesSecuritySource() bool {
-	if t.AuthParams.Transport != AuthTransportHeader {
-		return false
-	}
-
-	switch t.AuthParams.Type {
-	case AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic:
-		return true
-	default:
-		return false
-	}
+	return t.AuthParams.Transport == AuthTransportHeader && IsSupportedAuthType(t.AuthParams.Type)
 }
 
 // QueueField represents a single field in a queue definition
@@ -920,10 +998,16 @@ func (a Apps) HasGoatTestsWithOnlineconf() bool {
 	return false
 }
 
+// ogenClientGeneratorType is the generator_type of a REST transport that is a
+// generated client rather than a served API.
+//
+//nolint:decorder // follows existing pattern - declared next to its readers
+const ogenClientGeneratorType = "ogen_client"
+
 // HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
 func (a App) HasOgenClients() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "ogen_client" {
+		if transport.GeneratorType == generatorTypeOgenClient {
 			return true
 		}
 	}
@@ -956,7 +1040,7 @@ func (a App) GetOgenClients() []Transport {
 	clients := make([]Transport, 0)
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "ogen_client" {
+		if transport.GeneratorType == generatorTypeOgenClient {
 			clients = append(clients, transport)
 		}
 	}
@@ -968,12 +1052,41 @@ func (a App) GetOgenClients() []Transport {
 	return clients
 }
 
+// GetStaticOgenClients returns the ogen_client transports the application has
+// to construct at startup, sorted by name. Dynamic clients are built per call
+// site at runtime, so main has nothing to register for them.
+func (a App) GetStaticOgenClients() []Transport {
+	clients := make([]Transport, 0)
+
+	for _, transport := range a.GetOgenClients() {
+		if !transport.IsDynamic() {
+			clients = append(clients, transport)
+		}
+	}
+
+	return clients
+}
+
+// HasCLIStaticClients reports whether any CLI application registers static
+// clients in its main. A CLI never reaches the runtime's app.Init, so it wires
+// its clients into the service itself — this is the condition under which the
+// service layer exports the entry point for that (EmptyService.InitClients).
+func (a Apps) HasCLIStaticClients() bool {
+	for _, app := range a {
+		if app.IsCLI() && len(app.GetStaticOgenClients()) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (a App) TransportImports() []string {
 	imports := make([]string, 0)
 
 	for _, transport := range a.Transports {
 		// Skip client transports - they are initialized in service, not in main
-		if transport.GeneratorType != "ogen_client" && transport.GeneratorType != "buf_client" {
+		if transport.GeneratorType != generatorTypeOgenClient && transport.GeneratorType != generatorTypeBufClient {
 			imports = append(imports, transport.Import...)
 		}
 	}
@@ -1104,6 +1217,83 @@ func (app App) GetRestTransport() []Transport {
 	return app.getTransport(RestTransportType)
 }
 
+// GetRestServerTransport returns the app's REST transports that listen on a
+// port of their own, i.e. everything GetRestTransport returns except the
+// clients.
+//
+// A client transport has no port — it dials one — so it carries none, and
+// anything describing the app's listening surface (the EXPOSE directives of its
+// image) has to leave it out rather than announce port 0.
+func (a App) GetRestServerTransport() []Transport {
+	transports := a.GetRestTransport()
+	servers := make([]Transport, 0, len(transports))
+
+	for _, transport := range transports {
+		if transport.GeneratorType == generatorTypeOgenClient || transport.GeneratorType == generatorTypeBufClient {
+			continue
+		}
+
+		servers = append(servers, transport)
+	}
+
+	return servers
+}
+
+// RESTServerPort is one REST server of the project and the port project.yaml
+// declares for it.
+//
+//nolint:decorder // follows existing pattern - declared next to the method producing it
+type RESTServerPort struct {
+	// Server is the name the generated main hands to rest.NewServer
+	// (<transport>_<version>). It is the name the runtime hands back to the
+	// configuration provider, so it is the key the provider resolves a port
+	// under.
+	Server string
+	// Port is the declared port, in the string form the server configuration
+	// carries it in.
+	Port string
+}
+
+// RESTServerPorts returns the port project.yaml declares for every REST server
+// of the project, sorted by server name.
+//
+// It is the default the generated configuration provider applies when neither
+// form of the port key is set in OnlineConf. The port used to be the one piece
+// of server configuration with no default in the generated code while the
+// generator knew it all along — so every installation had to seed it by hand,
+// for every server, before anything could start.
+//
+// Clients are left out: they read the host of an upstream, not a port of their
+// own. So is a server whose declared port is empty or zero — that is not a
+// port, and defaulting to it would turn a missing key into a listener nobody
+// asked for, which is worse than the error the provider reports now.
+func (a Apps) RESTServerPorts() []RESTServerPort {
+	out := make([]RESTServerPort, 0, len(a))
+	seen := make(map[string]struct{}, len(a))
+
+	for _, transport := range a.GetRestTransport() {
+		if transport.GeneratorType == ogenClientGeneratorType {
+			continue
+		}
+
+		if transport.Port == "" || transport.Port == "0" {
+			continue
+		}
+
+		if _, dup := seen[transport.PkgName]; dup {
+			continue
+		}
+
+		seen[transport.PkgName] = struct{}{}
+
+		out = append(out, RESTServerPort{Server: transport.PkgName, Port: transport.Port})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Server < out[j].Server })
+
+	return out
+}
+
 func (a App) GetGrpcTransport() []Transport {
 	return a.getTransport(GrpcTransportType)
 }
@@ -1179,7 +1369,7 @@ func (t Transport) GetOgenConfigPath(targetDir string) string {
 	switch t.GeneratorType {
 	case "ogen":
 		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_server.yaml")
-	case "ogen_client":
+	case generatorTypeOgenClient:
 		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_client.yaml")
 	default:
 		return ""
@@ -1194,13 +1384,19 @@ func (t Transport) GetTargetSpecDir(targetDir string) string {
 	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 
+// GetTargetSpecFile returns the file name under which spec entry num lands in
+// the transport's target spec directory.
+//
+// SpecTargetFiles, filled by the resolve pre-pass, wins. It is empty while the
+// templates are rendered — that happens before the pre-pass — so the fallback
+// derives the name from the raw `path:` entry, which may be a URI: see
+// specBasename.
 func (t Transport) GetTargetSpecFile(num int) string {
 	if num < len(t.SpecTargetFiles) && t.SpecTargetFiles[num] != "" {
 		return t.SpecTargetFiles[num]
 	}
-	_, file := filepath.Split(t.SpecPath[num])
 
-	return file
+	return specBasename(t.SpecPath[num])
 }
 
 func (t Transport) GetTargetGeneratePath(targetDir string) string {
@@ -1257,7 +1453,7 @@ func (j JSONSchema) GetSchemaFilenames() []string {
 	filenames := make([]string, 0, len(paths))
 
 	for _, path := range paths {
-		base := filepath.Base(path)
+		base := specBasename(path)
 		// Remove .json extension if present
 		if ext := filepath.Ext(base); ext == ".json" {
 			base = base[:len(base)-len(ext)]

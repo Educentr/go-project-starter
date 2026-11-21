@@ -26,9 +26,7 @@ package {{ .OnlineConf.GetPackageName }}
 
 import (
 	"context"
-{{- if .OnlineConf.NeedsErrorsImport }}
 	"errors"
-{{- end }}
 	"fmt"
 {{- if .OnlineConf.NeedsStringsImport }}
 	"strings"
@@ -50,6 +48,10 @@ const serviceTree = "{{ .OnlineConf.TreeRoot }}"
 // Use errors.Is to tell it apart from a value that is present but unreadable.
 var ErrKeyNotSet = errors.New("required onlineconf key is not set")
 {{- end }}
+
+// ErrNoTree reports a context that carries no configuration tree. See
+// Initialized for when that is a possibility and when it is not.
+var ErrNoTree = errors.New("context carries no onlineconf tree")
 
 // --- lifecycle ---
 //
@@ -87,6 +89,58 @@ func StopWatcher(ctx context.Context) error {
 	return nil
 }
 
+// Initialized reports whether ctx carries a configuration tree.
+//
+// The service's own code does not need to ask. Initialize runs once at process
+// start and the process exits when it fails, so every context descended from
+// the one it returned carries the tree — a read on such a context does not need
+// a guard, and a per-call-site check of this would be the boundary invariant
+// re-validated at every read.
+//
+// It is for code that can also run on a context built outside that chain: a
+// unit test on context.Background(), a helper shared with a tool that has no
+// service wiring. Such code had no way to tell, because the validator forbids
+// calling the onlineconf library outside this package — so it either skipped
+// the check or reached past the guard.
+func Initialized(ctx context.Context) bool {
+	return onlineconf.FromContext(ctx) != nil
+}
+
+// Clone gives to its own handle on the configuration tree carried by from, and
+// returns the context carrying it. Release returns that handle.
+//
+// A clone holds the memory-mapped tree open at the version it saw, so a reload
+// cannot change the answers under a request already in flight; that is what the
+// generated request context does with it. Hence the pair: a clone that is never
+// released keeps its version of the tree mapped.
+//
+// It is exported for code that builds its own context — a test that needs a
+// read to answer from a real tree rather than a default. from without a tree is
+// an error, not a panic: unlike the service's own code, a caller of this cannot
+// rely on the startup boundary having run.
+func Clone(from, to context.Context) (context.Context, error) {
+	if !Initialized(from) {
+		return nil, fmt.Errorf("clone onlineconf: %w", ErrNoTree)
+	}
+
+	ctx, err := onlineconf.Clone(from, to)
+	if err != nil {
+		return nil, fmt.Errorf("clone onlineconf: %w", err)
+	}
+
+	return ctx, nil
+}
+
+// Release returns the handle Clone took, dropping the cloned context's hold on
+// its version of the tree. main is the context Clone copied from.
+func Release(main, cloned context.Context) error {
+	if err := onlineconf.Release(main, cloned); err != nil {
+		return fmt.Errorf("release onlineconf: %w", err)
+	}
+
+	return nil
+}
+
 {{- if .UseActiveRecord }}
 
 // ActiveRecordConfig hands ActiveRecord the configuration instance it reads its
@@ -118,12 +172,16 @@ func Subscribe(ctx context.Context, paths []string, cb func() error) error {
 
 	return nil
 }
-{{- if .OnlineConf.HasServiceKeys }}
+{{- if .OnlineConf.HasServicePathConsts }}
 
 // --- paths of the service's declarations ---
 //
 // Exported so that a caller can hand a path to Subscribe without reaching into
 // the onlineconf package, which the validator forbids here.
+//
+// A declared key whose path carries a <runtimeSegment> has no constant here: its
+// path is composed from an argument, so the generated <Name>Path builder is what
+// a caller hands to Subscribe.
 const (
 {{- range $_, $a := .OnlineConf.ServicePathConsts }}
 	// {{ $a.PathConst }} is the path of {{ $a.Name }} ({{ $a.Type }}).
@@ -307,11 +365,15 @@ func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if .OnlineConf.HasServiceKeys }}
+{{- if .OnlineConf.HasServicePathConsts }}
 
-// Paths returns every path the service's own key map declares, in declaration
-// order. Useful for a subscription that should fire on any configuration change
-// the service cares about.
+// Paths returns every path the service's own key map declares as a constant, in
+// declaration order. Useful for a subscription that should fire on any
+// configuration change the service cares about.
+//
+// A key with a <runtimeSegment> in its path is not in the list: there is no one
+// path to return for it. Subscribe to such a key with its <Name>Path builder,
+// called with the segment the service computes.
 func Paths() []string {
 	return []string{
 {{- range $_, $a := .OnlineConf.ServicePathConsts }}
@@ -346,9 +408,12 @@ var serviceRequired = []requiredCheck{
 // client's host, a Kafka producer's brokers, a telegram bot's token — and a
 // process that does not run that component does not read it. Checking the
 // project's whole set in every process would stop a REST-only application over
-// the token of a worker it never starts. A component declared `optional: true`
-// in project.yaml is left out for the same reason: the generated reader skips
-// it, so the check must not insist on it.
+// the token of a worker it never starts. A component THIS application declares
+// `optional: true` in project.yaml is left out for the same reason: the
+// generated reader skips it, so the check must not insist on it. Another
+// application wiring the same component without `optional` keeps its own check —
+// optionality is a setting of the wiring, and that application does need the
+// key.
 //
 // The reads go through the ordinary accessors, which answer with presence; the
 // requirement is applied here rather than inside the accessor, so that a reader

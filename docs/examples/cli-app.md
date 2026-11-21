@@ -123,6 +123,23 @@ internal/app/transport/cli/admin/
 - `default` проверяется по типу флага (`int`, `bool`, `float64`, `duration`),
   для `duration` принимается формат Go (`5s`, `1m30s`).
 
+### Повторённый флаг — ошибка
+
+Все типы флагов в спецификации скалярные: списочного типа нет, список передаётся одним
+значением (CSV). Поэтому второе вхождение флага — не добавление, и генератор его отвергает:
+
+```console
+$ ./myctl migrate --dir up --dir down
+flag --dir is specified more than once
+```
+
+Стандартный `flag.FlagSet` в этом случае оставляет **последнее** значение и молча теряет
+остальные — для CLI это худший из возможных ответов. Проверка идёт до `fs.Parse` и повторяет
+его же правила: один или два дефиса, `--` и первый не-флаговый аргумент заканчивают флаги,
+`--name=value` несёт значение в себе, любой другой небулев флаг забирает следующий аргумент
+(поэтому `--steps -1` — это значение, а не флаг). Неизвестное имя остаётся на `fs.Parse` — он
+сообщит о нём своими словами.
+
 ### Пользовательский код
 
 Создайте файлы в том же пакете для реализации логики:
@@ -195,6 +212,65 @@ applications:
     driver:
       - name: postgres
 ```
+
+## С API-клиентом (`ogen_client`)
+
+CLI-инструмент, который вызывает HTTP-API (ops-скрипт, бот, обёртка над сервисом), объявляет
+клиента так же, как любое другое приложение — ссылкой в `transport`:
+
+```yaml
+rest:
+  - name: billing
+    path:
+      - ./billing.swagger.yml
+    version: v1
+    generator_type: ogen_client
+
+cli:
+  - name: admin
+    path:
+      - ./commands.yaml
+    generator_type: template
+    generator_template: cli
+
+applications:
+  - name: admin-cli
+    cli: admin
+    transport:
+      - name: billing   # только клиентские транспорты (generator_type: ogen_client)
+```
+
+Что это даёт:
+
+- Клиент инициализируется в `main` самой CLI и попадает в `Service` — handlers обращаются к нему
+  через `h.GetService()`, как в сервисном приложении. CLI не проходит через `app.Init` рантайма
+  (нет ни HTTP-листенера, ни реестра метрик), поэтому клиент ей передаёт сгенерированный
+  `EmptyService.InitClients`.
+- Приложению с CLI разрешены **только** клиентские транспорты. Ссылка на REST/gRPC-сервер — ошибка
+  загрузки конфига: слушать в CLI нечему.
+
+Адрес клиента читается из OnlineConf (`/<service>/transport/rest/<client>/host`). Если он не задан,
+команда падает на старте с `<client> client URL not configured` — это та же проверка, что у
+сервисного приложения. Для CLI, которой клиент нужен не в каждой команде, объявите транспорт
+опциональным — тогда незаданный адрес даёт `nil`-клиент вместо ошибки старта:
+
+```yaml
+applications:
+  - name: admin-cli
+    cli: admin
+    transport:
+      - name: billing
+        config:
+          optional: true
+```
+
+Клиент с `instantiation: dynamic` в `main` не регистрируется: его создаёт место вызова, как и в
+сервисном приложении.
+
+При `main.skip_service_init: true` Service-слой пишет пользователь, и `EmptyService.InitClients`
+не генерируется. Если CLI хостит статический клиент, `main` CLI всё равно вызывает
+`(*service.EmptyService).InitClients(ctx, []ds.ClientInitializer) error`: этот метод (как и сам
+тип `EmptyService`, на который опирается `main` сервисного приложения) нужно объявить самому.
 
 ## Сравнение подходов
 

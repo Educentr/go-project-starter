@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -465,16 +466,18 @@ func TestApplication_IsValid(t *testing.T) {
 			wantMsg: "Application must have at least one transport or be a CLI app",
 		},
 		{
+			// Which transports a CLI may host is decided against the rest map,
+			// in GetConfig (see TestValidateCLITransport) — IsValid only has
+			// the application in front of it.
 			name: "CLI with transports",
 			app: Application{
 				Name: "cli-app",
 				CLI:  "admin",
 				TransportList: []AppTransport{
-					{Name: "api_v1"},
+					{Name: "billing"},
 				},
 			},
-			wantOK:  false,
-			wantMsg: "CLI application cannot have transports",
+			wantOK: true,
 		},
 		{
 			name: "CLI with workers",
@@ -1876,6 +1879,162 @@ func TestValidateSecretName(t *testing.T) {
 
 			if !tt.wantOK && !strings.Contains(gotMsg, field) {
 				t.Errorf("validateSecretName(%q) msg = %q, want it to name the field %q", tt.secret, gotMsg, field)
+			}
+		})
+	}
+}
+
+func TestRest_IsValid_AuthParams(t *testing.T) {
+	// Remote path: validateSpecPath skips the on-disk existence check for it,
+	// so these cases exercise auth_params only.
+	const specPath = "https://example.com/api.yaml"
+
+	tests := []struct {
+		name    string
+		rest    Rest
+		wantOK  bool
+		wantMsg string
+	}{
+		{
+			name:   "ogen_client without auth_params",
+			rest:   Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath}},
+			wantOK: true,
+		},
+		{
+			name: "ogen_client with apikey in header",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK: true,
+		},
+		{
+			name: "ogen_client with bearer in header",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "bearer"}},
+			wantOK: true,
+		},
+		{
+			name: "ogen_client with basic in header",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "basic"}},
+			wantOK: true,
+		},
+		{
+			name: "unsupported auth transport",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "query", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params: invalid transport: query (supported: header)",
+		},
+		{
+			name: "unsupported auth type",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "oauth"}},
+			wantOK:  false,
+			wantMsg: "auth_params: invalid type: oauth (supported: apikey, bearer, basic)",
+		},
+		{
+			name: "auth transport without type",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header"}},
+			wantOK:  false,
+			wantMsg: "auth_params: both transport and type are required",
+		},
+		{
+			name: "auth type without transport",
+			rest: Rest{Name: "client", GeneratorType: "ogen_client", Path: []string{specPath},
+				AuthParams: AuthParams{Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params: both transport and type are required",
+		},
+		{
+			name: "auth_params on ogen server",
+			rest: Rest{Name: "api", GeneratorType: "ogen", Path: []string{specPath},
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params are only supported for generator_type ogen_client",
+		},
+		{
+			name: "auth_params on template transport",
+			rest: Rest{Name: "static", GeneratorType: "template", GeneratorTemplate: "static",
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params are only supported for generator_type ogen_client",
+		},
+		{
+			// The sys shortcut returns early from IsValid; auth_params are
+			// still rejected there instead of being silently ignored.
+			name: "auth_params on sys transport",
+			rest: Rest{Name: "sys", GeneratorType: "template", GeneratorTemplate: "sys",
+				AuthParams: AuthParams{Transport: "header", Type: "apikey"}},
+			wantOK:  false,
+			wantMsg: "auth_params are only supported for generator_type ogen_client",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOK, gotMsg := tt.rest.IsValid("")
+			if gotOK != tt.wantOK {
+				t.Errorf("Rest.IsValid() ok = %v, want %v (msg=%q)", gotOK, tt.wantOK, gotMsg)
+			}
+
+			if !tt.wantOK && gotMsg != tt.wantMsg {
+				t.Errorf("Rest.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+// TestValidateCLITransport pins which transports a CLI application may host.
+//
+// A CLI tool that calls an HTTP API is an ordinary shape, and the client has to
+// belong to the application that runs it — the generated init lands in that
+// application's main. What a CLI cannot host is an inbound transport: it has no
+// process to listen in.
+func TestValidateCLITransport(t *testing.T) {
+	restMap := map[string]Rest{
+		"billing": {Name: "billing", GeneratorType: GeneratorTypeOgenClient},
+		"api":     {Name: "api", GeneratorType: "ogen"},
+		"sys":     {Name: "sys", GeneratorType: "template"},
+	}
+
+	app := Application{Name: "admin-cli", CLI: "admin"}
+
+	tests := []struct {
+		name      string
+		transport string
+		wantErr   bool
+	}{
+		{name: "ogen_client is accepted", transport: "billing"},
+		{name: "ogen server is rejected", transport: "api", wantErr: true},
+		{name: "template server is rejected", transport: "sys", wantErr: true},
+		{name: "grpc (absent from the rest map) is rejected", transport: "grpcsvc", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCLITransport(restMap, app, AppTransport{Name: tt.transport})
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("validateCLITransport(%q) = nil, want an error", tt.transport)
+				}
+
+				if !errors.Is(err, ErrInvalidConfig) {
+					t.Errorf("error should wrap ErrInvalidConfig, got %v", err)
+				}
+
+				for _, want := range []string{tt.transport, app.Name, GeneratorTypeOgenClient} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error should mention %q, got %v", want, err)
+					}
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Errorf("validateCLITransport(%q) = %v, want nil", tt.transport, err)
 			}
 		})
 	}

@@ -232,6 +232,14 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
 		}
 
+		// Validate the image settings of the application: the runtime stage and
+		// the target platforms. A broken value has to fail here and not in the
+		// build of the generated project.
+		if ok, msg := app.Docker.IsValid(); !ok {
+			return config, errors.WithMessage(ErrInvalidConfig,
+				fmt.Sprintf("application[%d] '%s': %s", i, app.Name, msg))
+		}
+
 		// Валидация use_active_record: может быть только false (для отключения AR)
 		if app.UseActiveRecord != nil && *app.UseActiveRecord == true {
 			return config, errors.WithMessage(ErrInvalidConfig,
@@ -251,6 +259,12 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			if !exRest && !exGrpc {
 				return config, errors.WithMessage(ErrInvalidConfig,
 					"unknown transport: "+transport.Name+" in application: "+app.Name)
+			}
+
+			if app.CLI != "" {
+				if err := validateCLITransport(config.RestMap, app, transport); err != nil {
+					return config, err
+				}
 			}
 
 			// Validate instantiation is only allowed for ogen_client
@@ -290,12 +304,26 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			}
 		}
 
+		// Validate the metrics export channel. Checked here and not in
+		// Application.IsValid because deciding it needs the transport
+		// definitions: the sys transport is what serves /metrics.
+		if _, err := config.ResolveAppMetricsExport(app); err != nil {
+			return config, errors.WithMessage(ErrInvalidConfig, err.Error())
+		}
+
 		// Validate Grafana datasource references
 		for _, dsName := range app.Grafana.Datasources {
 			if _, ex := config.GrafanaDatasourceMap[dsName]; !ex {
 				return config, errors.WithMessage(ErrInvalidConfig, "unknown grafana datasource: "+dsName+" in application: "+app.Name)
 			}
 		}
+	}
+
+	// Validate the web section once the applications are normalized: which
+	// directories are actually served is what says where a frontend build
+	// lands, and it is only known from the application transport lists.
+	if ok, msg := ValidateWeb(&config); !ok {
+		return config, errors.WithMessage(ErrInvalidConfig, "invalid config web section: "+msg)
 	}
 
 	// ToDo ws, ...
@@ -326,6 +354,26 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 	config.ConfigFilePath = realConfigPath
 
 	return config, nil
+}
+
+// validateCLITransport checks one transport reference of a CLI application.
+//
+// A CLI tool that calls an HTTP API is an ordinary shape (ops scripts, bots,
+// wrapper agents), and the client it calls has to be hosted by the application
+// that actually runs it: the generated client init belongs in the CLI's main,
+// not in some server's. What a CLI cannot host is an inbound transport — it has
+// no process to listen in, it runs one command and exits — so only rest entries
+// with generator_type: ogen_client are accepted here.
+func validateCLITransport(restMap map[string]Rest, app Application, transport AppTransport) error {
+	rest, isRest := restMap[transport.Name]
+	if isRest && rest.GeneratorType == GeneratorTypeOgenClient {
+		return nil
+	}
+
+	return errors.WithMessage(ErrInvalidConfig, fmt.Sprintf(
+		"transport '%s' in CLI application '%s': a CLI application can only host client transports"+
+			" (rest with generator_type: %s), it has no server to listen in",
+		transport.Name, app.Name, GeneratorTypeOgenClient))
 }
 
 // validateEntityUsage checks that all defined entities (rest, grpc, kafka, drivers, workers)

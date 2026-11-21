@@ -13,6 +13,40 @@ This document describes the deprecation policy for go-project-starter configurat
 
 No active deprecations.
 
+## Breaking changes in config validation
+
+Эти изменения отвергают `project.yaml`, который прежний релиз загружал. Миграция —
+правка конфига, но `go-project-starter migrate` их не трогает: автоматически выбрать
+замену нельзя, в отвергнутой записи нет правильного значения.
+
+### `auth_params` валидируются на загрузке конфига (TOOLS-90, unreleased)
+
+`Rest.IsValid` валидирует секцию `auth_params` там, где она применима, —
+`generator_type: ogen_client`. До этого секция не проверялась **вообще**: валидация жила
+в мёртвой ветке `case "auth_params"` switch-а по `generator_type` (значения
+`auth_params` у `generator_type` не бывает), поэтому опечатка доезжала до генерации,
+а то и до рантайма — клиентом без авторизации.
+
+| Конфиг | Было | Стало | Миграция |
+|--------|------|-------|----------|
+| `auth_params` на `generator_type` ≠ `ogen_client` (`ogen`, `template`, `sys`) | молча игнорировались | ошибка: `auth_params are only supported for generator_type ogen_client` | удалить секцию; аутентификация сервера — `generator_params.auth_handler` / `auth_scheme` |
+| `transport` ≠ `header` | игнорировалось, клиент без `SecuritySource` | ошибка: `auth_params: invalid transport: … (supported: header)` | `transport: header` |
+| `type` вне {`apikey`, `bearer`, `basic`} | то же | ошибка: `auth_params: invalid type: … (supported: apikey, bearer, basic)` | один из поддерживаемых типов (таблица в [transports.md](docs/configuration/transports.md#параметры-аутентификации)) |
+| задано одно поле из двух | то же | ошибка: `auth_params: both transport and type are required` | указать оба поля либо удалить секцию |
+
+**Почему ошибка, а не игнорирование.** Молча проигнорированная настройка
+аутентификации — худший из исходов: проект собирается, клиент ходит во внешний API без
+креденшелов, и выясняется это по 401 в рантайме. Ошибка загрузки конфига называет
+отвергнутое значение и допустимые; имя REST-транспорта в сообщение не попадает (так
+устроены все ошибки секции `rest`), поэтому при нескольких `ogen_client` проверьте
+`auth_params` у каждого.
+
+**Почему не «починить ветку как есть».** Мёртвая проверка разрешала только
+`type: apikey`, тогда как шаблоны поддерживают `apikey`, `bearer` и `basic` (TOOLS-85).
+Перенос ветки без изменений сломал бы валидные проекты с bearer/basic, поэтому список
+допустимых значений теперь один на весь генератор — `ds.SupportedAuthTypes()`, та же
+функция, на которой ветвится `ds.Transport.UsesSecuritySource`.
+
 ## Breaking changes in generated code
 
 Эти изменения касаются не формата `project.yaml`, а **кода, который получает проект**,
@@ -69,6 +103,53 @@ func (w *Worker) customize() {
 (`TestNoInitFuncInGeneratedProjects`); они от конфига проекта не зависят. Если проект
 забирает конфиг линтера себе (`tools.lint_config.own`), запрет `init()` в **его** коде
 остаётся на нём.
+
+### Инициализация метрик у приложений без `sys`-транспорта (TOOLS-94, unreleased)
+
+`application.InitMetrics(mainCtx)` и регистрация коллекторов карты метрик в
+`cmd/<app>/psg_main_gen.go` теперь **безусловны** — раньше они генерировались только у
+приложения с `sys`-транспортом, и приложение без него получало `nil`-реестр, на котором
+middleware REST-транспорта падало (`MustRegister` на `nil`) ещё до первого запроса.
+
+Регенерация такого проекта чинит старт сама. Чинить руками нужно только одно: **ручной
+воркэраунд, если он был**.
+
+| Было в ручном коде | Что делать после регенерации |
+|--------------------|------------------------------|
+| в `GetMiddlewares` транспорта подставлялся `prometheus.NewRegistry()` при `nil` | уберите ветку: реестр больше не `nil` (оставленная ветка просто мертва, компиляции не ломает) |
+| ниже disclaimer-маркера свой вызов `metrics.Register(application.GetMetrics())` | **уберите его** — иначе второй `Register` в тот же реестр вернёт `AlreadyRegisteredError`, и сгенерированный код выйдет с `ExitCodeErrorApp` |
+
+Канал вывода метрик стал объявленным свойством приложения
+(`applications[].metrics.export`: `pull` / `push` / `none`). Ключ необязателен и по умолчанию
+выводится из транспортов, поэтому существующие `project.yaml` менять не нужно —
+[docs/configuration/applications.md](docs/configuration/applications.md#метрики-приложения-metricsexport).
+
+### Цели `test-integration-with-deps` и `test-int-up-deps` (TOOLS-96, unreleased)
+
+Обе цели удалены из сгенерированного `Makefile`: ни одна из них не работала с момента
+появления. `test-integration-with-deps` зависела от цели `test-integration`, которую
+генератор никогда не создавал, а `test-int-up-deps` поднимала compose-сервис `wiremock`,
+которого нет ни в одном сгенерированном compose-файле. Заодно из `go.mod.tmpl` убран
+`github.com/walkerus/go-wiremock` — он был там только ради этих целей, и ни одна строка
+сгенерированного кода его не импортирует (`go mod tidy` выкидывал его и раньше).
+
+**Миграция.** Если проект определил `test-integration` в своей секции (ниже
+disclaimer-маркера) и звал `test-integration-with-deps` — перенесите обёртку туда же, к
+самой цели:
+
+```make
+# ниже disclaimer-маркера, рядом со своей test-integration
+.PHONY: test-integration-with-deps
+test-integration-with-deps: test-int-up-deps test-integration
+
+.PHONY: test-int-up-deps
+test-int-up-deps:
+	docker compose up -d --build --force-recreate <ваш сервис>
+```
+
+Зависимости интеграционных тестов объявляет проект: что именно поднимать, генератор не знает.
+Штатный путь для интеграционных тестов в сгенерированном проекте — GOAT
+(`goat_tests`, цель `goat-tests-<app>`), см. [docs/testing/goat.md](docs/testing/goat.md).
 
 ## Go version policy
 

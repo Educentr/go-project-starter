@@ -64,11 +64,21 @@ func evaluateRef(raw, dir string, allowed map[string]struct{}) refOutcome {
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, base)); err != nil {
+	st, err := os.Stat(filepath.Join(dir, base))
+	if err != nil {
 		if os.IsNotExist(err) {
 			return refOutcome{SkipReason: "sibling not found: " + base}
 		}
 		return refOutcome{SkipReason: "stat sibling: " + err.Error()}
+	}
+
+	// Stat, not Lstat: a sibling that is a symlink to a spec resolves fine for
+	// whoever reads the rewritten ref. What must not pass is a non-file — a
+	// directory named like a spec turns "../common/shared.yaml#/X" into
+	// "./shared.yaml#/X", a ref that resolves to nothing. Existence alone is not
+	// the question being asked here.
+	if !st.Mode().IsRegular() {
+		return refOutcome{SkipReason: "sibling is not a regular file: " + base}
 	}
 
 	newValue := "./" + base

@@ -154,7 +154,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 		"rest-shared-spec-rewrite-refs", "cli-only", "rest-client-basic-auth",
-		"rest-client-mocks", "rest-envs-goat",
+		"rest-client-mocks", "rest-envs-goat", "cli-client", "onlineconf-map",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -596,6 +596,22 @@ func TestIntegrationRESTLogrus(t *testing.T) {
 	runTest(t, "rest-logrus", "rest-logrus")
 }
 
+// TestIntegrationOnlineConfMap builds a project whose OnlineConf key map
+// declares keys of every shape, runtime segments included.
+//
+// The accessor package is generated Go that nothing in this repository compiles:
+// the unit tests parse it and read signatures out of it, which is why a key map
+// could name a runtime segment after an identifier the package uses itself and
+// produce a package that parses, generates and does not build (TOOLS-89). Here
+// the generated project is actually built.
+func TestIntegrationOnlineConfMap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "onlineconf-map", "onlineconf-map")
+}
+
 // TestIntegrationCLIOnly tests CLI-only project generation and then exercises the
 // built binary: the CLI scaffold's help output is only verifiable by running it.
 func TestIntegrationCLIOnly(t *testing.T) {
@@ -605,6 +621,45 @@ func TestIntegrationCLIOnly(t *testing.T) {
 
 	runTest(t, "cli-only", "cli-only")
 	assertCLIHelpBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
+	assertCLIRepeatedFlagBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
+}
+
+// TestIntegrationCLIClient covers a CLI application that consumes an
+// ogen_client (issue #24): a CLI tool calling an HTTP API — ops script, bot,
+// wrapper agent — used to be unrepresentable, because a rest entry had to be
+// hosted by some application and a CLI was not allowed to host one.
+//
+// The CLI wires the client into the service in its own main: it has no HTTP
+// listener and no metrics registry, so it never reaches the runtime's app.Init,
+// where a server application's clients are initialized. Stage 1 (make generate
+// + go mod tidy + go build) is the assertion that matters — that wiring has to
+// compile against the generated service and the ogen client alike. No Docker
+// stage: there is no long-running process to boot.
+func TestIntegrationCLIClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "cli-client", "cli-client")
+
+	// After stage 1, not through runTestWithExtraAssertions: that hook fires
+	// right after the generator, before `make generate` — there is no binary to
+	// run yet. Running one is the only way to see that the client is
+	// initialized at startup rather than handed to the handler as a nil
+	// pointer: the binary has no OnlineConf tree here, so a non-optional client
+	// cannot be built and the command must not run at all.
+	//
+	// Asserted on the two messages that are the wiring, not on the reason the
+	// client was unusable: whether the read reports "URL not configured" (empty
+	// value) or a missing TREE module depends on what onlineconf state the host
+	// happens to have.
+	out := runCLI(t.Context(), t, GetContainer(), "/workspace/output/cli-client", "status")
+	require.Contains(t, out, "can't initialize clients",
+		"the CLI's main must initialize its clients at startup:\n%s", out)
+	require.Contains(t, out, "error init billing client",
+		"the client init has to go through the service's setClients:\n%s", out)
+	require.NotContains(t, out, "is not implemented",
+		"a command must not be dispatched after client init failed:\n%s", out)
 }
 
 // runCLI builds the generated CLI binary (once per call is cheap — the build
@@ -684,6 +739,49 @@ func assertCLIHelpBehavior(ctx context.Context, t *testing.T, container *GolangB
 		require.Contains(t, out, "Requires --email",
 			"%q must print the FULL subcommand description:\n%s", args, out)
 	}
+}
+
+// assertCLIRepeatedFlagBehavior checks that the generated CLI refuses a flag
+// given twice (TOOLS-96 / issue #124 item 3).
+//
+// Behavioral on purpose: the defect was flag.FlagSet's own documented
+// behavior — it keeps the last value and drops the rest — so nothing in the
+// generated source looked wrong, and the only way to see the answer silently
+// change is to ask the binary for it.
+func assertCLIRepeatedFlagBehavior(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	t.Log("Checking a repeated flag is refused rather than resolved to its last value...")
+
+	for _, args := range []string{
+		"migrate --dir up --dir down",     // separate values
+		"migrate --dir=up --dir=down",     // inline values
+		"migrate -dir up --dir down",      // the flag package accepts one dash or two
+		"user create --email a --email b", // on a subcommand too
+	} {
+		out := runCLI(ctx, t, container, outputDir, args)
+		require.Contains(t, out, "is specified more than once",
+			"%q must be refused, not resolved to the last value:\n%s", args, out)
+	}
+
+	// The scan must not mistake a value for a flag of its own: a negative
+	// number is the ordinary case, and counting it as a repeat would reject a
+	// command line that is perfectly well formed.
+	t.Log("Checking a value that looks like a flag is not counted as one...")
+
+	negative := runCLI(ctx, t, container, outputDir, "migrate --dir -1 --steps -1")
+	require.NotContains(t, negative, "is specified more than once",
+		"a value starting with '-' must not be counted as a repeated flag:\n%s", negative)
+
+	// Distinct flags of the same command stay acceptable; the only error left
+	// is the unimplemented handler the scaffold ships.
+	t.Log("Checking distinct flags still parse...")
+
+	distinct := runCLI(ctx, t, container, outputDir, "migrate --dir up --steps 3")
+	require.NotContains(t, distinct, "is specified more than once",
+		"distinct flags must parse:\n%s", distinct)
+	require.Contains(t, distinct, "is not implemented",
+		"distinct flags must reach the handler:\n%s", distinct)
 }
 
 // assertSpecDownloaded verifies that the named OpenAPI spec was materialized

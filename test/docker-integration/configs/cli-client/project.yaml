@@ -1,0 +1,44 @@
+# A CLI application that consumes an ogen_client.
+#
+# A CLI tool calling an HTTP API (ops script, bot, wrapper agent) used to be
+# rejected by config validation: "CLI application cannot have transports",
+# while every rest entry has to be referenced by some application. The only way
+# out was to bind the client to a server application that never called it, which
+# put the generated client init in the wrong process (issue #24).
+#
+# Fixture for TestIntegrationCLIClient: the point is that the generated CLI main
+# wires the client into the service itself — a CLI never reaches the runtime's
+# app.Init — and that the result compiles.
+main:
+  name: cliclienttest
+  logger: zerolog
+  registry_type: github
+
+git:
+  repo: git@github.com:test/cliclienttest.git
+  module_path: github.com/test/cliclienttest
+
+tools:
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: billing
+    path:
+      - ./api.swagger.yml
+    version: v1
+    generator_type: ogen_client
+
+cli:
+  - name: admin
+    path:
+      - ./commands.yaml
+    generator_type: template
+    generator_template: cli
+
+applications:
+  - name: admin-cli
+    cli: admin
+    transport:
+      - name: billing

@@ -254,6 +254,45 @@ func TestTransport_UsesSecuritySource(t *testing.T) {
 	}
 }
 
+func TestIsSupportedAuthType(t *testing.T) {
+	tests := []struct {
+		authType string
+		want     bool
+	}{
+		{authType: AuthTypeAPIKey, want: true},
+		{authType: AuthTypeBearer, want: true},
+		{authType: AuthTypeBasic, want: true},
+		{authType: "oauth2", want: false},
+		{authType: "APIKEY", want: false},
+		{authType: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.authType, func(t *testing.T) {
+			if got := IsSupportedAuthType(tt.authType); got != tt.want {
+				t.Errorf("IsSupportedAuthType(%q) = %v, want %v", tt.authType, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSupportedAuthTypesMatchSecuritySource keeps the advertised list and the
+// client templates' branch condition in sync: every type the list names must
+// make the client emit a SecuritySource, and nothing outside the list may.
+func TestSupportedAuthTypesMatchSecuritySource(t *testing.T) {
+	for _, authType := range SupportedAuthTypes() {
+		tr := Transport{AuthParams: AuthParams{Transport: AuthTransportHeader, Type: authType}}
+		if !tr.UsesSecuritySource() {
+			t.Errorf("auth type %q is advertised as supported but emits no SecuritySource", authType)
+		}
+	}
+
+	tr := Transport{AuthParams: AuthParams{Transport: AuthTransportHeader, Type: "oauth2"}}
+	if tr.UsesSecuritySource() {
+		t.Error("unsupported auth type must not emit a SecuritySource")
+	}
+}
+
 func TestApp_GetRestTransport(t *testing.T) {
 	app := App{
 		Transports: Transports{
@@ -272,6 +311,38 @@ func TestApp_GetRestTransport(t *testing.T) {
 	// Results should be sorted by name
 	if len(got) >= 2 && got[0].Name != "api" {
 		t.Errorf("App.GetRestTransport() not sorted, got %q first", got[0].Name)
+	}
+}
+
+// TestApp_GetRestServerTransport covers the listening half of the app's REST
+// transports (TOOLS-96). A client has no port of its own — it dials one — so
+// everything describing the app's listening surface has to leave it out rather
+// than render the zero value it carries.
+func TestApp_GetRestServerTransport(t *testing.T) {
+	app := App{
+		Transports: Transports{
+			"api":     Transport{Name: "api", Type: RestTransportType, Port: "8080", GeneratorType: "ogen"},
+			"sys":     Transport{Name: "sys", Type: RestTransportType, Port: "8085", GeneratorType: "template"},
+			"billing": Transport{Name: "billing", Type: RestTransportType, GeneratorType: "ogen_client"},
+			"items":   Transport{Name: "items", Type: GrpcTransportType, GeneratorType: "buf_client"},
+		},
+	}
+
+	got := app.GetRestServerTransport()
+
+	names := make([]string, 0, len(got))
+	for _, transport := range got {
+		names = append(names, transport.Name)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("App.GetRestServerTransport() returned %v, want the two server transports", names)
+	}
+
+	for _, transport := range got {
+		if transport.Port == "" {
+			t.Errorf("App.GetRestServerTransport() returned %q with no port", transport.Name)
+		}
 	}
 }
 
@@ -740,6 +811,71 @@ func TestApp_HasSysTransport(t *testing.T) {
 	}
 }
 
+// TestApp_HasRestServer pins the distinction the import gate of main rests on:
+// a REST transport is not necessarily a REST server. Only a server gets a
+// rest.NewServer initializer, and only then does main use the server runtime.
+func TestApp_HasRestServer(t *testing.T) {
+	tests := []struct {
+		name string
+		app  App
+		want bool
+	}{
+		{
+			name: "no transports",
+			app:  App{},
+			want: false,
+		},
+		{
+			name: "only a rest client",
+			app: App{
+				Transports: Transports{
+					"billing": Transport{Name: "billing", Type: RestTransportType, GeneratorType: "ogen_client"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "ogen server",
+			app: App{
+				Transports: Transports{
+					"api": Transport{Name: "api", Type: RestTransportType, GeneratorType: "ogen"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "template server next to a client",
+			app: App{
+				Transports: Transports{
+					"billing": Transport{Name: "billing", Type: RestTransportType, GeneratorType: "ogen_client"},
+					"sys": Transport{
+						Name: "sys", Type: RestTransportType,
+						GeneratorType: "template", GeneratorTemplate: "sys",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "a grpc server is not a rest server",
+			app: App{
+				Transports: Transports{
+					"orders": Transport{Name: "orders", Type: GrpcTransportType, GeneratorType: "buf"},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.app.HasRestServer(); got != tt.want {
+				t.Errorf("App.HasRestServer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApp_HasStaticTransport(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1116,5 +1252,66 @@ func TestApps_HasMocks(t *testing.T) {
 
 	if got := (Apps{withoutMocks, withMocks}).HasMocks(); !got {
 		t.Error("Apps.HasMocks() = false, want true when any application gets mock scaffolding")
+	}
+}
+
+// The ports the generated REST configuration provider falls back to: the ones
+// project.yaml declares, keyed by the server name the runtime hands back.
+func TestApps_RESTServerPorts(t *testing.T) {
+	apps := Apps{
+		{
+			Name: "web",
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", PkgName: "api_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8080",
+				},
+				"sys": Transport{
+					Name: "sys", PkgName: "sys_v1", Type: RestTransportType,
+					GeneratorType: "template", Port: "8085",
+				},
+				// A client reads the host of an upstream, not a port of its own.
+				"billing": Transport{
+					Name: "billing", PkgName: "billing_v1", Type: RestTransportType,
+					GeneratorType: "ogen_client", Port: "9000",
+				},
+				// No port declared: defaulting to zero would make the server
+				// listen on a port nobody asked for.
+				"legacy": Transport{
+					Name: "legacy", PkgName: "legacy_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "0",
+				},
+				"draft": Transport{
+					Name: "draft", PkgName: "draft_v1", Type: RestTransportType,
+					GeneratorType: "ogen",
+				},
+				// Another protocol entirely.
+				"items": Transport{Name: "items", Type: GrpcTransportType, Port: "8090"},
+			},
+		},
+		{
+			// The same server served by a second application is one entry.
+			Name: "admin",
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", PkgName: "api_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8080",
+				},
+			},
+		},
+	}
+
+	got := apps.RESTServerPorts()
+
+	want := []RESTServerPort{{Server: "api_v1", Port: "8080"}, {Server: "sys_v1", Port: "8085"}}
+
+	if len(got) != len(want) {
+		t.Fatalf("Apps.RESTServerPorts() = %+v, want %+v", got, want)
+	}
+
+	for i, server := range want {
+		if got[i] != server {
+			t.Errorf("Apps.RESTServerPorts()[%d] = %+v, want %+v", i, got[i], server)
+		}
 	}
 }

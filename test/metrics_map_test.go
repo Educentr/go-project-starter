@@ -132,7 +132,9 @@ func TestGenerateMetricsMap(t *testing.T) {
 	// on its own.
 	for _, want := range []string{
 		"func Register(reg prometheus.Registerer) error",
+		"func RegisterFor(app string, reg prometheus.Registerer) error",
 		"func Collectors() []prometheus.Collector",
+		"func CollectorsFor(app string) ([]prometheus.Collector, bool)",
 		"func Unregister(reg prometheus.Registerer)",
 	} {
 		if !strings.Contains(metricsFile, want) {
@@ -147,20 +149,21 @@ func TestGenerateMetricsMap(t *testing.T) {
 	// Registration is wired into the generated main next to InitMetrics.
 	mainFile := readGenerated(t, tmpDir, "cmd", "api", "psg_main_gen.go")
 
-	if !strings.Contains(mainFile, "metrics.Register(application.GetMetrics())") {
-		t.Error("generated main should register the declared collectors")
+	if !strings.Contains(mainFile, `metrics.RegisterFor("api", application.GetMetrics())`) {
+		t.Error("generated main should register the collectors this application publishes")
 	}
 
 	if !strings.Contains(mainFile, `"github.com/test/metricstest/internal/pkg/metrics"`) {
 		t.Error("generated main should import the generated collector package")
 	}
 
-	// The second application has no sys transport, so no /metrics endpoint and
-	// no registry to register into. It must get neither the call nor the
-	// import — an import it never uses would not compile.
+	// The second application has no sys transport, so no /metrics endpoint for
+	// main to register onto, and this map names no application, so nothing is
+	// addressed to it either. It must get neither the call nor the import — an
+	// import it never uses would not compile.
 	workerMain := readGenerated(t, tmpDir, "cmd", "worker", "psg_main_gen.go")
 
-	if strings.Contains(workerMain, "metrics.Register(") {
+	if strings.Contains(workerMain, "metrics.RegisterFor(") {
 		t.Error("an application without a /metrics endpoint should not register collectors")
 	}
 
@@ -423,7 +426,10 @@ func TestGenerateWithoutMetricsMap(t *testing.T) {
 
 	mainFile := readGenerated(t, tmpDir, "cmd", "api", "psg_main_gen.go")
 
-	if strings.Contains(mainFile, "metrics.Register(") {
+	// Matched without the open paren on purpose: `metrics.Register(` would not
+	// catch `metrics.RegisterFor(`, and the guard has to hold whichever form
+	// the template emits.
+	if strings.Contains(mainFile, "metrics.Register") {
 		t.Error("no metrics map should mean no registration call in the generated main")
 	}
 }

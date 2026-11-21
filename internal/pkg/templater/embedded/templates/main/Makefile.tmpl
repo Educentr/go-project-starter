@@ -92,6 +92,10 @@ endif
 # Docker variables
 REGISTRY_SERVER ?= {{ .Docker.ImagePrefix }}
 DOCKER_TAG ?= $(ENVIRONMENT_PREFIX)$(RELEASE)-$(LAST_COMMIT_HASH)
+{{- if .Applications.HasDockerPlatforms }}
+# Buildx builder the cross-built images are built with (see buildx-builder).
+BUILDX_BUILDER ?= $(SERVICE_NAME)-builder
+{{- end }}
 {{- if .Docker.BuildArgs }}
 # Docker build arguments (docker.build_args in project.yaml). Each is passed to
 # `docker build` as --build-arg; `?=` keeps an environment or command line
@@ -154,6 +158,21 @@ SOURCE_REF ?=
 .PHONY: regenerate
 regenerate:
 	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD}$(foreach ref,$(SOURCE_REF), --sourceRef $(ref))
+
+# Verify that the generated area of the tree still matches the manifest in
+# .project-config/meta.yaml, without generating anything. Fails on a hand edit
+# above a disclaimer marker, on an edited copied spec and on a deleted
+# generated file; code below a marker is yours and is never compared.
+#
+# Meant as a CI gate: unlike "regenerate and diff" it reads only the manifest
+# and the tree, so it needs no access to the contract repositories and does not
+# turn red because a contract moved on there.
+#
+# Runs GPSVERSION — the hashes can only be compared against the generator that
+# wrote them. SOURCE_REF is not passed on purpose: no source is resolved.
+.PHONY: check-generated
+check-generated:
+	go run $(GPSPKG)@$(GPSVERSION) --target ${PWD} --check
 
 # Raise the generator pin. The version given here regenerates the project and,
 # being the generator that produced the tree, writes itself into GPSVERSION
@@ -261,17 +280,6 @@ onlineconf-validate: install-lint
 coverage:
 	go test -timeout=$(TEST_TIMEOUT) -v -coverprofile=coverage.out $(PKG_LIST_FOR_TEST)  && go tool cover -html=coverage.out
 
-# Run an integration testing with all dependencies using a single command
-.PHONY: test-integration-with-deps
-test-integration-with-deps: test-int-up-deps test-integration
-
-# Up all dependencies required for an integration testing
-.PHONY: test-int-up-deps
-test-int-up-deps:
-	@echo "Up testing dependencies: \n"
-	docker compose up -d --build --force-recreate wiremock
-	@echo "Successful up testing dependencies"
-
 # Run unit testing (excludes GOAT integration tests)
 .PHONY: unit-tests
 unit-tests:
@@ -290,7 +298,16 @@ test: unit-tests
 .PHONY: dep-ci
 dep-ci: ## Install dependencies
 	GOPRIVATE=$(GOPRIVATE) go mod download
-
+{{ if .Applications.HasDockerPlatforms }}
+# Buildx builder the cross-built images are built with. The default "docker"
+# builder cannot build for another platform and cannot hold an image index, so
+# those images need the docker-container driver. Created on first use and
+# reused afterwards; `docker buildx rm $(BUILDX_BUILDER)` drops it.
+.PHONY: buildx-builder
+buildx-builder:
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || \
+		docker buildx create --name $(BUILDX_BUILDER) --driver docker-container --bootstrap >/dev/null
+{{ end }}
 {{ range $_, $a := .Applications }}
 {{ if $a.HasDocker -}}
 # Build service {{ $a.Name }} in container
@@ -299,13 +316,31 @@ build_in_docker-{{ $a.Name }}:
 	go build -o bin/{{ $a.Name }} -ldflags="$(LD_FLAGS)" $(PWD)/cmd/{{ $a.Name }}
 
 # Build docker image for service {{ $a.Name }}
+{{ if $a.Docker.HasPlatforms -}}
+# Cross-built for {{ $a.Docker.PlatformList }} (docker.platforms of the application).
+{{- if $a.Docker.MultiPlatform }}
+# The result is an image index, which the local image store cannot hold, so this
+# target only fills the builder cache; the push target below publishes it.
+{{- end }}
+.PHONY: docker-{{ $a.Name }}
+docker-{{ $a.Name }}: buildx-builder
+	docker buildx build . --builder $(BUILDX_BUILDER){{ $a.Docker.PlatformFlag }}{{ $a.Docker.BuildOutputFlag }} -f ./Dockerfile-{{ $a.Name }} --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+{{ else -}}
 .PHONY: docker-{{ $a.Name }}
 docker-{{ $a.Name }}:
 	DOCKER_BUILDKIT=1 docker build . -f ./Dockerfile-{{ $a.Name }} --rm --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
-
+{{ end }}
+{{ if $a.Docker.MultiPlatform -}}
+# An image index cannot be pushed from the local store, so publishing it is a
+# build as well: it reuses the cache the target above filled.
+.PHONY: docker-{{ $a.Name }}-push
+docker-{{ $a.Name }}-push: buildx-builder
+	docker buildx build . --builder $(BUILDX_BUILDER){{ $a.Docker.PlatformFlag }} --push -f ./Dockerfile-{{ $a.Name }} --secret id=github_token,env=GITHUB_TOKEN{{ $.Docker.BuildArgFlags }} -t $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+{{ else -}}
 .PHONY: docker-{{ $a.Name }}-push
 docker-{{ $a.Name }}-push:
 	docker push $(REGISTRY_SERVER)/$(SERVICE_NAME)-{{ $a.Name }}:${DOCKER_TAG}
+{{ end -}}
 {{ end }}
 # Run service {{ $a.Name }}
 .PHONY: run-{{ $a.Name }}
@@ -787,9 +822,32 @@ generate-{{ $cg.Name }}:
 lint-{{ $cg.Name }}:
 {{ range $_, $cmd := $cg.Lints }}	{{ $cmd }}
 {{ end }}
+{{ end }}{{ end }}{{ range $_, $w := .WebApps }}# Frontend '{{ $w.Name }}', declared in the `web` section of
+# .project-config/project.yaml. Every command runs in {{ $w.Dir }}, where the
+# frontend's own manifest lives, and the build writes into {{ $w.Output }} —
+# the directory the static transport serves.
+#
+# The image does not depend on these targets: the Dockerfile builds the
+# frontend in its own node stage, so `make docker-<app>` needs no node on the
+# host. They are the local loop (`make run-<app>` against a built frontend)
+# and the codegen that keeps the committed client in step with the specs.
+{{ if $w.Install }}.PHONY: install-web-{{ $w.Name }}
+install-web-{{ $w.Name }}:
+	cd {{ $w.Dir }} && {{ $w.Install }}
+
+{{ end }}.PHONY: build-web-{{ $w.Name }}
+build-web-{{ $w.Name }}:
+	cd {{ $w.Dir }} && {{ $w.Build }}
+
+{{ if $w.HasCodegen }}# Client generated from the project's own copies of the inputs this frontend
+# consumes — the specs the generator already fetched, not a second copy.
+.PHONY: generate-web-{{ $w.Name }}
+generate-web-{{ $w.Name }}:
+{{ range $_, $cmd := $w.CodegenCmds }}	cd {{ $w.Dir }} && {{ $cmd }}
+{{ end }}
 {{ end }}{{ end }}# Install dependencies for tools
 .PHONY: install-tools
-install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Install }}install-{{ $cg.Name }} {{ end }}{{ end }}install-goimports
+install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $proto true }}install-buf install-protoc-gen-go-grpc {{ end }}{{ if eq $ogen true }}install-ogen {{ end }}{{ if .UseActiveRecord }}install-argen {{ end }}{{ if eq $jsonschema true }}install-go-jsonschema {{ end }}{{ if eq $pg true }}install-sqlc {{ end }}{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Install }}install-{{ $cg.Name }} {{ end }}{{ end }}{{ range $_, $w := .WebApps }}{{ if $w.Install }}install-web-{{ $w.Name }} {{ end }}{{ end }}install-goimports
 
 # Run every code generator of the project.
 # generate-mocks comes last: the mocks mirror the ogen interfaces regenerated by
@@ -798,7 +856,7 @@ install-tools: install-hooks install-onlineconf-updater install-lint {{ if eq $p
 #TODO: enable ansible generator after debugging
 #generate-ansible
 .PHONY: generate
-generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}{{ if .Applications.HasMocks }}generate-mocks{{ end }}
+generate: proto {{ if $ogen }}generate-ogen {{ end }}{{ if eq $sqlc true }}sqlc {{ end }}{{ if .UseActiveRecord }}generate-argen {{ end }}{{ if eq $jsonschema true }}generate-jsonschema {{ end }}{{ range $_, $cg := .CustomGenerators }}generate-{{ $cg.Name }} {{ end }}{{ range $_, $w := .WebApps }}{{ if $w.HasCodegen }}generate-web-{{ $w.Name }} {{ end }}{{ end }}{{ if .Applications.HasMocks }}generate-mocks{{ end }}
 
 .PHONY: download
 download:

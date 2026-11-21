@@ -3,6 +3,8 @@ package templater
 import (
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1152,6 +1154,55 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 		}
 	})
 
+	t.Run("walk does not descend into a symlinked directory", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		// The reported case: a sibling repo clone symlinked into the project root
+		// so that dev and CI paths stay identical. Its files are not the project's,
+		// and some of them legitimately carry the disclaimer string — descending
+		// would classify those as stale generated files, and a stale generated file
+		// without user code below the marker gets deleted.
+		sibling := filepath.Join(baseDir, "sibling")
+		writeFile(t, filepath.Join(sibling, "psg_old_gen.go"), "package main\n\n"+disclaimerLine+"\n")
+		writeFile(t, filepath.Join(sibling, "sub", "psg_nested_gen.go"), "package main\n\n"+disclaimerLine+"\n")
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		link := filepath.Join(tmpDir, ".rules")
+		if err := os.Symlink(sibling, link); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		inside := link + string(filepath.Separator)
+
+		for name, set := range map[string]map[string]struct{}{
+			"ObsoleteFiles":  filesDiff.ObsoleteFiles,
+			"OtherFiles":     filesDiff.OtherFiles,
+			"OtherDirectory": filesDiff.OtherDirectory,
+			"IgnoreFiles":    filesDiff.IgnoreFiles,
+		} {
+			for path := range set {
+				if strings.HasPrefix(path, inside) {
+					t.Errorf("walk descended into the symlinked directory: %s in %s", path, name)
+				}
+			}
+		}
+
+		for path := range filesDiff.UserContent {
+			if strings.HasPrefix(path, inside) {
+				t.Errorf("walk read content behind the symlink: %s", path)
+			}
+		}
+	})
+
 	t.Run("symlink to a regular file goes to OtherFiles and is not read", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
@@ -2005,17 +2056,65 @@ func TestOgenClientAuthTemplate(t *testing.T) {
 	}
 }
 
-// TestOgenClientAuthTemplateUnsupportedType asserts the template still fails
-// loudly for auth types that have no SecuritySource branch, instead of
+// TestOgenClientAuthTemplateUnsupportedAuthParams asserts the template still fails
+// loudly for auth_params that have no SecuritySource branch, instead of
 // emitting a wrapper that cannot compile.
-func TestOgenClientAuthTemplateUnsupportedType(t *testing.T) {
-	_, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("header", "oauth2", "static"))
-	if err == nil {
-		t.Fatal("rendering auth.go.tmpl with an unsupported auth type should fail")
+func TestOgenClientAuthTemplateUnsupportedAuthParams(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		authTransport string
+		authType      string
+	}{
+		{name: "unsupported type", authTransport: "header", authType: "oauth2"},
+		{name: "unsupported transport", authTransport: "query", authType: "apikey"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams(tt.authTransport, tt.authType, "static"))
+			if err == nil {
+				t.Fatal("rendering auth.go.tmpl with unsupported auth_params should fail")
+			}
+
+			if !strings.Contains(err.Error(), "unsupported auth_params") {
+				t.Errorf("error should name the unsupported auth_params, got: %v", err)
+			}
+
+			// Both halves of auth_params go into the message: an
+			// unsupported transport with a supported type used to be
+			// reported as an unsupported type.
+			for _, want := range []string{tt.authTransport, tt.authType} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error should mention %q, got: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// TestOgenClientAuthTemplateWithoutAuthParams covers a client to an API that
+// needs no authentication. There is no SecuritySource to declare, so the
+// wrapper has to come out as a bare package clause: the imports used to be
+// emitted unconditionally, which left the file with four unused imports and
+// made the generated project fail to compile.
+func TestOgenClientAuthTemplateWithoutAuthParams(t *testing.T) {
+	content, err := renderOgenClientTmpl(t, "auth.go.tmpl", ogenClientAuthParams("", "", "static"))
+	if err != nil {
+		t.Fatalf("rendering auth.go.tmpl without auth params failed: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "Unsupported auth type") {
-		t.Errorf("error should mention the unsupported auth type, got: %v", err)
+	file, err := parser.ParseFile(token.NewFileSet(), "auth.go", content, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("auth.go without auth params does not parse: %v\n%s", err, content)
+	}
+
+	if len(file.Imports) != 0 {
+		t.Errorf("auth.go without auth params must import nothing, got %d imports:\n%s", len(file.Imports), content)
+	}
+
+	// Nothing but the package clause and the disclaimer comments: a
+	// SecuritySource here would be a type ogen's NewClient is never handed
+	// (see TestOgenClientPassesSecuritySource).
+	if strings.Contains(content, "SecuritySource") {
+		t.Errorf("auth.go without auth params must not declare SecuritySource, got:\n%s", content)
 	}
 }
 
@@ -2150,10 +2249,14 @@ func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
 	data := struct {
 		UseActiveRecord  bool
 		CustomGenerators ds.CustomGenerators
+		WebApps          ds.WebApps
 		Applications     ds.Apps
 	}{
 		UseActiveRecord:  true,
 		CustomGenerators: ds.CustomGenerators{{Name: "runtime_limits_ts"}},
+		// A frontend contributes a prerequisite only when it declares a
+		// codegen, which is what rendered commands mean.
+		WebApps: ds.WebApps{{Name: "admin", CodegenCmds: []string{"npx openapi-typescript spec.yml"}}},
 		// An application that gets mock scaffolding (GOAT tests + an
 		// ogen_client transport) is what turns generate-mocks on.
 		Applications: ds.Apps{{
@@ -2170,7 +2273,7 @@ func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
 
 	for _, want := range []string{
 		"proto", "generate-ogen", "sqlc", "generate-argen",
-		"generate-jsonschema", "generate-runtime_limits_ts", "generate-mocks",
+		"generate-jsonschema", "generate-runtime_limits_ts", "generate-web-admin", "generate-mocks",
 	} {
 		if !slices.Contains(prereqs, want) {
 			t.Errorf("generate: prerequisites %q must contain %q as a separate target", prereqs, want)

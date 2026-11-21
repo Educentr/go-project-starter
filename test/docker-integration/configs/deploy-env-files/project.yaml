@@ -1,0 +1,55 @@
+# Two applications with use_envs: true, only one of which ships a docker image.
+#
+# The deploy job waits for a create_<app>_env_files job per use_envs
+# application, and that job is declared by the project itself in the user
+# section of the workflow. deploy only ever ships docker artifacts, so for an
+# application without one there is nothing to wait for — and a needs entry
+# naming a job nobody declared makes the whole workflow invalid.
+main:
+  name: deploy-env-files
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/deploy-env-files.git
+  module_path: github.com/test/deploy-env-files
+
+tools:
+  golang_version: "1.27"
+  golangci_version: 2.1.6
+
+packaging:
+  maintainer: Test <test@example.com>
+  description: Deploy env files fixture
+
+rest:
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+worker:
+  - name: daemon
+    generator_type: template
+    generator_template: daemon
+
+applications:
+  # Ships a docker image: deploy waits for its env file.
+  - name: shipped
+    use_envs: true
+    artifacts:
+      - docker
+    transport:
+      - name: sys
+  # Package only: deploy never ships it, so it must not appear in needs.
+  - name: packaged
+    use_envs: true
+    artifacts:
+      - deb
+    transport:
+      - name: sys
+    worker:
+      - daemon

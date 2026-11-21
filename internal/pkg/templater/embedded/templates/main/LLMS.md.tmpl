@@ -73,6 +73,7 @@ make lint-full                # Lint entire codebase
 make lint-fix                 # Auto-fix linting issues
 make generate                 # Run all code generators (ogen, protobuf, mocks{{ if .UseActiveRecord }}, argen{{ end }})
 make regenerate               # Full project regeneration via go-project-starter $(GPSVERSION)
+make check-generated          # Verify the generated area was not hand-edited (writes nothing)
 make update-starter STARTER_VERSION=vX.Y.Z  # Regenerate with another generator version and record it
 ```
 
@@ -80,6 +81,12 @@ The generator is pinned in the Makefile as `GPSVERSION` — the version that pro
 `make regenerate` fetches exactly it, so no pre-installed `go-project-starter` is required, and
 regenerating is expected to leave the tree unchanged. Never edit that line by hand: it is written
 by the generator, and `make update-starter` is what raises it.
+
+`make check-generated` compares the tree against the manifest in `.project-config/meta.yaml` and
+fails, naming the file and both hashes, when code above a disclaimer marker was edited, a copied
+spec under `api/` was edited in place, or a generated file was deleted. Code **below** a marker is
+yours and is never compared. Run it after editing generated files: it tells a change that survives
+`make regenerate` from one that is about to be thrown away.
 
 ## Code Generation
 
@@ -184,7 +191,7 @@ worker:
     # path:
     #   - ./queues.yaml        # Queue contract spec (required for queue template)
 
-# ── CLI (exclusive — no transport/worker in same app) ──────────────
+# ── CLI (no inbound transport, no worker; ogen_client allowed) ─────
 
 cli:
   - name: admin                # REQUIRED. Unique name
@@ -243,9 +250,12 @@ applications:
         optional: true         # Optional. Driver is not required to start
     goat_tests: true           # Optional. Enable GOAT integration tests
     use_active_record: false   # Optional. Can only be false (to disable AR for this app)
-  # CLI application — exclusive: no transport or worker allowed
+  # CLI application — no inbound transport, no worker. It may host the
+  # clients it calls (rest with generator_type: ogen_client).
   # - name: admin-cli
   #   cli: admin               # References a defined CLI
+  #   transport:
+  #     - name: billing        # Must be a rest entry with generator_type: ogen_client
 
 # ── Optional sections (omitted = sensible defaults) ────────────────
 
@@ -267,7 +277,7 @@ post_generate:                 # Steps to run after generation
 
 - **Every entity must be used**: every REST, gRPC, worker, driver, CLI, and Kafka definition must be referenced in at least one application. Orphaned entities cause errors.
 - **Non-CLI apps need transport**: every application (except CLI apps) must have at least one transport.
-- **CLI apps are exclusive**: an application with `cli` cannot have `transport` or `worker`.
+- **CLI apps serve nothing**: an application with `cli` cannot have `worker`, and of transports it may only host clients (`rest` with `generator_type: ogen_client`) — it has no server to listen in. The client is initialized in the CLI's own main.
 - **ogen/ogen_client need `path`**: list of OpenAPI spec files that must exist on disk.
 - **template needs `generator_template`**: e.g., `sys`, `static`, `telegram`, `daemon`, `queue`, `cli`.
 - **static file server (`generator_template: static`)**: serves files from `dir` (default `static/`) at `route` (default `/static/`) with NO auth, on its own port. Drop assets into `static/` — they are copied into the image by the Dockerfile and are NOT managed by the generator.
@@ -558,13 +568,14 @@ ALL new workers MUST have an `enabled` flag in OnlineConf set to `false`.
 
 The flag is a key like any other, so it goes in the service key map (see "Declared keys
 only" below) — reading OnlineConf any other way is rejected by `make onlineconf-validate`.
-Put it in the service's own subtree, NOT under `/<service>/worker/<name>/`: that subtree
-belongs to the generated worker, and `configs/onlineconf-tree.yaml` shows which paths are
-already taken.
+It belongs in the worker's own subtree, `/<service>/worker/<name>/`: the generated worker
+reads some paths there (`batch_size`, `jobs/enabled`, the job timeouts), and the rest of the
+subtree is yours. `configs/onlineconf-tree.yaml` shows which paths are already taken — the
+map is rejected if a declaration collides with one of them.
 
 ```yaml
 # in the OnlineConf key map `onlineconf.path` points at
-  - path: /<service>/jobs/<worker name>/enabled
+  - path: /<service>/worker/<worker name>/enabled
     type: bool
     default: false
     description: Whether this worker runs at all.
@@ -572,7 +583,7 @@ already taken.
 
 ```go
 func (w *Worker) GetTasks(ctx context.Context, lastJobState any) ([]daemon.ITask, any, error) {
-    enabled, err := {{ .OnlineConf.GetPackageName }}.Jobs<WorkerName>Enabled(ctx)
+    enabled, err := {{ .OnlineConf.GetPackageName }}.Worker<WorkerName>Enabled(ctx)
     if err != nil || !enabled {
         return nil, nil, nil
     }
@@ -701,11 +712,30 @@ service's own, from a contract repository.
   second way in
 - Subscribing to changes: `{{ .OnlineConf.GetPackageName }}.Subscribe(ctx, []string{...}, cb)`,
   with a `Path*` constant or the `<Name>Path(...)` builder of the key
+- A key whose path is only complete at runtime (an account id, an action name) is declared with
+  that segment in angle brackets — `/<service>/account/<account>/quota` — and the segment becomes
+  a parameter: `{{ .OnlineConf.GetPackageName }}.AccountQuota(ctx, accountID)`. Such a key has no
+  `Path*` constant (its path is an argument), cannot be `required`, and is not in `Paths()`.
+  The name of the segment names that parameter, so it cannot be a Go keyword or an identifier
+  the generated package uses itself (`ctx`, `dst`, `path`, `v`, `err`, `fmt`, …) — the map is
+  rejected at generation time, and renaming the segment changes nothing but the parameter.
+  Composing that path yourself instead is the thing the validator rejects
 - `configs/onlineconf-tree.yaml` lists the **whole** OnlineConf surface of this service:
   the service's declarations (`origin: service`) plus the paths generated code reads
   (`origin: generated`, with `read_by` naming the template). A key with
   `origin: generated` cannot be added to the key map — it already has an accessor, named
   in the row. Read it before adding a key, and diff it after regenerating
+- Rows marked `required_at_init: true` are the keys this service does **not start**
+  without, framework keys included, already filtered down to the ones this project's
+  settings actually need. That is the list whoever seeds the tree has to set — check it
+  in CI (`yq '.keys[] | select(.required_at_init) | .path' configs/onlineconf-tree.yaml`)
+  rather than finding out from a crash loop. A REST server port is NOT among them: it
+  defaults to the port declared in `project.yaml`. `optional: true` removes a component's
+  keys from the list only when **every** application that wires it says so — the
+  application that wired it without `optional` still refuses to start, and
+  `{{ .OnlineConf.GetPackageName }}.CheckRequired` carries exactly that application's check.
+  A Kafka client's `brokers` answers for every producer configured under that client, so it
+  leaves the list only when all of them are optional everywhere
 {{- if .DevStand }}
 
 ## Dev Environment

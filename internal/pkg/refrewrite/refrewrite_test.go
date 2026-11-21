@@ -419,7 +419,19 @@ func TestEvaluateRefAlgorithm(t *testing.T) {
 	}
 	must("common.yaml")
 
-	allowed := map[string]struct{}{"common.yaml": {}}
+	// A directory named like a spec: existence alone would make the ref eligible,
+	// and the rewritten "./dir.yaml#/X" would resolve to nothing.
+	if err := os.Mkdir(filepath.Join(dir, "dir.yaml"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// A symlink to a spec is a fine rewrite target: whoever resolves the
+	// rewritten ref follows it just as os.Stat does.
+	if err := os.Symlink(filepath.Join(dir, "common.yaml"), filepath.Join(dir, "link.yaml")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	allowed := map[string]struct{}{"common.yaml": {}, "dir.yaml": {}, "link.yaml": {}}
 
 	tests := []struct {
 		raw     string
@@ -435,6 +447,8 @@ func TestEvaluateRefAlgorithm(t *testing.T) {
 		{raw: "../common/common.yaml", want: "./common.yaml", rewrote: true, skip: false},
 		{raw: "sub/common.yaml#/X", want: "./common.yaml#/X", rewrote: true, skip: false},
 		{raw: "../missing/zzz.yaml#/X", want: "", rewrote: false, skip: true},
+		{raw: "../common/dir.yaml#/X", want: "", rewrote: false, skip: true},
+		{raw: "../common/link.yaml#/X", want: "./link.yaml#/X", rewrote: true, skip: false},
 	}
 
 	for _, tc := range tests {
@@ -484,6 +498,80 @@ func TestWarningTaggedByFilename(t *testing.T) {
 	sort.Strings(names)
 	if !strings.HasPrefix(names[0], "owner_a.yaml") || !strings.HasPrefix(names[1], "owner_b.yaml") {
 		t.Errorf("warnings not properly tagged by filename: %v", names)
+	}
+}
+
+// TestNonRegularEntriesSkipped covers the scan's lstat blind spot: os.ReadDir
+// reports a symlink with IsDir() == false, so a link carrying a spec extension
+// used to reach os.ReadFile. Pointing at a directory that failed the whole run
+// with "is a directory"; pointing at a regular file the write-back followed the
+// link and rewrote a file outside the project tree.
+func TestNonRegularEntriesSkipped(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+
+	// Both link targets live outside the scanned directory, as a symlinked
+	// sibling repo clone would.
+	outsideDir := filepath.Join(base, "outside", "specs")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	outsideSpec := filepath.Join(base, "outside", "shared.yaml")
+	outsideContent := "x:\n  $ref: '../common/common.yaml#/X'\n"
+
+	if err := os.WriteFile(outsideSpec, []byte(outsideContent), 0o644); err != nil {
+		t.Fatalf("write outside spec: %v", err)
+	}
+
+	dir := filepath.Join(base, "v1")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// A sibling the links' refs could resolve against, so a followed link would
+	// actually be rewritten rather than merely skipped.
+	if err := os.WriteFile(filepath.Join(dir, "common.yaml"), []byte("X:\n  type: object\n"), 0o644); err != nil {
+		t.Fatalf("write sibling: %v", err)
+	}
+
+	if err := os.Symlink(outsideDir, filepath.Join(dir, "dir-link.yaml")); err != nil {
+		t.Fatalf("symlink dir: %v", err)
+	}
+
+	if err := os.Symlink(outsideSpec, filepath.Join(dir, "file-link.yaml")); err != nil {
+		t.Fatalf("symlink file: %v", err)
+	}
+
+	report, err := RewriteLocalRefs(dir, nil, Options{Logf: func(string, ...any) {}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if report.FilesModified != 0 || report.RefsRewritten != 0 {
+		t.Errorf("links must not be rewritten: FilesModified=%d, RefsRewritten=%d",
+			report.FilesModified, report.RefsRewritten)
+	}
+
+	got, err := os.ReadFile(outsideSpec)
+	if err != nil {
+		t.Fatalf("read outside spec: %v", err)
+	}
+
+	if string(got) != outsideContent {
+		t.Errorf("file outside the scanned tree was rewritten through the link:\n%s", got)
+	}
+
+	// Each skipped link is reported: silently ignoring a spec-looking entry would
+	// leave the author wondering why their refs stayed external.
+	names := append([]string{}, report.Warnings...)
+	sort.Strings(names)
+
+	if len(names) != 2 ||
+		!strings.HasPrefix(names[0], "dir-link.yaml") ||
+		!strings.HasPrefix(names[1], "file-link.yaml") {
+		t.Errorf("expected one warning per link, got %v", report.Warnings)
 	}
 }
 

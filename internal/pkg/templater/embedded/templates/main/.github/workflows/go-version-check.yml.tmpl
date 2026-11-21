@@ -15,5 +15,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+{{- if .PrivateRepos }}
+      # check-go-mod-version.sh downloads the direct dependencies, so it needs
+      # the same private-module access as the jobs of ci_cd.yml.
+      - name: Configure Git for private repos
+        env:
+          GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Set GOPRIVATE
+        run: |
+          go env -w GOPRIVATE="github.com/Educentr,{{ .PrivateRepos }}"
+{{- end }}
       - name: Check go.mod version against direct dependencies
         run: ./scripts/check-go-mod-version.sh

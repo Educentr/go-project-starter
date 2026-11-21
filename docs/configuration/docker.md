@@ -24,6 +24,15 @@
 `build_args` и `labels` объявляют это в `project.yaml` — один раз на проект, с
 генерацией во всех четырёх местах сразу.
 
+Платформа образа была ничем не выразима по той же причине. Builder-стадия
+собиралась без `--platform=$BUILDPLATFORM` и без `ARG TARGETARCH`, рецепты
+`docker-<app>` звали `docker build` без `--platform`, так что образ получался
+под платформу сборщика — а приложение, которое запускают и на amd64, и на
+arm64, этим не поставить. Потребителю оставался тот же overlay: скрипт, который
+после каждой регенерации дописывает `--platform=$BUILDPLATFORM` и
+`ARG TARGETARCH` в генерируемую зону Dockerfile, плюс переопределённые на
+`buildx` цели публикации. `platforms` объявляет это у приложения.
+
 ## Параметры
 
 ```yaml
@@ -40,7 +49,17 @@ docker:
     org.opencontainers.image.vendor: Educentr
 ```
 
-Обе секции опциональны. Без них вывод побайтно совпадает с прежним, поэтому
+Платформы образа объявляются не здесь, а у приложения — его образ собирают под
+те платформы, где его запускают:
+
+```yaml
+applications:
+  - name: cli
+    docker:
+      platforms: [linux/amd64, linux/arm64]
+```
+
+Все три секции опциональны. Без них вывод побайтно совпадает с прежним, поэтому
 регенерация существующих проектов ничего не меняет.
 
 ### `build_args`
@@ -95,6 +114,90 @@ docker:
 `[a-z0-9._-]`. Значения — однострочная строка без `"` и `\` (на этих символах
 ломается генерируемая инструкция).
 
+## `platforms`
+
+Платформы, под которые собирается образ приложения. Ключ — **per-application**
+(`applications[].docker.platforms`), а не на весь проект: приложение, которое
+запускают на машинах разработчиков (CLI-инструмент, поставляемый образом),
+должно работать и на amd64, и на arm64 (Apple Silicon), а серверным приложениям
+того же проекта обычно хватает одной платформы, и платить за вторую сборку им
+незачем.
+
+```yaml
+applications:
+  # Без ключа: образ собирается под платформу сборщика, как и раньше.
+  - name: api
+    transport:
+      - name: api
+  # Несколько платформ: образ — OCI index под одним тегом.
+  - name: cli
+    cli: admin
+    docker:
+      platforms: [linux/amd64, linux/arm64]
+  # Одна платформа: кросс-сборка, но обычный образ.
+  - name: tool
+    transport:
+      - name: sys
+    docker:
+      platforms: [linux/arm64]
+```
+
+Элемент — `linux/<arch>`, например `linux/amd64`, `linux/arm64`,
+`linux/ppc64le`. Дубликаты запрещены. Отвергается на загрузке конфига:
+
+- **другая ОС** (`darwin/arm64`, `windows/amd64`) — сгенерированный Dockerfile
+  описывает linux-образ, образ под другую ОС не заработает, что бы ни было
+  объявлено;
+- **вариант архитектуры** (`linux/arm/v7`) — вариант не доезжает до сборки:
+  builder-стадия берёт архитектуру из `TARGETARCH`, а сопоставления `v7` →
+  `GOARM` нет, поэтому объявление молча собрало бы бинарь под другую
+  суб-архитектуру.
+
+Платформы у приложения, которое **не** собирает docker-артефакт (`artifacts`
+без `docker`), — тоже ошибка генерации: ключ формирует рецепты образа, то есть
+из него не сгенерировалось бы ничего.
+
+### Что генерируется
+
+**Dockerfile приложения** — кросс-компиляция вместо эмуляции. Go кросс-компилирует
+сам, поэтому QEMU не нужен и сборка идёт на полной скорости:
+
+- `FROM --platform=$BUILDPLATFORM golang:<ver>-alpine AS builder` — builder
+  работает на платформе сборщика;
+- `ARG TARGETARCH` и `GOARCH=${TARGETARCH:?…}` перед `make build_in_docker-<app>`.
+  Форма `:?` — гвард: пустой `TARGETARCH` (сборка не через BuildKit) роняет
+  сборку, вместо того чтобы молча собрать бинарь под архитектуру сборщика;
+- **runtime-стадия по умолчанию не выполняет `RUN`** — `RUN` там исполняется
+  для целевой архитектуры и потребовал бы эмуляции. Каталог `/etc/onlineconf`
+  создаётся в builder-стадии и копируется (`COPY --from=builder`) во всех
+  проектах, независимо от `platforms`. Единственный `RUN`, который может
+  появиться в финальной стадии, — установка `packages` (см.
+  [Runtime-стадия приложения](#runtime-стадия-приложения-applicationsdocker));
+  для чужой платформы он пойдёт через эмуляцию, поэтому объявлять `packages`
+  вместе с `platforms` стоит только тогда, когда рантайм-зависимость
+  действительно нужна.
+
+**Makefile** — сборка через `docker buildx` с явным `--platform`:
+
+| | `docker-<app>` | `docker-<app>-push` |
+|---|---|---|
+| без `platforms` | `docker build` | `docker push` |
+| одна платформа | `buildx build --platform <p> --load` | `docker push` |
+| несколько | `buildx build --platform <список> --output type=cacheonly` | `buildx build --platform <список> --push` |
+
+Одна платформа — обычный образ, он попадает в локальное хранилище (`--load`), и
+публикация остаётся прежним `docker push`. Несколько платформ — OCI index, а его
+локальное хранилище образов держать не умеет: сборка остаётся в кеше билдера
+(`--output type=cacheonly`), а публикует index **сама сборка** с `--push`, под
+одним тегом. Порядок стадий CI (`make docker-<app>` → `make docker-<app>-push`)
+при этом не меняется: вторая сборка переиспользует кеш первой.
+
+Цели с `platforms` зависят от `buildx-builder` — он создаёт билдер
+`$(BUILDX_BUILDER)` (по умолчанию `$(SERVICE_NAME)-builder`) с драйвером
+`docker-container`, если его ещё нет. Драйвер по умолчанию (`docker`) не умеет
+ни собирать под чужую платформу, ни держать index. Билдер переиспользуется;
+удалить — `docker buildx rm $(BUILDX_BUILDER)`.
+
 ## Что получается на выходе
 
 Для конфига из примера выше:
@@ -141,11 +244,131 @@ IMAGE_VERSION=v1.2.3 make docker-api          # переменной окруж�
 выбор конфига, а не ошибка. Если лейбл обязан быть заполнен всегда, задайте
 `default`.
 
+## Runtime-стадия приложения (`applications[].docker`)
+
+Финальная стадия сгенерированного `Dockerfile-<app>` была зафиксирована:
+`FROM alpine` и `CMD ["/service"]`. Приложению, которому нужен другой дистрибутив
+или рантайм-зависимость (`git`, `curl`, `ca-certificates`), сказать об этом было
+нечем: стадия генерируется, а пользовательский маркер спасает только то, что
+лежит **ниже** него. Оставался обходной путь — отдельный
+`Dockerfile-<app>.custom` плюс переопределённая цель `docker-<app>` в секции
+после маркера.
+
+```yaml
+applications:
+  - name: vt
+    docker:
+      base_image: ubuntu:24.04       # по умолчанию alpine
+      packages:                      # рантайм-пакеты
+        - git
+        - curl
+        - ca-certificates
+      package_manager: apt           # опционально; выводится из base_image
+      workdir: /workspace            # по умолчанию нет WORKDIR (докеровский "/")
+      entrypoint: ["/service"]       # по умолчанию CMD ["/service"]
+```
+
+Секция опциональна и объявляется **у приложения**, а не у проекта: образы
+приложений одного сервиса собираются из разных наборов зависимостей. Приложение
+без секции получает прежнюю стадию — `FROM alpine` и `CMD ["/service"]`.
+
+Одна строка финальной стадии при этом изменилась у **всех** проектов: каталог
+`/etc/onlineconf` теперь создаётся в builder-стадии и приезжает в финальную через
+`COPY --from=builder /etc/onlineconf /etc/onlineconf` вместо
+`RUN mkdir -p /etc/onlineconf` (владелец и права те же — `root:root`, `0755`).
+Это нужно, чтобы финальная стадия не требовала shell: без `packages` в ней не
+остаётся ни одной инструкции `RUN`, и базовым образом может быть
+shell-less образ (`gcr.io/distroless/static`, `scratch`) — самый частый рантайм
+для статического Go-бинарника. Сборку это не меняет, только содержимое
+`Dockerfile-<app>`.
+
+Настраивается только финальная (runtime) стадия. Builder-стадия компилирует
+статический Go-бинарник, и её базовый образ определяет `tools.golang_version`.
+
+| Поле | Обязательное | Значение |
+|---|---|---|
+| `base_image` | Нет | Базовый образ runtime-стадии (`FROM`). По умолчанию `alpine`. Ссылка без пробелов, кавычек и `#` — допустимы registry с портом, тег и digest |
+| `packages` | Нет | Рантайм-пакеты. Ставятся **одной** инструкцией `RUN` до копирования бинарника, поэтому слой переиспользуется, пока не изменится сам список. Порядок — как в конфиге. Допустим пин версии (`curl=8.5.0-2`). Требует от `base_image` shell и пакетного менеджера — для shell-less образа объявлять нечем, см. ниже |
+| `package_manager` | Нет | Чем ставить: `apk`, `apt` или `dnf`. Выводится из `base_image` для `alpine`, `debian`, `ubuntu`, `fedora`; для любого другого образа **с пакетным менеджером** и объявленными `packages` — объявить явно |
+| `workdir` | Нет | `WORKDIR` runtime-стадии, абсолютный путь. По умолчанию инструкция не генерируется (докеровский дефолт `/`) |
+| `entrypoint` | Нет | `ENTRYPOINT` в exec-форме. **Заменяет** `CMD`, а не дополняет его: Docker передаёт `CMD` энтрипойнту аргументами, поэтому дефолтный `/service` приехал бы энтрипойнту параметром |
+
+**Почему `package_manager` не угадывается для произвольного образа.** Менеджер
+выводится из имени репозитория образа (`registry.example:5000/mirror/ubuntu:24.04`
+→ `ubuntu`) и только для дистрибутивов, у которых он однозначен. Для
+собственного или производного базового образа (`registry.example/org/base:2024`)
+угаданный менеджер дал бы Dockerfile, который падает на сборке, — поэтому
+генерация останавливается с требованием объявить менеджер. Объявленный
+`package_manager` без `packages` — тоже ошибка: ставить нечего.
+
+**Shell-less образ и `packages` несовместимы.** `gcr.io/distroless/...` и
+`scratch` не содержат ни shell, ни пакетного менеджера, поэтому `packages` для
+них не объявляются вовсе — объявленный `package_manager` тут не помогает, `RUN`
+в таком образе падает с `/bin/sh: no such file or directory`. Рантайм-зависимость
+для такого образа добирается иначе: либо берётся вариант базового образа, который
+её уже несёт (`gcr.io/distroless/static` поставляется с `ca-certificates`), либо
+нужные файлы доставляются в финальную стадию ручным `COPY --from=builder` в
+секции после маркера. Без `packages` финальная стадия вообще не содержит `RUN`,
+поэтому такой образ собирается.
+
+Значения проверяются на загрузке конфига: образ и рабочий каталог — без пробелов
+и кавычек, имена пакетов — из `[A-Za-z0-9._+-=:~/]`, элементы `entrypoint` —
+непустые однострочные строки без `"` и `\`. Всё это попадает в инструкции
+Dockerfile как есть, поэтому строка с пробелом или кавычкой ломала бы файл (а в
+`RUN` — дописывала бы команду).
+
+### Что получается на выходе
+
+Для примера выше:
+
+```dockerfile
+# Dockerfile-vt, финальная стадия
+FROM ubuntu:24.04
+
+# Runtime packages, declared in the docker section of the application in
+# project.yaml. Installed before the binary is copied, so the layer is reused
+# until the package list itself changes.
+RUN set -eux && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /service /service
+COPY --from=builder /public /public
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
+COPY --from=builder /etc/onlineconf /etc/onlineconf
+WORKDIR /workspace
+ENTRYPOINT ["/service"]
+```
+
+Индекс/кеш пакетного менеджера удаляется в той же инструкции (`rm -rf
+/var/lib/apt/lists/*` для apt, `dnf clean all` для dnf, `--no-cache` для apk):
+отдельный `RUN` оставил бы скачанные метаданные в слое ниже.
+
+Приложение без секции `docker` получает прежнюю стадию — `FROM alpine` и
+`CMD ["/service"]`.
+
+Для shell-less образа (`packages` не объявлены) `RUN` в стадии не остаётся
+вообще:
+
+```dockerfile
+# Dockerfile-vt, финальная стадия для base_image: gcr.io/distroless/static
+FROM gcr.io/distroless/static
+COPY --from=builder /service /service
+COPY --from=builder /public /public
+COPY --from=builder /etc/onlineconf /etc/onlineconf
+CMD ["/service"]
+```
+
 ## Реализация
 
-- парсинг и валидация секции — `internal/pkg/config/docker.go`
-  (`Docker.Parse`), вызывается из `GetConfig` через `Docker.IsValid`;
+- парсинг и валидация секций — `internal/pkg/config/docker.go` (`Docker.Parse` и
+  `AppDocker.Parse`), вызывается из `GetConfig` через `Docker.IsValid` и
+  `AppDocker.IsValid`;
 - нормализованный вид и хелперы шаблонов — `internal/pkg/ds/docker.go`
-  (`ds.DockerConfig`);
+  (`ds.DockerConfig`, `ds.AppDockerConfig`, `Apps.HasDockerPlatforms`);
+- проверка «платформы без docker-артефакта» — в `Generator.processConfig`, где
+  известен эффективный список артефактов приложения;
 - шаблоны — `app/files/Dockerfile.tmpl`, `main/Makefile.tmpl`,
   `main/docker-compose-dev.yaml.tmpl`.

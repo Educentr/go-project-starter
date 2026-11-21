@@ -420,7 +420,9 @@ type (
 		GeneratorTemplate string `mapstructure:"generator_template"`
 		// GeneratorParams are additional generator parameters.
 		GeneratorParams map[string]string `mapstructure:"generator_params"`
-		// AuthParams are authentication parameters (for ogen_client).
+		// AuthParams are authentication parameters. Only generator_type
+		// ogen_client uses them; declaring the section on any other REST
+		// transport is a config error rather than a no-op.
 		AuthParams AuthParams `mapstructure:"auth_params"`
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
@@ -795,7 +797,7 @@ type (
 	//	    kafka: [order_events]
 	//
 	//	  - name: cli-app
-	//	    cli: admin  # CLI is exclusive with transport/worker
+	//	    cli: admin  # no worker, and of transports only ogen_client clients
 	//
 	// See docs/configuration/applications.md for full documentation.
 	Application struct {
@@ -813,7 +815,9 @@ type (
 		KafkaListRaw interface{} `mapstructure:"kafka"`
 		// KafkaList is the normalized kafka list (populated after loading).
 		KafkaList []AppKafka `mapstructure:"-"`
-		// CLI is the CLI transport name. Exclusive with transport/worker.
+		// CLI is the CLI transport name. Excludes worker; of transports it
+		// admits only clients (rest with generator_type: ogen_client), see
+		// validateCLITransport.
 		CLI string `mapstructure:"cli"`
 		// Deploy contains deployment settings (volumes).
 		Deploy AppDeploy `mapstructure:"deploy"`
@@ -836,6 +840,13 @@ type (
 		GoatTestsConfig *GoatTestsConfig `mapstructure:"goat_tests_config"`
 		// Artifacts overrides global artifacts for this application.
 		Artifacts []ArtifactType `mapstructure:"artifacts"`
+		// Metrics declares where the metrics of this application go. Read via
+		// Config.ResolveAppMetricsExport, which applies the derived default.
+		Metrics AppMetrics `mapstructure:"metrics"`
+		// Docker configures the image of this application: the runtime stage of
+		// its Dockerfile (base image, runtime packages, working directory and
+		// start command) and the target platforms. Read via AppDocker.Parse.
+		Docker AppDocker `mapstructure:"docker"`
 	}
 
 	LogCollector struct {
@@ -879,6 +890,9 @@ type (
 		GeneratorList CustomGeneratorList `mapstructure:"generator"`
 		// ContractList declares specs fetched for those generators.
 		ContractList ContractList `mapstructure:"contract"`
+		// WebList declares the project's frontends: sources, build commands
+		// and the client codegen fed by the rest/jsonschema inputs they consume.
+		WebList WebAppList `mapstructure:"web"`
 
 		RestMap              map[string]Rest
 		GrpcMap              map[string]Grpc
@@ -996,9 +1010,61 @@ func isValidStaticDir(dir string) bool {
 	return true
 }
 
+// isSet reports whether the auth_params section is present in the config at
+// all. Either field alone counts: a half-filled section is a mistake worth
+// reporting, not an absent one.
+func (a AuthParams) isSet() bool {
+	return a.Transport != "" || a.Type != ""
+}
+
+// validate checks the section against the auth_params shapes the ogen_client
+// templates know how to render. The supported values live in ds — the same
+// constants ds.Transport.UsesSecuritySource branches on — so a config that
+// passes here always yields a client with a SecuritySource.
+func (a AuthParams) validate() (bool, string) {
+	if a.Transport == "" || a.Type == "" {
+		return false, "auth_params: both transport and type are required"
+	}
+
+	if a.Transport != ds.AuthTransportHeader {
+		return false, "auth_params: invalid transport: " + a.Transport + " (supported: " + ds.AuthTransportHeader + ")"
+	}
+
+	if !ds.IsSupportedAuthType(a.Type) {
+		return false, "auth_params: invalid type: " + a.Type +
+			" (supported: " + strings.Join(ds.SupportedAuthTypes(), ", ") + ")"
+	}
+
+	return true, ""
+}
+
+// validateAuthParams checks the auth_params section against the transport it
+// is declared on. The section drives nothing but the ogen_client
+// SecuritySource, so on any other generator type it is a config error: a
+// silently ignored authentication setting is worse than a failed load.
+func (r Rest) validateAuthParams() (bool, string) {
+	if !r.AuthParams.isSet() {
+		return true, ""
+	}
+
+	if r.GeneratorType != GeneratorTypeOgenClient {
+		return false, "auth_params are only supported for generator_type " + GeneratorTypeOgenClient
+	}
+
+	return r.AuthParams.validate()
+}
+
 func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 	if len(r.Name) == 0 {
 		return false, "Empty name"
+	}
+
+	// Checked ahead of the sys shortcut below so that the rule holds for every
+	// REST transport: the shortcut skips the generator-type switch entirely and
+	// would otherwise turn a misplaced auth_params section into a silently
+	// ignored one.
+	if ok, msg := r.validateAuthParams(); !ok {
+		return false, msg
 	}
 
 	if r.Name == "sys" {
@@ -1087,16 +1153,6 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			r.Instantiation != InstantiationStatic &&
 			r.Instantiation != InstantiationDynamic {
 			return false, "instantiation must be 'static' or 'dynamic'"
-		}
-	case "auth_params":
-		if len(r.AuthParams.Transport) == 0 || len(r.AuthParams.Type) == 0 {
-			return false, "Empty transport or type"
-		}
-		if r.AuthParams.Transport != "header" {
-			return false, "Invalid transport"
-		}
-		if r.AuthParams.Type != "apikey" {
-			return false, "Invalid type"
 		}
 	default:
 		return false, "Invalid generator type"
@@ -1302,21 +1358,15 @@ func (a Application) IsValid() (bool, string) {
 		return false, "Empty name"
 	}
 
-	// CLI apps are exclusive - cannot have transports or workers
 	if a.CLI != "" {
-		if len(a.TransportList) > 0 {
-			return false, "CLI application cannot have transports"
-		}
-
+		// A CLI process runs one command and exits, so there is nothing for a
+		// worker to run in it. Transports are allowed, but only client ones —
+		// that needs the rest map, so GetConfig checks it (validateCLITransport).
 		if len(a.WorkerList) > 0 {
 			return false, "CLI application cannot have workers"
 		}
-
-		return true, ""
-	}
-
-	// Non-CLI apps must have at least one transport
-	if len(a.TransportList) == 0 {
+	} else if len(a.TransportList) == 0 {
+		// Non-CLI apps must have at least one transport
 		return false, "Application must have at least one transport or be a CLI app"
 	}
 

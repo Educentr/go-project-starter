@@ -42,7 +42,10 @@
   "panels": [
 {{- $panelId := 1 }}
 {{- $yPos := 0 }}
-{{- $rows := .Application.Grafana.GetDashboardRows .Application.Name .Application.GetTransportInfos $.Metrics.Metrics }}
+{{- /* The declared-metrics row is built from what THIS application publishes:
+       a panel for a metric the process cannot emit reads empty forever, which
+       is indistinguishable from a broken feature. */}}
+{{- $rows := .Application.Grafana.GetDashboardRows .Application.Name .Application.GetTransportInfos ($.Metrics.ForApp .Application.Name) }}
 {{- range $rowIdx, $row := $rows }}
 {{- if $rowIdx }},{{ end }}
     {

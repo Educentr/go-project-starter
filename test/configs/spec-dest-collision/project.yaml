@@ -3,8 +3,10 @@
 # copied onto the same file inside the project. Generation must stop before it
 # writes anything (TestSpecDestCollisionAbortsRun).
 #
-# Not part of the docker-integration suite (see the configDirs list in
-# integration_test.go) — nothing here can be generated, let alone built.
+# Lives outside test/docker-integration/configs on purpose: every directory
+# there is a fixture some sweep test generates a project from (see
+# configFixtureNames in gitlab_ci_yaml_test.go, the configDirs list in
+# integration_test.go), and nothing here can be generated, let alone built.
 main:
   name: collisiontest
   logger: zerolog
