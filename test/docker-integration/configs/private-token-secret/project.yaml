@@ -48,3 +48,11 @@ applications:
       binary_path: /tmp/api
     transport:
       - name: api
+
+# A declared check renders the `checks` job, which also fetches private
+# modules: it used to hardcode the GH_PAT secret name instead of reading
+# git.private_repos_token_secret.
+github_ci:
+  checks:
+    - name: lint
+      run: make lint

@@ -16,6 +16,7 @@
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 - [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
 - [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки
+- [Веб-приложение](web.md) — секция `web`: сборка фронта, стадия node в образе, TS-кодоген из `rest:`/`jsonschema:`
 
 ## Базовая структура
 
@@ -108,6 +109,8 @@ applications:
 4. **ActiveRecord требует указания ArgenVersion**
 5. **Registry type: только `github`, `digitalocean`, `aws`, или `selfhosted`**
 6. **Порты обязательны для REST (кроме шаблона `sys`)**
+7. **Канал вывода метрик должен быть выполним приложением** — `metrics.export: pull` требует
+   `sys`-транспорта, `none` с ним несовместим (см. [Applications](applications.md#метрики-приложения-metricsexport))
 
 ## Следующие шаги
 
@@ -125,3 +128,4 @@ applications:
 - [Карта метрик](metrics-map.md) — объявление метрик, генерация коллекторов, валидатор
 - [Карта ключей OnlineConf](onlineconf-keys.md) — объявление ключей, генерация аксессоров, валидатор, реестр поверхности дерева
 - [Свои генераторы](custom-generators.md) — секции `generator`/`contract`: install/cmd/lint и забор спеки
+- [Веб-приложение](web.md) — секция `web`: сборка фронта, стадия node в образе, TS-кодоген из `rest:`/`jsonschema:`

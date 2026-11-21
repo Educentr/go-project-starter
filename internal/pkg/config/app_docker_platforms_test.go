@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestAppDocker_Parse(t *testing.T) {
+func TestAppDocker_ParsePlatforms(t *testing.T) {
 	tests := []struct {
 		name      string
 		platforms []string
@@ -43,8 +43,8 @@ func TestAppDocker_Parse(t *testing.T) {
 			want:      "linux/ppc64le",
 		},
 		{
-			// The runtime stage is alpine: an image for another OS would not
-			// run whatever the declaration says.
+			// The runtime stage targets linux: an image for another OS would
+			// not run whatever the declaration says.
 			name:      "non-linux os",
 			platforms: []string{"darwin/arm64"},
 			wantErr:   ErrAppDockerPlatform,
@@ -106,9 +106,9 @@ func TestAppDocker_Parse(t *testing.T) {
 	}
 }
 
-// TestAppDocker_ViperDecoding pins the shape viper actually produces for the
+// TestAppDocker_ViperDecodingPlatforms pins the shape viper actually produces for the
 // per-application docker section. Parse must keep matching it.
-func TestAppDocker_ViperDecoding(t *testing.T) {
+func TestAppDocker_ViperDecodingPlatforms(t *testing.T) {
 	const projectYAML = `
 applications:
   - name: api

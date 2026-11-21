@@ -104,8 +104,11 @@ func TestGenerateDockerPlatforms(t *testing.T) {
 		t.Errorf("Dockerfile-api declares no platforms but cross-compiles:\n%s", plain)
 	}
 
-	if !strings.Contains(plain, "\nRUN mkdir -p /etc/onlineconf\n") {
-		t.Errorf("Dockerfile-api should keep creating /etc/onlineconf in the runtime stage:\n%s", plain)
+	// /etc/onlineconf is created in the builder stage and copied into the
+	// runtime stage in every project, with or without platforms.
+	if !strings.Contains(plain, "\nRUN mkdir -p /etc/onlineconf\n") ||
+		!strings.Contains(plain, "COPY --from=builder /etc/onlineconf /etc/onlineconf") {
+		t.Errorf("Dockerfile-api does not carry /etc/onlineconf from the builder stage:\n%s", plain)
 	}
 
 	// --- Makefile -----------------------------------------------------------

@@ -76,6 +76,17 @@ type GenKey struct {
 	// declares a concrete path for the registry and for the collision check, and
 	// generates no accessor of its own — the reader already has one.
 	ReadVia string `yaml:"read_via"`
+	// Open opens the subtree this entry claims to the service map: it states
+	// that every read the generated code performs below the prefix is declared
+	// in this repository, so only those paths are reserved and the service may
+	// declare keys of its own beside them.
+	//
+	// A prefix may be opened only where that is true of it. The worker prefix
+	// is: the worker hands it to the logger, and the stage keys the logger reads
+	// below it are declared with `read_via`. The REST handler prefix is not: it
+	// goes to the runtime library, which reads keys no declaration here names,
+	// so that subtree stays the generator's as a whole.
+	Open bool `yaml:"open"`
 	// Default is the fallback the generated reader applies, as prose for the
 	// registry. It documents the key; nothing is generated from it.
 	Default string `yaml:"default"`
@@ -170,6 +181,10 @@ type GeneratorKey struct {
 	// empty when the path claims no subtree. It is the path itself for a prefix
 	// builder, and the part before the first runtime segment otherwise.
 	OwnedPrefix string
+	// OpenSubtree reports a subtree that is the generator's only at the paths it
+	// declares: the prefix itself and the reads below it, and nothing else. The
+	// service may declare its own keys there. Meaningless without OwnedPrefix.
+	OpenSubtree bool
 	// Required reports a key the startup check verifies.
 	Required bool
 	// Default is the fallback the generated reader applies, as prose.
@@ -211,6 +226,11 @@ type GenAccessor struct {
 	// Shared reports an accessor that claims no subtree because its whole path
 	// comes from its caller.
 	Shared bool
+	// Open reports a prefix whose subtree is the generator's only at the paths
+	// declared in it. Part of the accessor's identity so that two declarations
+	// of one prefix cannot disagree about it: the paths of one accessor would
+	// then be reserved in one scope and declarable in another.
+	Open bool
 	// Params are the accessor's parameters, in path order.
 	Params []GenParam
 	// Default is the fallback the generated reader applies, as prose.
@@ -341,8 +361,8 @@ var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
 
 // genKeyFields is the closed set of fields a declaration entry may carry.
 var genKeyFields = map[string]struct{}{
-	"path": {}, "name": {}, "type": {}, "required": {},
-	"shared": {}, "read_via": {}, "default": {}, "description": {},
+	"path": {}, "name": {}, "type": {}, "required": {}, "shared": {},
+	"read_via": {}, "open": {}, "default": {}, "description": {},
 }
 
 // genGroupFields is the closed set of fields a declaration group may carry.
@@ -376,6 +396,7 @@ func (k *GenKey) UnmarshalYAML(value *yaml.Node) error {
 		Required    bool   `yaml:"required"`
 		Shared      bool   `yaml:"shared"`
 		ReadVia     string `yaml:"read_via"`
+		Open        bool   `yaml:"open"`
 		Default     string `yaml:"default"`
 		Description string `yaml:"description"`
 	}
@@ -395,6 +416,7 @@ func (k *GenKey) UnmarshalYAML(value *yaml.Node) error {
 	k.Required = p.Required
 	k.Shared = p.Shared
 	k.ReadVia = p.ReadVia
+	k.Open = p.Open
 	k.Default = p.Default
 	k.Description = p.Description
 
@@ -644,6 +666,12 @@ func (k GenKey) shapeProblems() []string {
 		}
 	}
 
+	if k.Open && k.ownedPrefix() == "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `open` but claims no subtree: `open` says which of the paths below a "+
+				"prefix are the generator's, and this entry hands out no prefix", k.Path))
+	}
+
 	problems = append(problems, k.requiredProblems()...)
 
 	return problems
@@ -866,6 +894,8 @@ func (e *expansion) addKey(key GenKey, owner, path string) {
 		accessor = ""
 	}
 
+	ownedPrefix := expandOwnedPrefix(key, path)
+
 	existing, seen := e.keys[path]
 	if !seen {
 		e.keys[path] = &GeneratorKey{
@@ -873,7 +903,8 @@ func (e *expansion) addKey(key GenKey, owner, path string) {
 			Type:         key.Type,
 			Accessor:     accessor,
 			ReadVia:      key.ReadVia,
-			OwnedPrefix:  expandOwnedPrefix(key, path),
+			OwnedPrefix:  ownedPrefix,
+			OpenSubtree:  ownedPrefix != "" && key.Open,
 			Required:     key.Required,
 			Default:      key.Default,
 			Descriptions: []string{key.Description},
@@ -939,6 +970,7 @@ func (e *expansion) addAccessor(key GenKey, owner string) {
 			Type:         key.Type,
 			Required:     key.Required,
 			Shared:       key.Shared,
+			Open:         key.Open,
 			Params:       key.Params(),
 			Default:      key.Default,
 			Descriptions: []string{key.Description},
@@ -949,12 +981,13 @@ func (e *expansion) addAccessor(key GenKey, owner string) {
 	}
 
 	if existing.Name != key.Name || existing.Type != key.Type ||
-		existing.Required != key.Required || existing.Shared != key.Shared {
+		existing.Required != key.Required || existing.Shared != key.Shared ||
+		existing.Open != key.Open {
 		e.problems = append(e.problems, fmt.Sprintf(
 			"template %q is declared as %s by %s and as %s by %s",
-			key.Path, describeGenAccessor(existing.Name, existing.Type, existing.Required),
+			key.Path, describeGenAccessor(existing.Name, existing.Type, existing.Required, existing.Open),
 			strings.Join(existing.ReadBy, ", "),
-			describeGenAccessor(key.Name, key.Type, key.Required), owner))
+			describeGenAccessor(key.Name, key.Type, key.Required, key.Open), owner))
 
 		return
 	}
@@ -1191,20 +1224,35 @@ func expandOwnedPrefix(key GenKey, path string) string {
 // CheckGeneratorKeys reports declarations of the service map that the generated
 // code already reads.
 //
-// Two ways that happens. An exact path match is a key with two readers and two
-// spellings — the thing the map exists to prevent. And a declaration at or
-// inside a subtree the generated code owns is the same collision, only
-// invisible: the subtree is either handed to generated code as a prefix, or
-// opened by a segment the generated code computes at runtime (the url path of a
-// request, a telegram user id, an action name). Either way there is no single
-// generated path to compare against, so the subtree belongs to the generator as
-// a whole.
+// Three ways that happens. An exact path match is a key with two readers and
+// two spellings — the thing the map exists to prevent. A path that matches a
+// declared read whose last segments the generated code computes at runtime
+// (`…/handler/<urlPath>/timeout`) is the same collision written out by hand: the
+// declaration names the shape, the service names one of its instances. And a
+// declaration inside a subtree the generated code owns is the collision made
+// invisible: the subtree is handed to generated code as a prefix it reads below,
+// or opened by a runtime segment, and there is no single generated path to
+// compare against.
+//
+// A subtree the generated code owns is NOT closed by default to everything
+// below it. It is closed when the generator cannot say what it reads there —
+// the REST handler prefix goes to the runtime library, which reads keys no
+// declaration here names. It is `open` when it can: the worker prefix goes to
+// the logger, and the stage keys read below it are declared with `read_via`, so
+// the paths the generated code reads in that subtree are exactly the declared
+// ones. In an open subtree the service may declare its own keys — the tick
+// interval of a worker is read by handwritten code, and reserving the whole
+// subtree left it with no accessor and nothing to declare it with (TOOLS-87).
+// The prefix itself stays the generator's either way: it is the node the
+// generated code is handed, and the registry already carries a row for it.
 func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 	if m == nil || len(generated) == 0 {
 		return nil
 	}
 
 	exact := make(map[string]GeneratorKey, len(generated))
+
+	runtimeReads := make([]GeneratorKey, 0, len(generated))
 
 	owned := make([]GeneratorKey, 0, len(generated))
 
@@ -1213,6 +1261,10 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 		// is the blanket ACL and the root of the per-id ones.
 		if key.Type != "" {
 			exact[key.Path] = key
+
+			if hasRuntimeSegment(key.Path) {
+				runtimeReads = append(runtimeReads, key)
+			}
 		}
 
 		if key.OwnedPrefix != "" {
@@ -1223,30 +1275,8 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 	var problems []string
 
 	for i, key := range m.Keys {
-		if generatedKey, clash := exact[key.Path]; clash {
-			problems = append(problems, fmt.Sprintf(
-				"keys[%d]: path %q is a key the generator reads itself (generated by %s): %s",
-				i, key.Path, strings.Join(generatedKey.ReadBy, ", "), generatedKey.Description()))
-
-			continue
-		}
-
-		for _, subtree := range owned {
-			if !isAtOrUnder(key.Path, subtree.OwnedPrefix) {
-				continue
-			}
-
-			where := fmt.Sprintf("is inside %q, a subtree", subtree.OwnedPrefix)
-			if key.Path == subtree.OwnedPrefix {
-				where = "is the root of a subtree"
-			}
-
-			problems = append(problems, fmt.Sprintf(
-				"keys[%d]: path %q %s the generated code reads below under a segment it computes "+
-					"itself (generated by %s): %s",
-				i, key.Path, where, strings.Join(subtree.ReadBy, ", "), subtree.Description()))
-
-			break
+		if problem, clash := checkOneGeneratorKey(key.Path, exact, owned, runtimeReads); clash {
+			problems = append(problems, fmt.Sprintf(keyProblemFmt, i, problem))
 		}
 	}
 
@@ -1255,6 +1285,104 @@ func (m *Map) CheckGeneratorKeys(generated []GeneratorKey) error {
 	}
 
 	return nil
+}
+
+// checkOneGeneratorKey reports the first reason one declared path is a path the
+// generated code reads, as a message without the keys[i] prefix.
+func checkOneGeneratorKey(
+	path string, exact map[string]GeneratorKey, owned, runtimeReads []GeneratorKey,
+) (string, bool) {
+	if generatedKey, clash := exact[path]; clash {
+		return fmt.Sprintf("path %q is a key the generator reads itself (generated by %s): %s",
+			path, strings.Join(generatedKey.ReadBy, ", "), generatedKey.Description()), true
+	}
+
+	for _, subtree := range owned {
+		if !isAtOrUnder(path, subtree.OwnedPrefix) {
+			continue
+		}
+
+		if subtree.OpenSubtree && path != subtree.OwnedPrefix {
+			// Open: what the generated code reads here is declared, and the
+			// declared paths are checked by the two cases around this loop.
+			continue
+		}
+
+		where := fmt.Sprintf("is inside %q, a subtree", subtree.OwnedPrefix)
+		if path == subtree.OwnedPrefix {
+			where = "is the root of a subtree"
+		}
+
+		return fmt.Sprintf("path %q %s the generated code reads below under a segment it computes "+
+			"itself (generated by %s): %s",
+			path, where, strings.Join(subtree.ReadBy, ", "), subtree.Description()), true
+	}
+
+	for _, read := range runtimeReads {
+		if !matchesRuntimeRead(path, read.Path) {
+			continue
+		}
+
+		return fmt.Sprintf("path %q is a key the generator reads itself: it is one of the paths "+
+			"%q reaches, where the generated code computes the segments in angle brackets at "+
+			"runtime (generated by %s): %s",
+			path, read.Path, strings.Join(read.ReadBy, ", "), read.Description()), true
+	}
+
+	return "", false
+}
+
+// matchesRuntimeRead reports whether path is one of the paths a declared read
+// reaches: every literal segment equal, and every segment the generated code
+// computes at runtime standing for one or more segments of path.
+//
+// The check is what makes an open subtree safe: a read below an open prefix is
+// declared, but a read declared with a runtime segment names a shape rather than
+// a path, and an exact comparison would let every instance of that shape through
+// (`…/mw/metrics/<urlPath>/log_level` and the service declaring
+// `…/mw/metrics/users/log_level`).
+//
+// A runtime segment spans one or more segments because the value the generated
+// code computes may itself carry slashes, and the path builder keeps them: the
+// request middleware hands the logger `r.URL.Path` whole, so the level of
+// `/v1/users` is read at `…/mw/metrics/v1/users/log_level`. Matching segment for
+// segment would have let that path — the common shape of a REST url — through.
+// Where the computed value is in fact a single segment (the stage of a job run)
+// the wider match only reserves more of the shape than the generated code
+// reaches, which is the safe direction: the service is told to pick another
+// path, rather than silently becoming the second reader of one.
+func matchesRuntimeRead(path, declared string) bool {
+	return matchSegments(pathSegments(path), pathSegments(declared))
+}
+
+// matchSegments matches path segments against the segments of a declared read,
+// runtime segments taking one or more of them.
+func matchSegments(got, want []string) bool {
+	if len(want) == 0 {
+		return len(got) == 0
+	}
+
+	if isRuntimeParam(want[0]) {
+		for taken := 1; taken <= len(got); taken++ {
+			if matchSegments(got[taken:], want[1:]) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if len(got) == 0 || got[0] != want[0] {
+		return false
+	}
+
+	return matchSegments(got[1:], want[1:])
+}
+
+// hasRuntimeSegment reports whether a path carries a segment the generated code
+// computes at runtime.
+func hasRuntimeSegment(path string) bool {
+	return slices.ContainsFunc(pathSegments(path), isRuntimeParam)
 }
 
 // isAtOrUnder reports whether path is prefix itself or sits below it, matching
@@ -1304,14 +1432,19 @@ func describeGenKey(valueType, accessor, readVia string) string {
 }
 
 // describeGenAccessor names what a declaration says an accessor is.
-func describeGenAccessor(name, valueType string, required bool) string {
-	if valueType == "" {
-		return "the path builder " + name
+func describeGenAccessor(name, valueType string, required, open bool) string {
+	out := "the path builder " + name
+
+	if valueType != "" {
+		out = name + " of type " + valueType
+
+		if required {
+			out += ", required"
+		}
 	}
 
-	out := name + " of type " + valueType
-	if required {
-		out += ", required"
+	if open {
+		out += ", open"
 	}
 
 	return out

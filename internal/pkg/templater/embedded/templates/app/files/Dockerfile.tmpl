@@ -1,4 +1,18 @@
-{{ if .Application.Docker.HasPlatforms }}# Target platforms: {{ .Application.Docker.PlatformList }} (applications[].docker.platforms).
+{{ range $_, $w := $.WebApps.ForApp $.Application }}# Frontend '{{ $w.Name }}', declared in the `web` section of project.yaml. It
+# is built here rather than taken from the host so the image carries the
+# frontend the sources describe, and so the node toolchain never reaches the
+# runtime stage. The whole context is copied, as in the builder stage below: a
+# frontend build reads more than {{ $w.Dir }} (the generated client, shared
+# configs), and which files exactly is the project's business.
+FROM {{ $w.NodeImage }} AS {{ $w.StageName }}
+WORKDIR /src
+COPY . .
+{{- if $w.Install }}
+RUN cd {{ $w.Dir }} && {{ $w.Install }}
+{{- end }}
+RUN cd {{ $w.Dir }} && {{ $w.Build }}
+
+{{ end }}{{ if .Application.Docker.HasPlatforms }}# Target platforms: {{ .Application.Docker.PlatformList }} (applications[].docker.platforms).
 # The builder runs natively on the platform of the build host (BUILDPLATFORM) and
 # cross-compiles for TARGETARCH — Go cross-compiles itself, so no emulation of the
 # target architecture is involved in the build of the binary.
@@ -74,35 +88,54 @@ RUN --mount=type=ssh --mount=type=secret,id=github_token \
 RUN mkdir -p /public
 ADD public /public
 RUN chmod -R 755 /public
-{{- if .Application.Docker.HasPlatforms }}
-
-# The runtime stage of a cross-built image must not RUN anything: a RUN there
-# runs for the target architecture and so needs emulation, while the binary it
-# would accompany is already cross-compiled. Directories the runtime stage needs
-# are therefore created here, in the native builder stage, and copied over.
-RUN mkdir -p /etc/onlineconf
-{{- end }}
 {{- range $dir := .Application.StaticDirs }}
 
 RUN mkdir -p /{{ $dir }}
 ADD {{ $dir }} /{{ $dir }}
 RUN chmod -R 755 /{{ $dir }}
 {{- end }}
+{{- range $_, $w := $.WebApps.ForApp $.Application }}
 
-FROM alpine
+# Built frontend '{{ $w.Name }}' over whatever {{ $w.Output }}/ carries in the
+# build context: the build is the authority on what the service serves.
+COPY --from={{ $w.StageName }} /src/{{ $w.Output }}/ /{{ $w.Output }}/
+RUN chmod -R 755 /{{ $w.Output }}
+{{- end }}
+
+# The config directory is created here and copied into the runtime stage, not
+# created there: a `RUN mkdir` needs a shell, and a shell-less base image
+# (distroless, scratch) is a valid runtime for a static Go binary. A RUN in the
+# runtime stage of a cross-built image would also run for the target
+# architecture and so need emulation, while the binary it accompanies is
+# already cross-compiled by the native builder.
+RUN mkdir -p /etc/onlineconf
+
+FROM {{ .Application.Docker.Image }}
+{{- with .Application.Docker.PackagesDirective }}
+
+# Runtime packages, declared in the docker section of the application in
+# project.yaml. Installed before the binary is copied, so the layer is reused
+# until the package list itself changes.
+{{ . }}
+{{ end }}
 COPY --from=builder /service /service
 COPY --from=builder /public /public
 {{- range $dir := .Application.StaticDirs }}
 COPY --from=builder /{{ $dir }} /{{ $dir }}
 {{- end }}
-{{- if .Application.Docker.HasPlatforms }}
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
 COPY --from=builder /etc/onlineconf /etc/onlineconf
-{{- else }}
-RUN mkdir -p /etc/onlineconf
+{{- with .Application.Docker.WorkdirDirective }}
+{{ . }}
 {{- end }}
-CMD ["/service"]
+{{ .Application.Docker.StartDirective }}
 
-{{- range $_, $t := .Applications.GetRestTransport }}
+{{- /* This application's own listening transports, not the project's: the
+       image of a CLI application used to announce the ports of its neighbors,
+       and a client transport used to render EXPOSE 0 — ports `docker run -P`,
+       the image metadata and image scanners would look for and not find. */}}
+{{- range $_, $t := .Application.GetRestServerTransport }}
 # {{ $t.Name }}/{{ $t.Type }}
 EXPOSE {{ $t.Port }}
 {{- end }}

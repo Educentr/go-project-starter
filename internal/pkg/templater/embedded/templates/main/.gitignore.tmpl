@@ -13,4 +13,12 @@ integration-coverage.html
 {{ if .Documentation.IsEnabled }}
 # MkDocs
 site/
-{{ end }}
+{{ end }}{{ if .WebApps }}
+# Frontend dependencies and build output (the `web` section of project.yaml).
+# The .keep stays tracked: the output directory has to exist in the build context.
+node_modules/
+{{- range $_, $w := .WebApps }}
+{{ $w.Output }}/*
+!{{ $w.Output }}/.keep
+{{- end }}
+{{- end }}

@@ -264,10 +264,11 @@ jobs:
     name: checks (${{"{{"}} matrix.name {{"}}"}})
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Full history: `make lint` diffs against origin/main.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -336,7 +337,7 @@ jobs:
 
       - name: Configure Git for private repos
         env:
-          GH_TOKEN: ${{"{{"}} secrets.GH_PAT {{"}}"}}
+          GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
 
@@ -806,7 +807,13 @@ jobs:
       - build
       - create_env_files
       - prepare-env
-{{- range $_, $a := .Applications }}{{ if $a.UseEnvs }}
+{{- /* An application with use_envs: true takes its env file from a
+       create_<app>_env_files job that the project declares itself, in the user
+       section of this workflow (docs/configuration/applications.md). Gated on
+       HasDocker too: deploy ships docker artifacts only, so an application
+       without one has no env file for this job to wait for — and a needs entry
+       naming a job nobody declared makes the whole workflow invalid. */}}
+{{- range $_, $a := .Applications }}{{ if and $a.UseEnvs $a.HasDocker }}
       - create_{{ $a.Name | ReplaceDash }}_env_files
 {{- end }}{{- end }}
 {{- if .Artifacts.HasUpload }}
