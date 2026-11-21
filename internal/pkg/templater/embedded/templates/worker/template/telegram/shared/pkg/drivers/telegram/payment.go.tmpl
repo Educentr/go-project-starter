@@ -22,7 +22,12 @@ func (tg *Telegram) CreateInvoice(
 	productPhoto,
 	data string,
 	price int) (string, error) {
-	return tg.bot.CreateInvoiceLink(tgbotapi.InvoiceLinkConfig{
+	bot := tg.currentBot()
+	if bot == nil {
+		return "", ErrNotInitialized
+	}
+
+	return bot.CreateInvoiceLink(tgbotapi.InvoiceLinkConfig{
 		Title:               productName,
 		Description:         productDescription,
 		Payload:             data,
@@ -39,7 +44,12 @@ func (tg *Telegram) CreateInvoice(
 }
 
 func (tg *Telegram) AnswerPreCheckout(_ context.Context, preCheckoutID string, errMsg string) error {
-	_, err := tg.bot.Request(tgbotapi.PreCheckoutConfig{
+	bot := tg.currentBot()
+	if bot == nil {
+		return ErrNotInitialized
+	}
+
+	_, err := bot.Request(tgbotapi.PreCheckoutConfig{
 		PreCheckoutQueryID: preCheckoutID,
 		OK:                 errMsg == "",
 		ErrorMessage:       errMsg,
@@ -51,7 +61,12 @@ func (tg *Telegram) AnswerPreCheckout(_ context.Context, preCheckoutID string, e
 func (tg *Telegram) RefundPayment(ctx context.Context, userID int64, chargeID string) error {
 	{{ .Logger.InfoMsg "ctx" "Refunding payment" "int64::user_id::userID" "str::charge_id::chargeID" }}
 
-	ret, err := tg.bot.Request(tgbotapi.RefundStarPaymentConfig{
+	bot := tg.currentBot()
+	if bot == nil {
+		return ErrNotInitialized
+	}
+
+	ret, err := bot.Request(tgbotapi.RefundStarPaymentConfig{
 		UserID:                  userID,
 		TelegramPaymentChargeID: chargeID,
 	})
@@ -68,7 +83,12 @@ func (tg *Telegram) RefundPayment(ctx context.Context, userID int64, chargeID st
 }
 
 func (tg *Telegram) GetPayments(ctx context.Context, skip, limit int64) (*tgbotapi.StarTransactions, error) {
-	ret, err := tg.bot.Request(tgbotapi.GetStarTransactionsConfig{
+	bot := tg.currentBot()
+	if bot == nil {
+		return nil, ErrNotInitialized
+	}
+
+	ret, err := bot.Request(tgbotapi.GetStarTransactionsConfig{
 		Offset: skip,
 		Limit:  limit,
 	})

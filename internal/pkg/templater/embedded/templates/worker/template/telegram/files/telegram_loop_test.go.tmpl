@@ -1,0 +1,123 @@
+package {{ .Worker.Name }}
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"golang.org/x/sync/errgroup"
+)
+
+// loopExitWait — сколько тест ждёт выхода цикла воркера. Выход обязан быть
+// немедленным: приём из закрытого канала возвращается сразу, отмена контекста
+// тоже.
+const loopExitWait = 5 * time.Second
+
+// fakeUpdateSource — источник апдейтов воркера в объёме интерфейса
+// TelegramUpdateWorker.
+type fakeUpdateSource struct {
+	updates tgbotapi.UpdatesChannel
+}
+
+func (f *fakeUpdateSource) NeedStartHiddenMessageJob(_ context.Context) bool {
+	return false
+}
+
+func (f *fakeUpdateSource) GetUpdateChannel(_ context.Context) tgbotapi.UpdatesChannel {
+	return f.updates
+}
+
+func (f *fakeUpdateSource) StopChannel(_ context.Context) {}
+
+// startLoop запускает цикл воркера и отдаёт ожидание его выхода.
+//
+// Хуки воркера ставятся до вызова — после старта цикла запись в поле была бы
+// гонкой с его чтением, что `-race` и показал бы.
+func startLoop(t *testing.T, w *Worker, ctx context.Context) func(reason string) {
+	t.Helper()
+
+	errGr, runCtx := errgroup.WithContext(ctx)
+	w.Run(runCtx, errGr)
+
+	return func(reason string) {
+		t.Helper()
+
+		done := make(chan error, 1)
+
+		go func() {
+			done <- errGr.Wait()
+		}()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("цикл воркера вернул ошибку: %v", err)
+			}
+		case <-time.After(loopExitWait):
+			t.Fatalf("цикл воркера не вышел: %s", reason)
+		}
+	}
+}
+
+// TestWorkerLoopLeavesClosedChannel — закрытый канал апдейтов останавливает
+// цикл, а не кормит обработчик пустыми апдейтами.
+//
+// Приём без проверки ok возвращается из закрытого канала немедленно и отдаёт
+// нулевой tgbotapi.Update, неотличимый от настоящего: цикл крутился бы на полной
+// скорости, вызывая обработчик на пустом апдейте. Канал драйвера при ротации
+// токена не закрывается, но за свой цикл воркер отвечает при любом источнике
+// канала.
+func TestWorkerLoopLeavesClosedChannel(t *testing.T) {
+	updates := make(chan tgbotapi.Update)
+	close(updates)
+
+	handled := &atomic.Int64{}
+
+	w := &Worker{tgSrv: &fakeUpdateSource{updates: updates}}
+	w.SetUpdateHandler(func(_ context.Context, _ tgbotapi.Update) {
+		handled.Add(1)
+	}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	startLoop(t, w, ctx)("закрытый канал обязан вывести его немедленно")
+
+	if got := handled.Load(); got != 0 {
+		t.Errorf("обработчик вызван %d раз на апдейтах из закрытого канала", got)
+	}
+}
+
+// TestWorkerLoopHandlesUpdates — проверка ok не меняет обычный путь: апдейт
+// доходит до обработчика, а цикл заканчивается по отмене контекста.
+func TestWorkerLoopHandlesUpdates(t *testing.T) {
+	updates := make(chan tgbotapi.Update, 1)
+	handled := make(chan int, 1)
+
+	w := &Worker{tgSrv: &fakeUpdateSource{updates: updates}}
+	w.SetUpdateHandler(func(_ context.Context, update tgbotapi.Update) {
+		handled <- update.UpdateID
+	}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	wait := startLoop(t, w, ctx)
+
+	updates <- tgbotapi.Update{UpdateID: 7}
+
+	select {
+	case got := <-handled:
+		if got != 7 {
+			t.Errorf("обработчик получил апдейт %d, ожидался 7", got)
+		}
+	case <-time.After(loopExitWait):
+		t.Fatal("апдейт не дошёл до обработчика")
+	}
+
+	cancel()
+
+	wait("отмена контекста обязана вывести его немедленно")
+}

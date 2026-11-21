@@ -9,8 +9,13 @@ import (
     "{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
+// GetUpdateChannel отдаёт канал апдейтов драйвера.
+//
+// Через аксессор, а не полем: канал опроса подменяется при ротации токена бота,
+// и поле читалось бы из горутины воркера одновременно с записью из горутины
+// наблюдателя OnlineConf.
 func (s *Service) GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel {
-    return s.telegram.Poller
+    return s.telegram.GetUpdateChannel(ctx)
 }
 
 func (s *Service) NeedStartHiddenMessageJob(ctx context.Context) bool {

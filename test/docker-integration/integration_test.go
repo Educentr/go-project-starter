@@ -572,6 +572,46 @@ func TestIntegrationWorkerTelegram(t *testing.T) {
 	}
 
 	runTest(t, "worker-telegram", "worker-telegram")
+	assertTelegramPollerRotation(t.Context(), t, GetContainer(), "/workspace/output/worker-telegram")
+}
+
+// assertTelegramPollerRotation runs the generated telegram tests against the
+// generated tree, with the race detector on.
+//
+// The project ships them — psg_telegram_poller_test.go in the driver (a fake Bot
+// API, a token swap under a live long poll, the offset carried over to the new
+// bot, shutdown without a leaked goroutine) and psg_telegram_loop_test.go in the
+// worker (a closed update channel must leave the loop, not feed the handler zero
+// updates). The build stage of this file compiles the generated project but
+// never runs its tests, so without this step the generator could ship a driver
+// whose own tests fail.
+//
+// Race detector, not just `go test`: the bug behind these tests was a bare write
+// to the driver's bot field from the OnlineConf watcher goroutine while request
+// goroutines read it, and that is what `-race` answers for.
+func assertTelegramPollerRotation(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	cmd := fmt.Sprintf("cd %s && go test -race -count=1 -v ./pkg/drivers/telegram/... ./internal/app/worker/...", outputDir)
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", cmd})
+	output := readOutput(outputReader)
+
+	if os.Getenv("GOAT_DISABLE_STDOUT") != "true" {
+		t.Logf("telegram driver tests output:\n%s", output)
+	}
+
+	require.NoError(t, err, "failed to run the telegram tests of the generated project")
+	require.Equal(t, 0, code, "the telegram tests of the generated project failed: %s", output)
+
+	// The tests have to have run, not just the packages have to have compiled: a
+	// test template dropped from the output would otherwise read as a pass.
+	for _, name := range []string{
+		"TestTelegramPollerFollowsRotatedToken",
+		"TestWorkerLoopLeavesClosedChannel",
+	} {
+		require.Contains(t, output, name,
+			"the generated project must carry %s: %s", name, output)
+	}
 }
 
 // TestIntegrationCombined tests combined project generation (REST + gRPC + Workers)

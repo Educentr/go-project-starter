@@ -429,7 +429,19 @@ func (w *Worker) Run(ctx context.Context, errGr *errgroup.Group) {
 	JOB:
 		for {
 			select {
-			case update := <- w.tgSrv.GetUpdateChannel(ctx):
+			// Приём с проверкой ok, а не `update := <-…`: из закрытого канала
+			// приём возвращается немедленно и отдаёт нулевой tgbotapi.Update,
+			// неотличимый от настоящего, — цикл крутился бы на полной скорости,
+			// скармливая обработчику пустые апдейты. Канал драйвера при ротации
+			// токена не закрывается (telegram.GetUpdateChannel), но воркер
+			// отвечает за свой цикл при любом источнике канала.
+			case update, ok := <- w.tgSrv.GetUpdateChannel(ctx):
+				if !ok {
+					{{ .Logger.ErrorMsg "ctx" "nil" "update channel is closed, stopping worker" "str::$nameFieldLogger::WorkerName" }}
+
+					break JOB
+				}
+
 				w.invokeUpdateHandler(ctx, update)
 
 			case <-ctx.Done():
