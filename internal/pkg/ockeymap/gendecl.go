@@ -65,6 +65,22 @@ type GenKey struct {
 	// Only a path with no runtime segment can be required: a path the generator
 	// cannot enumerate is a path the startup check cannot verify.
 	Required bool `yaml:"required"`
+	// RequiredAtInit marks a key the generated code reads while the component it
+	// belongs to is being brought up, and whose absence keeps that component —
+	// and so the process — from starting. It generates nothing: no startup
+	// check, no change of accessor shape. It is a fact published in the
+	// registry, so that the guard of whoever seeds the tree can assert every
+	// such path is set before a deploy discovers it at runtime, which is how the
+	// host of a newly connected client used to be found missing.
+	//
+	// A `required` key is one of these by construction — its startup check IS
+	// that failure — so the registry marks both and the two are not declared
+	// together. What differs is who reports the absence: a `required` key is
+	// verified by the generated startup check, a `required_at_init` one by the
+	// component's own Init — which is where a key whose necessity depends on a
+	// project.yaml setting has to be answered, because the check cannot tell
+	// whether this installation needs the component at all.
+	RequiredAtInit bool `yaml:"required_at_init"`
 	// Shared marks an accessor whose path is composed entirely from segments its
 	// caller supplies at runtime. It claims no subtree: the concrete paths it
 	// reaches are declared by the readers that compose them, each carrying
@@ -133,6 +149,21 @@ type KafkaProducer struct {
 	Events []string
 }
 
+// TolerantComponent names one component of a project: the kind it is, and the
+// segment its keys are read under.
+//
+// The kind is part of the identity because the segment alone is not: a gRPC
+// client and a Kafka client may both be called `audit`, and the keys they read
+// are different keys under different subtrees. Keyed by the segment alone, one
+// would answer for the other — and the answer that travels is "no configuration
+// needed", so a key no process starts without would quietly leave the registry.
+type TolerantComponent struct {
+	// Dimension is the kind of the component, one of the Dimension* constants.
+	Dimension string
+	// Name is the segment the component's keys are read under.
+	Name string
+}
+
 // ProjectSurface carries the project dimensions the declarations expand over.
 // It is deliberately a plain description of the project rather than the
 // generator's config type: the expansion is a pure function of these names, and
@@ -160,6 +191,20 @@ type ProjectSurface struct {
 	// TelegramWorkers are the names of workers generated from the telegram
 	// template.
 	TelegramWorkers []string
+	// Tolerant are the components whose start a missing key does not stop,
+	// each named by its kind and by the segment it is read under. Two
+	// project.yaml settings put a component here: `optional: true`, whose
+	// generated reader treats an absent key as "not configured, skip", and
+	// `instantiation: dynamic`, whose generated client takes its address as an
+	// argument and does not read the key at all. Either way a key declared
+	// `required_at_init` is not one for this component, and a guard demanding
+	// it would demand configuration the project says is not needed.
+	//
+	// Tolerance belongs to the component the path segment names, which is not
+	// always one wiring of project.yaml: every producer sharing a Kafka client
+	// reads the one brokers key under that client, so the segment is tolerant
+	// only if all of them are.
+	Tolerant map[TolerantComponent]bool
 }
 
 // GeneratorKey is one concrete OnlineConf path the generated code of a concrete
@@ -185,8 +230,17 @@ type GeneratorKey struct {
 	// declares: the prefix itself and the reads below it, and nothing else. The
 	// service may declare its own keys there. Meaningless without OwnedPrefix.
 	OpenSubtree bool
-	// Required reports a key the startup check verifies.
+	// Required reports a key the startup check of this project verifies. False
+	// where the declaration says `required` but no application of the project
+	// checks it, because every one of them wires the component `optional`.
 	Required bool
+	// RequiredAtInit reports a key whose absence keeps a process of this
+	// project from starting — either because a startup check fails on it
+	// (`required`), or because the component reports it missing from its own
+	// Init and no check covers it. False where the project's own settings
+	// answer for the component: a client taking its address as an argument, or
+	// one every application wires `optional: true`.
+	RequiredAtInit bool
 	// Default is the fallback the generated reader applies, as prose.
 	Default string
 	// Descriptions holds what the key does, one entry per distinct reason it is
@@ -196,6 +250,18 @@ type GeneratorKey struct {
 	// normal: the dev-stand flag, for instance, is read by the logger and by the
 	// ogen error responses.
 	ReadBy []string
+}
+
+// substitution is one expansion of a declaration over the project: the values
+// its dimension placeholders take, and what the project says about the
+// component being expanded.
+type substitution struct {
+	// values maps every dimension placeholder of the expansion to its value.
+	values map[string]string
+	// tolerant reports a component whose start a missing key does not stop:
+	// one the project declares optional, or one that does not read the key at
+	// all.
+	tolerant bool
 }
 
 // GenParam is one parameter of a generated accessor, in path order.
@@ -223,6 +289,10 @@ type GenAccessor struct {
 	Type string
 	// Required reports an accessor that returns ErrKeyNotSet for an absent key.
 	Required bool
+	// RequiredAtInit reports a declaration whose key the component cannot start
+	// without. It changes nothing about the accessor — it is carried here so
+	// that two declarations of one path disagreeing about it are caught.
+	RequiredAtInit bool
 	// Shared reports an accessor that claims no subtree because its whole path
 	// comes from its caller.
 	Shared bool
@@ -294,6 +364,11 @@ const (
 	PlaceholderEvent     = "{event}"
 )
 
+// requiredAtInitSuffix is how `required_at_init` reads in the description of a
+// declaration, which is what the message of a disagreement between two
+// declarations of one path is built from.
+const requiredAtInitSuffix = ", required at init"
+
 // pathBuilderSuffix is the mandatory tail of the name of a path-builder entry —
 // a declaration with no `type`, which generates a function returning the path
 // rather than reading it. The suffix keeps a builder from colliding with the
@@ -332,6 +407,29 @@ const (
 	ScopeTelegramDriver = "telegram_driver"
 )
 
+// Component dimensions — the kinds of component a tolerance answer is about.
+//
+// A dimension is not a scope: the two Kafka scopes read keys of one client, so
+// they share a dimension, and the scopes reading keys for no component at all
+// have none.
+const (
+	// DimensionRESTServer is a REST server transport, named by its server
+	// segment (name_version).
+	DimensionRESTServer = "rest_server"
+	// DimensionRESTClient is a generated REST client, named by its package
+	// segment (name_version).
+	DimensionRESTClient = "rest_client"
+	// DimensionGRPCClient is a generated gRPC client, named by its transport
+	// name.
+	DimensionGRPCClient = "grpc_client"
+	// DimensionKafkaClient is a Kafka client — the segment the producers
+	// configured under it read their brokers from. One client may carry
+	// several producers.
+	DimensionKafkaClient = "kafka_client"
+	// DimensionWorker is a worker, named by its own name.
+	DimensionWorker = "worker"
+)
+
 // ErrGenDeclDefect reports a broken declaration shipped with the generator: a
 // declaration file that does not parse, names an unknown scope, uses a
 // placeholder its scope cannot fill, or contradicts another declaration of the
@@ -359,10 +457,16 @@ var scopePlaceholders = map[string][]string{
 // unexported Go identifier.
 var runtimeParamRx = regexp.MustCompile(`^<[a-z][A-Za-z0-9]*>$`)
 
+// noComponent is the component of an expansion whose keys are read for no one
+// component: the service scope, and the telegram driver, generated once for the
+// project. Nothing ever puts it in Tolerant, so such an expansion is never
+// tolerant.
+var noComponent = TolerantComponent{}
+
 // genKeyFields is the closed set of fields a declaration entry may carry.
 var genKeyFields = map[string]struct{}{
-	"path": {}, "name": {}, "type": {}, "required": {}, "shared": {},
-	"read_via": {}, "open": {}, "default": {}, "description": {},
+	"path": {}, "name": {}, "type": {}, "required": {}, "required_at_init": {},
+	"shared": {}, "read_via": {}, "open": {}, "default": {}, "description": {},
 }
 
 // genGroupFields is the closed set of fields a declaration group may carry.
@@ -390,15 +494,16 @@ func (a GenAccessor) IsPathBuilder() bool {
 // UnmarshalYAML decodes a declaration entry, rejecting unknown fields.
 func (k *GenKey) UnmarshalYAML(value *yaml.Node) error {
 	type plain struct {
-		Path        string `yaml:"path"`
-		Name        string `yaml:"name"`
-		Type        string `yaml:"type"`
-		Required    bool   `yaml:"required"`
-		Shared      bool   `yaml:"shared"`
-		ReadVia     string `yaml:"read_via"`
-		Open        bool   `yaml:"open"`
-		Default     string `yaml:"default"`
-		Description string `yaml:"description"`
+		Path           string `yaml:"path"`
+		Name           string `yaml:"name"`
+		Type           string `yaml:"type"`
+		Required       bool   `yaml:"required"`
+		RequiredAtInit bool   `yaml:"required_at_init"`
+		Shared         bool   `yaml:"shared"`
+		ReadVia        string `yaml:"read_via"`
+		Open           bool   `yaml:"open"`
+		Default        string `yaml:"default"`
+		Description    string `yaml:"description"`
 	}
 
 	if err := rejectUnknownFields(value, genKeyFields); err != nil {
@@ -414,6 +519,7 @@ func (k *GenKey) UnmarshalYAML(value *yaml.Node) error {
 	k.Name = p.Name
 	k.Type = p.Type
 	k.Required = p.Required
+	k.RequiredAtInit = p.RequiredAtInit
 	k.Shared = p.Shared
 	k.ReadVia = p.ReadVia
 	k.Open = p.Open
@@ -671,6 +777,7 @@ func (k GenKey) shapeProblems() []string {
 	}
 
 	problems = append(problems, k.requiredProblems()...)
+	problems = append(problems, k.requiredAtInitProblems()...)
 
 	return problems
 }
@@ -711,6 +818,55 @@ func (k GenKey) requiredProblems() []string {
 			"path %q is `required` and type %s: verifying it would mean unmarshaling the value, and "+
 				"the destination type belongs to the caller. The startup check also calls the accessor "+
 				"without a destination, which a struct accessor has no signature for", k.Path, TypeStruct))
+	}
+
+	return problems
+}
+
+// requiredAtInitProblems checks that `required_at_init` says something a guard
+// outside the project could act on.
+//
+// The flag is published, not enforced, so the rules are about whether the fact
+// is checkable at all: a path a guard cannot enumerate, or one that is never
+// missing because a fallback answers for it, would make the registry promise a
+// check nobody can run.
+func (k GenKey) requiredAtInitProblems() []string {
+	if !k.RequiredAtInit {
+		return nil
+	}
+
+	var problems []string
+
+	if k.Type == "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `required_at_init` but declares no type: a path handed to generated code "+
+				"as a prefix has no value to be missing", k.Path))
+	}
+
+	if k.Default != "" {
+		problems = append(problems, fmt.Sprintf(
+			"path %q declares both `required_at_init` and `default`: a key with a fallback is never "+
+				"missing, and a guard demanding it would be demanding the fallback never be used", k.Path))
+	}
+
+	if k.Required {
+		problems = append(problems, fmt.Sprintf(
+			"path %q declares both `required` and `required_at_init`: the startup check of a "+
+				"`required` key IS the failed start, and the registry marks it as one — drop "+
+				"`required_at_init`", k.Path))
+	}
+
+	if k.Shared {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `shared` and `required_at_init`: a shared accessor's paths are composed by "+
+				"its callers, so there is no path for a guard to demand. Mark them where they are "+
+				"declared with `read_via`", k.Path))
+	}
+
+	if slices.ContainsFunc(k.Params(), func(p GenParam) bool { return p.Runtime }) {
+		problems = append(problems, fmt.Sprintf(
+			"path %q is `required_at_init` but has a runtime segment: the path only exists once the "+
+				"process runs, so nothing can be seeded against it beforehand", k.Path))
 	}
 
 	return problems
@@ -869,16 +1025,28 @@ func (e *expansion) addGroup(group GenGroup, owner string, surface ProjectSurfac
 			continue
 		}
 
-		for _, substitution := range substitutions {
-			path, ok := expandPath(key.Path, substitution)
+		for _, sub := range substitutions {
+			path, ok := expandPath(key.Path, sub.values)
 			if !ok {
 				continue
 			}
 
-			e.addKey(key, owner, path)
+			// A component the project lets do without its configuration is not
+			// one a guard can demand configuration for, so the published fact
+			// is per expansion rather than per declaration: the same host key
+			// is a start-stopper for one client and not for the next.
+			e.addKey(key, owner, path, sub.tolerant)
 
-			if key.Required {
-				e.addRequired(key, substitution, path)
+			// The startup check comes from the same decision as the row, so
+			// that the two cannot disagree. Tolerance is "every wiring in this
+			// expansion's scope declares the component optional", and the two
+			// expansions differ only in that scope: the whole project for the
+			// registry, one application for its check. A component optional in
+			// every application is therefore tolerant in every per-application
+			// expansion too — checked nowhere, and published as required
+			// nowhere.
+			if key.Required && !sub.tolerant {
+				e.addRequired(key, sub.values, path)
 			}
 		}
 	}
@@ -886,7 +1054,14 @@ func (e *expansion) addGroup(group GenGroup, owner string, surface ProjectSurfac
 
 // addKey folds one expanded path into the registry, reporting a contradiction
 // with an entry already there.
-func (e *expansion) addKey(key GenKey, owner, path string) {
+//
+// tolerant is what the project says about the component this path belongs to:
+// a missing value stops nothing, so neither flag of the row is set. Both are
+// decided here rather than carried from the declaration, because both answer
+// the same question — does the service start without this key — and a row
+// claiming `required` while no application checks it would make the pair
+// contradict itself.
+func (e *expansion) addKey(key GenKey, owner, path string, tolerant bool) {
 	accessor := key.Name
 	if key.ReadVia != "" {
 		accessor = ""
@@ -894,29 +1069,39 @@ func (e *expansion) addKey(key GenKey, owner, path string) {
 
 	ownedPrefix := expandOwnedPrefix(key, path)
 
+	required := key.Required && !tolerant
+	// A `required` key is one the process does not start without — the failed
+	// startup check IS that — so the registry publishes it as one.
+	requiredAtInit := (key.Required || key.RequiredAtInit) && !tolerant
+
 	existing, seen := e.keys[path]
 	if !seen {
 		e.keys[path] = &GeneratorKey{
-			Path:         path,
-			Type:         key.Type,
-			Accessor:     accessor,
-			ReadVia:      key.ReadVia,
-			OwnedPrefix:  ownedPrefix,
-			OpenSubtree:  ownedPrefix != "" && key.Open,
-			Required:     key.Required,
-			Default:      key.Default,
-			Descriptions: []string{key.Description},
-			ReadBy:       []string{owner},
+			Path:           path,
+			Type:           key.Type,
+			Accessor:       accessor,
+			ReadVia:        key.ReadVia,
+			OwnedPrefix:    ownedPrefix,
+			OpenSubtree:    ownedPrefix != "" && key.Open,
+			Required:       required,
+			RequiredAtInit: requiredAtInit,
+			Default:        key.Default,
+			Descriptions:   []string{key.Description},
+			ReadBy:         []string{owner},
 		}
 
 		return
 	}
 
-	if existing.Type != key.Type || existing.Accessor != accessor || existing.ReadVia != key.ReadVia {
+	// The flag is compared here as well as on the accessor, because a path read
+	// through a shared accessor has no accessor entry of its own — and it is
+	// exactly such a path that a second declaration could mark differently.
+	if existing.Type != key.Type || existing.Accessor != accessor || existing.ReadVia != key.ReadVia ||
+		existing.RequiredAtInit != requiredAtInit {
 		e.problems = append(e.problems, fmt.Sprintf("path %q is declared as %s by %s and as %s by %s",
-			path, describeGenKey(existing.Type, existing.Accessor, existing.ReadVia),
+			path, describeGenKey(existing.Type, existing.Accessor, existing.ReadVia, existing.RequiredAtInit),
 			strings.Join(existing.ReadBy, ", "),
-			describeGenKey(key.Type, accessor, key.ReadVia), owner))
+			describeGenKey(key.Type, accessor, key.ReadVia, requiredAtInit), owner))
 
 		return
 	}
@@ -963,29 +1148,31 @@ func (e *expansion) addAccessor(key GenKey, owner string) {
 		}
 
 		e.accessors[key.Path] = &GenAccessor{
-			Name:         key.Name,
-			Template:     key.Path,
-			Type:         key.Type,
-			Required:     key.Required,
-			Shared:       key.Shared,
-			Open:         key.Open,
-			Params:       key.Params(),
-			Default:      key.Default,
-			Descriptions: []string{key.Description},
-			ReadBy:       []string{owner},
+			Name:           key.Name,
+			Template:       key.Path,
+			Type:           key.Type,
+			Required:       key.Required,
+			RequiredAtInit: key.RequiredAtInit,
+			Shared:         key.Shared,
+			Open:           key.Open,
+			Params:         key.Params(),
+			Default:        key.Default,
+			Descriptions:   []string{key.Description},
+			ReadBy:         []string{owner},
 		}
 
 		return
 	}
 
 	if existing.Name != key.Name || existing.Type != key.Type ||
-		existing.Required != key.Required || existing.Shared != key.Shared ||
-		existing.Open != key.Open {
+		existing.Required != key.Required || existing.RequiredAtInit != key.RequiredAtInit ||
+		existing.Shared != key.Shared || existing.Open != key.Open {
 		e.problems = append(e.problems, fmt.Sprintf(
 			"template %q is declared as %s by %s and as %s by %s",
-			key.Path, describeGenAccessor(existing.Name, existing.Type, existing.Required, existing.Open),
+			key.Path,
+			describeGenAccessor(existing.Name, existing.Type, existing.Required, existing.RequiredAtInit, existing.Open),
 			strings.Join(existing.ReadBy, ", "),
-			describeGenAccessor(key.Name, key.Type, key.Required, key.Open), owner))
+			describeGenAccessor(key.Name, key.Type, key.Required, key.RequiredAtInit, key.Open), owner))
 
 		return
 	}
@@ -1001,11 +1188,11 @@ func (e *expansion) addAccessor(key GenKey, owner string) {
 
 // addRequired records one startup check: the required accessor and the dimension
 // values this expansion reads it with.
-func (e *expansion) addRequired(key GenKey, substitution map[string]string, path string) {
+func (e *expansion) addRequired(key GenKey, values map[string]string, path string) {
 	args := make([]string, 0, len(key.Params()))
 
 	for _, param := range key.Params() {
-		args = append(args, substitution["{"+param.Name+"}"])
+		args = append(args, values["{"+param.Name+"}"])
 	}
 
 	check := GenRequiredCheck{Accessor: key.Name, Args: args, Path: path}
@@ -1082,63 +1269,79 @@ func (k GenKey) generatedNames() []string {
 	return []string{k.Name, k.Name + pathBuilderSuffix}
 }
 
-// substitutions returns one placeholder mapping per expansion of the scope over
-// this project.
-func (s ProjectSurface) substitutions(scope string) []map[string]string {
+// substitutions returns one expansion of the scope per dimension value of this
+// project.
+func (s ProjectSurface) substitutions(scope string) []substitution {
 	base := map[string]string{PlaceholderService: s.Service}
 
 	switch scope {
 	case ScopeService:
-		return []map[string]string{base}
+		return []substitution{s.substitute(noComponent, base)}
 	case ScopeRESTServer:
 		return s.restServerSubstitutions()
 	case ScopeRESTClient:
-		return oneDimension(base, PlaceholderTransport, s.RESTClients)
+		return s.oneDimension(base, PlaceholderTransport, DimensionRESTClient, s.RESTClients)
 	case ScopeGRPCClient:
-		return oneDimension(base, PlaceholderTransport, s.GRPCClients)
+		return s.oneDimension(base, PlaceholderTransport, DimensionGRPCClient, s.GRPCClients)
 	case ScopeKafkaProducer:
 		clients := make([]string, 0, len(s.KafkaProducers))
 		for _, producer := range s.KafkaProducers {
 			clients = append(clients, producer.Client)
 		}
 
-		return oneDimension(base, PlaceholderClient, clients)
+		return s.oneDimension(base, PlaceholderClient, DimensionKafkaClient, clients)
 	case ScopeKafkaProducerEvent:
 		return s.kafkaEventSubstitutions()
 	case ScopeWorkerDaemon:
-		return oneDimension(base, PlaceholderWorker, s.DaemonWorkers)
+		return s.oneDimension(base, PlaceholderWorker, DimensionWorker, s.DaemonWorkers)
 	case ScopeWorkerTelegram:
-		return oneDimension(base, PlaceholderWorker, s.TelegramWorkers)
+		return s.oneDimension(base, PlaceholderWorker, DimensionWorker, s.TelegramWorkers)
 	case ScopeTelegramDriver:
 		if len(s.TelegramWorkers) == 0 {
 			return nil
 		}
 
-		return []map[string]string{base}
+		return []substitution{s.substitute(noComponent, base)}
 	default:
 		// Unreachable: ParseGenDecl rejects an unknown scope.
 		return nil
 	}
 }
 
+// substitute pairs a placeholder mapping with what the project says about the
+// component the expansion is for.
+//
+// The component is named by the caller rather than read back out of the
+// mapping: the mapping holds segment values, and a segment value is not a
+// component until its kind is attached. The kind is what the caller knows — it
+// is the dimension it is expanding over. {app} and {event} name no component of
+// their own: an application is not something a project declares optional, and
+// an event is a setting of the producer publishing it, so the producer's
+// segment already answers for it.
+func (s ProjectSurface) substitute(component TolerantComponent, values map[string]string) substitution {
+	return substitution{values: values, tolerant: s.Tolerant[component]}
+}
+
 // restServerSubstitutions yields one mapping per (transport, application) pair,
 // plus a transport-only mapping so that the transport-level fallback paths —
 // which name no {app} — expand for a transport serving no application too.
-func (s ProjectSurface) restServerSubstitutions() []map[string]string {
-	out := make([]map[string]string, 0, len(s.RESTServers))
+func (s ProjectSurface) restServerSubstitutions() []substitution {
+	out := make([]substitution, 0, len(s.RESTServers))
 
 	for _, server := range s.RESTServers {
-		out = append(out, map[string]string{
+		component := TolerantComponent{Dimension: DimensionRESTServer, Name: server.Transport}
+
+		out = append(out, s.substitute(component, map[string]string{
 			PlaceholderService:   s.Service,
 			PlaceholderTransport: server.Transport,
-		})
+		}))
 
 		for _, app := range server.Apps {
-			out = append(out, map[string]string{
+			out = append(out, s.substitute(component, map[string]string{
 				PlaceholderService:   s.Service,
 				PlaceholderTransport: server.Transport,
 				PlaceholderApp:       app,
-			})
+			}))
 		}
 	}
 
@@ -1146,34 +1349,39 @@ func (s ProjectSurface) restServerSubstitutions() []map[string]string {
 }
 
 // kafkaEventSubstitutions yields one mapping per (client, event) pair.
-func (s ProjectSurface) kafkaEventSubstitutions() []map[string]string {
-	out := make([]map[string]string, 0, len(s.KafkaProducers))
+func (s ProjectSurface) kafkaEventSubstitutions() []substitution {
+	out := make([]substitution, 0, len(s.KafkaProducers))
 
 	for _, producer := range s.KafkaProducers {
+		component := TolerantComponent{Dimension: DimensionKafkaClient, Name: producer.Client}
+
 		for _, event := range producer.Events {
-			out = append(out, map[string]string{
+			out = append(out, s.substitute(component, map[string]string{
 				PlaceholderService: s.Service,
 				PlaceholderClient:  producer.Client,
 				PlaceholderEvent:   event,
-			})
+			}))
 		}
 	}
 
 	return out
 }
 
-// oneDimension yields one mapping per value of a single placeholder.
-func oneDimension(base map[string]string, placeholder string, values []string) []map[string]string {
-	out := make([]map[string]string, 0, len(values))
+// oneDimension yields one expansion per value of a single placeholder, every
+// value naming a component of the given dimension.
+func (s ProjectSurface) oneDimension(
+	base map[string]string, placeholder, dimension string, values []string,
+) []substitution {
+	out := make([]substitution, 0, len(values))
 
 	for _, value := range values {
-		substitution := make(map[string]string, len(base)+1)
+		next := make(map[string]string, len(base)+1)
 		for k, v := range base {
-			substitution[k] = v
+			next[k] = v
 		}
 
-		substitution[placeholder] = value
-		out = append(out, substitution)
+		next[placeholder] = value
+		out = append(out, s.substitute(TolerantComponent{Dimension: dimension, Name: value}, next))
 	}
 
 	return out
@@ -1529,19 +1737,27 @@ func GenScopes() []string {
 
 // describeGenKey names what a declaration says a path is, for the message of a
 // contradiction between two declarations of it.
-func describeGenKey(valueType, accessor, readVia string) string {
+func describeGenKey(valueType, accessor, readVia string, requiredAtInit bool) string {
+	var out string
+
 	switch {
 	case valueType == "":
 		return "a path read below"
 	case readVia != "":
-		return "type " + valueType + " read through " + readVia
+		out = "type " + valueType + " read through " + readVia
 	default:
-		return "type " + valueType + " read through " + accessor
+		out = "type " + valueType + " read through " + accessor
 	}
+
+	if requiredAtInit {
+		out += requiredAtInitSuffix
+	}
+
+	return out
 }
 
 // describeGenAccessor names what a declaration says an accessor is.
-func describeGenAccessor(name, valueType string, required, open bool) string {
+func describeGenAccessor(name, valueType string, required, requiredAtInit, open bool) string {
 	out := "the path builder " + name
 
 	if valueType != "" {
@@ -1554,6 +1770,10 @@ func describeGenAccessor(name, valueType string, required, open bool) string {
 
 	if open {
 		out += ", open"
+	}
+
+	if requiredAtInit {
+		out += requiredAtInitSuffix
 	}
 
 	return out
