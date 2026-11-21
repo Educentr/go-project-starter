@@ -156,7 +156,7 @@ rest:
 
 1. Парсятся все `path:` из `project.yaml`.
 2. Для каждого удалённого источника создаётся временный staging-каталог, файл скачивается / клонируется один раз на запуск.
-3. Файлы копируются в `api/{rest,grpc,schema}/...` под исходным именем (например, `openapi/users.yaml` → `users.yaml`).
+3. Файлы копируются в `api/{rest,grpc,schema}/...` под исходным именем (например, `openapi/users.yaml` → `users.yaml`). Два источника с одинаковым именем файла в одной целевой директории — ошибка генерации, см. [Копирование: одно имя файла — один источник](#копирование-одно-имя-файла--один-источник).
 4. Staging чистится в конце.
 5. Файлы в `api/` коммитятся в репозиторий проекта.
 
@@ -165,6 +165,37 @@ rest:
 Файлы в `api/` — копия контракта, а не его источник: править их внутри проекта нельзя, следующий
 `regenerate` откажется работать и назовёт источник, который надо поправить вместо них. См.
 [Спеки правятся в контрактном репозитории](../workflow/regeneration.md#спеки-правятся-в-контрактном-репозитории-не-в-проекте).
+
+### Копирование: одно имя файла — один источник
+
+Имя файла в `api/` — basename источника, поэтому два источника с одинаковым именем в одной
+целевой директории копировались бы один поверх другого. Это **ошибка генерации**: прогон
+останавливается до первой записи (дерево проекта остаётся нетронутым) и называет общее
+назначение и оба `path:` (в форме `SpecSource.Describe()`: без userinfo и значения токена, с
+эффективным ref — `@HEAD`, если ref не задан):
+
+```text
+failed to generate: more than one `path:` entry copies to the same file inside the project:
+  api/rest/api/v1/common.swagger.yml
+    - ssh://github.com/org/contracts.git@HEAD#orchestrator/common.swagger.yml
+    - ssh://github.com/org/contracts.git@HEAD#runtime/common.swagger.yml
+a copied file keeps the basename of its source, so two sources with the same basename cannot
+share one target directory — one would overwrite the other. Rename the file at one of the
+sources, or move it to a transport/jsonschema block of its own (each block copies into its own
+directory).
+```
+
+Проверяются все три копирующих канала и их целевые директории: `rest[].path`
+(`api/rest/<svc>/<ver>/`), `grpc` (`api/grpc/<svc>/` — у блока одна спека, так что в его
+директорию попадает один файл), `jsonschema[]` — `path` и `schemas[].path`
+(`api/schema/<name>/`). Выходы из ошибки два: переименовать файл **в источнике** (внутри проекта
+править нечего, см. раздел выше) либо развести источники по разным блокам — у каждого блока своя
+директория.
+
+Один и тот же источник, который доехал до одного назначения несколько раз, ошибкой не считается:
+транспорт, который обслуживают несколько приложений, копируется один раз на каждое. Одинаковое
+имя файла в разных блоках (`svc_a` и `svc_b` тянут каждый свой `common.swagger.yml`) — тоже норма,
+это разные директории.
 
 ## Troubleshooting
 
@@ -182,6 +213,7 @@ rest:
 | `subpath not found in repository: openapi/foo.yaml (similar: api/foo.yaml)` | Опечатка в subpath | Использовать предложенный путь или поправить YAML |
 | `HTTP request returned non-2xx status: 404 ...` | Неверный URL или ref | Проверить URL в браузере / `curl -I` |
 | `directory subpaths are not supported yet` | `#openapi/` (с `/` в конце) | Указать конкретный файл, не директорию |
+| ``more than one `path:` entry copies to the same file inside the project`` | Два источника с одинаковым именем файла в одной целевой директории | Переименовать файл в одном из источников либо развести источники по разным блокам (`rest`/`jsonschema`) — [подробнее](#копирование-одно-имя-файла--один-источник) |
 | `a file copied by the generator was edited inside the project tree` | Спеку поправили в `api/` вместо источника | Перенести правку в ветку контрактного репо (`source:` в сообщении), файл в проекте вернуть из git (или удалить) и перегенерировать с `SOURCE_REF="<repo>:<ветка>"`. Подробнее — [regeneration.md](../workflow/regeneration.md#спеки-правятся-в-контрактном-репозитории-не-в-проекте) |
 
 ## Поддерживаемые источники

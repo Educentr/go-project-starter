@@ -44,10 +44,12 @@ func TestCopiedSpecTargets(t *testing.T) {
 		},
 	}
 
-	targets, err := g.copiedSpecTargets(filepath.FromSlash("/project"))
+	planned, err := g.plannedCopies(filepath.FromSlash("/project"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	targets := dedupCopies(planned)
 
 	// Source strings are what the operator wrote in project.yaml, with the
 	// token name kept but no secret value — never a staging path.
@@ -97,10 +99,12 @@ func TestCopiedSpecTargetsSkipsUnparsableSource(t *testing.T) {
 		}}},
 	}
 
-	targets, err := g.copiedSpecTargets(filepath.FromSlash("/project"))
+	planned, err := g.plannedCopies(filepath.FromSlash("/project"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	targets := dedupCopies(planned)
 
 	if len(targets) != 1 || targets[0].Path != "api/rest/api/v1/ok.yaml" {
 		t.Errorf("only the parsable source must be checked, got %+v", targets)

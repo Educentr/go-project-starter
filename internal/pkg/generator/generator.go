@@ -1953,22 +1953,31 @@ func (g *Generator) Generate() error {
 		return errors.Wrap(err, "Error target path")
 	}
 
+	// Plan of every file this run copies into the project verbatim. Both checks
+	// below ride on it, and both are here for the same two reasons: nothing has
+	// been written yet, so a refused run leaves the tree exactly as it was; and
+	// SpecPath still holds the `path` values from project.yaml, which is what
+	// their messages have to name.
+	plannedCopies, err := g.plannedCopies(targetPath)
+	if err != nil {
+		return errors.Wrap(err, "Error collect copied specs")
+	}
+
+	// A copy keeps the basename of its source, so two `path:` entries whose
+	// basenames collide in one target directory would be written over each
+	// other, leaving a tree that matches no configuration at all.
+	if err = checkCopyDestCollisions(plannedCopies); err != nil {
+		return err
+	}
+
 	// Specs are copied into the project from their contract source, so a hand
 	// edit here is a change the next run overwrites — a lost change, not a
 	// customization point. Unlike drift above a disclaimer marker (a warning:
 	// the marker gives the author a place to move the code to), there is no
 	// such place in a copied file, so this aborts the run.
 	//
-	// Checked here for two reasons: nothing has been written yet, so a drifted
-	// tree is left exactly as it was; and SpecPath still holds the `path`
-	// values from project.yaml, which is what the message has to name.
-	copiedTargets, err := g.copiedSpecTargets(targetPath)
-	if err != nil {
-		return errors.Wrap(err, "Error collect copied specs")
-	}
-
 	// Dry-run is checked too: it previews a real run, and a real run stops here.
-	if err = g.Meta.Manifest.CheckCopiedDrift(targetPath, copiedTargets); err != nil {
+	if err = g.Meta.Manifest.CheckCopiedDrift(targetPath, dedupCopies(plannedCopies)); err != nil {
 		return err
 	}
 
