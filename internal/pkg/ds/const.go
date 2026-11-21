@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -11,29 +12,8 @@ import (
 
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
+	"gopkg.in/yaml.v3"
 )
-
-// specBasename returns the file name under which a raw `path:` entry lands in
-// the project tree. A URI is not a filesystem path, so the name has to come
-// from the source itself (the git subpath, the URL path) — filepath.Base of
-// "git+ssh://git@host/org/contracts.git#api.swagger.yml" is
-// "contracts.git#api.swagger.yml", and of an https URL carrying
-// "?token_env=NAME" it is the basename with the query glued to it.
-//
-// This mirrors what the resolve pre-pass records in SpecTargetFiles /
-// SchemaTargetFiles, and is what callers that run before that pre-pass — the
-// templates, the Makefile among them — have to use to name the same file.
-func specBasename(raw string) string {
-	src, err := specsource.ParseSpecSource(raw)
-	if err != nil {
-		// A malformed entry is the resolve pass's error to report, with the
-		// transport name and entry index attached; here keep the plain-path
-		// reading it had before URIs existed.
-		return filepath.Base(raw)
-	}
-
-	return src.TargetFilename()
-}
 
 type TransportType string
 
@@ -92,9 +72,9 @@ type ChecksConfig struct {
 	FailFast bool // true = cancel the remaining checks after the first failure
 }
 
-// Declared above the first func of the file, away from the GithubCIConfig it
-// configures, because decorder wants every type and const ahead of the funcs
-// (order: type,const,var,func).
+// The declarations up to the first func of the file sit here, away from the
+// GithubCIConfig they configure, because decorder wants every type, const and
+// var ahead of the funcs (order: type,const,var,func).
 
 // DoctlMode selects how the doctl CLI becomes available in the generated
 // DigitalOcean Container Registry login jobs. It configures GithubCIConfig
@@ -111,6 +91,83 @@ const (
 	// runner image without doctl turns the job red instead of installing one.
 	DoctlModeImage DoctlMode = "image"
 )
+
+// pushBranchIndent is the indentation of the `on.push.branches:` block
+// sequence items in the generated ci_cd.yml.
+const pushBranchIndent = "      "
+
+// defaultPushBranches are the branch filters of the `on.push` trigger used by
+// the generated workflows when github_ci.push_branches is not configured.
+// Kept as the historical literal of both workflow templates, so a project
+// that does not configure the key regenerates byte for byte.
+var defaultPushBranches = []string{"main", "staging"}
+
+// branchPlainRx matches the branch filters whose characters allow a plain YAML
+// scalar in both the block sequence of ci_cd.yml and the flow sequence of
+// go-version-check.yml. A filter outside this set is single-quoted instead:
+// the glob metacharacters `*`, `?`, `+` and `-` carry no meaning inside a
+// plain scalar, but a leading `!` is a YAML tag indicator and `[`, `]` are
+// flow indicators, and GitHub filter patterns legitimately use all of them
+// (`!main`, `release/[0-9]*`).
+//
+// Matching characters is necessary but not sufficient — see plainScalarIsStr.
+var branchPlainRx = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/*?+-]*$`)
+
+// yaml11BoolNull are the plain scalars that YAML 1.1 resolves to a boolean or
+// null while the YAML 1.2 core schema — the one gopkg.in/yaml.v3 implements —
+// keeps them strings. GitHub does not document the schema its workflow parser
+// follows, so these are quoted as well: a branch named `no` has to reach the
+// filter as the string it is under either schema. Compared lowercased, which
+// also quotes mixed-case spellings YAML 1.1 would have left alone — quoting a
+// filter that did not need it costs nothing, not quoting one does.
+var yaml11BoolNull = map[string]bool{
+	"y": true, "yes": true, "n": true, "no": true,
+	"on": true, "off": true, "true": true, "false": true,
+	"null": true, "~": true,
+}
+
+// specBasename returns the file name under which a raw `path:` entry lands in
+// the project tree. A URI is not a filesystem path, so the name has to come
+// from the source itself (the git subpath, the URL path) — filepath.Base of
+// "git+ssh://git@host/org/contracts.git#api.swagger.yml" is
+// "contracts.git#api.swagger.yml", and of an https URL carrying
+// "?token_env=NAME" it is the basename with the query glued to it.
+//
+// This mirrors what the resolve pre-pass records in SpecTargetFiles /
+// SchemaTargetFiles, and is what callers that run before that pre-pass — the
+// templates, the Makefile among them — have to use to name the same file.
+func specBasename(raw string) string {
+	src, err := specsource.ParseSpecSource(raw)
+	if err != nil {
+		// A malformed entry is the resolve pass's error to report, with the
+		// transport name and entry index attached; here keep the plain-path
+		// reading it had before URIs existed.
+		return filepath.Base(raw)
+	}
+
+	return src.TargetFilename()
+}
+
+// plainScalarIsStr reports whether branch, emitted as a plain YAML scalar,
+// reads back as the string it is rather than as a number, a boolean, null or a
+// timestamp. Branch names like `1.10`, `123` or `true` are made of plain-safe
+// characters yet resolve to other types: a bare `1.10` is read as the float
+// 1.1, so the filter would stop matching the branch it names (and GitHub
+// requires `branches` to be a sequence of strings in the first place).
+//
+// The resolution is delegated to yaml.v3's own resolver instead of being
+// restated as a pattern here, so the two cannot drift apart.
+func plainScalarIsStr(branch string) bool {
+	if yaml11BoolNull[strings.ToLower(branch)] {
+		return false
+	}
+
+	node := yaml.Node{Kind: yaml.ScalarNode, Value: branch}
+
+	// yaml.v3 does not export its tag constants; "!!str" is the resolved tag
+	// of a scalar that reads back as the string it spells.
+	return node.ShortTag() == "!!str"
+}
 
 // Enabled reports whether at least one check is declared. When false the checks
 // job is not generated and the CI graph stays exactly as it was.
@@ -157,6 +214,10 @@ type GithubCIConfig struct {
 	// Checks carries the declared checks and their shared settings. The zero
 	// value disables the checks job, leaving the CI graph as it was.
 	Checks ChecksConfig
+	// PushBranches lists the branch filters of the `on.push` trigger of both
+	// generated workflows. Empty means the trigger is rendered with the
+	// default branches, main and staging.
+	PushBranches []string
 }
 
 // DefaultRunsOn is the runner used by the generated workflows when
@@ -209,6 +270,61 @@ func (c GithubCIConfig) JobHeader() string {
 	}
 
 	return header
+}
+
+// pushBranches returns the configured branch filters, or defaultPushBranches
+// when the project did not configure any.
+func (c GithubCIConfig) pushBranches() []string {
+	if len(c.PushBranches) == 0 {
+		return defaultPushBranches
+	}
+
+	return c.PushBranches
+}
+
+// yamlBranch renders a branch filter as a YAML scalar: plain when the filter
+// both is representable as one (branchPlainRx) and reads back as a string
+// (plainScalarIsStr), single-quoted otherwise. Quoting is decided per filter
+// rather than for the whole list so the default `main`/`staging` stay unquoted.
+func yamlBranch(branch string) string {
+	if branchPlainRx.MatchString(branch) && plainScalarIsStr(branch) {
+		return branch
+	}
+
+	return "'" + strings.ReplaceAll(branch, "'", "''") + "'"
+}
+
+// PushBranchesBlock renders the value of the `on.push.branches:` key as a
+// block sequence, for use at pushBranchIndent:
+//
+//	on:
+//	  push:
+//	    branches:
+//	      {{ $.GithubCI.PushBranchesBlock }}
+func (c GithubCIConfig) PushBranchesBlock() string {
+	branches := c.pushBranches()
+	items := make([]string, 0, len(branches))
+
+	for _, branch := range branches {
+		items = append(items, "- "+yamlBranch(branch))
+	}
+
+	return strings.Join(items, "\n"+pushBranchIndent)
+}
+
+// PushBranchesFlow renders the value of the `on.push.branches:` key as a flow
+// sequence, the form go-version-check.yml uses:
+//
+//	branches: {{ $.GithubCI.PushBranchesFlow }}
+func (c GithubCIConfig) PushBranchesFlow() string {
+	branches := c.pushBranches()
+	items := make([]string, 0, len(branches))
+
+	for _, branch := range branches {
+		items = append(items, yamlBranch(branch))
+	}
+
+	return "[" + strings.Join(items, ", ") + "]"
 }
 
 // DoctlFromImage reports whether the generated DigitalOcean registry login
