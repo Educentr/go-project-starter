@@ -36,7 +36,7 @@ jobs:
         {{ $applicationName := $a.Name | ReplaceDash }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_TRAEFIK {{"}}"}}
         {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
-        {{ if $t.PublicService }}
+        {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
       DOMAIN_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.DOMAIN_{{ $t.Name | ToUpper }} {{"}}"}}
         {{ end }}
       PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }}: ${{"{{"}} steps.set_env_main.outputs.PORT_PREFIX_{{ $applicationName | ToUpper }}_{{ $t.Name | ToUpper }} {{"}}"}}
@@ -48,7 +48,7 @@ jobs:
       - name: Get branch
         uses: noliran/branch-based-secrets@v1
         with:
-          secrets: ENABLED{{ if .Artifacts.HasDocker }},ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}{{ if $a.HasDocker }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if $t.PublicService }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET{{ end }}
+          secrets: ENABLED{{ if .Artifacts.HasDocker }},ENV_TYPE,OC_USER,OC_PASSWORD,OC_HOST,OC_PORT,{{- range $_, $a := .Applications }}{{ if $a.HasDocker }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK,{{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }},{{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}DOMAIN_{{ $t.Name | ToUpper }},{{ end }}{{ end }}{{ end }}{{ end }}{{ end }}SSH_HOST,INTERNAL_SUBNET{{ end }}
 
       - name: Use vars
         id: vars_enabled
@@ -138,7 +138,7 @@ jobs:
             echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_TRAEFIK_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
 
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
-            {{ if $t.PublicService }}
+            {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
           if [ -z "${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" ]; then
             echo "Empty variable ${{"{{"}} env.DOMAIN_{{ $t.Name | ToUpper }}_NAME {{"}}"}}"
             exit 5
@@ -382,7 +382,7 @@ jobs:
           {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK)[matrix.envs] {{"}}"}}"' >> $fname
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
-              {{ if $t.PublicService }}
+              {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
           echo 'DOMAIN_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
               {{ end }}
           echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname

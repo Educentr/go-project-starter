@@ -256,7 +256,7 @@ deploy-staging:
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
       {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
-      {{ if $t.PublicService -}}
+      {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) -}}
       DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
       {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
       EOF
@@ -287,7 +287,7 @@ deploy-production:
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK}
       {{ range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" -}}
       PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}}
-      {{ if $t.PublicService -}}
+      {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) -}}
       DOMAIN_{{ $t.Name | ToUpper }}=${DOMAIN_{{ $t.Name | ToUpper }}}
       {{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
       EOF
