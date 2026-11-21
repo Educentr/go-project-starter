@@ -486,8 +486,16 @@ files from version control.
   сравнивает с хешем, не с источником). Для контрактного репо — ветка + `SOURCE_REF`. Пошагово —
   [docs/workflow/regeneration.md](docs/workflow/regeneration.md#спеки-правятся-в-контрактном-репозитории-не-в-проекте).
 
+Тем же pre-pass'ом, **перед** drift-проверкой, идёт проверка коллизий назначения
+(`checkCopyDestCollisions`, `internal/pkg/generator/copycollision.go`): имя файла в `api/` —
+basename источника, и два **разных** источника (`rest[].path`, `grpc`, `jsonschema[]`), которые
+попадают в один файл проекта, — ошибка генерации с общим назначением и всеми `path:`. Один и тот же
+источник несколько раз (транспорт в нескольких приложениях) коллизией не считается. Поэтому
+`plannedCopies()` назначения не дедуплицирует, а drift-проверка получает план через `dedupCopies()`.
+См. [docs/configuration/remote-specs.md](docs/configuration/remote-specs.md#копирование-одно-имя-файла--один-источник).
+
 Реализация: `Manifest.CheckCopiedDrift` + `CopiedDriftError`/`CopiedFileDriftHint`
-(`internal/pkg/meta/drift.go`), сбор целей — `Generator.copiedSpecTargets()`
+(`internal/pkg/meta/drift.go`), сбор целей — `Generator.plannedCopies()` → `dedupCopies()`
 (`internal/pkg/generator/copy.go`), вызов — в начале `Generator.Generate()`. Формулировка
 ошибки и подсказка лежат в `meta`, чтобы другие каналы, копирующие файлы в проект, переиспользовали
 их, а не придумывали свои.

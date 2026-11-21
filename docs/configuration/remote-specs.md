@@ -171,13 +171,14 @@ rest:
 Имя файла в `api/` — basename источника, поэтому два источника с одинаковым именем в одной
 целевой директории копировались бы один поверх другого. Это **ошибка генерации**: прогон
 останавливается до первой записи (дерево проекта остаётся нетронутым) и называет общее
-назначение и оба `path:`:
+назначение и оба `path:` (в форме `SpecSource.Describe()`: без userinfo и значения токена, с
+эффективным ref — `@HEAD`, если ref не задан):
 
 ```text
 failed to generate: more than one `path:` entry copies to the same file inside the project:
   api/rest/api/v1/common.swagger.yml
-    - git+ssh://git@github.com/org/contracts.git#orchestrator/common.swagger.yml
-    - git+ssh://git@github.com/org/contracts.git#runtime/common.swagger.yml
+    - ssh://github.com/org/contracts.git@HEAD#orchestrator/common.swagger.yml
+    - ssh://github.com/org/contracts.git@HEAD#runtime/common.swagger.yml
 a copied file keeps the basename of its source, so two sources with the same basename cannot
 share one target directory — one would overwrite the other. Rename the file at one of the
 sources, or move it to a transport/jsonschema block of its own (each block copies into its own
