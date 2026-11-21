@@ -2,7 +2,7 @@ name: Go Version Policy Check
 
 on:
   push:
-    branches: [main, staging]
+    branches: {{ $.GithubCI.PushBranchesFlow }}
   pull_request:
 
 jobs:

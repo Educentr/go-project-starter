@@ -70,6 +70,9 @@ github_ci:
   # runs_on: self-hosted          # label, [labels] or {group, labels}; default ubuntu-latest
   # job_timeout_minutes: 30       # timeout-minutes on every job; default not emitted
   # doctl_version: 1.170.0        # version input of action-doctl; default latest
+  # push_branches:                # on.push branch filters; default [main, staging]
+  #   - main
+  #   - 'release/**'
 
   # CI checks - one matrix job in the generated workflow; build and
   # build-packages are gated on its aggregated result. Omit the key and no job
