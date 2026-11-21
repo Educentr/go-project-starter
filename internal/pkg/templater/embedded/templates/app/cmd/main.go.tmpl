@@ -53,7 +53,11 @@ import (
 {{ end }}
 	"github.com/Educentr/go-project-starter-runtime/pkg/reqctx"
 	"{{ .ProjectPath }}/pkg/app/logger"
-	{{- if .Application.GetRestTransport }}
+	{{- /* Only a served REST transport (not an ogen_client) gets a
+	       rest.NewServer(..., restconfig.NewOnlineConfConfigProvider(...)) line in
+	       SetTransport below, so a client-only application must not import either
+	       package: an unused import does not compile. */ -}}
+	{{- if .Application.HasRestServer }}
 	"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"
 	"{{ .ProjectPath }}/pkg/app/restconfig"
 	{{- end }}

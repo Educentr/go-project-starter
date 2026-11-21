@@ -466,6 +466,14 @@ const (
 	// because of its name.
 	GeneratorTemplateSys = "sys"
 
+	// generatorTypeOgenClient is the generator_type of a REST transport that
+	// calls an API instead of serving one.
+	generatorTypeOgenClient = "ogen_client"
+
+	// generatorTypeBufClient is the generator_type of a gRPC transport that
+	// calls a service instead of serving one.
+	generatorTypeBufClient = "buf_client"
+
 	// Path components for schema directories
 	schemaDir = "schema"
 	pkgDir    = "pkg"
@@ -616,6 +624,26 @@ func (a App) HasSysTransport() bool {
 			return true
 		}
 	}
+	return false
+}
+
+// HasRestServer returns true if the application serves at least one REST
+// transport, i.e. has a REST transport that is not a client.
+//
+// This is not the same as having a REST transport at all: an application whose
+// only REST transport is an `ogen_client` calls an API, it does not serve one.
+// Only a served transport gets a `rest.NewServer(..., restconfig.New...)`
+// initializer in main (see Transport.Init), so this — not GetRestTransport — is
+// the condition under which main uses the REST server runtime and the config
+// provider. Gating their imports on GetRestTransport emitted two unused imports
+// into a client-only main, which does not compile.
+func (a App) HasRestServer() bool {
+	for _, transport := range a.Transports {
+		if transport.Type == RestTransportType && transport.GeneratorType != generatorTypeOgenClient {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -962,7 +990,7 @@ func (a Apps) HasGoatTestsWithOnlineconf() bool {
 // HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
 func (a App) HasOgenClients() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "ogen_client" {
+		if transport.GeneratorType == generatorTypeOgenClient {
 			return true
 		}
 	}
@@ -995,7 +1023,7 @@ func (a App) GetOgenClients() []Transport {
 	clients := make([]Transport, 0)
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "ogen_client" {
+		if transport.GeneratorType == generatorTypeOgenClient {
 			clients = append(clients, transport)
 		}
 	}
@@ -1041,7 +1069,7 @@ func (a App) TransportImports() []string {
 
 	for _, transport := range a.Transports {
 		// Skip client transports - they are initialized in service, not in main
-		if transport.GeneratorType != "ogen_client" && transport.GeneratorType != "buf_client" {
+		if transport.GeneratorType != generatorTypeOgenClient && transport.GeneratorType != generatorTypeBufClient {
 			imports = append(imports, transport.Import...)
 		}
 	}
@@ -1184,7 +1212,7 @@ func (a App) GetRestServerTransport() []Transport {
 	servers := make([]Transport, 0, len(transports))
 
 	for _, transport := range transports {
-		if transport.GeneratorType == "ogen_client" || transport.GeneratorType == "buf_client" {
+		if transport.GeneratorType == generatorTypeOgenClient || transport.GeneratorType == generatorTypeBufClient {
 			continue
 		}
 
@@ -1269,7 +1297,7 @@ func (t Transport) GetOgenConfigPath(targetDir string) string {
 	switch t.GeneratorType {
 	case "ogen":
 		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_server.yaml")
-	case "ogen_client":
+	case generatorTypeOgenClient:
 		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_client.yaml")
 	default:
 		return ""

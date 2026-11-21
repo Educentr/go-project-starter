@@ -772,6 +772,71 @@ func TestApp_HasSysTransport(t *testing.T) {
 	}
 }
 
+// TestApp_HasRestServer pins the distinction the import gate of main rests on:
+// a REST transport is not necessarily a REST server. Only a server gets a
+// rest.NewServer initializer, and only then does main use the server runtime.
+func TestApp_HasRestServer(t *testing.T) {
+	tests := []struct {
+		name string
+		app  App
+		want bool
+	}{
+		{
+			name: "no transports",
+			app:  App{},
+			want: false,
+		},
+		{
+			name: "only a rest client",
+			app: App{
+				Transports: Transports{
+					"billing": Transport{Name: "billing", Type: RestTransportType, GeneratorType: "ogen_client"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "ogen server",
+			app: App{
+				Transports: Transports{
+					"api": Transport{Name: "api", Type: RestTransportType, GeneratorType: "ogen"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "template server next to a client",
+			app: App{
+				Transports: Transports{
+					"billing": Transport{Name: "billing", Type: RestTransportType, GeneratorType: "ogen_client"},
+					"sys": Transport{
+						Name: "sys", Type: RestTransportType,
+						GeneratorType: "template", GeneratorTemplate: "sys",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "a grpc server is not a rest server",
+			app: App{
+				Transports: Transports{
+					"orders": Transport{Name: "orders", Type: GrpcTransportType, GeneratorType: "buf"},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.app.HasRestServer(); got != tt.want {
+				t.Errorf("App.HasRestServer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApp_HasStaticTransport(t *testing.T) {
 	tests := []struct {
 		name string
