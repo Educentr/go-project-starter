@@ -172,12 +172,16 @@ func Subscribe(ctx context.Context, paths []string, cb func() error) error {
 
 	return nil
 }
-{{- if .OnlineConf.HasServiceKeys }}
+{{- if .OnlineConf.HasServicePathConsts }}
 
 // --- paths of the service's declarations ---
 //
 // Exported so that a caller can hand a path to Subscribe without reaching into
 // the onlineconf package, which the validator forbids here.
+//
+// A declared key whose path carries a <runtimeSegment> has no constant here: its
+// path is composed from an argument, so the generated <Name>Path builder is what
+// a caller hands to Subscribe.
 const (
 {{- range $_, $a := .OnlineConf.ServicePathConsts }}
 	// {{ $a.PathConst }} is the path of {{ $a.Name }} ({{ $a.Type }}).
@@ -361,11 +365,15 @@ func {{ $a.Name }}(ctx context.Context{{ if $a.ParamDecl }}, {{ $a.ParamDecl }}{
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if .OnlineConf.HasServiceKeys }}
+{{- if .OnlineConf.HasServicePathConsts }}
 
-// Paths returns every path the service's own key map declares, in declaration
-// order. Useful for a subscription that should fire on any configuration change
-// the service cares about.
+// Paths returns every path the service's own key map declares as a constant, in
+// declaration order. Useful for a subscription that should fire on any
+// configuration change the service cares about.
+//
+// A key with a <runtimeSegment> in its path is not in the list: there is no one
+// path to return for it. Subscribe to such a key with its <Name>Path builder,
+// called with the segment the service computes.
 func Paths() []string {
 	return []string{
 {{- range $_, $a := .OnlineConf.ServicePathConsts }}

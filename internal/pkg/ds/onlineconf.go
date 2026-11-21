@@ -64,14 +64,16 @@ type OnlineConfAccessor struct {
 	ZeroLiteral string
 	// Getter is the go-onlineconf reader the body calls.
 	Getter string
-	// PathConst is the exported path constant of a service key, empty for a
-	// generator key — whose path depends on arguments and so cannot be one.
+	// PathConst is the exported path constant of a key whose whole path is
+	// known at generation time. Empty for a generator key — whose path depends
+	// on the dimensions it is called with — and for a service key carrying a
+	// runtime segment, for the same reason.
 	PathConst string
 	// PathBuilder is the name of the generated function returning the path,
-	// empty for a service key.
+	// empty for a service key whose path is a constant.
 	PathBuilder string
 	// PathArgs are the arguments of the onlineconf.MakePath call in the path
-	// builder, empty for a service key.
+	// builder, empty when the accessor has no builder.
 	PathArgs string
 	// ConstPath is the whole path as a Go string literal, set only when the
 	// accessor takes no arguments — then the path is known at generation time and
@@ -202,9 +204,14 @@ var ErrOnlineConfNameTaken = errors.New("onlineconf accessor name is already tak
 // onlineConfReserved are the names the accessor package carries itself: the
 // library's lifecycle, the subscription helper, the startup check and its
 // sentinel error. A declaration cannot have one of them.
+// ActiveRecordConfig is reserved unconditionally, although it is generated only
+// for a project that uses ActiveRecord: a name the map may carry must not
+// depend on a setting of project.yaml, or the same map would generate in one
+// project and not in another.
 var onlineConfReserved = map[string]struct{}{
 	"Initialize": {}, "StartWatcher": {}, "StopWatcher": {}, "Instance": {},
 	"Subscribe": {}, "CheckRequired": {}, "Paths": {}, "ErrKeyNotSet": {},
+	"ActiveRecordConfig": {},
 }
 
 // NewOnlineConfConfig assembles a project's whole OnlineConf key map: the
@@ -313,13 +320,18 @@ func checkOnlineConfNames(accessors []OnlineConfAccessor) error {
 }
 
 // serviceAccessor turns one service declaration into a generated function.
+//
+// A key with a runtime segment in its path reads through a path builder instead
+// of a path constant: the path is composed from an argument, so there is no
+// constant to name it. That is the same shape the generator's own half has, so
+// the accessor template needs no branch of its own for it.
 func serviceAccessor(key ockeymap.Key) (OnlineConfAccessor, error) {
 	defaultLiteral, err := key.DefaultLiteral()
 	if err != nil {
 		return OnlineConfAccessor{}, fmt.Errorf("onlineconf key %s: %w", key.Path, err)
 	}
 
-	return OnlineConfAccessor{
+	out := OnlineConfAccessor{
 		Name:           key.VarName(),
 		Origin:         OnlineConfOriginService,
 		Type:           key.Type,
@@ -330,12 +342,22 @@ func serviceAccessor(key ockeymap.Key) (OnlineConfAccessor, error) {
 		ZeroLiteral:    key.ZeroLiteral(),
 		Getter:         key.Getter(),
 		PathConst:      key.PathConstName(),
-		PathExpr:       key.PathConstName(),
+		PathBuilder:    key.PathBuilderName(),
+		PathArgs:       key.PathArgs(),
+		ParamDecl:      key.ParamDecl(),
+		ParamNames:     key.ParamNames(),
 		DocPath:        key.Path,
 		Description:    key.Description,
 		DefaultLiteral: defaultLiteral,
 		DefaultText:    key.DefaultText(),
-	}, nil
+	}
+
+	out.PathExpr = out.PathConst
+	if out.PathBuilder != "" {
+		out.PathExpr = out.PathBuilder + "(" + out.ParamNames + ")"
+	}
+
+	return out, nil
 }
 
 // generatedAccessor turns one of the generator's declarations into a generated
@@ -466,9 +488,21 @@ func (o OnlineConfConfig) HasServiceKeys() bool {
 	return false
 }
 
+// HasServicePathConsts reports whether any declared key has a path that is a
+// constant. A key with a runtime segment has none — its path is composed from an
+// argument — so a map made only of those generates no constant block and no
+// Paths(): there would be nothing to put in either.
+func (o OnlineConfConfig) HasServicePathConsts() bool {
+	return len(o.ServicePathConsts()) > 0
+}
+
 // ServicePathConsts returns the service keys' exported path constants, so that a
 // caller can hand a declared path to Subscribe without reaching into the
 // onlineconf package — which the validator forbids outside the generated one.
+//
+// A key with a runtime segment is not among them: it has no constant path, and
+// the generated `<Name>Path(…)` builder is what a caller hands to Subscribe
+// instead.
 func (o OnlineConfConfig) ServicePathConsts() []OnlineConfAccessor {
 	out := make([]OnlineConfAccessor, 0, len(o.Accessors))
 

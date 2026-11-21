@@ -20,10 +20,17 @@
 #                       project generates one (the two loggers read the same
 #                       keys, so both are listed).
 #
-# A `<name>` segment is one the generated code computes at runtime — the url path
-# of a request, a telegram user id, an action name. `owns` then names the point
-# from which the subtree as a whole belongs to the generated code: there is no
-# single path to compare against, so the service map may not declare inside it.
+# A `<name>` segment is one that is computed at runtime — the url path of a
+# request, a telegram user id, an account id — and it is a parameter of the
+# accessor named in the row.
+#
+# On an `origin: generated` row, `owns` then names the point from which the
+# subtree as a whole belongs to the generated code: there is no single path to
+# compare against, so the service map may not declare inside it. An
+# `origin: service` row claims nothing — the service's own code reads exactly the
+# paths the row names — but the paths it reaches are checked against every
+# generated read at generation time, which is why a row like this one and a
+# generated row never meet.
 #
 # A row with no `type` is a path the generated code is handed as a prefix and
 # reads below. Without `owns`, its subtree is open: every read the generated code
