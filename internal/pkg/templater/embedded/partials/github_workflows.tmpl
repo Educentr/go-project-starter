@@ -6,24 +6,33 @@ modules that are not served by the module proxy: the credential rewrite that
 makes git send the token to github.com, and GOPRIVATE, which is what sends
 those fetches to git in the first place.
 
-The two steps are one block on purpose. GOPRIVATE always covers
-github.com/Educentr (the generated Makefile sets it the same way), so turning
-it on takes every Educentr module off proxy.golang.org and onto a direct git
-fetch — which is exactly the fetch the credential rewrite serves. Setting one
-without the other is never what a job wants, so there is nothing to render
-separately.
+The two steps are one block on purpose. GOPRIVATE is what takes a module off
+proxy.golang.org and onto a direct git fetch — which is exactly the fetch the
+credential rewrite serves. Setting one without the other is never what a job
+wants, so there is nothing to render separately.
+
+The block renders only when the project declares private modules
+(git.private_repos, read here through .GoPrivate so that every consumer of the
+value agrees — see GeneratorParams.GoPrivate). Without them the proxy serves
+every dependency, so there is nothing to take off it and no token to need. The
+condition lives here rather than at each call site, so that the whole question
+is one `if` and not one per workflow job.
 
 Call it with the root context ($): the goat-tests jobs are rendered inside a
 range over the applications, where "." is one application and the fragment
 would render empty.
 
-The body deliberately starts with a newline and ends without one, so that
-`{{ template "privateModulesAccess" $ }}` on a line of its own renders the
-block separated from the step above by a blank line, as the steps of these
-workflows are. The define tag therefore must not be trimmed with `-}}`: that
-would also eat the indentation of the first step, which YAML needs.
+The body deliberately starts with two newlines and ends without one, so that a
+call on a line of its own renders the block separated from the step above by a
+blank line, as the steps of these workflows are, and renders nothing at all —
+not even a stray blank line — when there is nothing to render. The first
+newline is what terminates the line above, so the call must be left-trimmed
+("{{- template" and not "{{ template"); the define tag must not be trimmed on
+the right ("-}}"), as that would eat both newlines and the indentation of the
+first step, which YAML needs.
 */}}
-{{- define "privateModulesAccess" }}
+{{- define "privateModulesAccess" }}{{ if .GoPrivate }}
+
       - name: Configure Git for private repos
         env:
           GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
@@ -32,5 +41,5 @@ would also eat the indentation of the first step, which YAML needs.
 
       - name: Set GOPRIVATE
         run: |
-          go env -w GOPRIVATE="github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}"
-{{- end }}
+          go env -w GOPRIVATE="{{ .GoPrivate }}"
+{{- end }}{{ end }}

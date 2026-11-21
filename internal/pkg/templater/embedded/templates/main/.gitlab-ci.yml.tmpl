@@ -61,8 +61,8 @@ goat-tests-{{ $a.Name | ReplaceDash }}:
     - echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
     {{- end }}
     - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
-    {{- if $.PrivateRepos }}
-    - go env -w GOPRIVATE="gitlab.com{{ if $.PrivateRepos }},{{ $.PrivateRepos }}{{ end }}"
+    {{- if $.GoPrivate }}
+    - go env -w GOPRIVATE="{{ $.GoPrivate }}"
     {{- end }}
   script:
     - make goat-tests-{{ $a.Name }}
