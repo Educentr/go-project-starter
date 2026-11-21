@@ -65,10 +65,16 @@ applications:
     grafana:
       datasources:
         - Prometheus
+    # Declared explicitly, though a sys transport would derive the same channel.
+    metrics:
+      export: pull
 
-  # A second application WITHOUT a sys transport, i.e. without a /metrics
-  # endpoint. It must get neither the collector-package import nor the
-  # registration call — an import it never uses would not compile.
+  # A second application WITHOUT a sys transport, i.e. with no reader for its
+  # metrics. It still initializes the registry and registers the declared
+  # collectors: the REST middleware registers into that registry on transport
+  # init, so a missing one is a nil dereference before the first request.
   - name: worker
     transport:
       - name: api
+    metrics:
+      export: none

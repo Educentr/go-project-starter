@@ -290,3 +290,58 @@ func TestGenerateWithoutCustomGenerators_MakefileUnchanged(t *testing.T) {
 		t.Errorf("install-tools prerequisites = %q, want them to end with install-goimports", prereqs)
 	}
 }
+
+// TestGenerateCustomGenerators_ContractDriftLeavesTreeUntouched pins where the
+// drift check runs: before the generator writes anything, not just before the
+// contract copy. A run that wrote its templates and copied its specs and only
+// then aborted left a tree the next run read as hand-edited specs — a loop no
+// further run could leave (TOOLS-80).
+func TestGenerateCustomGenerators_ContractDriftLeavesTreeUntouched(t *testing.T) {
+	tmpDir := generateFromConfig(t, "custom-generator", "Generate project with custom generators")
+
+	// A line no template produces: it survives only if the run writes nothing.
+	const sentinel = "# left here by TestGenerateCustomGenerators_ContractDriftLeavesTreeUntouched\n"
+
+	makefile := filepath.Join(tmpDir, "Makefile")
+
+	before := readGenerated(t, tmpDir, "Makefile")
+	if err := os.WriteFile(makefile, []byte(sentinel+before), 0o600); err != nil {
+		t.Fatalf("edit generated Makefile: %v", err)
+	}
+
+	spec := filepath.Join(tmpDir, "api", "contract", "runtime_limits.yaml")
+
+	content, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatalf("read copied contract: %v", err)
+	}
+
+	if err := os.WriteFile(spec, append(content, []byte("  disk_mb: 1\n")...), 0o600); err != nil {
+		t.Fatalf("edit copied contract: %v", err)
+	}
+
+	metaBefore := readGenerated(t, tmpDir, ".project-config", "meta.yaml")
+
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", tmpDir,
+		"--configDir", filepath.Join(curDir, "..", "test", "docker-integration", "configs", "custom-generator"),
+		"--config", "project.yaml",
+	}, "Regenerate over an edited contract spec")
+	if err == nil {
+		t.Fatalf("regeneration should fail on an edited contract spec, output:\n%s", out)
+	}
+
+	if after := readGenerated(t, tmpDir, "Makefile"); !strings.HasPrefix(after, sentinel) {
+		t.Error("the generator rewrote the Makefile before reporting contract drift")
+	}
+
+	if after := readGenerated(t, tmpDir, ".project-config", "meta.yaml"); after != metaBefore {
+		t.Error("meta.yaml changed on a run that wrote nothing")
+	}
+}

@@ -152,7 +152,11 @@ func (h *Handler) registerCommands() {
 			// Usage output is owned by PrintCommandHelp, not by the flag package.
 			fs.SetOutput(io.Discard)
 {{ range $cmd.Flags }}			p{{ .GoName }} := fs.{{ .FlagType }}({{ goQuote .Name }}, {{ flagDefault .Type .Default }}, {{ goQuote .Description }})
-{{ end }}			if err := fs.Parse(args); err != nil {
+{{ end }}			if err := checkRepeatedFlags(fs, args); err != nil {
+				return err
+			}
+
+			if err := fs.Parse(args); err != nil {
 				if errors.Is(err, flag.ErrHelp) {
 					return h.PrintCommandHelp(h.out, {{ goQuote $cmd.Name }})
 				}
@@ -189,7 +193,11 @@ func (h *Handler) registerCommands() {
 					// Usage output is owned by PrintSubcommandHelp, not by the flag package.
 					fs.SetOutput(io.Discard)
 {{ range $sub.Flags }}					p{{ .GoName }} := fs.{{ .FlagType }}({{ goQuote .Name }}, {{ flagDefault .Type .Default }}, {{ goQuote .Description }})
-{{ end }}					if err := fs.Parse(args); err != nil {
+{{ end }}					if err := checkRepeatedFlags(fs, args); err != nil {
+						return err
+					}
+
+					if err := fs.Parse(args); err != nil {
 						if errors.Is(err, flag.ErrHelp) {
 							return h.PrintSubcommandHelp(h.out, {{ goQuote $cmd.Name }}, {{ goQuote $sub.Name }})
 						}
@@ -240,6 +248,66 @@ func isHelpArg(arg string) bool {
 		return false
 	}
 }
+{{ if $hasFlags }}
+// isBoolFlag reports whether f consumes no separate value argument, the way the
+// flag package itself decides it.
+func isBoolFlag(f *flag.Flag) bool {
+	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
+
+	return ok && bf.IsBoolFlag()
+}
+
+// checkRepeatedFlags rejects a flag given more than once.
+//
+// Every flag of a generated command is scalar — the CLI spec has no list type,
+// so a list travels as one CSV value — and flag.FlagSet keeps the last value of
+// a repeated flag and drops the rest without a word. '--label a --label b'
+// silently meaning 'b' is the kind of answer a CLI should refuse to give.
+//
+// The scan mirrors flag.Parse's own rules so that it agrees with it on what a
+// flag even is: one or two leading dashes, '--' and the first non-flag argument
+// end the flags, '--name=value' carries its value inline and any other
+// non-boolean flag takes the next argument. An unrecognized name is left to
+// fs.Parse, which reports it in its own words.
+func checkRepeatedFlags(fs *flag.FlagSet, args []string) error {
+	seen := make(map[string]struct{}, len(args))
+
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+
+		if arg == "--" || arg == "-" || !strings.HasPrefix(arg, "-") {
+			return nil
+		}
+
+		name := strings.TrimPrefix(arg[1:], "-")
+
+		inlineValue := false
+
+		if eq := strings.IndexByte(name, '='); eq >= 0 {
+			name = name[:eq]
+			inlineValue = true
+		}
+
+		f := fs.Lookup(name)
+		if f == nil {
+			return nil
+		}
+
+		if !inlineValue && !isBoolFlag(f) && len(args) > 0 {
+			args = args[1:]
+		}
+
+		if _, dup := seen[name]; dup {
+			return fmt.Errorf("flag --%s is specified more than once", name)
+		}
+
+		seen[name] = struct{}{}
+	}
+
+	return nil
+}
+{{ end }}
 
 // Execute runs the specified command with arguments.
 // A leading --help/-h (after the command, or after the subcommand) prints the

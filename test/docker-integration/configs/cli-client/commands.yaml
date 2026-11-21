@@ -1,0 +1,5 @@
+commands:
+  - name: status
+    description: "Fetch status from the billing API"
+  - name: ping
+    description: "Check connectivity"

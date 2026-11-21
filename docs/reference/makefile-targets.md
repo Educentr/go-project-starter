@@ -86,7 +86,21 @@ make lint LINT_ARGS='--build-tags=integration'
 | `make docker-down` | Остановка docker-compose |
 | `make docker-logs` | Просмотр логов |
 
+## Фронтенд
+
+Доступны для каждой записи секции [`web`](../configuration/web.md):
+
+| Цель | Описание |
+|------|----------|
+| `make install-web-{name}` | Установка зависимостей фронта (если объявлен `install`) |
+| `make build-web-{name}` | Сборка фронта в его `output` |
+| `make generate-web-{name}` | Генерация клиента из входов `rest:`/`jsonschema:` (если объявлен `codegen`) |
+
+`install-web-{name}` входит в `install-tools`, `generate-web-{name}` — в `generate`.
+`docker-{app}` от сборки фронта **не** зависит: образ собирает фронт своей node-стадией.
+
 ## Dev Stand
+
 
 Доступны при `dev_stand: true`:
 

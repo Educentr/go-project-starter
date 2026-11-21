@@ -266,6 +266,45 @@ func StartWatcher(ctx context.Context) error
 func StopWatcher(ctx context.Context) error
 ```
 
+### `Initialized`, `Clone`, `Release` — контекст без дерева
+
+```go
+func Initialized(ctx context.Context) bool
+func Clone(from, to context.Context) (context.Context, error)
+func Release(main, cloned context.Context) error
+
+var ErrNoTree = errors.New("context carries no onlineconf tree")
+```
+
+**Коду сервиса `Initialized` не нужен.** `Initialize` выполняется один раз на старте процесса,
+и при ошибке процесс не стартует (`os.Exit(ExitCodeErrorConfig)`), поэтому любой контекст,
+происходящий от возвращённого ею, дерево несёт. Проверять это в каждой read-функции — значит
+размазать по коду инвариант, который валидируется один раз на границе; про этот антипаттерн
+см. раздел «OnlineConf — boundary invariant» в промпте разработчика.
+
+`Initialized` — для кода, который может выполниться и **вне** этой цепочки: юнит-тест на
+`context.Background()`, хелпер, который шарится с утилитой без сервисной обвязки. До TOOLS-96
+такому коду спросить было нечем: прямое обращение к библиотеке запрещает `forbidigo`, так что
+он либо не проверял, либо шёл мимо гварда.
+
+`Clone` даёт контексту `to` собственный хендл на дерево, которое несёт `from`; `Release`
+хендл возвращает. Клон держит mmap-файл открытым на той версии, которую увидел, — поэтому
+перезагрузка дерева не меняет ответы под уже летящим запросом (так работает
+`reqctx.CreateContext`), и поэтому это **пара**: невозвращённый клон держит свою версию дерева
+в памяти. В тестах — там, где чтение должно отвечать из реального дерева, а не дефолтом:
+
+```go
+ctx, err := occonf.Clone(serviceCtx, context.Background())
+if err != nil {
+	t.Fatalf("clone onlineconf: %v", err)
+}
+
+defer occonf.Release(serviceCtx, ctx)
+```
+
+`from` без дерева — ошибка `ErrNoTree`, не паника: в отличие от кода сервиса, вызывающий
+`Clone` на границу старта опереться не может (`onlineconf.Clone` разыменовал бы `nil`).
+
 ### `ActiveRecordConfig` — известная дыра в карте
 
 ```go
