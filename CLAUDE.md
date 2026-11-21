@@ -303,6 +303,42 @@ Opt-in флаг `rewrite_refs: true` в Rest- и JSONSchema-блоках `projec
 
 Реализация: `internal/pkg/metricsmap/` (парсинг, валидация, слияние, хелперы кодогенерации; `apps.go` — `AppScope`, `Publishes`, `ValidateApps`), `internal/pkg/ds/metrics.go` (параметры шаблонов, правила валидатора, `ForApp`/`CollectorsByApp`/`HasGeneratedFor`), `internal/pkg/grafana/metrics_panels.go` (панели), `Generator.processMetricsMap()` + `Generator.resolveMetricsApps()` (второй шаг — потому что карта парсится до того, как построены приложения: её наличие нужно `collectFiles`). Полная документация: [docs/configuration/metrics-map.md](docs/configuration/metrics-map.md).
 
+## Ранняя точка расширения `main` (`earlyInit`)
+
+Оба сгенерированных `main` — сервисный (`app/cmd/main.go.tmpl`) и CLI (`app/cmd_cli/main.go.tmpl`) —
+зовут `earlyInit()` **после загрузки `.env` и до `occonf.Initialize`**, одной строкой в одном и том
+же месте. До этого первый пользовательский код выполнялся уже после того, как дерево конфигурации
+собрано (`UserSetFunc.SetFunc` у сервиса, обработчик команды у CLI), поэтому работа, которая обязана
+случиться раньше — поправить окружение, из которого `Initialize` строит дерево (снять
+`ONLINECONFIG_FROM_ENV`, когда `OC_*`-ключей нет, чтобы открылась существующая `TREE.cdb`), сделать
+re-exec, проверить `os.Args`, зафиксировать идентичность процесса, — делалась только из `init()` с
+`//nolint:gochecknoinits`, то есть в обход того, что генератор сам запрещает (TOOLS-30).
+
+Механика — та же, что у `customize()` telegram-воркера и `UserSetFunc`: `EmptyEarlyInit` несёт
+`earlyInit()`, который ничего не делает, `UserEarlyInit` его встраивает, а метод с тем же именем,
+объявленный проектом на `*UserEarlyInit` (свой файл пакета `main` или секция ниже
+disclaimer-маркера), перекрывает промотированный. Правки в `go-project-starter-runtime` не нужны —
+перекрытие работает внутри пакета, а у CLI `UserSetFunc` нет вовсе.
+
+**Точка одна, и она после `.env`.** `godotenv.Load` не перезаписывает переменные, которые уже есть
+в окружении, но добавляет те, которых нет: хук, вызванный раньше, не увидел бы `OC_*` из `.env` и
+снял бы `ONLINECONFIG_FROM_ENV` по ошибке, а снятая им переменная вернулась бы, будь она записана в
+самом `.env`. Остальным сценариям (`os.Args`, `stdout`, re-exec, экспорт идентичности) годятся обе
+точки, поэтому вторая (`BeforeEnv`) не заводится.
+
+Ошибка хука останавливает процесс: логгера на этом шаге ещё нет, поэтому сообщение идёт в `stderr`
+через `log` (как и о неудачном `Initialize`), а код выхода — `ExitCodeErrorEarlyInit`, **добавленный
+в конец** блока `iota` в обоих шаблонах: коды выше — наблюдаемый контракт процесса, вставка в
+середину перенумеровала бы их.
+
+Тесты: `test/early_init_test.go` (объявления, вызов и его позиция между `godotenv.Load` и
+`occonf.Initialize` — позиция проверяется по AST, потому что `occonf.Initialize` упомянут и в
+комментарии выше вызова; порядок кодов выхода), `assertEarlyInitHook` в
+`test/docker-integration/integration_test.go` (проект с перекрытым хуком собирается, хук
+действительно выполняется до `Initialize`, отказ даёт `ExitCodeErrorEarlyInit` и команда не
+выполняется). Документация: [docs/configuration/applications.md](docs/configuration/applications.md#ранняя-инициализация-процесса-earlyinit),
+миграция с `init()` — [DEPRECATION.md](DEPRECATION.md).
+
 ## Канал вывода метрик (`applications[].metrics.export`)
 
 **Реестр метрик инициализируется у каждого приложения, всегда** — `application.InitMetrics(mainCtx)`
