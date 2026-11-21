@@ -5,17 +5,23 @@ groups:
       - path: "{service}/transport/grpc/{transport}/host"
         name: GRPCClientHost
         type: string
+        required_at_init: true
         description: >-
-          Host of the upstream service. Not `required`: a client declared
+          Host of the upstream service. The generated driver reports it missing
+          at Init, with the transport named, so a project that does not set it
+          crash-loops on start. Not `required`, because the startup check
+          cannot tell whether this installation needs the key: a client declared
           `instantiation: dynamic` in project.yaml takes its address as an
-          argument and never reads this key, and one declared `optional: true`
-          is skipped when it is unset — so whether the key is needed is a
-          project setting, not a property of the key. The generated driver
-          reports a missing host at Init, with the transport named.
+          argument and never reads it, and one declared `optional: true` is
+          skipped when it is unset. `required_at_init` is the answer to the same
+          question asked of the project rather than of the key — the registry
+          carries it only for the clients of this project that do read it.
 
       - path: "{service}/transport/grpc/{transport}/port"
         name: GRPCClientPort
         type: string
+        required_at_init: true
         description: >-
-          Port of the upstream service. Not `required`, for the same reason as
-          the host.
+          Port of the upstream service. Read at Init next to the host, and
+          `required_at_init` for the same reason: the address is incomplete
+          without it, and the driver fails on an empty one.
