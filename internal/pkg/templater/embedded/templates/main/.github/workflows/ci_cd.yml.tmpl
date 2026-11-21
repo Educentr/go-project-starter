@@ -334,16 +334,7 @@ jobs:
           password: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
 {{- end }}
 {{- end }}
-
-      - name: Configure Git for private repos
-        env:
-          GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
-        run: |
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-      - name: Set GOPRIVATE
-        run: |
-          go env -w GOPRIVATE="github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}"
+{{ template "privateModulesAccess" $ }}
 
       - name: Run check ${{"{{"}} matrix.name {{"}}"}}
         run: ${{"{{"}} matrix.run {{"}}"}}
@@ -477,16 +468,7 @@ jobs:
           username: ${{"{{"}} secrets.REGISTRY_USERNAME {{"}}"}}
           password: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
       {{ end }}
-
-      - name: Configure Git for private repos
-        env:
-          GH_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
-        run: |
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-      - name: Set GOPRIVATE
-        run: |
-          go env -w GOPRIVATE="github.com/Educentr{{ if $.PrivateRepos }},{{ $.PrivateRepos }}{{ end }}"
+{{ template "privateModulesAccess" $ }}
 
       - name: Run GOAT tests for {{ $a.Name }}
         run: |
@@ -571,12 +553,10 @@ jobs:
       {{ else }}
         {{ .UndefinedRegistryTypeError .RegistryType }}
       {{ end }}
-      - name: Configure Git for private repos
-        env:
-          # Use PAT if available, otherwise use GITHUB_TOKEN
-          GITHUB_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
-        run: |
-          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+      # No private-module access is configured here: this job runs no Go on the
+      # runner. It calls `make docker-<app>`, which builds the image, and the
+      # modules are downloaded inside it — from the BuildKit secret the step
+      # below passes as GITHUB_TOKEN, not from the runner's git config.
       - name: "Build and push"
         id: build_and_push
         env:
@@ -621,16 +601,7 @@ jobs:
         with:
           go-version: '{{ .GoLangVersion }}'
           cache: true
-
-      - name: Configure Git for private repos
-        env:
-          GH_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
-        run: |
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-      - name: Set GOPRIVATE
-        run: |
-          go env -w GOPRIVATE="github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}"
+{{ template "privateModulesAccess" $ }}
 
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest

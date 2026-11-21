@@ -169,6 +169,11 @@ GOPRIVATE=github.com/myorg/internal-pkg,gitlab.com/company/*
 есть без доступа к приватным модулям она красная на каждом push. Без
 `private_repos` workflow не меняется.
 
+В `ci_cd.yml` та же пара шагов стоит безусловно (там `GOPRIVATE` выставляется
+всегда, включая `github.com/Educentr`) и задана одним общим фрагментом на все
+workflow. Какие джобы её получают и почему `build` — нет, см.
+[GitHub CI](github-ci.md#доступ-к-приватным-go-модулям).
+
 ### Имя секрета с токеном
 
 Сгенерированные workflow GitHub Actions (`.github/workflows/ci_cd.yml`,

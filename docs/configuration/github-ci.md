@@ -338,6 +338,63 @@ git-config для приватных репозиториев, `GOPRIVATE`, от
 Нарушение — ошибка загрузки конфига (`invalid config github_ci section: …`),
 генерация не стартует.
 
+## Доступ к приватным Go-модулям
+
+Джоба, которая скачивает Go-модули на раннере, получает пару шагов:
+
+```yaml
+      - name: Configure Git for private repos
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set GOPRIVATE
+        run: |
+          go env -w GOPRIVATE="github.com/Educentr"
+```
+
+Имя секрета задаётся `git.private_repos_token_secret` (по умолчанию `GH_PAT`),
+список модулей — `git.private_repos` (см. [Основные секции](main.md)).
+
+**Это один блок, а не два шага.** `GOPRIVATE` всегда включает
+`github.com/Educentr` (так же, как в сгенерированном `Makefile`), поэтому его
+установка уводит все модули Educentr с `proxy.golang.org` на прямой git-fetch —
+ровно тот fetch, которому нужен токен из первого шага. Поставить один шаг без
+другого не нужно никогда, и рендерить их по отдельности нечем.
+
+**Задан блок в одном месте** — `{{ define "privateModulesAccess" }}` в
+`internal/pkg/templater/embedded/partials/github_workflows.tmpl`; шаблоны
+workflow рендерят его через `{{ template "privateModulesAccess" $ }}`
+(механизм — [Архитектура генератора](../development/generator.md#общие-фрагменты-embeddedpartials)).
+До этого блок был скопирован в каждую джобу руками, и копии разошлись: в
+`checks` осталось захардкоженное имя секрета, в `build` — другое имя
+env-переменной и потерянный шаг `GOPRIVATE`.
+
+### Какие джобы его получают
+
+| Джоба | Блок | Почему |
+|---|---|---|
+| `checks` | есть | выполняет команды проверок (`make lint`, `make test`, …) |
+| `run-goat-tests-<app>` | есть | `make goat-tests-<app>` |
+| `build-packages` | есть | `go install nfpm`, `make packages` |
+| `build` | **нет** | Go на раннере не запускается, см. ниже |
+| `check-go-mod-version` (`go-version-check.yml`) | при `git.private_repos` | скачивает прямые зависимости |
+
+**`build`.** Джоба вызывает только `make docker-<app>` и
+`make docker-<app>-push`, то есть собирает образ. Модули скачиваются **внутри**
+образа, и credentials туда приходят BuildKit-секретом
+(`docker build --secret id=github_token,env=GITHUB_TOKEN`), который отдаёт шаг
+«Build and push» своей env-переменной. `git config` на раннере в этой сборке не
+участвует — шаг был no-op и удалён.
+
+**`go-version-check.yml` — единственное место, где блок условный**
+(`{{ if .PrivateRepos }}`). Джоба читает `go.mod` и версии прямых зависимостей;
+без объявленных приватных модулей их все отдаёт прокси, то есть уводить с
+прокси нечего и токен не нужен. В джобах `ci_cd.yml` блок безусловен: там
+`GOPRIVATE` выставляется всегда (включая `github.com/Educentr`), поэтому токен
+нужен независимо от `git.private_repos`.
+
 ## Область действия
 
 Блок действует только на **GitHub Actions**. GitLab CI (`.gitlab-ci.yml`,
@@ -364,3 +421,9 @@ git-config для приватных репозиториев, `GOPRIVATE`, от
   разойтись.
 - Имена и команды проверок попадают в YAML дословно из `project.yaml`, поэтому
   шаблон прогоняет их через хелпер `YAMLQuote`.
+- Доступ к приватным модулям задан фрагментом `privateModulesAccess`
+  (`internal/pkg/templater/embedded/partials/github_workflows.tmpl`), общий
+  набор фрагментов подмешивается в каждый шаблон (`addSharedPartials`,
+  `internal/pkg/templater/partials.go`). Что блок задан один раз, стерегут
+  `TestPrivateModulesAccessIsDefinedOnce` и `TestPrivateModulesAccessCallers`,
+  список джоб — `TestGeneratePrivateModulesAccessPerJob` (`test/`).

@@ -1,0 +1,36 @@
+{{/*
+Shared fragments of the generated GitHub Actions workflows.
+
+privateModulesAccess renders the pair of job steps that let a job fetch Go
+modules that are not served by the module proxy: the credential rewrite that
+makes git send the token to github.com, and GOPRIVATE, which is what sends
+those fetches to git in the first place.
+
+The two steps are one block on purpose. GOPRIVATE always covers
+github.com/Educentr (the generated Makefile sets it the same way), so turning
+it on takes every Educentr module off proxy.golang.org and onto a direct git
+fetch — which is exactly the fetch the credential rewrite serves. Setting one
+without the other is never what a job wants, so there is nothing to render
+separately.
+
+Call it with the root context ($): the goat-tests jobs are rendered inside a
+range over the applications, where "." is one application and the fragment
+would render empty.
+
+The body deliberately starts with a newline and ends without one, so that
+`{{ template "privateModulesAccess" $ }}` on a line of its own renders the
+block separated from the step above by a blank line, as the steps of these
+workflows are. The define tag therefore must not be trimmed with `-}}`: that
+would also eat the indentation of the first step, which YAML needs.
+*/}}
+{{- define "privateModulesAccess" }}
+      - name: Configure Git for private repos
+        env:
+          GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set GOPRIVATE
+        run: |
+          go env -w GOPRIVATE="github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}"
+{{- end }}
