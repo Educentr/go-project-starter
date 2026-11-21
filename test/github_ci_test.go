@@ -3,6 +3,7 @@ package test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -382,5 +383,72 @@ func TestGenerateGoVersionCheckWithoutPrivateRepos(t *testing.T) {
 				t.Errorf("job %q has a %q step without git.private_repos", jobName, name)
 			}
 		}
+	}
+}
+
+// TestGeneratePrivateModulesAccessPerJob pins which jobs of ci_cd.yml get
+// private-module access on the runner.
+//
+// The block is rendered from one shared fragment, so the question it used to
+// answer per copy — does this job need it — is now answered once per call
+// site, and this is where that list lives. Every job that runs Go on the
+// runner has both steps; `build` has neither, because it runs no Go there: it
+// calls `make docker-<app>`, and the modules are downloaded inside the image
+// from the BuildKit secret, which the Build-and-push step passes on its own.
+func TestGeneratePrivateModulesAccessPerJob(t *testing.T) {
+	// private-token-secret builds a container and a deb package, declares a CI
+	// check and runs goat tests, so every job that can carry the block is
+	// rendered, and it configures a non-default secret name, so a job reading
+	// the wrong one is visible here too.
+	tmpDir := generateProject(t, "private-token-secret")
+
+	wf := parseWorkflow(t, tmpDir, ciCDWorkflow)
+
+	// jobs that fetch modules on the runner.
+	wantAccess := []string{"build-packages", "checks", "run-goat-tests-api"}
+	// jobs that do not, listed explicitly so that a new job cannot join the
+	// workflow without a decision being made here.
+	wantNoAccess := []string{"build", "deploy", "prepare-env"}
+
+	for _, jobName := range append(append([]string{}, wantAccess...), wantNoAccess...) {
+		if _, ok := wf.Jobs[jobName]; !ok {
+			t.Fatalf("%s has no %q job, got %v", ciCDWorkflow, jobName, wf.Jobs)
+		}
+	}
+
+	for jobName, job := range wf.Jobs {
+		steps := stepsByName(job)
+		want := slices.Contains(wantAccess, jobName)
+
+		for _, name := range privateReposStepNames {
+			if _, ok := steps[name]; ok != want {
+				t.Errorf("job %q: has %q step = %v, want %v", jobName, name, ok, want)
+			}
+		}
+
+		if !want {
+			continue
+		}
+
+		if got, w := steps[privateReposStepNames[0]].Env["GH_TOKEN"], "${{ secrets.GO_MODULES_TOKEN }}"; got != w {
+			t.Errorf("job %q: git config step env GH_TOKEN = %q, want %q", jobName, got, w)
+		}
+
+		if run := steps[privateReposStepNames[1]].Run; !strings.Contains(run, "github.com/myorg/*") {
+			t.Errorf("job %q: GOPRIVATE step run = %q, want it to carry the declared private repos", jobName, run)
+		}
+	}
+
+	// The image still gets the token: the build step hands it to `docker build
+	// --secret`, which is what the removal of the runner-side step relies on.
+	buildSteps := stepsByName(wf.Jobs["build"])
+
+	step, ok := buildSteps["Build and push"]
+	if !ok {
+		t.Fatalf("job %q has no %q step, got steps %v", "build", "Build and push", wf.Jobs["build"].Steps)
+	}
+
+	if got, w := step.Env["GITHUB_TOKEN"], "${{ secrets.GO_MODULES_TOKEN }}"; got != w {
+		t.Errorf("job \"build\": Build and push env GITHUB_TOKEN = %q, want %q", got, w)
 	}
 }

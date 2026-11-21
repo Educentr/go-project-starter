@@ -890,6 +890,10 @@ func GenerateByTmplWithTransform(
 		return nil, errors.New("error parse template `" + tmpl.Name + "` at line " + tmplLines + ": " + err.Error())
 	}
 
+	if err = addSharedPartials(templatePackage); err != nil {
+		return nil, errors.Wrap(err, "error prepare template `"+tmpl.Name+"`")
+	}
+
 	if err = templatePackage.Execute(buf, params); err != nil {
 		tmplLines, errGetLine := getTmplErrorLine(strings.SplitAfter(startDisclaimer+tmpl.Tmpl+"\n"+finishDisclaimer, "\n"), err.Error())
 		if errGetLine != nil {

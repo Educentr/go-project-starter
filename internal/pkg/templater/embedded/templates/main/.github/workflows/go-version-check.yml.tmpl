@@ -17,15 +17,11 @@ jobs:
           go-version-file: go.mod
 {{- if .PrivateRepos }}
       # check-go-mod-version.sh downloads the direct dependencies, so it needs
-      # the same private-module access as the jobs of ci_cd.yml.
-      - name: Configure Git for private repos
-        env:
-          GH_TOKEN: ${{"{{"}} secrets.{{ .PrivateReposTokenSecretName }} {{"}}"}}
-        run: |
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-      - name: Set GOPRIVATE
-        run: |
-          go env -w GOPRIVATE="github.com/Educentr,{{ .PrivateRepos }}"
+      # the same private-module access as the jobs of ci_cd.yml. Unlike there,
+      # the block is conditional: this job only reads go.mod and the versions
+      # of the direct dependencies, and without declared private modules the
+      # proxy serves all of them, so there is nothing to take off it.
+{{- template "privateModulesAccess" $ }}
 {{- end }}
       - name: Check go.mod version against direct dependencies
         run: ./scripts/check-go-mod-version.sh

@@ -2988,7 +2988,13 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 	// The fixture enables goat tests, a CI check plus docker and deb artifacts
 	// so that every job referencing the token is rendered. Pinning the count
 	// keeps a newly added reference from escaping the check.
-	const wantRefs = 6
+	//
+	// Five references: the git config step of checks, run-goat-tests-api and
+	// build-packages, the build-secret of the Build-and-push step, and the git
+	// config step of go-version-check. The build job reads the secret once,
+	// for the image — the runner-side git config step it used to carry was a
+	// no-op (it runs no Go) and is gone.
+	const wantRefs = 5
 
 	t.Run("configured name replaces every occurrence", func(t *testing.T) {
 		workflow := generate(t, true)
