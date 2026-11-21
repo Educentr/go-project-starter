@@ -73,6 +73,7 @@ merge-гейт. Поэтому ломаем сразу: `undefined: cmdMaps` у�
 | `cmdMaps[CmdX] = telegram.Cmd{…}` из `init()` в пакете telegram-воркера | реестр — поле воркера (`w.cmds`), наполняется из `customize()` | объявите `func (w *Worker) customize()` в своём файле пакета (или ниже disclaimer-маркера) и перенесите регистрацию на `w.AddCommands(telegram.Cmd{…})` |
 | `updateHandler` / `updateHandlerIdle` / `unknownCommandHandler` переназначались из `init()` | те же переменные | перенесите присваивания в тот же `customize()` |
 | `testEnvInit = &testEnvInitializerImpl{}` из `init()` в `tests/<app>/init.go` | явный сеттер | `var _ = SetTestEnvInitializer(&testEnvInitializerImpl{})` |
+| `init()` в пакете `main` (ранняя работа до чтения конфигурации: правка окружения, re-exec, проверка `os.Args`) — обычно с `//nolint:gochecknoinits` | `earlyInit()` — метод, который `main` зовёт после `.env` и до `occonf.Initialize` (TOOLS-123, unreleased) | объявите `func (u *UserEarlyInit) earlyInit() error` в своём файле пакета `main` (или ниже disclaimer-маркера) и перенесите тело `init()` туда; ошибка возвращается наружу, процесс выходит с `ExitCodeErrorEarlyInit` |
 
 Пример для telegram-воркера:
 
@@ -95,6 +96,38 @@ func (w *Worker) customize() {
 команд генератора, поэтому команда проекта с тем же `Name` перекрывает сгенерированную.
 Подробности — [docs/configuration/workers.md](docs/configuration/workers.md) и
 [docs/testing/goat.md](docs/testing/goat.md).
+
+**Ранняя инициализация в `main`.** Для работы, которой надо случиться **до** чтения
+конфигурации, точки расширения не было вовсе: первый пользовательский код сервисного
+`main` выполнялся после `occonf.Initialize` (`UserSetFunc.SetFunc`), а у CLI — в обработчике
+команды, поэтому проекты держали `init()` с `//nolint:gochecknoinits`. Теперь оба `main`
+зовут `earlyInit()` — после загрузки `.env` и до `occonf.Initialize` (TOOLS-123):
+
+```go
+// Было — cmd/api/init.go
+//nolint:gochecknoinits
+func init() {
+	if !hasAnyOCKey() {
+		os.Unsetenv("ONLINECONFIG_FROM_ENV")
+	}
+}
+
+// Стало — cmd/api/early.go
+func (u *UserEarlyInit) earlyInit() error {
+	if !hasAnyOCKey() {
+		return os.Unsetenv("ONLINECONFIG_FROM_ENV")
+	}
+
+	return nil
+}
+```
+
+Тот же приём, что у `customize()`: метод промотирован из встроенного `EmptyEarlyInit`, метод
+на `*UserEarlyInit` его перекрывает. Два имени — `EmptyEarlyInit` и `UserEarlyInit` — появляются
+в пакете `main` каждого сгенерированного приложения: проект, у которого уже есть свой тип с таким
+именем в `main`, после регенерации получит ошибку о повторном объявлении и его надо переименовать.
+Подробности —
+[docs/configuration/applications.md](docs/configuration/applications.md#ранняя-инициализация-процесса-earlyinit).
 
 **Чем это держится.** `gochecknoinits` не видит `.tmpl`-файлы, а
 `exclusions.generated: lax` выводит из проверки `psg_*_gen.go` целиком — включая

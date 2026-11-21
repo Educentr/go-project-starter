@@ -39,6 +39,11 @@ const (
 	ExitCodeErrorDriver
 	ExitCodeErrorService
 	ExitCodeErrorRun
+	// ExitCodeErrorEarlyInit — отказ ранней точки расширения (earlyInit).
+	// Добавлен в конец блока намеренно: коды выше — наблюдаемый контракт
+	// команды, на который смотрят вызывающие её скрипты, а вставка в середину
+	// блока с iota перенумеровала бы их.
+	ExitCodeErrorEarlyInit
 )
 
 const (
@@ -55,6 +60,41 @@ var (
 	BuildCommit string
 )
 
+// EmptyEarlyInit несёт реализацию earlyInit по умолчанию. Отдельный встроенный
+// тип, а не метод на UserEarlyInit: метод с тем же именем, объявленный проектом
+// на *UserEarlyInit ниже disclaimer-маркера (или в своём файле пакета main),
+// перекрывает промотированный — именно это и делает точку расширения
+// необязательной.
+type EmptyEarlyInit struct{}
+
+// earlyInit — самая ранняя точка расширения процесса. По умолчанию не делает
+// ничего; проект объявляет
+//
+//	func (u *UserEarlyInit) earlyInit() error { ... }
+//
+// ниже disclaimer-маркера или в своём файле пакета main.
+//
+// Вызывается после загрузки .env и до occonf.Initialize — то есть до того, как
+// собрано дерево конфигурации, поднят логгер и разобрана команда. Отсюда проект
+// меняет окружение, из которого Initialize строит дерево, делает re-exec
+// процесса, проверяет os.Args до разбора команды, перенаправляет stdout команд,
+// чей вывод — машиночитаемый контракт. Порядок нескольких таких действий проект
+// объявляет явно — телом одной функции, а не порядком инициализации пакетов.
+//
+// Точка одна, и она после .env: godotenv.Load не перезаписывает переменные,
+// которые уже есть в окружении, но добавляет те, которых нет, поэтому хук,
+// вызванный раньше, судил бы об окружении, которого процесс не увидит.
+//
+// Раньше то же самое делалось из init() — неявный side-effect при импорте,
+// зависящий от порядка инициализации пакетов. В сгенерированных проектах init()
+// запрещён линтером (gochecknoinits).
+func (e *EmptyEarlyInit) earlyInit() error { return nil }
+
+// UserEarlyInit — тип, на котором проект перекрывает earlyInit.
+type UserEarlyInit struct {
+	EmptyEarlyInit
+}
+
 func main() {
 	exitCode := run()
 	os.Exit(exitCode)
@@ -70,6 +110,17 @@ func run() int {
 		if err != nil {
 			log.Fatal("Error loading .env file")
 		}
+	}
+
+	// Ранняя точка расширения проекта. Логгера ещё нет — об ошибке сообщает
+	// stderr через log, как и о неудачном Initialize ниже; команда не
+	// выполняется.
+	earlyFunc := UserEarlyInit{}
+
+	err = earlyFunc.earlyInit()
+	if err != nil {
+		log.Printf("early initialization failed: %v", err)
+		return ExitCodeErrorEarlyInit
 	}
 
 	// Initialize onlineconf

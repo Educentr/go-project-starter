@@ -550,6 +550,10 @@ func TestIntegrationRESTOnly(t *testing.T) {
 	}
 
 	runTest(t, "rest-only", "rest-only")
+
+	// Compile-only — a service application would start listening. Last, after
+	// the image build, so every stage above sees the project as generated.
+	assertEarlyInitCompiles(t.Context(), t, GetContainer(), "/workspace/output/rest-only", "api")
 }
 
 // TestIntegrationGRPCOnly tests gRPC-only project generation
@@ -622,6 +626,10 @@ func TestIntegrationCLIOnly(t *testing.T) {
 	runTest(t, "cli-only", "cli-only")
 	assertCLIHelpBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
 	assertCLIRepeatedFlagBehavior(t.Context(), t, GetContainer(), "/workspace/output/cli-only")
+
+	// Last: it leaves a file of its own in the project and rebuilds the binary,
+	// so the assertions above see the project as the generator produced it.
+	assertEarlyInitHook(t.Context(), t, GetContainer(), "/workspace/output/cli-only", "admin-cli")
 }
 
 // TestIntegrationCLIClient covers a CLI application that consumes an
@@ -1167,4 +1175,123 @@ func runTestWithExtraAssertions(t *testing.T, testName, configDir string, after 
 	runDockerTest(ctx, t, container, outputDir, cfg)
 	t.Logf("Stage 2 (Docker) PASSED for %s", testName)
 	t.Logf("All stages PASSED for %s", testName)
+}
+
+// writeEarlyInitOverride drops the override into cmd/<app>/ of the generated
+// project and rebuilds it.
+func writeEarlyInitOverride(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir, app string) {
+	t.Helper()
+
+	// earlyInitOverride is the project's implementation of the early extension
+	// point (TOOLS-123 / issue #142): a method on *UserEarlyInit in a file of
+	// package main. No init(), no //nolint:gochecknoinits — which is the whole
+	// point of the hook.
+	//
+	// The two env switches are what make the hook observable from outside the
+	// process: one makes it fail, the other makes it change the environment
+	// occonf.Initialize builds the configuration tree from.
+	const earlyInitOverride = `package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+)
+
+func (u *UserEarlyInit) earlyInit() error {
+	fmt.Fprintln(os.Stderr, "project-early-init-ran")
+
+	if os.Getenv("EARLY_INIT_FAIL") != "" {
+		return errors.New("early init refused to start the process")
+	}
+
+	if os.Getenv("EARLY_INIT_BREAK_CONFIG") != "" {
+		return os.Setenv("ONLINECONFIG_FROM_ENV", "1")
+	}
+
+	return nil
+}
+`
+
+	target := fmt.Sprintf("%s/cmd/%s/early_init.go", outputDir, app)
+	write := fmt.Sprintf("cat > %s <<'PSGEOF'\n%sPSGEOF", target, earlyInitOverride)
+
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", write})
+	require.NoError(t, err, "failed to write the early init override")
+	require.Equal(t, 0, code, "writing %s failed: %s", target, readOutput(outputReader))
+
+	buildCmd := fmt.Sprintf("cd %s && go build ./...", outputDir)
+	code, outputReader, err = container.Exec(ctx, []string{"sh", "-c", buildCmd})
+	output := readOutput(outputReader)
+
+	require.NoError(t, err, "failed to build the project with the override")
+	require.Equal(t, 0, code,
+		"a project that overrides earlyInit in its own file of package main has to compile: %s", output)
+}
+
+// assertEarlyInitCompiles is the service-application half (cmd): the generated
+// main declares the hook, and a project that overrides it compiles. There is
+// nothing to run here — a service application would start listening.
+func assertEarlyInitCompiles(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir, app string) {
+	t.Helper()
+
+	writeEarlyInitOverride(ctx, t, container, outputDir, app)
+}
+
+// assertEarlyInitHook is the CLI half (cmd_cli), where the hook can be observed
+// from outside: the binary runs to completion in one process.
+//
+// The run that matters is the third one. The hook sets ONLINECONFIG_FROM_ENV,
+// and the process then dies on a configuration tree it cannot build from the
+// environment — which can only happen if the hook ran before
+// occonf.Initialize. That is the ordering the feature is about, and no amount
+// of grepping the generated source proves it.
+func assertEarlyInitHook(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir, app string) {
+	t.Helper()
+
+	writeEarlyInitOverride(ctx, t, container, outputDir, app)
+
+	binary := fmt.Sprintf("./bin/%s", app)
+
+	buildCmd := fmt.Sprintf("cd %s && go build -o %s ./cmd/%s", outputDir, binary, app)
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", buildCmd})
+	require.NoError(t, err, "failed to build the CLI binary")
+	require.Equal(t, 0, code, "building the CLI with the override failed: %s", readOutput(outputReader))
+
+	runCLIEnv := func(env string) (int, string) {
+		t.Helper()
+
+		cmd := fmt.Sprintf("cd %s && %s%s", outputDir, env, binary)
+		code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", cmd})
+		require.NoError(t, err, "failed to run the CLI with env %q", env)
+
+		out := readOutput(outputReader)
+		t.Logf("$ %s%s (exit %d)\n%s", env, binary, code, out)
+
+		return code, out
+	}
+
+	// 1. The hook runs, and the command is dispatched as before: overriding it
+	//    does not change anything else about the process.
+	_, out := runCLIEnv("")
+	require.Contains(t, out, "project-early-init-ran", "the overridden hook has to be called:\n%s", out)
+	require.Contains(t, out, "Available commands:", "the command still has to be dispatched:\n%s", out)
+
+	// 2. A failing hook stops the process with its own exit code, before the
+	//    command: ExitCodeErrorEarlyInit is the last of the CLI's iota block.
+	code, out = runCLIEnv("EARLY_INIT_FAIL=1 ")
+	require.Equal(t, 5, code, "a failing hook exits with ExitCodeErrorEarlyInit:\n%s", out)
+	require.Contains(t, out, "early initialization failed", "the failure is reported on stderr:\n%s", out)
+	require.NotContains(t, out, "Available commands:", "no command may run after the hook failed:\n%s", out)
+
+	// 3. The hook's change to the environment reaches occonf.Initialize —
+	//    the process cannot build a tree from the environment here, so it dies
+	//    with a configuration error instead of running the command.
+	code, out = runCLIEnv("EARLY_INIT_BREAK_CONFIG=1 ")
+	require.NotEqual(t, 0, code,
+		"the hook changed the environment Initialize reads, so startup must fail:\n%s", out)
+	require.Contains(t, out, "project-early-init-ran", "the hook has to run first:\n%s", out)
+	require.NotContains(t, out, "Available commands:",
+		"the hook runs before occonf.Initialize: a tree that cannot be built stops the process "+
+			"before the command:\n%s", out)
 }
