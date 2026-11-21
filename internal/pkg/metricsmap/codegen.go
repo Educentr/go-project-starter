@@ -7,6 +7,32 @@ import (
 	"strings"
 )
 
+// SampleField is one label of a state family and the struct field generated
+// for it.
+type SampleField struct {
+	// Name is the Go field name.
+	Name string
+	// Label is the declared Prometheus label name.
+	Label string
+}
+
+// Names of the generated declarations of a state family. SampleValueField is
+// exported so that the error messages of validation can name the identifier
+// the reader will meet in the generated package, not just the label it came
+// from.
+const (
+	// SampleValueField is the field of a generated sample struct carrying the
+	// value of the series. A label folding onto it is rejected by validation.
+	SampleValueField = "Value"
+
+	// gaugeSetType is the name of the generated generic collector a state
+	// family is an instance of.
+	gaugeSetType = "GaugeSet"
+
+	sampleTypeSuffix = "Sample"
+	sourceTypeSuffix = "Func"
+)
+
 // ErrVarNameCollision reports two declared names that sanitize to the same Go
 // identifier (e.g. "queue:depth" and "queue_depth").
 var ErrVarNameCollision = errors.New("metric variable name collision")
@@ -19,11 +45,28 @@ var ErrVarNameCollision = errors.New("metric variable name collision")
 // '_' is folded away. Two declarations that collide after folding are rejected
 // by ValidateVarNames rather than silently producing one variable.
 func (m Metric) VarName() string {
+	// The result can still be unusable as an identifier: a name built only from
+	// '_' and ':' folds away to nothing, and a leading '_' or ':' before a digit
+	// promotes that digit to the front. Both are rejected by Validate rather
+	// than mangled here, so the error names the offending declaration instead of
+	// surfacing as a syntax error in the generated package.
+	return exportedIdent(m.Name)
+}
+
+// exportedIdent folds the separators of a Prometheus identifier away and
+// upper-cases the first character of every word that is left:
+// "spawn_errors_total" becomes "SpawnErrorsTotal".
+//
+// Used for both halves of the generated code a declaration produces — the
+// collector variable, built from the metric name, and the sample fields of a
+// state family, built from the label names — so that the two cannot fold the
+// same input differently.
+func exportedIdent(name string) string {
 	var b strings.Builder
 
 	upperNext := true
 
-	for _, r := range m.Name {
+	for _, r := range name {
 		if r == '_' || r == ':' {
 			upperNext = true
 
@@ -41,11 +84,6 @@ func (m Metric) VarName() string {
 		b.WriteRune(r)
 	}
 
-	// The result can still be unusable as an identifier: a name built only from
-	// '_' and ':' folds away to nothing, and a leading '_' or ':' before a digit
-	// promotes that digit to the front. Both are rejected by Validate rather
-	// than mangled here, so the error names the offending declaration instead of
-	// surfacing as a syntax error in the generated package.
 	return b.String()
 }
 
@@ -60,14 +98,24 @@ func startsWithLetter(varName string) bool {
 }
 
 // Constructor returns the client_golang constructor call for the metric, e.g.
-// "prometheus.NewCounterVec".
+// "prometheus.NewCounterVec", or the empty string for a state family, which
+// has no client_golang constructor behind it (see TypeGaugeSet).
 func (m Metric) Constructor() string {
+	if m.IsGaugeSet() {
+		return ""
+	}
+
 	return "prometheus.New" + m.Type
 }
 
 // OptsType returns the client_golang options struct for the metric, e.g.
-// "prometheus.CounterOpts".
+// "prometheus.CounterOpts", or the empty string for a state family, which is
+// described by a prometheus.Desc rather than by an Opts struct.
 func (m Metric) OptsType() string {
+	if m.IsGaugeSet() {
+		return ""
+	}
+
 	switch m.Kind() {
 	case KindCounter:
 		return "prometheus.CounterOpts"
@@ -85,7 +133,56 @@ func (m Metric) OptsType() string {
 // GoType returns the Go type of the generated collector variable, e.g.
 // "*prometheus.CounterVec".
 func (m Metric) GoType() string {
+	if m.IsGaugeSet() {
+		return "*" + m.SetType()
+	}
+
 	return "*prometheus." + m.Type
+}
+
+// SampleTypeName returns the generated sample struct of a state family:
+// "fleet_state" becomes "FleetStateSample".
+func (m Metric) SampleTypeName() string {
+	return m.VarName() + sampleTypeSuffix
+}
+
+// SourceTypeName returns the generated function type of a state family's
+// source: "fleet_state" becomes "FleetStateFunc".
+func (m Metric) SourceTypeName() string {
+	return m.VarName() + sourceTypeSuffix
+}
+
+// SetType returns the instantiated collector type of a state family, e.g.
+// "GaugeSet[FleetStateSample]".
+func (m Metric) SetType() string {
+	return gaugeSetType + "[" + m.SampleTypeName() + "]"
+}
+
+// ValueField returns the name of the sample field carrying the value of a
+// series. It is a method so that templates read it from the declaration they
+// already have in hand.
+func (m Metric) ValueField() string {
+	return SampleValueField
+}
+
+// SampleFields returns the fields generated for a state family's labels, in
+// declared order — which is also the order Collect hands the values to the
+// descriptor, so it must not be re-sorted.
+//
+// A struct instead of a []string of label values is what makes "a sample with
+// the wrong number of label values" unwritable rather than a runtime error:
+// the compiler counts the fields.
+func (m Metric) SampleFields() []SampleField {
+	if !m.IsGaugeSet() {
+		return nil
+	}
+
+	out := make([]SampleField, 0, len(m.Labels))
+	for _, label := range m.Labels {
+		out = append(out, SampleField{Name: exportedIdent(label), Label: label})
+	}
+
+	return out
 }
 
 // LabelsLiteral renders the label name list as a Go slice literal, or the empty

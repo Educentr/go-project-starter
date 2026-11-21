@@ -155,6 +155,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 		"rest-shared-spec-rewrite-refs", "cli-only", "rest-client-basic-auth",
 		"rest-client-mocks", "rest-envs-goat", "cli-client", "onlineconf-map",
+		"metrics-map",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -1294,4 +1295,282 @@ func assertEarlyInitHook(ctx context.Context, t *testing.T, container *GolangBui
 	require.NotContains(t, out, "Available commands:",
 		"the hook runs before occonf.Initialize: a tree that cannot be built stops the process "+
 			"before the command:\n%s", out)
+}
+
+// TestIntegrationMetricsMap builds a project whose metrics map declares every
+// shape of entry, state families (type GaugeSet) included, and then exercises
+// the generated collectors in the generated project.
+//
+// Both halves need the container. The collector package is generated Go that
+// nothing in this repository compiles — the unit tests read identifiers out of
+// its text — and a state family is the one entry whose output is more than a
+// constructor call: a generic collector, a sample struct per family and an
+// atomic slot. And its contract is behavioral: a scrape must never see a
+// half-filled set, a series dropped from the set must stop being exported, and
+// a family with no source yet must read empty rather than fail. None of that
+// is visible in the text of the file.
+func TestIntegrationMetricsMap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "metrics-map", "metrics-map")
+
+	// Last: it leaves a test file of its own in the project.
+	assertStateFamilyBehavior(t.Context(), t, GetContainer(), "/workspace/output/metrics-map")
+}
+
+// assertStateFamilyBehavior runs the state-family contract against the
+// collectors the generator produced, inside the generated project.
+func assertStateFamilyBehavior(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	writeStateFamilyProbe(ctx, t, container, outputDir)
+
+	// -race: the whole reason a state family is not a GaugeVec is what
+	// concurrent scrapes see while the set is being replaced.
+	cmd := fmt.Sprintf("cd %s && go test -race -count=1 ./internal/pkg/metrics/", outputDir)
+
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", cmd})
+	require.NoError(t, err, "failed to run the state-family probe")
+
+	out := readOutput(outputReader)
+	t.Logf("state-family probe:\n%s", out)
+
+	require.Equal(t, 0, code, "the generated state families do not hold their contract:\n%s", out)
+}
+
+// writeStateFamilyProbe puts a test of the generated collectors into the
+// generated project.
+//
+// It is written here rather than generated into every project on purpose: the
+// generator does not ship tests of its own output, and this one asserts the
+// contract of the machinery, which is the same in every project that declares
+// a state family.
+func writeStateFamilyProbe(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	const probe = `package metrics
+
+import (
+	"strconv"
+	"sync"
+	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+// fleetSeries scrapes the registry the way Prometheus does and returns the
+// fleet_state family as "<node>/<zone>" -> value.
+func fleetSeries(t *testing.T, reg *prometheus.Registry) map[string]float64 {
+	t.Helper()
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+
+	out := map[string]float64{}
+
+	for _, family := range families {
+		if family.GetName() != "fleet_state" {
+			continue
+		}
+
+		for _, metric := range family.GetMetric() {
+			key := ""
+
+			for _, label := range metric.GetLabel() {
+				if key != "" {
+					key += "/"
+				}
+
+				key += label.GetValue()
+			}
+
+			out[key] = metric.GetGauge().GetValue()
+		}
+	}
+
+	return out
+}
+
+func registerFleetState(t *testing.T) *prometheus.Registry {
+	t.Helper()
+
+	reg := prometheus.NewRegistry()
+	if err := reg.Register(FleetState); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	t.Cleanup(func() {
+		FleetState.SetFunc(nil)
+		reg.Unregister(FleetState)
+	})
+
+	return reg
+}
+
+// A family with no source yet reads empty, like a freshly registered GaugeVec:
+// the first tick does not have to race the first scrape.
+func TestStateFamilyIsEmptyBeforeTheFirstSet(t *testing.T) {
+	reg := registerFleetState(t)
+
+	if series := fleetSeries(t, reg); len(series) != 0 {
+		t.Fatalf("a family with no source must export nothing, got %v", series)
+	}
+}
+
+// The set is published as a unit, and a series the last set leaves out stops
+// being exported instead of freezing at its last value.
+func TestStateFamilyReplacesTheWholeSet(t *testing.T) {
+	reg := registerFleetState(t)
+
+	FleetState.Set([]FleetStateSample{
+		{Node: "a", Zone: "z1", Value: 1},
+		{Node: "b", Zone: "z1", Value: 2},
+	})
+
+	series := fleetSeries(t, reg)
+	if len(series) != 2 || series["a/z1"] != 1 || series["b/z1"] != 2 {
+		t.Fatalf("unexpected set: %v", series)
+	}
+
+	FleetState.Set([]FleetStateSample{{Node: "a", Zone: "z1", Value: 7}})
+
+	series = fleetSeries(t, reg)
+	if len(series) != 1 || series["a/z1"] != 7 {
+		t.Fatalf("a series missing from the last set must not be exported, got %v", series)
+	}
+
+	FleetState.SetFunc(nil)
+
+	if series := fleetSeries(t, reg); len(series) != 0 {
+		t.Fatalf("a detached source must export nothing, got %v", series)
+	}
+}
+
+// The source is called on every scrape — that is what lets a family that
+// cannot be rebuilt cheaply hand back the last finished result of its tick.
+func TestStateFamilySourceIsCalledPerScrape(t *testing.T) {
+	reg := registerFleetState(t)
+
+	calls := 0
+
+	var source FleetStateFunc = func() []FleetStateSample {
+		calls++
+
+		return []FleetStateSample{{Node: "a", Zone: "z", Value: float64(calls)}}
+	}
+
+	FleetState.SetFunc(source)
+
+	for want := 1; want <= 3; want++ {
+		if got := fleetSeries(t, reg)["a/z"]; got != float64(want) {
+			t.Fatalf("scrape %d read %v, want %v", want, got, want)
+		}
+	}
+}
+
+// The point of the type: a scrape sees either the whole previous set or the
+// whole new one. Reset() + refill on a GaugeVec fails here — it publishes an
+// empty family for the duration of the refill.
+func TestStateFamilyScrapeNeverSeesAPartialSet(t *testing.T) {
+	reg := registerFleetState(t)
+
+	const (
+		generations  = 2000
+		seriesPerGen = 50
+	)
+
+	done := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		defer close(done)
+
+		for generation := 1; generation <= generations; generation++ {
+			samples := make([]FleetStateSample, 0, seriesPerGen)
+
+			for i := 0; i < seriesPerGen; i++ {
+				samples = append(samples, FleetStateSample{
+					Node:  "n" + strconv.Itoa(i),
+					Zone:  "z",
+					Value: float64(generation),
+				})
+			}
+
+			FleetState.Set(samples)
+		}
+	}()
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			series := fleetSeries(t, reg)
+			if len(series) == 0 {
+				continue
+			}
+
+			if len(series) != seriesPerGen {
+				t.Errorf("a scrape saw a partial set: %d series, want %d", len(series), seriesPerGen)
+
+				return
+			}
+
+			generation := float64(0)
+
+			for _, value := range series {
+				if generation == 0 {
+					generation = value
+				}
+
+				if value != generation {
+					t.Errorf("a scrape mixed two generations: %v and %v", generation, value)
+
+					return
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
+// A set carrying the same series twice is a scrape error, not a dead process:
+// the set comes from service code, and the registry is where Prometheus
+// reports what it cannot serve.
+func TestStateFamilyDuplicateSeriesIsAScrapeError(t *testing.T) {
+	reg := registerFleetState(t)
+
+	FleetState.Set([]FleetStateSample{
+		{Node: "a", Zone: "z", Value: 1},
+		{Node: "a", Zone: "z", Value: 2},
+	})
+
+	if _, err := reg.Gather(); err == nil {
+		t.Fatal("a duplicate series must be reported by the registry")
+	}
+}
+`
+
+	writeCmd := fmt.Sprintf("cat > %s/internal/pkg/metrics/state_family_probe_test.go <<'PROBE_EOF'\n%s\nPROBE_EOF",
+		outputDir, probe)
+
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", writeCmd})
+	require.NoError(t, err, "failed to write the state-family probe")
+	require.Equal(t, 0, code, "writing the state-family probe failed: %s", readOutput(outputReader))
 }

@@ -104,8 +104,9 @@ type Map struct {
 	Metrics []Metric `yaml:"metrics"`
 }
 
-// Metric type constants. These mirror the client_golang constructor names so
-// that a reader of the map knows exactly which collector they get.
+// Metric type constants. All but TypeGaugeSet mirror the client_golang
+// constructor names so that a reader of the map knows exactly which collector
+// they get.
 const (
 	TypeCounter      = "Counter"
 	TypeCounterVec   = "CounterVec"
@@ -115,6 +116,21 @@ const (
 	TypeHistogramVec = "HistogramVec"
 	TypeSummary      = "Summary"
 	TypeSummaryVec   = "SummaryVec"
+
+	// TypeGaugeSet is a state family: a gauge family whose WHOLE set of series
+	// comes from one source and is published as a unit, instead of being
+	// mutated series by series.
+	//
+	// It has no client_golang constructor behind it — client_golang has none.
+	// A *GaugeVec is the wrong object for a tick that knows the whole truth
+	// about the family: expressing "the series I no longer know about must
+	// disappear" with it means Reset() followed by a refill, which publishes
+	// an empty family for the duration of the refill. /metrics is scraped on
+	// someone else's clock, so a scrape landing in that window reads the
+	// family as gone — a hole on the panel and a false no-data for every rule
+	// over it. What is generated instead is a prometheus.Collector over the
+	// Desc declared here, whose set is swapped atomically.
+	TypeGaugeSet = "GaugeSet"
 )
 
 // Metric kinds — the Prometheus kind behind a type, with the Vec distinction
@@ -378,8 +394,7 @@ func Load(path string) (*Map, error) {
 	return m, nil
 }
 
-// IsVec reports whether the metric's type is one of the *Vec constructors,
-// i.e. whether it carries labels.
+// IsVec reports whether the metric's type is one of the *Vec constructors.
 func (m Metric) IsVec() bool {
 	switch m.Type {
 	case TypeCounterVec, TypeGaugeVec, TypeHistogramVec, TypeSummaryVec:
@@ -387,6 +402,24 @@ func (m Metric) IsVec() bool {
 	default:
 		return false
 	}
+}
+
+// IsGaugeSet reports whether the metric is a state family — a gauge family
+// published as a whole set rather than mutated series by series. See
+// TypeGaugeSet.
+func (m Metric) IsGaugeSet() bool {
+	return m.Type == TypeGaugeSet
+}
+
+// HasLabels reports whether the type carries label names: the *Vec
+// constructors, which key their series by them, and GaugeSet, whose samples
+// carry one value per declared label.
+//
+// It is the question `labels` is validated against; IsVec stays the narrower
+// "is this one of the client_golang *Vec constructors", which is what decides
+// the constructor call.
+func (m Metric) HasLabels() bool {
+	return m.IsVec() || m.IsGaugeSet()
 }
 
 // Generated reports whether the collector for this metric belongs in the
@@ -420,7 +453,10 @@ func (m Metric) Kind() string {
 	switch m.Type {
 	case TypeCounter, TypeCounterVec:
 		return KindCounter
-	case TypeGauge, TypeGaugeVec:
+	case TypeGauge, TypeGaugeVec, TypeGaugeSet:
+		// A state family is a gauge in every way Prometheus and Grafana care
+		// about: the panel, the bucket/objective rules and the semantics of
+		// the value are the gauge ones. Only the object that emits it differs.
 		return KindGauge
 	case TypeHistogram, TypeHistogramVec:
 		return KindHistogram
