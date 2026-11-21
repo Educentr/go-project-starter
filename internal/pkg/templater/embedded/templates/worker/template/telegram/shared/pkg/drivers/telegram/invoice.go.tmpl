@@ -59,11 +59,12 @@ func (tg *Telegram) SendInvoice(ctx context.Context,
 	chatID int64,
 	invoice InvoiceData,
 ) (int, error) {
-	if tg.bot == nil {
+	bot := tg.currentBot()
+	if bot == nil {
 		return 0, ErrNotInitialized
 	}
 
-	resp, err := tg.bot.RequestWithContext(ctx, tgbotapi.NewInvoice(
+	resp, err := bot.RequestWithContext(ctx, tgbotapi.NewInvoice(
 		chatID,
 		invoice.ProductName,
 		invoice.ProductDescription,
