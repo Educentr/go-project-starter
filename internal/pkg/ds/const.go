@@ -96,12 +96,6 @@ const (
 // sequence items in the generated ci_cd.yml.
 const pushBranchIndent = "      "
 
-// defaultPushBranches are the branch filters of the `on.push` trigger used by
-// the generated workflows when github_ci.push_branches is not configured.
-// Kept as the historical literal of both workflow templates, so a project
-// that does not configure the key regenerates byte for byte.
-var defaultPushBranches = []string{"main", "staging"}
-
 // branchPlainRx matches the branch filters whose characters allow a plain YAML
 // scalar in both the block sequence of ci_cd.yml and the flow sequence of
 // go-version-check.yml. A filter outside this set is single-quoted instead:
@@ -112,19 +106,6 @@ var defaultPushBranches = []string{"main", "staging"}
 //
 // Matching characters is necessary but not sufficient — see plainScalarIsStr.
 var branchPlainRx = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/*?+-]*$`)
-
-// yaml11BoolNull are the plain scalars that YAML 1.1 resolves to a boolean or
-// null while the YAML 1.2 core schema — the one gopkg.in/yaml.v3 implements —
-// keeps them strings. GitHub does not document the schema its workflow parser
-// follows, so these are quoted as well: a branch named `no` has to reach the
-// filter as the string it is under either schema. Compared lowercased, which
-// also quotes mixed-case spellings YAML 1.1 would have left alone — quoting a
-// filter that did not need it costs nothing, not quoting one does.
-var yaml11BoolNull = map[string]bool{
-	"y": true, "yes": true, "n": true, "no": true,
-	"on": true, "off": true, "true": true, "false": true,
-	"null": true, "~": true,
-}
 
 // specBasename returns the file name under which a raw `path:` entry lands in
 // the project tree. A URI is not a filesystem path, so the name has to come
@@ -158,7 +139,16 @@ func specBasename(raw string) string {
 // The resolution is delegated to yaml.v3's own resolver instead of being
 // restated as a pattern here, so the two cannot drift apart.
 func plainScalarIsStr(branch string) bool {
-	if yaml11BoolNull[strings.ToLower(branch)] {
+	// The plain scalars that YAML 1.1 resolves to a boolean or null while the
+	// YAML 1.2 core schema — the one gopkg.in/yaml.v3 implements — keeps them
+	// strings. GitHub does not document the schema its workflow parser
+	// follows, so these are quoted as well: a branch named `no` has to reach
+	// the filter as the string it is under either schema. Compared lowercased,
+	// which also quotes mixed-case spellings YAML 1.1 would have left alone —
+	// quoting a filter that did not need it costs nothing, not quoting one
+	// does.
+	switch strings.ToLower(branch) {
+	case "y", "yes", "n", "no", "on", "off", "true", "false", "null", "~":
 		return false
 	}
 
@@ -272,11 +262,23 @@ func (c GithubCIConfig) JobHeader() string {
 	return header
 }
 
+// defaultPushBranches returns the branch filters of the `on.push` trigger used
+// by the generated workflows when github_ci.push_branches is not configured.
+// Kept as the historical literal of both workflow templates, so a project that
+// does not configure the key regenerates byte for byte.
+//
+// A function rather than a package-level slice: the default is handed out to
+// callers that are free to write into it, so one shared backing array would
+// let what one caller did with the slice reach the next one.
+func defaultPushBranches() []string {
+	return []string{"main", "staging"}
+}
+
 // pushBranches returns the configured branch filters, or defaultPushBranches
 // when the project did not configure any.
 func (c GithubCIConfig) pushBranches() []string {
 	if len(c.PushBranches) == 0 {
-		return defaultPushBranches
+		return defaultPushBranches()
 	}
 
 	return c.PushBranches

@@ -205,8 +205,9 @@ func TestGithubCIConfig_PushBranchesFlow(t *testing.T) {
 }
 
 // TestGithubCIConfig_PushBranchesDefaultNotMutated guards defaultPushBranches
-// against being handed out and then appended to by a caller: the package-level
-// slice backs the output of every project that does not configure the key.
+// against being handed out and then written into by a caller: the default backs
+// the output of every project that does not configure the key, so one
+// caller writing into the slice it got must not reach the next one.
 func TestGithubCIConfig_PushBranchesDefaultNotMutated(t *testing.T) {
 	want := []string{"main", "staging"}
 
@@ -216,14 +217,25 @@ func TestGithubCIConfig_PushBranchesDefaultNotMutated(t *testing.T) {
 		t.Fatalf("unexpected default rendering: %q", got)
 	}
 
-	if len(defaultPushBranches) != len(want) {
-		t.Fatalf("defaultPushBranches = %v, want %v", defaultPushBranches, want)
+	// What a caller is free to do with the slice it was handed: write into it.
+	// A shared backing array would carry the write over to the next caller.
+	handed := defaultPushBranches()
+	handed[0] = "release"
+
+	got := defaultPushBranches()
+
+	if len(got) != len(want) {
+		t.Fatalf("defaultPushBranches() = %v, want %v", got, want)
 	}
 
 	for i, branch := range want {
-		if defaultPushBranches[i] != branch {
-			t.Errorf("defaultPushBranches[%d] = %q, want %q", i, defaultPushBranches[i], branch)
+		if got[i] != branch {
+			t.Errorf("defaultPushBranches()[%d] = %q, want %q", i, got[i], branch)
 		}
+	}
+
+	if rendered := cfg.PushBranchesFlow(); rendered != "[main, staging]" {
+		t.Errorf("default rendering after a caller wrote into it = %q, want %q", rendered, "[main, staging]")
 	}
 }
 
