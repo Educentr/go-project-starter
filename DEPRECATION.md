@@ -104,6 +104,53 @@ func (w *Worker) customize() {
 забирает конфиг линтера себе (`tools.lint_config.own`), запрет `init()` в **его** коде
 остаётся на нём.
 
+### Инициализация метрик у приложений без `sys`-транспорта (TOOLS-94, unreleased)
+
+`application.InitMetrics(mainCtx)` и регистрация коллекторов карты метрик в
+`cmd/<app>/psg_main_gen.go` теперь **безусловны** — раньше они генерировались только у
+приложения с `sys`-транспортом, и приложение без него получало `nil`-реестр, на котором
+middleware REST-транспорта падало (`MustRegister` на `nil`) ещё до первого запроса.
+
+Регенерация такого проекта чинит старт сама. Чинить руками нужно только одно: **ручной
+воркэраунд, если он был**.
+
+| Было в ручном коде | Что делать после регенерации |
+|--------------------|------------------------------|
+| в `GetMiddlewares` транспорта подставлялся `prometheus.NewRegistry()` при `nil` | уберите ветку: реестр больше не `nil` (оставленная ветка просто мертва, компиляции не ломает) |
+| ниже disclaimer-маркера свой вызов `metrics.Register(application.GetMetrics())` | **уберите его** — иначе второй `Register` в тот же реестр вернёт `AlreadyRegisteredError`, и сгенерированный код выйдет с `ExitCodeErrorApp` |
+
+Канал вывода метрик стал объявленным свойством приложения
+(`applications[].metrics.export`: `pull` / `push` / `none`). Ключ необязателен и по умолчанию
+выводится из транспортов, поэтому существующие `project.yaml` менять не нужно —
+[docs/configuration/applications.md](docs/configuration/applications.md#метрики-приложения-metricsexport).
+
+### Цели `test-integration-with-deps` и `test-int-up-deps` (TOOLS-96, unreleased)
+
+Обе цели удалены из сгенерированного `Makefile`: ни одна из них не работала с момента
+появления. `test-integration-with-deps` зависела от цели `test-integration`, которую
+генератор никогда не создавал, а `test-int-up-deps` поднимала compose-сервис `wiremock`,
+которого нет ни в одном сгенерированном compose-файле. Заодно из `go.mod.tmpl` убран
+`github.com/walkerus/go-wiremock` — он был там только ради этих целей, и ни одна строка
+сгенерированного кода его не импортирует (`go mod tidy` выкидывал его и раньше).
+
+**Миграция.** Если проект определил `test-integration` в своей секции (ниже
+disclaimer-маркера) и звал `test-integration-with-deps` — перенесите обёртку туда же, к
+самой цели:
+
+```make
+# ниже disclaimer-маркера, рядом со своей test-integration
+.PHONY: test-integration-with-deps
+test-integration-with-deps: test-int-up-deps test-integration
+
+.PHONY: test-int-up-deps
+test-int-up-deps:
+	docker compose up -d --build --force-recreate <ваш сервис>
+```
+
+Зависимости интеграционных тестов объявляет проект: что именно поднимать, генератор не знает.
+Штатный путь для интеграционных тестов в сгенерированном проекте — GOAT
+(`goat_tests`, цель `goat-tests-<app>`), см. [docs/testing/goat.md](docs/testing/goat.md).
+
 ## Go version policy
 
 Generated projects target a **supported** Go release. Go upstream supports the

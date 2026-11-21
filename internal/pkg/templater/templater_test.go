@@ -1152,6 +1152,55 @@ func TestGetUserCodeFromFiles(t *testing.T) {
 		}
 	})
 
+	t.Run("walk does not descend into a symlinked directory", func(t *testing.T) {
+		baseDir := t.TempDir()
+
+		// The reported case: a sibling repo clone symlinked into the project root
+		// so that dev and CI paths stay identical. Its files are not the project's,
+		// and some of them legitimately carry the disclaimer string — descending
+		// would classify those as stale generated files, and a stale generated file
+		// without user code below the marker gets deleted.
+		sibling := filepath.Join(baseDir, "sibling")
+		writeFile(t, filepath.Join(sibling, "psg_old_gen.go"), "package main\n\n"+disclaimerLine+"\n")
+		writeFile(t, filepath.Join(sibling, "sub", "psg_nested_gen.go"), "package main\n\n"+disclaimerLine+"\n")
+
+		tmpDir := filepath.Join(baseDir, "proj")
+		if err := os.Mkdir(tmpDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		link := filepath.Join(tmpDir, ".rules")
+		if err := os.Symlink(sibling, link); err != nil {
+			t.Fatal(err)
+		}
+
+		filesDiff, err := GetUserCodeFromFiles(tmpDir, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		inside := link + string(filepath.Separator)
+
+		for name, set := range map[string]map[string]struct{}{
+			"ObsoleteFiles":  filesDiff.ObsoleteFiles,
+			"OtherFiles":     filesDiff.OtherFiles,
+			"OtherDirectory": filesDiff.OtherDirectory,
+			"IgnoreFiles":    filesDiff.IgnoreFiles,
+		} {
+			for path := range set {
+				if strings.HasPrefix(path, inside) {
+					t.Errorf("walk descended into the symlinked directory: %s in %s", path, name)
+				}
+			}
+		}
+
+		for path := range filesDiff.UserContent {
+			if strings.HasPrefix(path, inside) {
+				t.Errorf("walk read content behind the symlink: %s", path)
+			}
+		}
+	})
+
 	t.Run("symlink to a regular file goes to OtherFiles and is not read", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
@@ -2150,10 +2199,14 @@ func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
 	data := struct {
 		UseActiveRecord  bool
 		CustomGenerators ds.CustomGenerators
+		WebApps          ds.WebApps
 		Applications     ds.Apps
 	}{
 		UseActiveRecord:  true,
 		CustomGenerators: ds.CustomGenerators{{Name: "runtime_limits_ts"}},
+		// A frontend contributes a prerequisite only when it declares a
+		// codegen, which is what rendered commands mean.
+		WebApps: ds.WebApps{{Name: "admin", CodegenCmds: []string{"npx openapi-typescript spec.yml"}}},
 		// An application that gets mock scaffolding (GOAT tests + an
 		// ogen_client transport) is what turns generate-mocks on.
 		Applications: ds.Apps{{
@@ -2170,7 +2223,7 @@ func TestMakefileGenerateAggregatorSeparatesPrereqs(t *testing.T) {
 
 	for _, want := range []string{
 		"proto", "generate-ogen", "sqlc", "generate-argen",
-		"generate-jsonschema", "generate-runtime_limits_ts", "generate-mocks",
+		"generate-jsonschema", "generate-runtime_limits_ts", "generate-web-admin", "generate-mocks",
 	} {
 		if !slices.Contains(prereqs, want) {
 			t.Errorf("generate: prerequisites %q must contain %q as a separate target", prereqs, want)

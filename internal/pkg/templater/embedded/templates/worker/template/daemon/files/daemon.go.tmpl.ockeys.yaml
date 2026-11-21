@@ -4,10 +4,14 @@ groups:
     keys:
       - path: "{service}/worker/{worker}"
         name: WorkerPath
+        open: true
         description: >-
           Configuration subtree of one worker. The worker hands the path to the
           logger, which reads the log level below it keyed by the stage of a job
-          run, so the subtree belongs to the generated code as a whole.
+          run. Every read the generated code performs in the subtree is declared
+          — the keys below and the stage keys of the logger (`read_via`) — so the
+          subtree is open: the service map may declare the settings its own
+          handwritten job code reads, such as the tick interval.
 
       - path: "{service}/worker/{worker}/jobs/enabled"
         name: WorkerJobsEnabled

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -465,16 +466,18 @@ func TestApplication_IsValid(t *testing.T) {
 			wantMsg: "Application must have at least one transport or be a CLI app",
 		},
 		{
+			// Which transports a CLI may host is decided against the rest map,
+			// in GetConfig (see TestValidateCLITransport) — IsValid only has
+			// the application in front of it.
 			name: "CLI with transports",
 			app: Application{
 				Name: "cli-app",
 				CLI:  "admin",
 				TransportList: []AppTransport{
-					{Name: "api_v1"},
+					{Name: "billing"},
 				},
 			},
-			wantOK:  false,
-			wantMsg: "CLI application cannot have transports",
+			wantOK: true,
 		},
 		{
 			name: "CLI with workers",
@@ -1977,6 +1980,61 @@ func TestRest_IsValid_AuthParams(t *testing.T) {
 
 			if !tt.wantOK && gotMsg != tt.wantMsg {
 				t.Errorf("Rest.IsValid() msg = %q, want %q", gotMsg, tt.wantMsg)
+			}
+		})
+	}
+}
+
+// TestValidateCLITransport pins which transports a CLI application may host.
+//
+// A CLI tool that calls an HTTP API is an ordinary shape, and the client has to
+// belong to the application that runs it — the generated init lands in that
+// application's main. What a CLI cannot host is an inbound transport: it has no
+// process to listen in.
+func TestValidateCLITransport(t *testing.T) {
+	restMap := map[string]Rest{
+		"billing": {Name: "billing", GeneratorType: GeneratorTypeOgenClient},
+		"api":     {Name: "api", GeneratorType: "ogen"},
+		"sys":     {Name: "sys", GeneratorType: "template"},
+	}
+
+	app := Application{Name: "admin-cli", CLI: "admin"}
+
+	tests := []struct {
+		name      string
+		transport string
+		wantErr   bool
+	}{
+		{name: "ogen_client is accepted", transport: "billing"},
+		{name: "ogen server is rejected", transport: "api", wantErr: true},
+		{name: "template server is rejected", transport: "sys", wantErr: true},
+		{name: "grpc (absent from the rest map) is rejected", transport: "grpcsvc", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCLITransport(restMap, app, AppTransport{Name: tt.transport})
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("validateCLITransport(%q) = nil, want an error", tt.transport)
+				}
+
+				if !errors.Is(err, ErrInvalidConfig) {
+					t.Errorf("error should wrap ErrInvalidConfig, got %v", err)
+				}
+
+				for _, want := range []string{tt.transport, app.Name, GeneratorTypeOgenClient} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error should mention %q, got %v", want, err)
+					}
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Errorf("validateCLITransport(%q) = %v, want nil", tt.transport, err)
 			}
 		})
 	}

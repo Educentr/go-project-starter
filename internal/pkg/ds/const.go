@@ -10,7 +10,30 @@ import (
 	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/grafana"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
+
+// specBasename returns the file name under which a raw `path:` entry lands in
+// the project tree. A URI is not a filesystem path, so the name has to come
+// from the source itself (the git subpath, the URL path) — filepath.Base of
+// "git+ssh://git@host/org/contracts.git#api.swagger.yml" is
+// "contracts.git#api.swagger.yml", and of an https URL carrying
+// "?token_env=NAME" it is the basename with the query glued to it.
+//
+// This mirrors what the resolve pre-pass records in SpecTargetFiles /
+// SchemaTargetFiles, and is what callers that run before that pre-pass — the
+// templates, the Makefile among them — have to use to name the same file.
+func specBasename(raw string) string {
+	src, err := specsource.ParseSpecSource(raw)
+	if err != nil {
+		// A malformed entry is the resolve pass's error to report, with the
+		// transport name and entry index attached; here keep the plain-path
+		// reading it had before URIs existed.
+		return filepath.Base(raw)
+	}
+
+	return src.TargetFilename()
+}
 
 type TransportType string
 
@@ -433,6 +456,17 @@ const (
 	KafkaTransportType TransportType = "kafka"
 	CLITransportType   TransportType = "cli"
 
+	// GeneratorTypeTemplate is the generator type of a transport built from one
+	// of the generator's own templates rather than from a spec.
+	GeneratorTypeTemplate = "template"
+
+	// GeneratorTemplateSys is the template of the sys server — the one that
+	// carries /metrics, /live, /ready and pprof. Shared with the config
+	// package, which decides the metrics export channel by the same test: a
+	// transport is the sys server because of the template it comes from, not
+	// because of its name.
+	GeneratorTemplateSys = "sys"
+
 	// Path components for schema directories
 	schemaDir = "schema"
 	pkgDir    = "pkg"
@@ -489,6 +523,11 @@ type App struct {
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 	Artifacts             []ArtifactType   // Per-application artifacts
+	Docker                AppDockerConfig  // Runtime stage of the application image
+	// MetricsExport is the resolved export channel of the application: where
+	// the metrics it collects go. Always set — an application that declares
+	// nothing gets the channel derived from its transports.
+	MetricsExport MetricsExport
 }
 
 // CLIFlag represents a flag for a CLI command (computed Go names included)
@@ -574,7 +613,7 @@ func (a App) GetCLITransport() *CLIApp {
 // HasSysTransport returns true if application has a SYS transport configured
 func (a App) HasSysTransport() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "sys" {
+		if transport.GeneratorType == GeneratorTypeTemplate && transport.GeneratorTemplate == GeneratorTemplateSys {
 			return true
 		}
 	}
@@ -584,7 +623,7 @@ func (a App) HasSysTransport() bool {
 // HasStaticTransport returns true if application has a static-files template transport configured
 func (a App) HasStaticTransport() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "template" && transport.GeneratorTemplate == "static" {
+		if transport.GeneratorType == "template" && transport.GeneratorTemplate == StaticTransportTemplate {
 			return true
 		}
 	}
@@ -600,13 +639,13 @@ func (a App) StaticDirs() []string {
 	dirs := []string{}
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType != "template" || transport.GeneratorTemplate != "static" {
+		if transport.GeneratorType != "template" || transport.GeneratorTemplate != StaticTransportTemplate {
 			continue
 		}
 
 		dir := transport.GeneratorParams["dir"]
 		if dir == "" {
-			dir = "static"
+			dir = DefaultStaticDir
 		}
 
 		if !seen[dir] {
@@ -785,8 +824,8 @@ type Transport struct {
 	// SpecTargetFiles, when non-empty, holds the basename under which each
 	// SpecPath[i] should be saved into api/. Populated when sources are
 	// resolved from URI form (e.g. git fragment "#openapi/users.yaml" yields
-	// "users.yaml"). Empty for legacy local-only flows; in that case
-	// GetTargetSpecFile falls back to filepath.Base(SpecPath[i]).
+	// "users.yaml"). Empty until the resolve pre-pass runs; until then
+	// GetTargetSpecFile derives the same name from SpecPath[i] itself.
 	SpecTargetFiles []string
 	ApiVersion      string // перенесено из Hendler
 	Port            string // перенесено из Hendler
@@ -974,6 +1013,35 @@ func (a App) GetOgenClients() []Transport {
 	return clients
 }
 
+// GetStaticOgenClients returns the ogen_client transports the application has
+// to construct at startup, sorted by name. Dynamic clients are built per call
+// site at runtime, so main has nothing to register for them.
+func (a App) GetStaticOgenClients() []Transport {
+	clients := make([]Transport, 0)
+
+	for _, transport := range a.GetOgenClients() {
+		if !transport.IsDynamic() {
+			clients = append(clients, transport)
+		}
+	}
+
+	return clients
+}
+
+// HasCLIStaticClients reports whether any CLI application registers static
+// clients in its main. A CLI never reaches the runtime's app.Init, so it wires
+// its clients into the service itself — this is the condition under which the
+// service layer exports the entry point for that (EmptyService.InitClients).
+func (a Apps) HasCLIStaticClients() bool {
+	for _, app := range a {
+		if app.IsCLI() && len(app.GetStaticOgenClients()) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (a App) TransportImports() []string {
 	imports := make([]string, 0)
 
@@ -1110,6 +1178,28 @@ func (app App) GetRestTransport() []Transport {
 	return app.getTransport(RestTransportType)
 }
 
+// GetRestServerTransport returns the app's REST transports that listen on a
+// port of their own, i.e. everything GetRestTransport returns except the
+// clients.
+//
+// A client transport has no port — it dials one — so it carries none, and
+// anything describing the app's listening surface (the EXPOSE directives of its
+// image) has to leave it out rather than announce port 0.
+func (a App) GetRestServerTransport() []Transport {
+	transports := a.GetRestTransport()
+	servers := make([]Transport, 0, len(transports))
+
+	for _, transport := range transports {
+		if transport.GeneratorType == "ogen_client" || transport.GeneratorType == "buf_client" {
+			continue
+		}
+
+		servers = append(servers, transport)
+	}
+
+	return servers
+}
+
 func (a App) GetGrpcTransport() []Transport {
 	return a.getTransport(GrpcTransportType)
 }
@@ -1200,13 +1290,19 @@ func (t Transport) GetTargetSpecDir(targetDir string) string {
 	return filepath.Join(targetDir, "api", "rest", t.Name, t.ApiVersion)
 }
 
+// GetTargetSpecFile returns the file name under which spec entry num lands in
+// the transport's target spec directory.
+//
+// SpecTargetFiles, filled by the resolve pre-pass, wins. It is empty while the
+// templates are rendered — that happens before the pre-pass — so the fallback
+// derives the name from the raw `path:` entry, which may be a URI: see
+// specBasename.
 func (t Transport) GetTargetSpecFile(num int) string {
 	if num < len(t.SpecTargetFiles) && t.SpecTargetFiles[num] != "" {
 		return t.SpecTargetFiles[num]
 	}
-	_, file := filepath.Split(t.SpecPath[num])
 
-	return file
+	return specBasename(t.SpecPath[num])
 }
 
 func (t Transport) GetTargetGeneratePath(targetDir string) string {
@@ -1263,7 +1359,7 @@ func (j JSONSchema) GetSchemaFilenames() []string {
 	filenames := make([]string, 0, len(paths))
 
 	for _, path := range paths {
-		base := filepath.Base(path)
+		base := specBasename(path)
 		// Remove .json extension if present
 		if ext := filepath.Ext(base); ext == ".json" {
 			base = base[:len(base)-len(ext)]

@@ -81,7 +81,10 @@ Workflow `.github/workflows/go-version-check.yml` запускает скрип�
 
 Та же проверка генерируется и в каждый сгенерированный проект:
 - `scripts/check-go-mod-version.sh` (lenient — только lower bound, потому что верхняя граница в сгенерированном проекте задаётся `tools.golang_version` в `project.yaml`, и это решение пользователя)
-- `.github/workflows/go-version-check.yml`
+- `.github/workflows/go-version-check.yml` — при объявленном `git.private_repos`
+  джоба получает те же два шага доступа к приватным модулям, что и джобы
+  `ci_cd.yml` (`git config … insteadOf` + `GOPRIVATE`): скрипт скачивает прямые
+  зависимости, иначе проверка красная на первой же приватной
 - `make check-go-version`
 
 ## Второй класс проблемы: `@latest` у тестовых импортов зависимостей

@@ -1,4 +1,18 @@
-FROM golang:{{ .GoLangVersion }}-alpine AS builder
+{{ range $_, $w := $.WebApps.ForApp $.Application }}# Frontend '{{ $w.Name }}', declared in the `web` section of project.yaml. It
+# is built here rather than taken from the host so the image carries the
+# frontend the sources describe, and so the node toolchain never reaches the
+# runtime stage. The whole context is copied, as in the builder stage below: a
+# frontend build reads more than {{ $w.Dir }} (the generated client, shared
+# configs), and which files exactly is the project's business.
+FROM {{ $w.NodeImage }} AS {{ $w.StageName }}
+WORKDIR /src
+COPY . .
+{{- if $w.Install }}
+RUN cd {{ $w.Dir }} && {{ $w.Install }}
+{{- end }}
+RUN cd {{ $w.Dir }} && {{ $w.Build }}
+
+{{ end }}FROM golang:{{ .GoLangVersion }}-alpine AS builder
 ARG binary=bin/{{ .Application.Name }}
 ARG GOPROXY
 {{- range $_, $arg := .Docker.BuilderArgs }}
@@ -65,17 +79,45 @@ RUN mkdir -p /{{ $dir }}
 ADD {{ $dir }} /{{ $dir }}
 RUN chmod -R 755 /{{ $dir }}
 {{- end }}
+{{- range $_, $w := $.WebApps.ForApp $.Application }}
 
-FROM alpine
+# Built frontend '{{ $w.Name }}' over whatever {{ $w.Output }}/ carries in the
+# build context: the build is the authority on what the service serves.
+COPY --from={{ $w.StageName }} /src/{{ $w.Output }}/ /{{ $w.Output }}/
+RUN chmod -R 755 /{{ $w.Output }}
+{{- end }}
+
+# The config directory is created here and copied into the runtime stage, not
+# created there: a `RUN mkdir` needs a shell, and a shell-less base image
+# (distroless, scratch) is a valid runtime for a static Go binary.
+RUN mkdir -p /etc/onlineconf
+
+FROM {{ .Application.Docker.Image }}
+{{- with .Application.Docker.PackagesDirective }}
+
+# Runtime packages, declared in the docker section of the application in
+# project.yaml. Installed before the binary is copied, so the layer is reused
+# until the package list itself changes.
+{{ . }}
+{{ end }}
 COPY --from=builder /service /service
 COPY --from=builder /public /public
 {{- range $dir := .Application.StaticDirs }}
 COPY --from=builder /{{ $dir }} /{{ $dir }}
 {{- end }}
-RUN mkdir -p /etc/onlineconf
-CMD ["/service"]
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
+COPY --from=builder /etc/onlineconf /etc/onlineconf
+{{- with .Application.Docker.WorkdirDirective }}
+{{ . }}
+{{- end }}
+{{ .Application.Docker.StartDirective }}
 
-{{- range $_, $t := .Applications.GetRestTransport }}
+{{- /* This application's own listening transports, not the project's: the
+       image of a CLI application used to announce the ports of its neighbors,
+       and a client transport used to render EXPOSE 0 — ports `docker run -P`,
+       the image metadata and image scanners would look for and not find. */}}
+{{- range $_, $t := .Application.GetRestServerTransport }}
 # {{ $t.Name }}/{{ $t.Type }}
 EXPOSE {{ $t.Port }}
 {{- end }}

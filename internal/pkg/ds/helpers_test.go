@@ -314,6 +314,38 @@ func TestApp_GetRestTransport(t *testing.T) {
 	}
 }
 
+// TestApp_GetRestServerTransport covers the listening half of the app's REST
+// transports (TOOLS-96). A client has no port of its own — it dials one — so
+// everything describing the app's listening surface has to leave it out rather
+// than render the zero value it carries.
+func TestApp_GetRestServerTransport(t *testing.T) {
+	app := App{
+		Transports: Transports{
+			"api":     Transport{Name: "api", Type: RestTransportType, Port: "8080", GeneratorType: "ogen"},
+			"sys":     Transport{Name: "sys", Type: RestTransportType, Port: "8085", GeneratorType: "template"},
+			"billing": Transport{Name: "billing", Type: RestTransportType, GeneratorType: "ogen_client"},
+			"items":   Transport{Name: "items", Type: GrpcTransportType, GeneratorType: "buf_client"},
+		},
+	}
+
+	got := app.GetRestServerTransport()
+
+	names := make([]string, 0, len(got))
+	for _, transport := range got {
+		names = append(names, transport.Name)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("App.GetRestServerTransport() returned %v, want the two server transports", names)
+	}
+
+	for _, transport := range got {
+		if transport.Port == "" {
+			t.Errorf("App.GetRestServerTransport() returned %q with no port", transport.Name)
+		}
+	}
+}
+
 func TestApp_GetGrpcTransport(t *testing.T) {
 	app := App{
 		Transports: Transports{
