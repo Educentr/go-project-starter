@@ -275,6 +275,39 @@ test-int-up-deps:
 Штатный путь для интеграционных тестов в сгенерированном проекте — GOAT
 (`goat_tests`, цель `goat-tests-<app>`), см. [docs/testing/goat.md](docs/testing/goat.md).
 
+### `GOPRIVATE` больше не включает `github.com/Educentr` и `gitlab.com` (TOOLS-108, unreleased)
+
+`GOPRIVATE` теперь равен **ровно** `git.private_repos`, и это значение вычисляется в одном
+месте (`GeneratorParams.GoPrivate`) для всех четырёх потребителей. Раньше каждый собирал его
+сам, и они расходились:
+
+| Потребитель | Было | Стало |
+|---|---|---|
+| `Makefile` | `github.com/Educentr[,<private_repos>]` | `<private_repos>` |
+| джобы `.github/workflows/*` | `github.com/Educentr[,<private_repos>]` | `<private_repos>`, и сам блок доступа к приватным модулям рендерится **только** при `private_repos` |
+| `.gitlab-ci.yml` | `gitlab.com,<private_repos>` | `<private_repos>` |
+| builder-стадия `Dockerfile-<app>` | `<private_repos>` | без изменений |
+
+Из-за расхождения проект, зависящий от приватного модуля `github.com/Educentr/*` и не
+перечисливший его в `private_repos`, собирался на хосте и в CI и падал в `docker build`.
+Префикс к тому же выключал проверку по `sum.golang.org` для всех модулей Educentr, а все они,
+от которых зависит сгенерированный проект, публичные.
+
+**Миграция.** Для проекта без приватных модулей — ничего, регенерация достаточна; из
+workflow заодно исчезает шаг, читавший токен, так что секрет
+`git.private_repos_token_secret` (по умолчанию `GH_PAT`) для CI больше не обязателен.
+
+| Если проект… | Что сделать |
+|---|---|
+| зависит от приватного модуля `github.com/Educentr/<repo>` | добавить его в `git.private_repos` (`private_repos: "github.com/Educentr/<repo>"`) — раньше он работал на хосте и в CI за счёт префикса |
+| зависит от приватного модуля на `gitlab.com` и собирается в GitLab CI | перечислить его в `git.private_repos`: префикс `gitlab.com` оттуда убран |
+| переопределял `GOPRIVATE` в своей секции `Makefile` (ниже disclaimer-маркера) или через окружение | ничего: `GOPRIVATE ?=` по-прежнему `?=`, переопределение выигрывает |
+
+`git.private_repos` при этом остаётся **строкой** (несколько шаблонов — через запятую, как в
+самой переменной `GOPRIVATE`); формат поля не менялся, но примеры в документации были
+оформлены YAML-списком, и такой конфиг генератор не загружал — они исправлены
+([docs/configuration/main.md](docs/configuration/main.md#приватные-go-модули)).
+
 ## Go version policy
 
 Generated projects target a **supported** Go release. Go upstream supports the

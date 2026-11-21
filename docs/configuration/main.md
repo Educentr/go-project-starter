@@ -129,9 +129,7 @@ main:
 git:
   repo: https://github.com/org/repo
   module_path: github.com/org/repo
-  private_repos:
-    - github.com/myorg/internal-pkg
-    - gitlab.com/company/*
+  private_repos: "github.com/myorg/internal-pkg,gitlab.com/company/*"
   private_repos_token_secret: GO_MODULES_TOKEN
 ```
 
@@ -141,7 +139,7 @@ git:
 |------|-------------|----------|
 | `repo` | Да | URL Git репозитория |
 | `module_path` | Да | Go module path |
-| `private_repos` | Нет | Список приватных модулей для GOPRIVATE |
+| `private_repos` | Нет | Шаблоны приватных модулей для GOPRIVATE. **Строка**, несколько шаблонов — через запятую, как в самой переменной `GOPRIVATE` |
 | `private_repos_token_secret` | Нет | Имя GitHub-секрета с токеном для приватных модулей. По умолчанию `GH_PAT` |
 
 ### Приватные Go модули
@@ -152,27 +150,38 @@ git:
 git:
   repo: github.com/myorg/service
   module_path: github.com/myorg/service
-  private_repos:
-    - github.com/myorg/internal-pkg
-    - gitlab.com/company/*
+  private_repos: "github.com/myorg/internal-pkg,gitlab.com/company/*"
 ```
 
-Это автоматически добавит в Makefile и Dockerfile:
+Значение попадает в `GOPRIVATE` **как есть**, одно и то же во всех четырёх местах, где
+сгенерированный проект его читает:
 
-```bash
-GOPRIVATE=github.com/myorg/internal-pkg,gitlab.com/company/*
-```
+| Где | Что получает |
+|---|---|
+| `Makefile` | `GOPRIVATE ?=github.com/myorg/internal-pkg,gitlab.com/company/*` |
+| builder-стадия `Dockerfile-<app>` | `ENV GOPRIVATE="github.com/myorg/internal-pkg,gitlab.com/company/*"` |
+| джобы `.github/workflows/*` | `go env -w GOPRIVATE="github.com/myorg/internal-pkg,gitlab.com/company/*"` |
+| `.gitlab-ci.yml` | `go env -w GOPRIVATE="github.com/myorg/internal-pkg,gitlab.com/company/*"` |
 
-Кроме того, в `.github/workflows/go-version-check.yml` добавляются два шага —
-`git config … insteadOf` с токеном и `go env -w GOPRIVATE=…`. Проверка политики
-версии Go скачивает прямые зависимости (`go list -m all`, `go mod download`), то
-есть без доступа к приватным модулям она красная на каждом push. Без
-`private_repos` workflow не меняется.
-
-В `ci_cd.yml` та же пара шагов стоит безусловно (там `GOPRIVATE` выставляется
-всегда, включая `github.com/Educentr`) и задана одним общим фрагментом на все
-workflow. Какие джобы её получают и почему `build` — нет, см.
+Кроме `GOPRIVATE`, в джобы GitHub Actions добавляется шаг `git config … insteadOf` с
+токеном из секрета: `GOPRIVATE` уводит модуль с прокси на прямой git-fetch, и этому
+fetch'у нужны credentials. Какие джобы получают эту пару шагов и почему `build` — нет, см.
 [GitHub CI](github-ci.md#доступ-к-приватным-go-модулям).
+
+!!! info "Без `private_repos` GOPRIVATE пустой — в том числе для модулей Educentr"
+    Раньше `GOPRIVATE` в `Makefile` и в workflow начинался с `github.com/Educentr`
+    (а в `.gitlab-ci.yml` — с `gitlab.com`) независимо от конфигурации. `GOPRIVATE`
+    выключает не только прокси, но и проверку по `sum.golang.org`, а все модули Educentr,
+    от которых зависит сгенерированный проект, публичные — то есть префикс не давал
+    ничего, кроме потери этой проверки, и делал это в каждом сгенерированном проекте.
+    Ещё он расходился с `Dockerfile`, который префикса не выставлял: проект, зависящий от
+    приватного модуля `github.com/Educentr/*` и не перечисливший его здесь, собирался на
+    хосте и в CI и падал в `docker build`.
+
+    Теперь префиксов нет: приватный модуль Educentr перечисляется в `private_repos` так же,
+    как любой другой — `private_repos: "github.com/Educentr/<repo>"`. Если `private_repos`
+    не задан, ни один модуль с прокси не уводится, и джобы CI не читают токен
+    (`private_repos_token_secret` в этом случае ни на что не влияет).
 
 ### Имя секрета с токеном
 
@@ -180,19 +189,21 @@ workflow. Какие джобы её получают и почему `build` �
 `.github/workflows/go-version-check.yml`) читают токен
 для скачивания приватных модулей из секрета `GH_PAT`. Если токены разделены по классу
 привилегии — например, узкий read-only токен на модули отдельно от токенов с правом
-записи — имя секрета задаётся явно:
+записи — имя секрета задаётся явно (поле действует вместе с `private_repos`: без
+объявленных приватных модулей джобы токен не читают):
 
 ```yaml
 git:
   repo: github.com/myorg/service
   module_path: github.com/myorg/service
-  private_repos: github.com/myorg/internal-pkg
+  private_repos: "github.com/myorg/internal-pkg"
   private_repos_token_secret: GO_MODULES_TOKEN
 ```
 
 Имя подставляется во все места workflow, где используется этот токен
 (`insteadOf` для `go mod download` — во всех джобах, включая `checks` и
-`go-version-check`, — и build-секрет для `docker build`):
+`go-version-check`, — и build-секрет для `docker build`, который передаётся всегда:
+модули внутри образа скачиваются из него):
 
 ```yaml
 GH_TOKEN: ${{ secrets.GO_MODULES_TOKEN }}

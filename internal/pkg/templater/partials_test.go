@@ -10,6 +10,15 @@ import (
 // workflow templates, the consumers of the shared workflow fragments.
 const workflowTemplatesPrefix = "embedded/templates/main/.github/workflows"
 
+// privateModulesCallSite is the fragment rendered the way the workflow
+// templates render it: left-trimmed, on a line of its own, between two steps.
+// Pinning the call site rather than the bare body is what makes the
+// surrounding blank lines part of the assertion.
+const privateModulesCallSite = "      - name: Setup Go\n" +
+	"{{- template \"privateModulesAccess\" $ }}\n" +
+	"\n" +
+	"      - name: Run check\n"
+
 // privateModulesStepMarkers are the two lines that only the shared fragment
 // may carry: the step that rewrites the git credentials and the one that sets
 // GOPRIVATE.
@@ -87,11 +96,13 @@ func TestPrivateModulesAccessCallers(t *testing.T) {
 // The block is YAML inside a list of steps, so its indentation is part of its
 // meaning: trimming the define tag with `-}}` eats the leading spaces of the
 // first step and produces a workflow GitHub Actions refuses to parse. The
-// leading newline and the missing trailing one are pinned for the same reason:
-// they are what makes a call on a line of its own render as a blank-line
-// separated block.
+// leading newlines and the missing trailing one are pinned for the same
+// reason: they are what makes a left-trimmed call on a line of its own render
+// as a blank-line separated block — and render nothing at all, not even a
+// stray blank line, when the project declares no private modules.
 func TestPrivateModulesAccessRender(t *testing.T) {
-	const want = "\n" +
+	const wantWithPrivateRepos = "      - name: Setup Go\n" +
+		"\n" +
 		"      - name: Configure Git for private repos\n" +
 		"        env:\n" +
 		"          GH_TOKEN: ${{ secrets.GO_MODULES_TOKEN }}\n" +
@@ -101,27 +112,128 @@ func TestPrivateModulesAccessRender(t *testing.T) {
 		"\n" +
 		"      - name: Set GOPRIVATE\n" +
 		"        run: |\n" +
-		"          go env -w GOPRIVATE=\"github.com/Educentr,github.com/myorg/*\""
+		"          go env -w GOPRIVATE=\"github.com/myorg/*\"\n" +
+		"\n" +
+		"      - name: Run check\n"
 
-	params := GeneratorParams{
-		PrivateRepos:            "github.com/myorg/*",
-		PrivateReposTokenSecret: "GO_MODULES_TOKEN",
+	// Nothing to take off the proxy, so the two steps and the blank line that
+	// separated them from the step above are all gone.
+	const wantWithoutPrivateRepos = "      - name: Setup Go\n" +
+		"\n" +
+		"      - name: Run check\n"
+
+	tests := []struct {
+		name         string
+		privateRepos string
+		want         string
+	}{
+		{
+			name:         "declared private repos",
+			privateRepos: "github.com/myorg/*",
+			want:         wantWithPrivateRepos,
+		},
+		{
+			name:         "no private repos",
+			privateRepos: "",
+			want:         wantWithoutPrivateRepos,
+		},
 	}
 
-	// The fragment is rendered through the same path the workflow templates
-	// take, minus the disclaimer blocks a .yml file does not carry here.
-	tmpl := Template{
-		Name: "partial-render-test",
-		Tmpl: `{{ template "privateModulesAccess" $ }}`,
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := GeneratorParams{
+				PrivateRepos:            tt.privateRepos,
+				PrivateReposTokenSecret: "GO_MODULES_TOKEN",
+			}
 
-	buf, err := GenerateByTmpl(tmpl, params, nil, "partial-render-test.yml")
+			// The fragment is rendered through the same path the workflow
+			// templates take, minus the disclaimer blocks a .yml file does not
+			// carry here.
+			tmpl := Template{
+				Name: "partial-render-test",
+				Tmpl: privateModulesCallSite,
+			}
+
+			buf, err := GenerateByTmpl(tmpl, params, nil, "partial-render-test.yml")
+			if err != nil {
+				t.Fatalf("GenerateByTmpl() error: %v", err)
+			}
+
+			if got := buf.String(); !strings.Contains(got, tt.want) {
+				t.Errorf("rendered fragment does not match.\n--- got ---\n%s\n--- want ---\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWorkflowTemplatesCallFragmentTrimmed guards the one thing a call site
+// still has to get right: the call must be left-trimmed. An untrimmed
+// `{{ template … }}` keeps the newline of the line above, so a project without
+// private modules gets a stray blank line where the block used to be; see the
+// fragment's own comment.
+func TestWorkflowTemplatesCallFragmentTrimmed(t *testing.T) {
+	err := fs.WalkDir(templates, workflowTemplatesPrefix, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		body, err := templates.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		if strings.Contains(string(body), `{{ template "privateModulesAccess" $ }}`) {
+			t.Errorf(`%s calls the fragment untrimmed; use {{- template "privateModulesAccess" $ }}`, path)
+		}
+
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("GenerateByTmpl() error: %v", err)
+		t.Fatalf("walking %s: %v", workflowTemplatesPrefix, err)
 	}
+}
 
-	if got := buf.String(); !strings.Contains(got, want) {
-		t.Errorf("rendered fragment does not match.\n--- got ---\n%s\n--- want ---\n%s", got, want)
+// TestNoTemplateReadsPrivateReposDirectly is the guard for the single source of
+// the GOPRIVATE value. The value used to be assembled in each consumer — the
+// Makefile and the workflows prepended github.com/Educentr, .gitlab-ci.yml
+// prepended gitlab.com, the Dockerfile prepended nothing — so the host build,
+// CI and `docker build` disagreed about which modules bypass the proxy.
+// Templates read GeneratorParams.GoPrivate instead of PrivateRepos, which is
+// what keeps them from drifting apart again.
+func TestNoTemplateReadsPrivateReposDirectly(t *testing.T) {
+	for _, root := range []string{templatesRoot, partialsPrefix} {
+		err := fs.WalkDir(templates, root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if d.IsDir() {
+				return nil
+			}
+
+			body, err := templates.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			// PrivateReposTokenSecretName is a different value (the CI secret
+			// name) and has its own accessor, so only a bare .PrivateRepos is
+			// a finding.
+			for _, ref := range []string{".PrivateRepos }}", ".PrivateRepos)", ".PrivateRepos "} {
+				if strings.Contains(string(body), ref) {
+					t.Errorf("%s reads %q; render .GoPrivate so every consumer gets the same value", path, ref)
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", root, err)
+		}
 	}
 }
 

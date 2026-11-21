@@ -122,6 +122,28 @@ func (g GeneratorParams) PrivateReposTokenSecretName() string {
 	return g.PrivateReposTokenSecret
 }
 
+// GoPrivate returns the GOPRIVATE value of the generated project: the module
+// patterns that are fetched straight from git instead of through GOPROXY.
+//
+// This is the only place the value is computed. Every consumer renders it —
+// the Makefile, the GitHub Actions fragment, .gitlab-ci.yml and the builder
+// stage of every Dockerfile — so the host build, the CI jobs and `docker
+// build` cannot disagree about which modules bypass the proxy. They used to:
+// the Makefile and the workflows prepended github.com/Educentr, the GitLab
+// pipeline prepended gitlab.com, and the Dockerfile prepended nothing, which
+// is the "works in CI, fails in the image" class of defect.
+//
+// The value is exactly git.private_repos; no host is prepended. GOPRIVATE also
+// implies GONOSUMCHECK, so a pattern listed here is fetched without being
+// verified against sum.golang.org. Every Educentr module a generated project
+// depends on is public, so prepending github.com/Educentr bought nothing and
+// cost the checksum verification of all of them, in every generated project. A
+// project that does depend on a private Educentr module lists it in
+// git.private_repos, like any other private module.
+func (g GeneratorParams) GoPrivate() string {
+	return g.PrivateRepos
+}
+
 // type GeneratorParamDriver struct {
 // 	PackageName string
 // 	ImportPath  string
