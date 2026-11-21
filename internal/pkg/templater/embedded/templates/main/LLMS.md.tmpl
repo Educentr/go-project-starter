@@ -705,6 +705,14 @@ service's own, from a contract repository.
   second way in
 - Subscribing to changes: `{{ .OnlineConf.GetPackageName }}.Subscribe(ctx, []string{...}, cb)`,
   with a `Path*` constant or the `<Name>Path(...)` builder of the key
+- A key whose path is only complete at runtime (an account id, an action name) is declared with
+  that segment in angle brackets — `/<service>/account/<account>/quota` — and the segment becomes
+  a parameter: `{{ .OnlineConf.GetPackageName }}.AccountQuota(ctx, accountID)`. Such a key has no
+  `Path*` constant (its path is an argument), cannot be `required`, and is not in `Paths()`.
+  The name of the segment names that parameter, so it cannot be a Go keyword or an identifier
+  the generated package uses itself (`ctx`, `dst`, `path`, `v`, `err`, `fmt`, …) — the map is
+  rejected at generation time, and renaming the segment changes nothing but the parameter.
+  Composing that path yourself instead is the thing the validator rejects
 - `configs/onlineconf-tree.yaml` lists the **whole** OnlineConf surface of this service:
   the service's declarations (`origin: service`) plus the paths generated code reads
   (`origin: generated`, with `read_by` naming the template). A key with

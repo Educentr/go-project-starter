@@ -49,7 +49,7 @@ applications:
 | `grafana` | Нет | Настройки Grafana dashboard |
 | `artifacts` | Нет | Per-app override artifacts (docker, deb, rpm, apk) |
 | `metrics` | Нет | Канал вывода метрик (`export`: `pull` / `push` / `none`) |
-| `docker` | Нет | Runtime-стадия образа приложения: `base_image`, `packages`, `workdir`, `entrypoint` — см. [Docker](docker.md#runtime-стадия-приложения-applicationsdocker) |
+| `docker` | Нет | Образ приложения: runtime-стадия (`base_image`, `packages`, `workdir`, `entrypoint`) и `platforms` — см. [Docker](docker.md#runtime-стадия-приложения-applicationsdocker) |
 
 ### Формат транспортов
 

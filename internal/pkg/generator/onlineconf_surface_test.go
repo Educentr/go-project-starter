@@ -295,6 +295,15 @@ func TestServiceMayDeclareKeysInTheWorkerSubtree(t *testing.T) {
 		// A closed subtree stays closed: the runtime reads its own keys below
 		// the handler prefix, and no declaration here names them.
 		"/svc/transport/rest/api_v1/web/handler/retries": false,
+		// A shape of the service's own (TOOLS-89): the segment it computes
+		// while running stands for any segment, so it is checked against the
+		// generated reads exactly like a path written out in full.
+		"/svc/account/<account>/quota":                     true,
+		"/svc/worker/reaper/<stage>/interval":              true,
+		"/svc/worker/reaper/<stage>/log_level":             false,
+		"/svc/worker/<worker>":                             false,
+		"/svc/worker/<worker>/job/timeout":                 false,
+		"/svc/transport/rest/<server>/web/handler/retries": false,
 	}
 
 	for path, want := range tests {

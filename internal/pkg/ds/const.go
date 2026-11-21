@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -466,6 +467,14 @@ const (
 	// because of its name.
 	GeneratorTemplateSys = "sys"
 
+	// generatorTypeOgenClient is the generator_type of a REST transport that
+	// calls an API instead of serving one.
+	generatorTypeOgenClient = "ogen_client"
+
+	// generatorTypeBufClient is the generator_type of a gRPC transport that
+	// calls a service instead of serving one.
+	generatorTypeBufClient = "buf_client"
+
 	// Path components for schema directories
 	schemaDir = "schema"
 	pkgDir    = "pkg"
@@ -522,7 +531,7 @@ type App struct {
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 	Artifacts             []ArtifactType   // Per-application artifacts
-	Docker                AppDockerConfig  // Runtime stage of the application image
+	Docker                AppDockerConfig  // Runtime stage and target platforms of the application image
 	// MetricsExport is the resolved export channel of the application: where
 	// the metrics it collects go. Always set — an application that declares
 	// nothing gets the channel derived from its transports.
@@ -616,6 +625,26 @@ func (a App) HasSysTransport() bool {
 			return true
 		}
 	}
+	return false
+}
+
+// HasRestServer returns true if the application serves at least one REST
+// transport, i.e. has a REST transport that is not a client.
+//
+// This is not the same as having a REST transport at all: an application whose
+// only REST transport is an `ogen_client` calls an API, it does not serve one.
+// Only a served transport gets a `rest.NewServer(..., restconfig.New...)`
+// initializer in main (see Transport.Init), so this — not GetRestTransport — is
+// the condition under which main uses the REST server runtime and the config
+// provider. Gating their imports on GetRestTransport emitted two unused imports
+// into a client-only main, which does not compile.
+func (a App) HasRestServer() bool {
+	for _, transport := range a.Transports {
+		if transport.Type == RestTransportType && transport.GeneratorType != generatorTypeOgenClient {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -781,6 +810,20 @@ const (
 	AuthTypeBasic  = "basic"  // ogen scheme name: BasicAuth
 )
 
+// SupportedAuthTypes returns every auth_params.type the ogen_client templates
+// can render, in documentation order. Config validation reports the list and
+// UsesSecuritySource branches on it. A new type needs both a branch in
+// ogen_client/files/auth.go.tmpl and an entry here: no test ties the template
+// branches to this list.
+func SupportedAuthTypes() []string {
+	return []string{AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic}
+}
+
+// IsSupportedAuthType reports whether authType is one of SupportedAuthTypes.
+func IsSupportedAuthType(authType string) bool {
+	return slices.Contains(SupportedAuthTypes(), authType)
+}
+
 type AuthParams struct {
 	Transport string
 	Type      string
@@ -838,16 +881,7 @@ func (t Transport) HasAuthParams() bool {
 // no SecuritySource type exists, so it must not be passed to ogen's
 // NewClient (the client templates branch on this).
 func (t Transport) UsesSecuritySource() bool {
-	if t.AuthParams.Transport != AuthTransportHeader {
-		return false
-	}
-
-	switch t.AuthParams.Type {
-	case AuthTypeAPIKey, AuthTypeBearer, AuthTypeBasic:
-		return true
-	default:
-		return false
-	}
+	return t.AuthParams.Transport == AuthTransportHeader && IsSupportedAuthType(t.AuthParams.Type)
 }
 
 // QueueField represents a single field in a queue definition
@@ -968,7 +1002,7 @@ const ogenClientGeneratorType = "ogen_client"
 // HasOgenClients returns true if app has any ogen_client transports (external API clients that need mocks)
 func (a App) HasOgenClients() bool {
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "ogen_client" {
+		if transport.GeneratorType == generatorTypeOgenClient {
 			return true
 		}
 	}
@@ -1001,7 +1035,7 @@ func (a App) GetOgenClients() []Transport {
 	clients := make([]Transport, 0)
 
 	for _, transport := range a.Transports {
-		if transport.GeneratorType == "ogen_client" {
+		if transport.GeneratorType == generatorTypeOgenClient {
 			clients = append(clients, transport)
 		}
 	}
@@ -1047,7 +1081,7 @@ func (a App) TransportImports() []string {
 
 	for _, transport := range a.Transports {
 		// Skip client transports - they are initialized in service, not in main
-		if transport.GeneratorType != "ogen_client" && transport.GeneratorType != "buf_client" {
+		if transport.GeneratorType != generatorTypeOgenClient && transport.GeneratorType != generatorTypeBufClient {
 			imports = append(imports, transport.Import...)
 		}
 	}
@@ -1190,7 +1224,7 @@ func (a App) GetRestServerTransport() []Transport {
 	servers := make([]Transport, 0, len(transports))
 
 	for _, transport := range transports {
-		if transport.GeneratorType == "ogen_client" || transport.GeneratorType == "buf_client" {
+		if transport.GeneratorType == generatorTypeOgenClient || transport.GeneratorType == generatorTypeBufClient {
 			continue
 		}
 
@@ -1330,7 +1364,7 @@ func (t Transport) GetOgenConfigPath(targetDir string) string {
 	switch t.GeneratorType {
 	case "ogen":
 		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_server.yaml")
-	case "ogen_client":
+	case generatorTypeOgenClient:
 		return filepath.Join(targetDir, "configs", "transport", string(t.Type), t.Name, t.ApiVersion, "ogen_client.yaml")
 	default:
 		return ""

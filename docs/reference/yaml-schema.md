@@ -139,6 +139,10 @@ rest:
 | `bearer` | `BearerAuth` | `token` |
 | `basic` | `BasicAuth` | `username`, `password` |
 
+Секция `auth_params` допустима только при `generator_type: ogen_client`; на остальных
+REST-транспортах — ошибка загрузки конфига. Оба поля обязательны, если секция задана,
+`transport` — только `header`, `type` — только значения из таблицы выше.
+
 Имя схемы в `components.securitySchemes` обязано совпадать с колонкой «Имя схемы в
 спеке» — из него ogen выводит метод `SecuritySource`, который реализует сгенерированная
 обёртка. Подробнее — [Транспорты](../configuration/transports.md#параметры-аутентификации).
@@ -355,7 +359,7 @@ applications:
                                 #            По умолчанию: pull при sys-транспорте, иначе none.
                                 #            push зарезервирован и пока не реализован.
 
-    # Runtime-стадия образа приложения:
+    # Образ приложения (runtime-стадия и платформы):
     docker:
       base_image: string        # [optional] Базовый образ финальной стадии (default: alpine)
       packages:                 # [optional] Рантайм-пакеты (одна инструкция RUN)
@@ -363,6 +367,9 @@ applications:
       package_manager: string   # [optional] apk|apt|dnf (выводится из base_image)
       workdir: string           # [optional] WORKDIR, абсолютный путь (default: нет инструкции)
       entrypoint: [string]      # [optional] ENTRYPOINT в exec-форме (заменяет CMD ["/service"])
+      platforms:                # [optional] Платформы образа, "linux/<arch>".
+        - linux/amd64           #            Несколько — образ собирается как
+        - linux/arm64           #            OCI index через docker buildx
 ```
 
 !!! warning "CLI приложения"

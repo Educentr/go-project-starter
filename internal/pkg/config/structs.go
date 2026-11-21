@@ -420,7 +420,9 @@ type (
 		GeneratorTemplate string `mapstructure:"generator_template"`
 		// GeneratorParams are additional generator parameters.
 		GeneratorParams map[string]string `mapstructure:"generator_params"`
-		// AuthParams are authentication parameters (for ogen_client).
+		// AuthParams are authentication parameters. Only generator_type
+		// ogen_client uses them; declaring the section on any other REST
+		// transport is a config error rather than a no-op.
 		AuthParams AuthParams `mapstructure:"auth_params"`
 		// Instantiation mode: "static" (default) or "dynamic". Only for ogen_client.
 		// Dynamic mode creates a new client instance for each request.
@@ -841,8 +843,9 @@ type (
 		// Metrics declares where the metrics of this application go. Read via
 		// Config.ResolveAppMetricsExport, which applies the derived default.
 		Metrics AppMetrics `mapstructure:"metrics"`
-		// Docker configures the runtime stage of the application Dockerfile:
-		// base image, runtime packages, working directory and start command.
+		// Docker configures the image of this application: the runtime stage of
+		// its Dockerfile (base image, runtime packages, working directory and
+		// start command) and the target platforms. Read via AppDocker.Parse.
 		Docker AppDocker `mapstructure:"docker"`
 	}
 
@@ -1007,9 +1010,61 @@ func isValidStaticDir(dir string) bool {
 	return true
 }
 
+// isSet reports whether the auth_params section is present in the config at
+// all. Either field alone counts: a half-filled section is a mistake worth
+// reporting, not an absent one.
+func (a AuthParams) isSet() bool {
+	return a.Transport != "" || a.Type != ""
+}
+
+// validate checks the section against the auth_params shapes the ogen_client
+// templates know how to render. The supported values live in ds — the same
+// constants ds.Transport.UsesSecuritySource branches on — so a config that
+// passes here always yields a client with a SecuritySource.
+func (a AuthParams) validate() (bool, string) {
+	if a.Transport == "" || a.Type == "" {
+		return false, "auth_params: both transport and type are required"
+	}
+
+	if a.Transport != ds.AuthTransportHeader {
+		return false, "auth_params: invalid transport: " + a.Transport + " (supported: " + ds.AuthTransportHeader + ")"
+	}
+
+	if !ds.IsSupportedAuthType(a.Type) {
+		return false, "auth_params: invalid type: " + a.Type +
+			" (supported: " + strings.Join(ds.SupportedAuthTypes(), ", ") + ")"
+	}
+
+	return true, ""
+}
+
+// validateAuthParams checks the auth_params section against the transport it
+// is declared on. The section drives nothing but the ogen_client
+// SecuritySource, so on any other generator type it is a config error: a
+// silently ignored authentication setting is worse than a failed load.
+func (r Rest) validateAuthParams() (bool, string) {
+	if !r.AuthParams.isSet() {
+		return true, ""
+	}
+
+	if r.GeneratorType != GeneratorTypeOgenClient {
+		return false, "auth_params are only supported for generator_type " + GeneratorTypeOgenClient
+	}
+
+	return r.AuthParams.validate()
+}
+
 func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 	if len(r.Name) == 0 {
 		return false, "Empty name"
+	}
+
+	// Checked ahead of the sys shortcut below so that the rule holds for every
+	// REST transport: the shortcut skips the generator-type switch entirely and
+	// would otherwise turn a misplaced auth_params section into a silently
+	// ignored one.
+	if ok, msg := r.validateAuthParams(); !ok {
+		return false, msg
 	}
 
 	if r.Name == "sys" {
@@ -1098,16 +1153,6 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 			r.Instantiation != InstantiationStatic &&
 			r.Instantiation != InstantiationDynamic {
 			return false, "instantiation must be 'static' or 'dynamic'"
-		}
-	case "auth_params":
-		if len(r.AuthParams.Transport) == 0 || len(r.AuthParams.Type) == 0 {
-			return false, "Empty transport or type"
-		}
-		if r.AuthParams.Transport != "header" {
-			return false, "Invalid transport"
-		}
-		if r.AuthParams.Type != "apikey" {
-			return false, "Invalid type"
 		}
 	default:
 		return false, "Invalid generator type"

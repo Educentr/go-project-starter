@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 )
@@ -535,6 +536,16 @@ func TestParseGenDeclRejectsDefects(t *testing.T) {
 			wantMsg: "invalid runtime segment",
 		},
 		{
+			// The name of a runtime segment is a parameter of the generated
+			// accessor, and the accessor template declares `path` in the body
+			// it would sit in. Our own declaration is held to the rule the
+			// service map is held to, because both generate the same accessor.
+			name: "a runtime segment named like the package's own identifier",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<path>/x\"\n        name: X\n" +
+				"        type: bool\n        description: d\n",
+			wantMsg: "the generated accessor package uses it itself",
+		},
+		{
 			name: "required with a runtime segment",
 			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<id>\"\n        name: X\n" +
 				"        type: bool\n        required: true\n        description: d\n",
@@ -876,6 +887,127 @@ func TestCheckGeneratorKeysOpenSubtree(t *testing.T) {
 	}
 }
 
+// A service key may carry a runtime segment of its own, so the collision check
+// runs on a shape from either side: what is compared is whether the two reach a
+// common path. A shape that merely looks different from the generated read is
+// the same second reader, written in a way an exact comparison cannot see
+// (TOOLS-89).
+func TestCheckGeneratorKeysServiceShape(t *testing.T) {
+	generated := []ockeymap.GeneratorKey{
+		{
+			Path: "/svc/account/default/quota", Type: "int", Accessor: "DefaultQuota",
+			ReadBy: []string{"service.go.tmpl"}, Descriptions: []string{"fallback quota"},
+		},
+		{
+			Path: "/svc/settings/enabled/<action>", Type: "strings", Accessor: "SettingsEnabled",
+			OwnedPrefix: "/svc/settings/enabled",
+			ReadBy:      []string{"service.go.tmpl"}, Descriptions: []string{"per-action allow lists"},
+		},
+		{
+			Path: "/svc/transport/rest/api_v1/web/handler", Accessor: "RESTHandlerPath",
+			OwnedPrefix: "/svc/transport/rest/api_v1/web/handler",
+			ReadBy:      []string{"config_oc.go.tmpl"}, Descriptions: []string{"handler subtree"},
+		},
+		{
+			Path: "/svc/worker/reaper", Accessor: "WorkerPath",
+			OwnedPrefix: "/svc/worker/reaper", OpenSubtree: true,
+			ReadBy: []string{"daemon.go.tmpl"}, Descriptions: []string{"worker subtree"},
+		},
+		{
+			Path: "/svc/worker/reaper/job/timeout", Type: "duration", Accessor: "WorkerJobTimeout",
+			ReadBy: []string{"daemon.go.tmpl"}, Descriptions: []string{"job timeout"},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		wantMsgs []string
+	}{
+		{
+			// The point of the feature: a parameterized key of the service's
+			// own, in a subtree nothing generated claims.
+			name: "a shape of the service's own",
+			path: "/svc/account/<account>/limit",
+		},
+		{
+			// `default` is one of the accounts the shape reaches, and the
+			// generated code already reads the quota there.
+			name: "a shape reaching a key the generated code reads",
+			path: "/svc/account/<account>/quota",
+			wantMsgs: []string{
+				"reads itself", "/svc/account/default/quota", "angle brackets", "service.go.tmpl",
+			},
+		},
+		{
+			// Two shapes of one path: the service's <action> and the
+			// generator's reach the same keys.
+			name:     "a shape overlapping a generated shape",
+			path:     "/svc/settings/enabled/<action>",
+			wantMsgs: []string{"/svc/settings/enabled", "service.go.tmpl"},
+		},
+		{
+			// A closed subtree is closed to a shape too — otherwise putting a
+			// runtime segment where the prefix carries a transport name walked
+			// straight into it.
+			name: "a shape reaching into a closed subtree",
+			path: "/svc/transport/rest/<server>/web/handler/timeout",
+			wantMsgs: []string{
+				"/svc/transport/rest/api_v1/web/handler", "computes", "config_oc.go.tmpl",
+			},
+		},
+		{
+			// An open subtree stays open to a shape: what the generated code
+			// reads there is declared, and the declared reads are checked
+			// separately.
+			name: "a shape inside an open subtree",
+			path: "/svc/worker/reaper/<stage>/interval",
+		},
+		{
+			// …but not to a shape that can be the prefix itself: that node is
+			// the one handed to generated code.
+			name:     "a shape that can be the root of an open subtree",
+			path:     "/svc/worker/<worker>",
+			wantMsgs: []string{"/svc/worker/reaper", "daemon.go.tmpl"},
+		},
+		{
+			name:     "a shape reaching a declared read inside an open subtree",
+			path:     "/svc/worker/reaper/<stage>/timeout",
+			wantMsgs: []string{"reads itself", "/svc/worker/reaper/job/timeout", "angle brackets"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyMap, err := ockeymap.Parse([]byte(
+				"keys:\n  - path: " + tt.path + "\n    type: int\n    name: Declared\n"))
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+
+			err = keyMap.CheckGeneratorKeys(generated)
+
+			if len(tt.wantMsgs) == 0 {
+				if err != nil {
+					t.Fatalf("CheckGeneratorKeys() error = %v, want nil", err)
+				}
+
+				return
+			}
+
+			if !errors.Is(err, ockeymap.ErrReservedPath) {
+				t.Fatalf("CheckGeneratorKeys() error = %v, want ErrReservedPath", err)
+			}
+
+			for _, want := range tt.wantMsgs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 // Opening a subtree is a property of the prefix, so it survives the expansion
 // into the paths of a concrete project.
 func TestExpandOpenPathBuilder(t *testing.T) {
@@ -1072,5 +1204,42 @@ func TestExpandRequiredFollowsTheComponentToo(t *testing.T) {
 			t.Errorf("%s: Required = %v, RequiredAtInit = %v, want both %v",
 				key.Path, key.Required, key.RequiredAtInit, want[key.Path])
 		}
+	}
+}
+
+// Both sides of the comparison come from declarations, and a path carrying
+// several runtime segments branches exponentially without memoization: a map in
+// a contract repository must not be able to make generation hang.
+func TestCheckGeneratorKeysManyRuntimeSegments(t *testing.T) {
+	deep := "/svc"
+	for i := 0; i < 20; i++ {
+		deep += "/<a" + string(rune('a'+i)) + ">"
+	}
+
+	generated := []ockeymap.GeneratorKey{
+		{
+			Path: deep + "/level", Type: "string", Accessor: "Deep",
+			ReadBy: []string{"deep.go.tmpl"}, Descriptions: []string{"deep read"},
+		},
+	}
+
+	keyMap, err := ockeymap.Parse([]byte(
+		"keys:\n  - path: " + deep + "/other\n    type: string\n    name: Mine\n"))
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	done := make(chan error, 1)
+
+	go func() { done <- keyMap.CheckGeneratorKeys(generated) }()
+
+	select {
+	case err := <-done:
+		// The two shapes end in different segments, so they meet nowhere.
+		if err != nil {
+			t.Errorf("CheckGeneratorKeys() error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("CheckGeneratorKeys() did not finish: the shape comparison is branching")
 	}
 }
