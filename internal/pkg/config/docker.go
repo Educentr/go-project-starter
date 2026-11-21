@@ -49,13 +49,19 @@ type Docker struct {
 }
 
 // AppDocker is the docker section of one application: the runtime stage of its
-// generated Dockerfile.
+// generated Dockerfile and the platforms its image is built for.
 //
 // The runtime stage used to be fixed — `FROM alpine` with `CMD ["/service"]` —
 // so an application that needs another distribution or a runtime dependency
 // (git, curl, ca-certificates) had no way to say so: the stage is generated,
 // and the user marker only keeps what is written below it. This section
 // declares it instead.
+//
+// The platform list is per-application and not per-project because the
+// audience of the images differs. An application that is run on developer
+// machines (a CLI tool shipped as an image) has to work on amd64 and on Apple
+// Silicon, while the server applications of the same project usually need one
+// platform and should not pay for a second build.
 //
 // YAML example:
 //
@@ -66,6 +72,7 @@ type Docker struct {
 //	      packages: [git, curl]         # runtime packages
 //	      workdir: /workspace           # default: none (Docker default "/")
 //	      entrypoint: ["/service"]      # default: CMD ["/service"]
+//	      platforms: [linux/amd64, linux/arm64]  # default: the builder platform
 //
 // See docs/configuration/docker.md for full documentation.
 type AppDocker struct {
@@ -82,6 +89,11 @@ type AppDocker struct {
 	// Entrypoint is the ENTRYPOINT of the runtime stage in exec form.
 	// Optional — replaces the default CMD when set.
 	Entrypoint []string `mapstructure:"entrypoint"`
+	// Platforms declares the target platforms of the application image. Each
+	// entry is "linux/<arch>". Omitted (or empty) keeps the historical
+	// behavior: the image is built for the platform of the builder. Read via
+	// Parse.
+	Platforms []string `mapstructure:"platforms"`
 }
 
 // dockerArgNamePattern is the shape of a build argument name: the intersection
@@ -137,8 +149,8 @@ var dockerReservedArgNames = map[string]struct{}{
 	// Dockerfile template (app/files/Dockerfile.tmpl).
 	"binary": {},
 	// Makefile template (main/Makefile.tmpl).
-	"ARGENVERSION": {}, "BUF_VERSION": {}, "BUILD_DATE": {}, "CGO_ENABLED": {},
-	"COMMIT_BRANCH": {}, "COVERAGE_DIR": {}, "COVERAGE_FILTER": {},
+	"ARGENVERSION": {}, "BUF_VERSION": {}, "BUILD_DATE": {}, "BUILDX_BUILDER": {},
+	"CGO_ENABLED": {}, "COMMIT_BRANCH": {}, "COVERAGE_DIR": {}, "COVERAGE_FILTER": {},
 	"DOCKER_BUILDKIT": {}, "DOCKER_TAG": {}, "DOCS_PREFIX": {}, "DOCS_REGION": {},
 	"ENVIRONMENT_PREFIX": {}, "FLAGS": {}, "GOATSERVICESVERSION": {},
 	"GOATVERSION": {}, "GOCOVERDIR": {}, "GOLANGCI_BIN": {},
@@ -175,6 +187,13 @@ var (
 	)
 	ErrAppDockerWorkdir    = errors.New("applications.docker.workdir: must be an absolute path without whitespace or quotes")
 	ErrAppDockerEntrypoint = errors.New(`applications.docker.entrypoint: every element must be a non-empty single-line string without '"' and '\'`)
+	ErrAppDockerPlatform   = errors.New(
+		`applications[].docker.platforms: expected "linux/<arch>", for example "linux/amd64" or "linux/arm64"`,
+	)
+	ErrAppDockerPlatformDuplicate = errors.New("applications[].docker.platforms: duplicate platform")
+	ErrAppDockerNoImage           = errors.New(
+		"applications[].docker.platforms: declared for an application that builds no docker artifact",
+	)
 )
 
 // dockerBaseImageRx matches an image reference: a registry with an optional
@@ -186,6 +205,16 @@ var dockerBaseImageRx = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]*$`)
 // is what a version pin needs: `curl=8.5.0-2` (apt, apk), `pkg~=1.2` and
 // `pkg/bookworm-backports` (apt release pin).
 var dockerPackageRx = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+\-=:~/]*$`)
+
+// dockerPlatformRx matches an accepted platform: linux and an architecture.
+//
+// Only linux, because the runtime stage of the generated Dockerfile targets
+// linux — an image for another OS would not run whatever the declaration says.
+// Without a variant ("linux/arm/v7"), because the variant does not reach the Go
+// build: the builder stage takes the architecture from TARGETARCH and a variant
+// needs its own GOARM/GOAMD64 mapping, so accepting one would silently produce
+// a binary for the wrong sub-architecture.
+var dockerPlatformRx = regexp.MustCompile(`^linux/[a-z0-9]+$`)
 
 // dockerWorkdirRx matches an absolute path safe to emit as a WORKDIR operand.
 var dockerWorkdirRx = regexp.MustCompile(`^/[^\s"'\\#]*$`)
@@ -474,12 +503,18 @@ func (d AppDocker) Parse() (ds.AppDockerConfig, error) {
 		}
 	}
 
+	platforms, err := d.parsePlatforms()
+	if err != nil {
+		return ds.AppDockerConfig{}, err
+	}
+
 	return ds.AppDockerConfig{
 		BaseImage:      d.BaseImage,
 		PackageManager: manager,
 		Packages:       d.Packages,
 		Workdir:        d.Workdir,
 		Entrypoint:     d.Entrypoint,
+		Platforms:      platforms,
 	}, nil
 }
 
@@ -546,4 +581,33 @@ func dockerImageName(image string) string {
 	}
 
 	return strings.ToLower(image)
+}
+
+// parsePlatforms validates the declared target platforms and returns them in
+// config order. An unparsable platform has to fail here: it would otherwise
+// reach `docker buildx build --platform` and fail the build of the generated
+// project instead of the generation.
+func (d AppDocker) parsePlatforms() ([]string, error) {
+	if len(d.Platforms) == 0 {
+		return nil, nil
+	}
+
+	platforms := make([]string, 0, len(d.Platforms))
+	seen := make(map[string]struct{}, len(d.Platforms))
+
+	for _, platform := range d.Platforms {
+		if !dockerPlatformRx.MatchString(platform) {
+			return nil, fmt.Errorf(errFmtGotValue, ErrAppDockerPlatform, platform)
+		}
+
+		if _, dup := seen[platform]; dup {
+			return nil, fmt.Errorf(errFmtGotValue, ErrAppDockerPlatformDuplicate, platform)
+		}
+
+		seen[platform] = struct{}{}
+
+		platforms = append(platforms, platform)
+	}
+
+	return platforms, nil
 }

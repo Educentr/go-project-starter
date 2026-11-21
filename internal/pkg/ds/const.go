@@ -522,7 +522,7 @@ type App struct {
 	GoatTests             bool             // Enable GOAT integration tests generation
 	GoatTestsConfig       *GoatTestsConfig // Extended GOAT tests configuration
 	Artifacts             []ArtifactType   // Per-application artifacts
-	Docker                AppDockerConfig  // Runtime stage of the application image
+	Docker                AppDockerConfig  // Runtime stage and target platforms of the application image
 	// MetricsExport is the resolved export channel of the application: where
 	// the metrics it collects go. Always set — an application that declares
 	// nothing gets the channel derived from its transports.

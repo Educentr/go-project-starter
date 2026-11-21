@@ -841,8 +841,9 @@ type (
 		// Metrics declares where the metrics of this application go. Read via
 		// Config.ResolveAppMetricsExport, which applies the derived default.
 		Metrics AppMetrics `mapstructure:"metrics"`
-		// Docker configures the runtime stage of the application Dockerfile:
-		// base image, runtime packages, working directory and start command.
+		// Docker configures the image of this application: the runtime stage of
+		// its Dockerfile (base image, runtime packages, working directory and
+		// start command) and the target platforms. Read via AppDocker.Parse.
 		Docker AppDocker `mapstructure:"docker"`
 	}
 

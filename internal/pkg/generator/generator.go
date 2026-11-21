@@ -735,6 +735,12 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			MetricsExport:         metricsExport,
 		}
 
+		// Platforms on an application that builds no image would generate
+		// nothing at all: the recipes they shape live in the docker artifact.
+		if appDocker.HasPlatforms() && !application.HasDocker() {
+			return errors.Wrapf(cfg.ErrAppDockerNoImage, "application %q", app.Name)
+		}
+
 		// Resolve Grafana datasources for this app
 		for _, dsName := range app.Grafana.Datasources {
 			for _, globalDs := range g.Grafana.Datasources {
