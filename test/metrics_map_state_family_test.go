@@ -1,10 +1,15 @@
 package test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Educentr/go-project-starter/internal/pkg/metricsmap"
 )
 
 // TestGenerateMetricsMapStateFamily covers a declaration of type GaugeSet
@@ -117,6 +122,11 @@ func TestGenerateMetricsMapStateFamily(t *testing.T) {
 			t.Errorf("dashboard should chart the state family with the canonical gauge query %q", want)
 		}
 	}
+
+	// The identifiers a state family adds to the package are part of a
+	// namespace nothing else may land in, so the list a declaration is refused
+	// against has to cover everything the template declares.
+	assertDeclarationsCollideWithNothing(t, metricsFile)
 }
 
 // TestGenerateWithoutStateFamilyLeavesPackageUnchanged pins the other half of
@@ -168,5 +178,156 @@ func TestGenerateRejectsStateFamilyLabelTakingTheValueField(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("generator error should mention %q, got:\n%s", want, out)
 		}
+	}
+}
+
+// assertDeclarationsCollideWithNothing keeps the collector template and the
+// list of identifiers a declaration may not generate
+// (metricsmap.ReservedIdents) in step.
+//
+// Every identifier a declaration generates is exported — folding a Prometheus
+// name's separators away upper-cases the first character — and so is every
+// identifier of the package the reader of /metrics meets. A declaration whose
+// name lands on one of the package's own (`gauge_set` against the generic
+// collector, `register` against RegisterFor's sibling) yields a package that
+// does not compile, which is why such a name is refused while the map is read.
+// This is the other side of that rule: every exported identifier the template
+// puts in the package has to be on the list it is refused against, or derived
+// from a declaration of the map. An export added to the template without the
+// list growing fails here, not in a user's project.
+func assertDeclarationsCollideWithNothing(t *testing.T, metricsFile string) {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), "psg_metrics_gen.go", metricsFile,
+		parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("generated collector package does not parse: %v", err)
+	}
+
+	accounted := make(map[string]bool)
+	for _, ident := range metricsmap.ReservedIdents(true) {
+		accounted[ident] = true
+	}
+
+	// The other legitimate source of an exported identifier here: the map the
+	// fixture generated from. Read from the same file the generator read, so
+	// that a declaration added to the fixture does not have to be repeated
+	// here.
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	serviceMap, err := metricsmap.Load(filepath.Join(curDir, "..", "test", "docker-integration",
+		"configs", "metrics-map", "metrics-map.yaml"))
+	if err != nil {
+		t.Fatalf("Error loading the fixture metrics map: %v", err)
+	}
+
+	for _, metric := range serviceMap.Metrics {
+		accounted[metric.VarName()] = true
+		accounted[metric.SampleTypeName()] = true
+		accounted[metric.SourceTypeName()] = true
+	}
+
+	for _, ident := range exportedTopLevelIdents(file) {
+		if accounted[ident] {
+			continue
+		}
+
+		t.Errorf("the generated collector package declares %q, which is neither in "+
+			"metricsmap.ReservedIdents() nor generated from a declaration of the map: a metrics map "+
+			"could name a metric after it and the package would not compile", ident)
+	}
+}
+
+// exportedTopLevelIdents returns the names of the file's exported
+// package-level declarations — the namespace a declaration of the map lands
+// in. Unexported ones are out of reach of a declaration and are left out.
+func exportedTopLevelIdents(file *ast.File) []string {
+	var idents []string
+
+	add := func(name string) {
+		if name != "_" && ast.IsExported(name) {
+			idents = append(idents, name)
+		}
+	}
+
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			// A method is namespaced by its receiver, so only a plain function
+			// can be collided with.
+			if d.Recv == nil {
+				add(d.Name.Name)
+			}
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.TypeSpec:
+					add(s.Name.Name)
+				case *ast.ValueSpec:
+					for _, name := range s.Names {
+						add(name.Name)
+					}
+				}
+			}
+		}
+	}
+
+	return idents
+}
+
+// TestGenerateRejectsStateFamilyIdentCollision pins the second half of what a
+// state family costs the identifier namespace of the collector package: the
+// declaration generates two types besides its collector variable, and the
+// generic collector itself appears as soon as one family is declared. A name
+// landing on any of them has to be refused while the map is read — before the
+// check existed the generator printed `done` over a package that redeclares a
+// type, which is a build failure in a project the service did not write.
+func TestGenerateRejectsStateFamilyIdentCollision(t *testing.T) {
+	family := "metrics:\n" +
+		"  - name: fleet_state\n" +
+		"    type: GaugeSet\n" +
+		"    labels: node, zone\n" +
+		"    help: State of each known fleet node, by node and zone.\n"
+
+	tests := []struct {
+		name  string
+		entry string
+		want  string
+	}{
+		{
+			name: "name reaching the sample type of the family",
+			entry: "  - name: fleet_state_sample\n" +
+				"    type: Gauge\n" +
+				"    help: Collision probe.\n",
+			want: `"fleet_state_sample" generates the variable FleetStateSample, ` +
+				`which is already the sample type of "fleet_state"`,
+		},
+		{
+			name: "name reaching the generic collector of the package",
+			entry: "  - name: gauge_set\n" +
+				"    type: Gauge\n" +
+				"    help: Collision probe.\n",
+			want: `"gauge_set" generates the variable GaugeSet, ` +
+				`which the generated collector package declares itself`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := generateWithMetricsMap(t, family+tt.entry,
+				"Generate project whose metrics map collides with a state family identifier")
+
+			if err == nil {
+				t.Fatalf("generation succeeded on a colliding identifier; "+
+					"the generated collector package would not compile\n%s", out)
+			}
+
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("generator error should mention %q, got:\n%s", tt.want, out)
+			}
+		})
 	}
 }

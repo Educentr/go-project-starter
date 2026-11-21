@@ -1,8 +1,6 @@
 package metricsmap
 
 import (
-	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -33,17 +31,13 @@ const (
 	sourceTypeSuffix = "Func"
 )
 
-// ErrVarNameCollision reports two declared names that sanitize to the same Go
-// identifier (e.g. "queue:depth" and "queue_depth").
-var ErrVarNameCollision = errors.New("metric variable name collision")
-
 // VarName is the exported Go identifier of the generated collector variable.
 // "spawn_errors_total" becomes "SpawnErrorsTotal".
 //
 // Prometheus allows ':' in metric names (the recording-rule convention) while
 // Go does not allow it in identifiers, so ':' is folded to '_' the same way
 // '_' is folded away. Two declarations that collide after folding are rejected
-// by ValidateVarNames rather than silently producing one variable.
+// by ValidateIdents rather than silently producing one variable.
 func (m Metric) VarName() string {
 	// The result can still be unusable as an identifier: a name built only from
 	// '_' and ':' folds away to nothing, and a leading '_' or ':' before a digit
@@ -235,38 +229,6 @@ func (m Metric) ObjectivesLiteral() string {
 	}
 
 	return "map[float64]float64{" + strings.Join(parts, ", ") + "}"
-}
-
-// ValidateVarNames checks that the declared names produce distinct Go
-// identifiers. Called on the merged set, because a collision can be introduced
-// by a service name meeting an internal one.
-func ValidateVarNames(metrics []Metric) error {
-	owner := make(map[string]string, len(metrics))
-
-	var problems []string
-
-	for _, metric := range metrics {
-		if !metric.Generated() {
-			continue
-		}
-
-		varName := metric.VarName()
-
-		if prev, taken := owner[varName]; taken {
-			problems = append(problems, fmt.Sprintf("%q and %q both generate the variable %s",
-				prev, metric.Name, varName))
-
-			continue
-		}
-
-		owner[varName] = metric.Name
-	}
-
-	if len(problems) > 0 {
-		return problemList(ErrVarNameCollision, problems)
-	}
-
-	return nil
 }
 
 // formatFloat renders a float the way a human wrote it in YAML: 1 stays "1",

@@ -48,6 +48,10 @@ metrics:
 
 Оба случая — ошибка генерации с указанием объявления, а не синтаксическая ошибка в сгенерированном пакете.
 
+**Имя занимает идентификатор в пакете коллекторов, и этот идентификатор должен быть свободен.** Всё, что объявление порождает, экспортировано (сворачивание разделителей поднимает первый символ в верхний регистр), поэтому имя способно наехать и на другое объявление, и на то, что пакет объявляет сам: `register` даёт `var Register` против `func Register`, `collectors` — против `Collectors`, `err_unknown_app` — против `ErrUnknownApp`, а в карте с `GaugeSet` ещё и `gauge_set` — против сгенерированного коллектора `GaugeSet`. Любое совпадение — **ошибка генерации** с указанием обеих сторон: сгенерированный пакет, который дважды объявляет один идентификатор, не собирается, а починить его в проекте нечем — его пишет генератор.
+
+Зарезервированный набор следует фактическому выводу: `GaugeSet` занят только в карте, где есть хотя бы одно семейство состояния, — в карте без него имя `gauge_set` ничему не мешает.
+
 ### `type` — конструктор
 
 | `type` | Коллектор | Метки |
@@ -211,6 +215,8 @@ metrics.FleetState.Set(samples)  // часть значений нельзя с�
 4. Тик переписать так, чтобы он отдавал `[]<Имя>Sample` — через `Set`, если он считает набор сам, или через `SetFunc`, если набор можно собрать на опросе.
 
 Названия сгенерированных типов (`<Имя>Sample`, его поля, `<Имя>Func`) — часть контракта с ручным кодом: их меняет только изменение `name`/`labels` в карте.
+
+Эти же названия — часть **пространства идентификаторов пакета**: семейство занимает три имени (`<Имя>`, `<Имя>Sample`, `<Имя>Func`), а само наличие семейства — ещё и `GaugeSet`. Поэтому `fleet_state` и `fleet_state_sample` в одной карте — ошибка генерации (`"fleet_state_sample" generates the variable FleetStateSample, which is already the sample type of "fleet_state"`), как и `gauge_set` рядом с любым семейством. См. [«`name` — полное имя метрики»](#name--полное-имя-метрики).
 
 ### `apps` — какие приложения публикуют метрику
 
@@ -514,7 +520,9 @@ metrics:
 | `invalid metrics map: metrics[4]: help is required` | нет `help` |
 | `invalid metrics map: line 7: unknown field "lables"` | опечатка в имени поля: молча проигнорированный ключ — это объявление, которое не действует |
 | `metric name collision: "x" declared by both …internal metrics[n] and service metrics map[m]` | имя уже занято внутренним набором генератора |
-| `metric variable name collision: "queue:depth" and "queue_depth" both generate the variable QueueDepth` | два имени сворачиваются в один Go-идентификатор |
+| `metric identifier collision: "queue:depth" and "queue_depth" both generate the variable QueueDepth` | два имени сворачиваются в один Go-идентификатор |
+| `metric identifier collision: "fleet_state_sample" generates the variable FleetStateSample, which is already the sample type of "fleet_state"` | имя наезжает на тип, порождённый семейством состояния (`<Имя>Sample` / `<Имя>Func`) |
+| `metric identifier collision: "register" generates the variable Register, which the generated collector package declares itself; rename the metric` | имя занято самим пакетом коллекторов (`Register`, `RegisterFor`, `Collectors`, `CollectorsFor`, `Unregister`, `ErrUnknownApp`, а в карте с `GaugeSet` — ещё `GaugeSet`) |
 | `invalid metrics map: metrics[0] (x): `owner` is reserved for the generator's internal map` | `owner`/`requires` в карте сервиса |
 | `invalid metrics map: metrics[0]: application "api" is listed twice in apps` | имя приложения повторяется в `apps` |
 | `malformed metrics map: apps: declared but names no application; remove the key to publish the metric from every application` | `apps: ""` / `apps: []` / `apps: ","`: пустой список означал бы «публикуют все» — противоположность тому, как строка читается |
