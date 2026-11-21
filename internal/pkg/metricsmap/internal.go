@@ -45,6 +45,23 @@ func Internal() (*Map, error) {
 		internalMap, err = Parse(data)
 		if err != nil {
 			errInternalMap = fmt.Errorf("%w: embedded %s is invalid: %w", ErrInternalMapDefect, internalMapPath, err)
+
+			return
+		}
+
+		// `apps` names applications of the USER's project, which the
+		// generator's own map cannot know. Left unchecked it would reach
+		// ValidateApps against every project and report a defect of this
+		// repository as the user's config error.
+		for i, metric := range internalMap.Metrics {
+			if len(metric.Apps) > 0 {
+				errInternalMap = fmt.Errorf(
+					"%w: embedded %s: metrics[%d] (%s) sets `apps`, which names applications of the "+
+						"generated project; scope an internal declaration with `owner`/`requires` instead",
+					ErrInternalMapDefect, internalMapPath, i, metric.Name)
+
+				return
+			}
 		}
 	})
 

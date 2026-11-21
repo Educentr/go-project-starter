@@ -874,6 +874,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		g.Artifacts.Types = append(g.Artifacts.Types, a)
 	}
 
+	if err := g.resolveMetricsApps(); err != nil {
+		return err
+	}
+
 	for _, postGenerate := range config.PostGenerate {
 		switch postGenerate {
 		case "git_install":
@@ -1106,6 +1110,66 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	}
 
 	return nil
+}
+
+// resolveMetricsApps binds the parsed metrics map to the project's
+// applications: it records, per application, whether it exposes /metrics and
+// which generator components it runs, and rejects an `apps` reference that
+// names no such application.
+//
+// It is a separate step from processMetricsMap because that one runs before
+// the applications are built — the map has to be parsed early so that
+// collectFiles knows whether the collector package exists at all.
+func (g *Generator) resolveMetricsApps() error {
+	scopes := make([]metricsmap.AppScope, 0, len(g.Applications))
+	seen := make(map[string]struct{}, len(g.Applications))
+
+	for _, app := range g.Applications {
+		// One scope per name. Two applications sharing a name is a degenerate
+		// config the generator already tolerates (the second overwrites the
+		// first's cmd/<app> output); a second scope would additionally render
+		// a duplicate key in the generated collectorsByApp literal, turning it
+		// into a compile error in the generated project.
+		if _, dup := seen[app.Name]; dup {
+			continue
+		}
+
+		seen[app.Name] = struct{}{}
+
+		// The resolved export channel, not the sys transport directly: the
+		// channel is what the project declares about who reads this process,
+		// and config validation has already reconciled it with the transports
+		// (pull without sys and none with sys are both rejected). Reading the
+		// transport here would split the same question across two answers the
+		// moment a channel that is not served by sys arrives.
+		scopes = append(scopes, metricsmap.AppScope{
+			Name:           app.Name,
+			ExposesMetrics: app.MetricsExport.IsPull(),
+			Components:     appComponents(app),
+		})
+	}
+
+	if err := metricsmap.ValidateApps(g.Metrics.Metrics, scopes); err != nil {
+		return errors.Wrap(err, errMetricsMapCtx)
+	}
+
+	g.Metrics.Apps = scopes
+
+	return nil
+}
+
+// appComponents reports which generator components one application runs — the
+// per-application counterpart of projectCapabilities, which answers the same
+// question for the project as a whole.
+//
+// Every owner in metricsmap.KnownOwners() must get an entry: AppScope.Publishes
+// reads a missing key as "no application publishes this", so an owner nobody
+// maps would drop its metrics from every registration and every dashboard
+// without an error. TestAppComponentsCoversEveryKnownOwner holds that line.
+func appComponents(app ds.App) map[string]bool {
+	return map[string]bool{
+		metricsmap.OwnerKafkaProducer: len(app.GetKafkaProducers()) > 0,
+	}
 }
 
 // processLintConfig resolves who owns configs/golangci-lint.yml and, when the
