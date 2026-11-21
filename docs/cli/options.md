@@ -58,6 +58,33 @@ go-project-starter --dry-run --config=config.yaml --target=./my-service
 - Какие файлы будут изменены
 - Какие файлы будут удалены
 
+### --check
+
+Проверить, что сгенерированная область дерева совпадает с манифестом в
+`.project-config/meta.yaml`, и выйти. Ничего не пишет (включая сам `meta.yaml`); на расхождении —
+ненулевой код выхода и по каждому файлу путь, `kind`, хеш из манифеста и хеш в дереве.
+
+```bash
+go-project-starter --target=. --check
+```
+
+```text
+check: 2 of 184 files no longer match .project-config/meta.yaml:
+  cmd/publicApi/psg_main_gen.go (generated): the generated region (above the disclaimer marker) was edited
+    manifest: 16343ab5b14152a2717f546b8fb023a4d7b428b9cdc20a5ebde34466ae9dc9a1
+    on disk:  dc4bbd6f57780141dc073bef7e7fb7644c7108bbd29da37377d9cf4867249f76
+  pkg/app/logger/psg_zlog_gen.go (generated): missing from the tree
+    manifest: 97bad30f0725d37520407ba97e93bff6633b2d7a9c6637a02a6024044fefd19f
+```
+
+Проверка читает **только** `meta.yaml` и файлы, которые в нём перечислены: `project.yaml` не
+загружается, спеки не резолвятся, доступ в интернет не нужен. Поэтому `--config`, `--configDir` и
+`--sourceRef` вместе с `--check` игнорируются (с предупреждением), а вердикт не зависит от того,
+что успело уехать в контрактном репозитории.
+
+В сгенерированном проекте то же самое — `make check-generated`. Подробности о том, что считается
+расхождением, — [Регенерация → Проверка дерева](../workflow/regeneration.md#проверка-дерева-без-генерации-check).
+
 ### --sourceRef
 
 Git-ref для удалённых спек в `project.yaml`, у которых ref не указан в строке. Флаг **повторяемый**, значение — в одной из двух форм:

@@ -154,7 +154,7 @@ func setupContainer(ctx context.Context, container *GolangBuilderContainer) erro
 		"rest-only", "rest-logrus", "grpc-only", "worker-telegram", "combined", "grafana",
 		"rest-remote-http", "rest-remote-git", "rest-only-rewrite-refs",
 		"rest-shared-spec-rewrite-refs", "cli-only", "rest-client-basic-auth",
-		"rest-client-mocks", "rest-envs-goat", "cli-client",
+		"rest-client-mocks", "rest-envs-goat", "cli-client", "onlineconf-map",
 	}
 	for _, dir := range configDirs {
 		srcPath := filepath.Join(projectRoot, "test/docker-integration/configs", dir)
@@ -594,6 +594,22 @@ func TestIntegrationRESTLogrus(t *testing.T) {
 	}
 
 	runTest(t, "rest-logrus", "rest-logrus")
+}
+
+// TestIntegrationOnlineConfMap builds a project whose OnlineConf key map
+// declares keys of every shape, runtime segments included.
+//
+// The accessor package is generated Go that nothing in this repository compiles:
+// the unit tests parse it and read signatures out of it, which is why a key map
+// could name a runtime segment after an identifier the package uses itself and
+// produce a package that parses, generates and does not build (TOOLS-89). Here
+// the generated project is actually built.
+func TestIntegrationOnlineConfMap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runTest(t, "onlineconf-map", "onlineconf-map")
 }
 
 // TestIntegrationCLIOnly tests CLI-only project generation and then exercises the

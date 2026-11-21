@@ -232,7 +232,9 @@ func GetConfig(baseDir, configPath string) (Config, error) { // конструк
 			return config, errors.WithMessage(ErrInvalidConfig, "invalid config application section: "+msg)
 		}
 
-		// Validate the runtime stage settings of the application image
+		// Validate the image settings of the application: the runtime stage and
+		// the target platforms. A broken value has to fail here and not in the
+		// build of the generated project.
 		if ok, msg := app.Docker.IsValid(); !ok {
 			return config, errors.WithMessage(ErrInvalidConfig,
 				fmt.Sprintf("application[%d] '%s': %s", i, app.Name, msg))

@@ -41,7 +41,7 @@ rest:
 | `generator_type` | Да | Тип генератора: `ogen`, `template`, `ogen_client` |
 | `generator_template` | Для template | Имя шаблона (`sys`, `static`) |
 | `generator_params` | Нет | Доп. параметры генератора (`auth_handler` для ogen; `route`/`dir` для template `static`) |
-| `port` | Да (кроме sys) | HTTP порт |
+| `port` | Да (кроме sys) | HTTP порт. Становится дефолтом ключа OnlineConf — см. [Порт REST-сервера](#порт-rest-сервера) |
 | `version` | Да | Версия API (v1, v2, и т.д.) |
 | `api_prefix` | Нет | Префикс URL для API |
 | `health_check_path` | Нет | Путь для health check |
@@ -49,6 +49,27 @@ rest:
 | `auth_params` | Нет | Параметры аутентификации (для ogen_client) |
 | `instantiation` | Нет | `static` или `dynamic` (только для ogen_client) |
 | `rewrite_refs` | Нет | Переписывать кросс-директорные `$ref` в локальные после `CopySpecs`. См. [Rewrite refs](rewrite-refs.md). |
+
+### Порт REST-сервера
+
+Порт, объявленный в `port`, генератор рендерит **дефолтом** в сгенерированный провайдер конфигурации (`pkg/app/restconfig/psg_config_oc_gen.go`), под именем сервера `<name>_<version>`:
+
+```go
+var defaultPorts = map[string]string{
+	"api_v1": "8080",
+	"sys_v1": "8085",
+}
+```
+
+Порядок разрешения порта в рантайме:
+
+1. `/<svc>/transport/rest/<name>_<version>/<app>/port` — OnlineConf, для конкретного приложения;
+2. `/<svc>/transport/rest/<name>_<version>/port` — OnlineConf, для всех приложений этого транспорта;
+3. порт из `project.yaml`.
+
+То есть **засевать порт в OnlineConf не нужно**: ключ нужен только чтобы увести сервер с объявленного порта (другой стенд, два приложения одного транспорта на разных портах). Раньше дефолта не было и сервис не поднимался, пока порт не засеяли вручную — при том что генератор знал его из `project.yaml` всё время.
+
+Сервер без `port` в `project.yaml` (или с `port: 0`) дефолта не получает: слушать на нулевом порту никто не просил, поэтому провайдер по-прежнему сообщает об отсутствующем ключе, называя транспорт и приложение.
 
 ### Типы генераторов
 
@@ -118,6 +139,12 @@ rest:
       type: apikey         # Тип аутентификации: apikey, bearer или basic
 ```
 
+Секция необязательная: без `auth_params` клиент идёт к API без авторизации, и
+`SecuritySource` объявлять нечего — обёртка (`psg_auth_gen.go`) генерируется из одного
+только `package`, без импортов, и остаётся точкой расширения ниже disclaimer-маркера.
+`auth_params`, которые генератор не умеет (любой `transport` кроме `header`, тип вне
+`apikey`/`bearer`/`basic`), — ошибка генерации, а не молча пропущенная авторизация.
+
 **Типы аутентификации:**
 
 | Тип | Имя схемы в спеке | OnlineConf путь(и) | Описание |
@@ -125,6 +152,16 @@ rest:
 | `apikey` | `AuthHeader` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/apikey` | API key в заголовке |
 | `bearer` | `BearerAuth` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/token` | Bearer token в заголовке Authorization |
 | `basic` | `BasicAuth` | `{service_name}/transport/rest/{rest_name}_{version}/auth_params/username` и `.../password` | HTTP Basic (`Authorization: Basic …`) |
+
+**`auth_params` допустимы только на `generator_type: ogen_client`** — секция не настраивает
+ничего, кроме `SecuritySource` сгенерированного клиента. На любом другом транспорте
+(`ogen` — сервер, `template`, в том числе `sys`) она отвергается на загрузке конфига:
+`auth_params are only supported for generator_type ogen_client`. Аутентификация сервера
+настраивается не этой секцией, а `generator_params.auth_handler` / `auth_scheme`.
+
+Проверяются и значения: `transport` — только `header`, `type` ∈ {`apikey`, `bearer`,
+`basic`}, и оба поля обязательны, если секция задана вообще. Опечатка (`transport: query`,
+`type: oauth`) — ошибка загрузки конфига, а не молча безавторизационный клиент.
 
 **Имя схемы безопасности в спеке обязательно.** Стартер генерирует обёртку под конкретный
 метод интерфейса `SecuritySource`, который ogen выводит из имени схемы в

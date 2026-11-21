@@ -73,6 +73,7 @@ make lint-full                # Lint entire codebase
 make lint-fix                 # Auto-fix linting issues
 make generate                 # Run all code generators (ogen, protobuf, mocks{{ if .UseActiveRecord }}, argen{{ end }})
 make regenerate               # Full project regeneration via go-project-starter $(GPSVERSION)
+make check-generated          # Verify the generated area was not hand-edited (writes nothing)
 make update-starter STARTER_VERSION=vX.Y.Z  # Regenerate with another generator version and record it
 ```
 
@@ -80,6 +81,12 @@ The generator is pinned in the Makefile as `GPSVERSION` — the version that pro
 `make regenerate` fetches exactly it, so no pre-installed `go-project-starter` is required, and
 regenerating is expected to leave the tree unchanged. Never edit that line by hand: it is written
 by the generator, and `make update-starter` is what raises it.
+
+`make check-generated` compares the tree against the manifest in `.project-config/meta.yaml` and
+fails, naming the file and both hashes, when code above a disclaimer marker was edited, a copied
+spec under `api/` was edited in place, or a generated file was deleted. Code **below** a marker is
+yours and is never compared. Run it after editing generated files: it tells a change that survives
+`make regenerate` from one that is about to be thrown away.
 
 ## Code Generation
 
@@ -738,11 +745,30 @@ service's own, from a contract repository.
   second way in
 - Subscribing to changes: `{{ .OnlineConf.GetPackageName }}.Subscribe(ctx, []string{...}, cb)`,
   with a `Path*` constant or the `<Name>Path(...)` builder of the key
+- A key whose path is only complete at runtime (an account id, an action name) is declared with
+  that segment in angle brackets — `/<service>/account/<account>/quota` — and the segment becomes
+  a parameter: `{{ .OnlineConf.GetPackageName }}.AccountQuota(ctx, accountID)`. Such a key has no
+  `Path*` constant (its path is an argument), cannot be `required`, and is not in `Paths()`.
+  The name of the segment names that parameter, so it cannot be a Go keyword or an identifier
+  the generated package uses itself (`ctx`, `dst`, `path`, `v`, `err`, `fmt`, …) — the map is
+  rejected at generation time, and renaming the segment changes nothing but the parameter.
+  Composing that path yourself instead is the thing the validator rejects
 - `configs/onlineconf-tree.yaml` lists the **whole** OnlineConf surface of this service:
   the service's declarations (`origin: service`) plus the paths generated code reads
   (`origin: generated`, with `read_by` naming the template). A key with
   `origin: generated` cannot be added to the key map — it already has an accessor, named
   in the row. Read it before adding a key, and diff it after regenerating
+- Rows marked `required_at_init: true` are the keys this service does **not start**
+  without, framework keys included, already filtered down to the ones this project's
+  settings actually need. That is the list whoever seeds the tree has to set — check it
+  in CI (`yq '.keys[] | select(.required_at_init) | .path' configs/onlineconf-tree.yaml`)
+  rather than finding out from a crash loop. A REST server port is NOT among them: it
+  defaults to the port declared in `project.yaml`. `optional: true` removes a component's
+  keys from the list only when **every** application that wires it says so — the
+  application that wired it without `optional` still refuses to start, and
+  `{{ .OnlineConf.GetPackageName }}.CheckRequired` carries exactly that application's check.
+  A Kafka client's `brokers` answers for every producer configured under that client, so it
+  leaves the list only when all of them are optional everywhere
 {{- if .DevStand }}
 
 ## Dev Environment

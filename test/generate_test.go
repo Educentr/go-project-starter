@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -2697,6 +2698,118 @@ func TestManifestIsIdempotent(t *testing.T) {
 	}
 }
 
+// checkExample runs the manifest check (--check) over a generated tree. The
+// error is the exit status: that is what a CI gate reads, so the test asserts
+// on it rather than on the report alone.
+func checkExample(t *testing.T, targetDir, msg string) (string, error) {
+	t.Helper()
+
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	return ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", targetDir,
+		"--check",
+	}, msg+" ("+targetDir+")")
+}
+
+// TestCheckGeneratedGate walks the gate through the states a consumer's CI will
+// see it in: a tree straight out of generation, the same tree with code added
+// below a disclaimer marker, and then each way the generated area can be
+// edited. The check is the read-only counterpart of regeneration, so unlike
+// TestCopiedSpecDriftAbortsRun it must report every mismatch at once and leave
+// the tree alone while doing it.
+func TestCheckGeneratedGate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out, err := generateExample(t, tmpDir, "Generate project for check-generated gate")
+	if err != nil {
+		t.Fatalf("Generation failed: %s\n%s", err, out)
+	}
+
+	const (
+		genRel  = "cmd/publicApi/psg_main_gen.go"
+		userRel = "internal/app/constant/psg_constant_gen.go"
+		specRel = "api/rest/example/v1/example.swagger.yml"
+		goneRel = "pkg/app/logger/psg_zlog_gen.go"
+	)
+
+	out, err = checkExample(t, tmpDir, "Check freshly generated tree")
+	if err != nil {
+		t.Fatalf("A tree straight out of generation must pass the check: %s\n%s", err, out)
+	}
+
+	// Hashes are refreshed after post_generate (goimports, go mod tidy), so a
+	// green verdict here also proves those steps are accounted for.
+	if !strings.Contains(out, "matches") {
+		t.Errorf("Check of an untouched tree must report a match:\n%s", out)
+	}
+
+	// The whole point of the disclaimer marker: code below it is the user's.
+	appendToProjectFile(t, tmpDir, userRel, "\n// my own helper\nfunc Mine() string { return \"ok\" }\n")
+
+	out, err = checkExample(t, tmpDir, "Check tree with user code below the marker")
+	if err != nil {
+		t.Fatalf("Code below the marker must pass the check: %s\n%s", err, out)
+	}
+
+	// Now every way the generated area can stop matching, at once.
+	genContent := readProjectFile(t, tmpDir, genRel)
+	if err := os.WriteFile(filepath.Join(tmpDir, filepath.FromSlash(genRel)),
+		[]byte("// hand edit above the marker\n"+genContent), 0644); err != nil {
+		t.Fatalf("Error writing %s: %v", genRel, err)
+	}
+
+	appendToProjectFile(t, tmpDir, specRel, "\n# edited in place\n")
+
+	if err := os.Remove(filepath.Join(tmpDir, filepath.FromSlash(goneRel))); err != nil {
+		t.Fatalf("Error removing %s: %v", goneRel, err)
+	}
+
+	metaPath := filepath.Join(tmpDir, ".project-config", "meta.yaml")
+
+	metaBefore, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	out, err = checkExample(t, tmpDir, "Check tree with an edited generated area")
+	if err == nil {
+		t.Fatalf("An edited generated area must fail the check:\n%s", out)
+	}
+
+	for _, want := range []string{genRel, specRel, goneRel, "generated", "copied", "missing from the tree"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Report must name %q:\n%s", want, out)
+		}
+	}
+
+	// The gate runs on trees other steps are about to use: it may not write,
+	// and refreshing the manifest in particular would make it self-healing.
+	metaAfter, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("Error reading meta.yaml: %v", err)
+	}
+
+	if string(metaBefore) != string(metaAfter) {
+		t.Errorf("The check must not touch meta.yaml\nbefore:\n%s\nafter:\n%s", metaBefore, metaAfter)
+	}
+
+	if !strings.Contains(readProjectFile(t, tmpDir, genRel), "// hand edit above the marker") {
+		t.Error("The check must not rewrite the files it reports")
+	}
+
+	// The target the generated project exposes has to call the pinned version:
+	// hashes are only comparable against the generator that wrote them.
+	makefile := readProjectFile(t, tmpDir, "Makefile")
+	if !strings.Contains(makefile, "check-generated:\n\tgo run $(GPSPKG)@$(GPSVERSION) --target ${PWD} --check") {
+		t.Errorf("Makefile must expose check-generated running the pinned generator:\n%s", makefile)
+	}
+}
+
 // TestGenerateRESTEnvsGoat verifies that when use_envs=true is combined with
 // goat_tests=true, the generated Makefile does NOT invoke onlineconf-update-tests
 // or generate-test-env-<app> — env-based projects don't rely on OnlineConf to
@@ -3142,4 +3255,215 @@ func TestGenerateWithoutCIChecks(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestGenerateRESTClientOnlyMainImports is the regression test for the import
+// block of a client-only main.
+//
+// An application whose only REST transport is an `ogen_client` serves no REST
+// transport, so main has no `rest.NewServer(..., restconfig.New...)` line. The
+// imports of those two packages used to be gated on having any REST transport
+// at all, which is true for a client as well — so main got two imports nothing
+// in it referenced, and an unused import is a compile error.
+func TestGenerateRESTClientOnlyMainImports(t *testing.T) {
+	clientOnly := generateFromConfig(t, "rest-client-only",
+		"Generate project whose only REST transport is a client")
+
+	main := readGenerated(t, clientOnly, "cmd", "api", "psg_main_gen.go")
+
+	for _, unwanted := range []string{
+		`"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"`,
+		`"github.com/test/clientonlytest/pkg/app/restconfig"`,
+	} {
+		if strings.Contains(main, unwanted) {
+			t.Errorf("a client-only main must not import %s: it serves no REST transport, "+
+				"so it never calls the package", unwanted)
+		}
+	}
+
+	// The whole import block, not just those two: any import the generator
+	// gates on a condition weaker than the one that uses the package breaks
+	// the build the same way. Scoped to cmd/ because that is the file this
+	// gate writes; the client wrapper under internal/app has its own gate.
+	assertNoUnusedImports(t, clientOnly, "cmd")
+
+	// And the gate still lets a served transport through — the assertions
+	// above pass just as well if the imports are dropped for everyone.
+	served := readGenerated(t, generateFromConfig(t, "rest-only", "Generate project serving a REST transport"),
+		"cmd", "api", "psg_main_gen.go")
+
+	for _, want := range []string{
+		`"github.com/Educentr/go-project-starter-runtime/pkg/app/rest"`,
+		`"github.com/test/resttest/pkg/app/restconfig"`,
+		`rest.NewServer("api_v1"`,
+	} {
+		if !strings.Contains(served, want) {
+			t.Errorf("a main serving a REST transport should contain %s", want)
+		}
+	}
+}
+
+// assertNoUnusedImports reports every import in the .go files under
+// projectDir/sub that nothing else in its own file references.
+//
+// It is the no-network stand-in for `go vet` over the generated project: a
+// real build needs the module cache, ogen and the runtime, but an unused
+// import is a compile error the AST already shows. A package reference is
+// always `name.Something`, so the check looks for the import's local name as
+// the left side of a selector. Blank and dot imports are skipped — neither is
+// referenced by name.
+func assertNoUnusedImports(t *testing.T, projectDir, sub string) {
+	t.Helper()
+
+	modulePath := generatedModulePath(t, projectDir)
+	checked := 0
+
+	err := filepath.WalkDir(filepath.Join(projectDir, sub), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Errorf("generated file %s is not valid Go: %v", path, err)
+
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(projectDir, path)
+		if relErr != nil {
+			rel = path
+		}
+
+		for _, imp := range file.Imports {
+			name := importLocalName(t, projectDir, modulePath, imp)
+			if name == "" {
+				continue
+			}
+
+			checked++
+
+			if !referencesPackage(file, name) {
+				t.Errorf("%s imports %s (%s) and never references it: an unused import does not compile",
+					rel, imp.Path.Value, name)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Error walking %s of the generated project: %v", sub, err)
+	}
+
+	if checked == 0 {
+		t.Fatalf("no imports found under %s of %s — the check would pass vacuously", sub, projectDir)
+	}
+}
+
+// importLocalName returns the name an import is referenced by, or "" for blank
+// and dot imports. An unaliased import of the generated project's own package
+// is resolved from that package's source, because the last path segment is not
+// its name whenever the path ends in a version directory (.../billing/v1 is
+// package billing). For anything outside the module the last segment is all
+// there is to go on.
+func importLocalName(t *testing.T, projectDir, modulePath string, imp *ast.ImportSpec) string {
+	t.Helper()
+
+	if imp.Name != nil {
+		if imp.Name.Name == "_" || imp.Name.Name == "." {
+			return ""
+		}
+
+		return imp.Name.Name
+	}
+
+	importPath := strings.Trim(imp.Path.Value, `"`)
+
+	if rel, ok := strings.CutPrefix(importPath, modulePath+"/"); ok {
+		if name := packageNameInDir(t, filepath.Join(projectDir, filepath.FromSlash(rel))); name != "" {
+			return name
+		}
+	}
+
+	if idx := strings.LastIndex(importPath, "/"); idx >= 0 {
+		return importPath[idx+1:]
+	}
+
+	return importPath
+}
+
+// packageNameInDir reads the package clause of a directory of the generated
+// project, or returns "" when the directory holds no Go file the generator
+// wrote (an ogen target before `make generate`, for one).
+func packageNameInDir(t *testing.T, dir string) string {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, entry.Name()), nil,
+			parser.PackageClauseOnly|parser.SkipObjectResolution)
+		if err != nil {
+			continue
+		}
+
+		return file.Name.Name
+	}
+
+	return ""
+}
+
+// referencesPackage reports whether the file uses name as a package qualifier.
+func referencesPackage(file *ast.File, name string) bool {
+	found := false
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == name {
+			found = true
+		}
+
+		return true
+	})
+
+	return found
+}
+
+// generatedModulePath reads the module path of the generated project.
+func generatedModulePath(t *testing.T, projectDir string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("Error reading generated go.mod: %v", err)
+	}
+
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+
+	t.Fatalf("generated go.mod has no module line")
+
+	return ""
 }

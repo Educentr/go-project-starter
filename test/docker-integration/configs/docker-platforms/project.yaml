@@ -1,0 +1,55 @@
+main:
+  name: platformstest
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/platformstest.git
+  module_path: github.com/test/platformstest
+
+tools:
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+docker:
+  image_prefix: registry.example/org
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  # No docker.platforms: the image is built for the platform of the builder,
+  # exactly as before the key existed.
+  - name: api
+    transport:
+      - name: api
+      - name: sys
+  # Several platforms: the image is an index, built and published through buildx.
+  - name: cli
+    transport:
+      - name: sys
+    docker:
+      platforms: [linux/amd64, linux/arm64]
+  # One platform: cross-built, but a plain image that lands in the local store.
+  - name: tool
+    transport:
+      - name: sys
+    docker:
+      platforms: [linux/arm64]

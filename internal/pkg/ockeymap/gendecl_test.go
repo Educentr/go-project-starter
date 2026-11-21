@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ockeymap"
 )
@@ -535,6 +536,16 @@ func TestParseGenDeclRejectsDefects(t *testing.T) {
 			wantMsg: "invalid runtime segment",
 		},
 		{
+			// The name of a runtime segment is a parameter of the generated
+			// accessor, and the accessor template declares `path` in the body
+			// it would sit in. Our own declaration is held to the rule the
+			// service map is held to, because both generate the same accessor.
+			name: "a runtime segment named like the package's own identifier",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<path>/x\"\n        name: X\n" +
+				"        type: bool\n        description: d\n",
+			wantMsg: "the generated accessor package uses it itself",
+		},
+		{
 			name: "required with a runtime segment",
 			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<id>\"\n        name: X\n" +
 				"        type: bool\n        required: true\n        description: d\n",
@@ -572,6 +583,36 @@ func TestParseGenDeclRejectsDefects(t *testing.T) {
 			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: X\n" +
 				"        type: bool\n        read_via: Y\n        description: d\n",
 			wantMsg: "names both read_via",
+		},
+		{
+			name: "required_at_init alongside a default",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: X\n" +
+				"        type: bool\n        required_at_init: true\n        default: \"false\"\n        description: d\n",
+			wantMsg: "declares both `required_at_init` and `default`",
+		},
+		{
+			name: "required_at_init alongside required",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: X\n" +
+				"        type: bool\n        required: true\n        required_at_init: true\n        description: d\n",
+			wantMsg: "declares both `required` and `required_at_init`",
+		},
+		{
+			name: "required_at_init with a runtime segment",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a/<id>\"\n        name: X\n" +
+				"        type: bool\n        required_at_init: true\n        description: d\n",
+			wantMsg: "the path only exists once the process runs",
+		},
+		{
+			name: "required_at_init without a type",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: APath\n" +
+				"        required_at_init: true\n        description: d\n",
+			wantMsg: "has no value to be missing",
+		},
+		{
+			name: "required_at_init on a shared accessor",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"<prefix>/log_level\"\n        name: X\n" +
+				"        type: string\n        shared: true\n        required_at_init: true\n        description: d\n",
+			wantMsg: "there is no path for a guard to demand",
 		},
 		{
 			name: "two parameters of one name",
@@ -846,6 +887,127 @@ func TestCheckGeneratorKeysOpenSubtree(t *testing.T) {
 	}
 }
 
+// A service key may carry a runtime segment of its own, so the collision check
+// runs on a shape from either side: what is compared is whether the two reach a
+// common path. A shape that merely looks different from the generated read is
+// the same second reader, written in a way an exact comparison cannot see
+// (TOOLS-89).
+func TestCheckGeneratorKeysServiceShape(t *testing.T) {
+	generated := []ockeymap.GeneratorKey{
+		{
+			Path: "/svc/account/default/quota", Type: "int", Accessor: "DefaultQuota",
+			ReadBy: []string{"service.go.tmpl"}, Descriptions: []string{"fallback quota"},
+		},
+		{
+			Path: "/svc/settings/enabled/<action>", Type: "strings", Accessor: "SettingsEnabled",
+			OwnedPrefix: "/svc/settings/enabled",
+			ReadBy:      []string{"service.go.tmpl"}, Descriptions: []string{"per-action allow lists"},
+		},
+		{
+			Path: "/svc/transport/rest/api_v1/web/handler", Accessor: "RESTHandlerPath",
+			OwnedPrefix: "/svc/transport/rest/api_v1/web/handler",
+			ReadBy:      []string{"config_oc.go.tmpl"}, Descriptions: []string{"handler subtree"},
+		},
+		{
+			Path: "/svc/worker/reaper", Accessor: "WorkerPath",
+			OwnedPrefix: "/svc/worker/reaper", OpenSubtree: true,
+			ReadBy: []string{"daemon.go.tmpl"}, Descriptions: []string{"worker subtree"},
+		},
+		{
+			Path: "/svc/worker/reaper/job/timeout", Type: "duration", Accessor: "WorkerJobTimeout",
+			ReadBy: []string{"daemon.go.tmpl"}, Descriptions: []string{"job timeout"},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		wantMsgs []string
+	}{
+		{
+			// The point of the feature: a parameterized key of the service's
+			// own, in a subtree nothing generated claims.
+			name: "a shape of the service's own",
+			path: "/svc/account/<account>/limit",
+		},
+		{
+			// `default` is one of the accounts the shape reaches, and the
+			// generated code already reads the quota there.
+			name: "a shape reaching a key the generated code reads",
+			path: "/svc/account/<account>/quota",
+			wantMsgs: []string{
+				"reads itself", "/svc/account/default/quota", "angle brackets", "service.go.tmpl",
+			},
+		},
+		{
+			// Two shapes of one path: the service's <action> and the
+			// generator's reach the same keys.
+			name:     "a shape overlapping a generated shape",
+			path:     "/svc/settings/enabled/<action>",
+			wantMsgs: []string{"/svc/settings/enabled", "service.go.tmpl"},
+		},
+		{
+			// A closed subtree is closed to a shape too — otherwise putting a
+			// runtime segment where the prefix carries a transport name walked
+			// straight into it.
+			name: "a shape reaching into a closed subtree",
+			path: "/svc/transport/rest/<server>/web/handler/timeout",
+			wantMsgs: []string{
+				"/svc/transport/rest/api_v1/web/handler", "computes", "config_oc.go.tmpl",
+			},
+		},
+		{
+			// An open subtree stays open to a shape: what the generated code
+			// reads there is declared, and the declared reads are checked
+			// separately.
+			name: "a shape inside an open subtree",
+			path: "/svc/worker/reaper/<stage>/interval",
+		},
+		{
+			// …but not to a shape that can be the prefix itself: that node is
+			// the one handed to generated code.
+			name:     "a shape that can be the root of an open subtree",
+			path:     "/svc/worker/<worker>",
+			wantMsgs: []string{"/svc/worker/reaper", "daemon.go.tmpl"},
+		},
+		{
+			name:     "a shape reaching a declared read inside an open subtree",
+			path:     "/svc/worker/reaper/<stage>/timeout",
+			wantMsgs: []string{"reads itself", "/svc/worker/reaper/job/timeout", "angle brackets"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyMap, err := ockeymap.Parse([]byte(
+				"keys:\n  - path: " + tt.path + "\n    type: int\n    name: Declared\n"))
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+
+			err = keyMap.CheckGeneratorKeys(generated)
+
+			if len(tt.wantMsgs) == 0 {
+				if err != nil {
+					t.Fatalf("CheckGeneratorKeys() error = %v, want nil", err)
+				}
+
+				return
+			}
+
+			if !errors.Is(err, ockeymap.ErrReservedPath) {
+				t.Fatalf("CheckGeneratorKeys() error = %v, want ErrReservedPath", err)
+			}
+
+			for _, want := range tt.wantMsgs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 // Opening a subtree is a property of the prefix, so it survives the expansion
 // into the paths of a concrete project.
 func TestExpandOpenPathBuilder(t *testing.T) {
@@ -903,5 +1065,181 @@ func TestExpandRejectsSurfaceWithoutService(t *testing.T) {
 	_, err := ockeymap.ExpandGenDecls([]ockeymap.GenDeclFile{decl}, ockeymap.ProjectSurface{})
 	if !errors.Is(err, ockeymap.ErrGenDeclDefect) {
 		t.Fatalf("ExpandGenDecls() error = %v, want ErrGenDeclDefect", err)
+	}
+}
+
+// `required_at_init` is published per expansion, not per declaration: the same
+// host key keeps one client's process from starting and is not needed by the
+// next, and which is which is a project.yaml setting — `optional: true` or
+// `instantiation: dynamic`, both of which the surface reports as tolerant.
+func TestExpandRequiredAtInitFollowsTheComponent(t *testing.T) {
+	surface := fullSurface()
+	surface.RESTClients = []string{"billing_v1", "audit_v1"}
+	surface.Tolerant = map[ockeymap.TolerantComponent]bool{
+		{Dimension: ockeymap.DimensionRESTClient, Name: "audit_v1"}: true,
+	}
+
+	got := expand(t,
+		"groups:\n  - scope: rest_client\n    keys:\n      - path: \"{service}/transport/rest/{transport}/host\"\n"+
+			"        name: ClientHost\n        type: string\n        required_at_init: true\n        description: d\n",
+		surface)
+
+	want := map[string]bool{
+		"/svc/transport/rest/billing_v1/host": true,
+		"/svc/transport/rest/audit_v1/host":   false,
+	}
+
+	if len(got.Keys) != len(want) {
+		t.Fatalf("want %d keys, got %v", len(want), paths(got.Keys))
+	}
+
+	for _, key := range got.Keys {
+		if key.RequiredAtInit != want[key.Path] {
+			t.Errorf("%s: RequiredAtInit = %v, want %v", key.Path, key.RequiredAtInit, want[key.Path])
+		}
+	}
+
+	// It generates nothing: no startup check, and the accessor still answers
+	// with presence, because the reader of a tolerant component has to be able
+	// to see the key missing and skip.
+	if len(got.Required) != 0 {
+		t.Errorf("required_at_init should add no startup check, got %v", got.Required)
+	}
+
+	if got.Accessors[0].Shape() != ockeymap.ShapeOptional {
+		t.Errorf("Shape() = %q, want %q", got.Accessors[0].Shape(), ockeymap.ShapeOptional)
+	}
+}
+
+// An application is not a component: a key read per application of a tolerant
+// transport is still not demanded, and one read for a transport nobody declared
+// optional is demanded for every application of it.
+func TestExpandRequiredAtInitIgnoresTheApplicationDimension(t *testing.T) {
+	surface := ockeymap.ProjectSurface{
+		Service: "svc",
+		RESTServers: []ockeymap.RESTServer{
+			{Transport: "api", Apps: []string{"web"}},
+			{Transport: "sys", Apps: []string{"web"}},
+		},
+		Tolerant: map[ockeymap.TolerantComponent]bool{
+			{Dimension: ockeymap.DimensionRESTServer, Name: "sys"}: true,
+		},
+	}
+
+	got := expand(t,
+		"groups:\n  - scope: rest_server\n    keys:\n      - path: \"{service}/transport/rest/{transport}/{app}/port\"\n"+
+			"        name: AppPort\n        type: string\n        required_at_init: true\n        description: d\n",
+		surface)
+
+	want := map[string]bool{
+		"/svc/transport/rest/api/web/port": true,
+		"/svc/transport/rest/sys/web/port": false,
+	}
+
+	for _, key := range got.Keys {
+		if key.RequiredAtInit != want[key.Path] {
+			t.Errorf("%s: RequiredAtInit = %v, want %v", key.Path, key.RequiredAtInit, want[key.Path])
+		}
+	}
+}
+
+// Two templates reading one path have to agree about whether the process starts
+// without it — otherwise the registry would carry whichever declaration the
+// template walk reached first.
+func TestExpandRejectsRequiredAtInitContradiction(t *testing.T) {
+	first := parseDecl(t, "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: A\n"+
+		"        type: string\n        required_at_init: true\n        description: d\n")
+
+	second := parseDecl(t, "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: A\n"+
+		"        type: string\n        description: d\n")
+	second.Owner = "other.go.tmpl"
+
+	_, err := ockeymap.ExpandGenDecls(
+		[]ockeymap.GenDeclFile{first, second},
+		ockeymap.ProjectSurface{Service: "svc"},
+	)
+	if !errors.Is(err, ockeymap.ErrGenDeclDefect) {
+		t.Fatalf("ExpandGenDecls() error = %v, want ErrGenDeclDefect", err)
+	}
+
+	if !strings.Contains(err.Error(), "required at init") {
+		t.Errorf("the error should name the disagreement, got: %v", err)
+	}
+}
+
+// A `required` key of a tolerant component is not a key this project does not
+// start without: the startup check of a required key is generated per
+// application, and an application that wires the component `optional` gets no
+// check for it. So the row carries neither flag — a guard told to demand it
+// would demand configuration for a component the project says it can run
+// without.
+func TestExpandRequiredFollowsTheComponentToo(t *testing.T) {
+	surface := fullSurface()
+	surface.KafkaProducers = []ockeymap.KafkaProducer{
+		{Client: "main", Events: []string{"created"}},
+		{Client: "audits", Events: []string{"logged"}},
+	}
+	surface.Tolerant = map[ockeymap.TolerantComponent]bool{
+		{Dimension: ockeymap.DimensionKafkaClient, Name: "audits"}: true,
+	}
+
+	got := expand(t,
+		"groups:\n  - scope: kafka_producer\n    keys:\n      - path: \"{service}/kafka/{client}/brokers\"\n"+
+			"        name: KafkaBrokers\n        type: string\n        required: true\n        description: d\n",
+		surface)
+
+	want := map[string]bool{
+		"/svc/kafka/main/brokers":   true,
+		"/svc/kafka/audits/brokers": false,
+	}
+
+	if len(got.Keys) != len(want) {
+		t.Fatalf("want %d keys, got %v", len(want), paths(got.Keys))
+	}
+
+	for _, key := range got.Keys {
+		// Both flags, and the same answer from both: a row claiming `required`
+		// while nothing checks it would contradict its own `required_at_init`.
+		if key.Required != want[key.Path] || key.RequiredAtInit != want[key.Path] {
+			t.Errorf("%s: Required = %v, RequiredAtInit = %v, want both %v",
+				key.Path, key.Required, key.RequiredAtInit, want[key.Path])
+		}
+	}
+}
+
+// Both sides of the comparison come from declarations, and a path carrying
+// several runtime segments branches exponentially without memoization: a map in
+// a contract repository must not be able to make generation hang.
+func TestCheckGeneratorKeysManyRuntimeSegments(t *testing.T) {
+	deep := "/svc"
+	for i := 0; i < 20; i++ {
+		deep += "/<a" + string(rune('a'+i)) + ">"
+	}
+
+	generated := []ockeymap.GeneratorKey{
+		{
+			Path: deep + "/level", Type: "string", Accessor: "Deep",
+			ReadBy: []string{"deep.go.tmpl"}, Descriptions: []string{"deep read"},
+		},
+	}
+
+	keyMap, err := ockeymap.Parse([]byte(
+		"keys:\n  - path: " + deep + "/other\n    type: string\n    name: Mine\n"))
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	done := make(chan error, 1)
+
+	go func() { done <- keyMap.CheckGeneratorKeys(generated) }()
+
+	select {
+	case err := <-done:
+		// The two shapes end in different segments, so they meet nowhere.
+		if err != nil {
+			t.Errorf("CheckGeneratorKeys() error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("CheckGeneratorKeys() did not finish: the shape comparison is branching")
 	}
 }

@@ -38,13 +38,28 @@ keys:
     type: string
     description: Queue to consume from; unset means the built-in default queue.
 
-  # A list is ONE key with a structured value. OnlineConf has no subtree
-  # traversal, so `/octest/agent_env/<i>/name` is not a key — this is.
+  # A list is ONE key with a structured value: OnlineConf has no subtree
+  # traversal, so there is nothing to iterate over a subtree with.
   - path: /octest/agent_env
     type: struct
     description: >-
       Environment variables handed to every spawned agent, as a JSON array of
       {name, value} objects.
+
+  # A segment the service itself computes while running: which account's quota
+  # is read is known only from the request. It becomes a parameter of the
+  # accessor — AccountQuota(ctx, account) — so the path is still composed in one
+  # place, from this declaration.
+  - path: /octest/account/<account>/quota
+    type: int
+    default: 100
+    description: Requests per minute allowed for one account.
+
+  # Two of them, and a structured value: the parameters come in path order,
+  # before the destination.
+  - path: /octest/limits/<account>/<action>/rate
+    type: struct
+    description: Rate limit of one action of one account, as a JSON object.
 
   # The derived name would be DbDsn; the declaration overrides it.
   - path: /octest/db/dsn

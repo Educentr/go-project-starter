@@ -78,6 +78,13 @@ var durationUnits = []struct { //nolint:gochecknoglobals // fixed lookup table, 
 // Separators inside a segment ('_', '-', '.') fold the way '_' does. Two
 // declarations that collide after folding are rejected by ValidateVarNames
 // rather than silently producing one accessor.
+//
+// A runtime segment contributes nothing to the name: it is a parameter of the
+// accessor, not a part of the key, and `AccountByAccountQuota` names the
+// parameter twice. /myservice/account/<account>/quota therefore reads
+// `AccountQuota(ctx, account)` — and a second declaration that derives the same
+// name is a collision ValidateVarNames reports, which is the honest answer when
+// two paths are told apart only by a parameter.
 func (k Key) VarName() string {
 	if k.Name != "" {
 		return k.Name
@@ -91,15 +98,84 @@ func (k Key) VarName() string {
 	var b strings.Builder
 
 	for _, segment := range segments[1:] {
+		if isRuntimeParam(segment) {
+			continue
+		}
+
 		b.WriteString(camelSegment(segment))
 	}
 
 	return b.String()
 }
 
-// PathConstName returns the identifier of the exported path constant.
+// PathConstName returns the identifier of the exported path constant, or the
+// empty string for a key with a runtime segment — whose path is composed from
+// an argument and so cannot be a constant. Such a key gets PathBuilderName
+// instead.
 func (k Key) PathConstName() string {
+	if k.HasParams() {
+		return ""
+	}
+
 	return pathConstPrefix + k.VarName()
+}
+
+// PathBuilderName returns the identifier of the generated function composing the
+// path of a key with a runtime segment, and the empty string for every other
+// key — there the path is a constant.
+//
+// The suffix form (`<Name>Path`) is the one the generator's own half uses for
+// exactly the same thing, so a caller handing a path to Subscribe finds the same
+// spelling in both halves.
+func (k Key) PathBuilderName() string {
+	if !k.HasParams() {
+		return ""
+	}
+
+	return k.VarName() + pathBuilderSuffix
+}
+
+// ParamDecl renders the accessor's parameters as a Go parameter list —
+// "account string" — or the empty string when the key has none.
+func (k Key) ParamDecl() string {
+	if !k.HasParams() {
+		return ""
+	}
+
+	return k.ParamNames() + " string"
+}
+
+// ParamNames renders the accessor's parameters as an argument list, for the call
+// from the accessor to its path builder.
+func (k Key) ParamNames() string {
+	return strings.Join(k.Params(), ", ")
+}
+
+// PathArgs renders the arguments of the onlineconf.MakePath call that composes
+// the key's path: one argument per segment — a quoted literal for a segment of
+// the declaration, the parameter itself for a runtime one.
+//
+// The tree root is quoted along with the rest rather than taken from the
+// generated tree constant: a service key's path is the path the declaration
+// carries, and the map's root is checked against the project name with a warning
+// rather than an error. Substituting the constant would make a key with a
+// runtime segment read a different tree than a key without one in the very
+// project where that warning fires.
+func (k Key) PathArgs() string {
+	segments := k.Segments()
+	args := make([]string, 0, len(segments))
+
+	for _, segment := range segments {
+		if isRuntimeParam(segment) {
+			args = append(args, strings.Trim(segment, "<>"))
+
+			continue
+		}
+
+		args = append(args, strconv.Quote(segment))
+	}
+
+	return strings.Join(args, ", ")
 }
 
 // DefaultVarName returns the identifier of the unexported default variable.

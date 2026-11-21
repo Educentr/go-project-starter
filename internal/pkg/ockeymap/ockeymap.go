@@ -18,6 +18,19 @@
 // segConfluence, keyURL)` is a path no external tool (guard, registry, review)
 // can see, so it diverges from the declaration silently.
 //
+// A segment the service computes while running is the one part of a path the
+// declaration cannot spell out, and it is written `<name>`:
+//
+//	keys:
+//	  - path: /myservice/account/<account>/quota
+//	    type: int
+//
+// The name becomes a parameter of the generated accessor —
+// `occonf.AccountQuota(ctx, account)` — so the path is still composed in one
+// place, from one declaration, and the registry still carries a row for it.
+// Declaring nothing and composing that path at the call site is the same
+// invisible path as above with extra steps.
+//
 // The declarations drive two artifacts at once: a typed accessor per key in the
 // generated package, and a forbidigo rule banning every other call into
 // onlineconf. Together they make "the service reads an undeclared key"
@@ -36,6 +49,12 @@ import (
 type Key struct {
 	// Path is the full OnlineConf path of the key, leading slash optional.
 	// Required.
+	//
+	// A segment the service's own code computes while running is written
+	// `<name>` — /myservice/account/<account>/quota. It becomes a parameter of
+	// the generated accessor, exactly as it does in the generator's half of the
+	// map: the alternative is composing that path at the call site, which is
+	// the one thing this map removes.
 	Path string `yaml:"path"`
 	// Type is one of the Type* constants. Required.
 	Type string `yaml:"type"`
@@ -46,7 +65,8 @@ type Key struct {
 	// Required marks a key the service cannot run without. The generated
 	// accessor then reports ErrKeyNotSet instead of a zero value, and
 	// CheckRequired fails at startup when the key is absent from the tree.
-	// Only the scalar types can be required — see validate.go.
+	// Only a scalar or a list with no runtime segment can be required — see
+	// validate.go.
 	Required bool `yaml:"required"`
 	// Description is the prose that becomes the accessor's godoc. Optional,
 	// but it is the one place where the meaning of a key is visible for
@@ -207,6 +227,31 @@ func (k Key) HasDefault() bool {
 // Segments returns the path segments, root first.
 func (k Key) Segments() []string {
 	return pathSegments(k.Path)
+}
+
+// Params returns the names of the runtime segments of the path, in path order.
+// They are the parameters of the generated accessor: the service computes them
+// while running, so the generator can only hand the composition back to the
+// caller — through the one function that also carries the declared type, the
+// default and the registry row.
+func (k Key) Params() []string {
+	segments := k.Segments()
+	out := make([]string, 0, len(segments))
+
+	for _, segment := range segments {
+		if isRuntimeParam(segment) {
+			out = append(out, strings.Trim(segment, "<>"))
+		}
+	}
+
+	return out
+}
+
+// HasParams reports whether the path carries a segment the service computes at
+// runtime. Such a key has no constant path, so it is read through a generated
+// path builder rather than a path constant.
+func (k Key) HasParams() bool {
+	return len(k.Params()) > 0
 }
 
 // TreeRoot returns the first path segment — the service tree the key lives in.

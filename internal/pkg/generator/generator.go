@@ -735,6 +735,12 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			MetricsExport:         metricsExport,
 		}
 
+		// Platforms on an application that builds no image would generate
+		// nothing at all: the recipes they shape live in the docker artifact.
+		if appDocker.HasPlatforms() && !application.HasDocker() {
+			return errors.Wrapf(cfg.ErrAppDockerNoImage, "application %q", app.Name)
+		}
+
 		// Resolve Grafana datasources for this app
 		for _, dsName := range app.Grafana.Datasources {
 			for _, globalDs := range g.Grafana.Datasources {
@@ -866,6 +872,10 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 	for a := range artifactSet {
 		g.Artifacts.Types = append(g.Artifacts.Types, a)
+	}
+
+	if err := g.resolveMetricsApps(); err != nil {
+		return err
 	}
 
 	for _, postGenerate := range config.PostGenerate {
@@ -1102,6 +1112,66 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	return nil
 }
 
+// resolveMetricsApps binds the parsed metrics map to the project's
+// applications: it records, per application, whether it exposes /metrics and
+// which generator components it runs, and rejects an `apps` reference that
+// names no such application.
+//
+// It is a separate step from processMetricsMap because that one runs before
+// the applications are built — the map has to be parsed early so that
+// collectFiles knows whether the collector package exists at all.
+func (g *Generator) resolveMetricsApps() error {
+	scopes := make([]metricsmap.AppScope, 0, len(g.Applications))
+	seen := make(map[string]struct{}, len(g.Applications))
+
+	for _, app := range g.Applications {
+		// One scope per name. Two applications sharing a name is a degenerate
+		// config the generator already tolerates (the second overwrites the
+		// first's cmd/<app> output); a second scope would additionally render
+		// a duplicate key in the generated collectorsByApp literal, turning it
+		// into a compile error in the generated project.
+		if _, dup := seen[app.Name]; dup {
+			continue
+		}
+
+		seen[app.Name] = struct{}{}
+
+		// The resolved export channel, not the sys transport directly: the
+		// channel is what the project declares about who reads this process,
+		// and config validation has already reconciled it with the transports
+		// (pull without sys and none with sys are both rejected). Reading the
+		// transport here would split the same question across two answers the
+		// moment a channel that is not served by sys arrives.
+		scopes = append(scopes, metricsmap.AppScope{
+			Name:           app.Name,
+			ExposesMetrics: app.MetricsExport.IsPull(),
+			Components:     appComponents(app),
+		})
+	}
+
+	if err := metricsmap.ValidateApps(g.Metrics.Metrics, scopes); err != nil {
+		return errors.Wrap(err, errMetricsMapCtx)
+	}
+
+	g.Metrics.Apps = scopes
+
+	return nil
+}
+
+// appComponents reports which generator components one application runs — the
+// per-application counterpart of projectCapabilities, which answers the same
+// question for the project as a whole.
+//
+// Every owner in metricsmap.KnownOwners() must get an entry: AppScope.Publishes
+// reads a missing key as "no application publishes this", so an owner nobody
+// maps would drop its metrics from every registration and every dashboard
+// without an error. TestAppComponentsCoversEveryKnownOwner holds that line.
+func appComponents(app ds.App) map[string]bool {
+	return map[string]bool{
+		metricsmap.OwnerKafkaProducer: len(app.GetKafkaProducers()) > 0,
+	}
+}
+
 // processLintConfig resolves who owns configs/golangci-lint.yml and, when the
 // project declares an override layer, fetches and parses it.
 //
@@ -1187,12 +1257,8 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 
 	perApp := make(map[string]*ockeymap.GenSurface, len(config.Applications))
 
-	// One scan for the whole project: the answer does not depend on which
-	// application is being expanded.
-	optional := optionalComponents(config)
-
 	for _, app := range config.Applications {
-		appSurface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app, optional))
+		appSurface, err := ockeymap.ExpandGenDecls(decls, onlineConfAppSurface(config, app))
 		if err != nil {
 			return errors.Wrapf(err, "%s: application %s", errOnlineConfMapCtx, app.Name)
 		}
@@ -1300,13 +1366,16 @@ func warnOnlineConfTreeRoot(mapRoot, serviceName string) {
 // process that does not run that component never reads it, so checking the
 // project's whole set in every process would stop a REST-only application over
 // the token of a worker it never starts.
-// A component declared optional is left out. The generated code treats an
-// absent key of an optional transport or Kafka client as "not configured, skip"
-// rather than as an error, and `optional: true` is the project saying so — a
-// startup check that failed over it would contradict the project's own setting.
-// Optionality is per project rather than per application, the same way the
-// generated readers test it.
-func onlineConfAppSurface(config cfg.Config, app cfg.Application, optional map[string]bool) ockeymap.ProjectSurface {
+// A component this application declares optional is left in the surface and
+// left out of the check by the surface's own tolerance: `optional: true` is a
+// setting of the wiring, and with only this application's wiring in the config
+// the tolerance onlineConfSurface computes is exactly "optional here". That is
+// what keeps the check and the registry row from disagreeing — both come from
+// the same answer, over a different set of applications. Filtering the optional
+// components out here instead would be a second definition of optionality, and
+// the project-wide one it used to apply is what published a key as needed while
+// no process checked it.
+func onlineConfAppSurface(config cfg.Config, app cfg.Application) ockeymap.ProjectSurface {
 	appConfig := config
 	appConfig.RestList = nil
 	appConfig.GrpcList = nil
@@ -1315,10 +1384,6 @@ func onlineConfAppSurface(config cfg.Config, app cfg.Application, optional map[s
 	appConfig.Applications = []cfg.Application{app}
 
 	for _, transport := range app.TransportList {
-		if optional[transport.Name] {
-			continue
-		}
-
 		if rest, ok := config.RestMap[transport.Name]; ok {
 			appConfig.RestList = append(appConfig.RestList, rest)
 		}
@@ -1329,10 +1394,6 @@ func onlineConfAppSurface(config cfg.Config, app cfg.Application, optional map[s
 	}
 
 	for _, kafka := range app.KafkaList {
-		if kafka.Optional || optional[kafka.Name] {
-			continue
-		}
-
 		if client, ok := config.KafkaMap[kafka.Name]; ok {
 			appConfig.KafkaList = append(appConfig.KafkaList, client)
 		}
@@ -1347,36 +1408,109 @@ func onlineConfAppSurface(config cfg.Config, app cfg.Application, optional map[s
 	return onlineConfSurface(appConfig)
 }
 
-// optionalComponents returns the names of the transports and Kafka clients at
-// least one application declares optional — the same condition the generated
-// readers are rendered with (ds.Apps.IsTransportOptional), so that a key the
-// generated code is willing to do without is not one the startup check insists
-// on.
-func optionalComponents(config cfg.Config) map[string]bool {
-	out := map[string]bool{}
+// optionalEverywhere reports whether every application wiring a transport or
+// Kafka client declares it optional — the condition under which a missing key
+// stops no process of the applications it is asked about.
+//
+// It is asked about config.Applications, which is the whole project when the
+// registry is expanded and the one application whose startup check is being
+// built (onlineConfAppSurface) otherwise. That is deliberate: the two answers
+// then cannot contradict each other, because they are the same answer over a
+// different set of applications. A component optional in every application is
+// tolerant both times — published as needed nowhere, checked nowhere.
+//
+// `optional: true` in one application does not answer for another. The
+// generated reader of a client the project declares optional anywhere returns
+// "not configured" instead of an error (ds.Apps.IsTransportOptional is
+// project-wide), but the application that wired it WITHOUT `optional` still
+// refuses to start: a REST or gRPC client fails its dependency validation on
+// the nil client (ValidateFor<App> in internal/pkg/service), and a Kafka
+// producer — which is never nil, Init only disables itself — fails the startup
+// check of its brokers (occonf.CheckRequired). So the published fact follows
+// every wiring, the same way readsItsAddress does for `instantiation`.
+//
+// A component wired into no application is not tolerant: nothing in the
+// project's own settings answers for it, which is also how readsItsAddress
+// treats an unwired static client.
+func optionalEverywhere(config cfg.Config, name string) bool {
+	wired := false
 
 	for _, app := range config.Applications {
 		for _, transport := range app.TransportList {
-			if transport.Config.Optional {
-				out[transport.Name] = true
+			if transport.Name != name {
+				continue
+			}
+
+			wired = true
+
+			if !transport.Config.Optional {
+				return false
 			}
 		}
 
 		for _, kafka := range app.KafkaList {
-			if kafka.Optional {
-				out[kafka.Name] = true
+			if kafka.Name != name {
+				continue
+			}
+
+			wired = true
+
+			if !kafka.Optional {
+				return false
 			}
 		}
 	}
 
-	return out
+	return wired
+}
+
+// readsItsAddress reports whether the generated client of a transport reads the
+// address of its upstream from OnlineConf at all.
+//
+// A client declared `instantiation: dynamic` takes the address as an argument:
+// the generated code neither imports the accessor package nor reads the key, so
+// a guard demanding that the key be set would be demanding configuration for a
+// read that does not exist. The mode can be overridden per application, so the
+// address is read unless every wiring of the client is dynamic — one static
+// wiring is one Init that fails without the key.
+//
+// It does not decide whether the keys appear in the registry: a dynamic client
+// still owns its subtree, and the service map may not declare inside it.
+func readsItsAddress(config cfg.Config, name, declared string) bool {
+	wired := false
+
+	for _, app := range config.Applications {
+		for _, transport := range app.TransportList {
+			if transport.Name != name {
+				continue
+			}
+
+			wired = true
+
+			mode := declared
+			if transport.Config.Instantiation != "" {
+				mode = transport.Config.Instantiation
+			}
+
+			if mode != cfg.InstantiationDynamic {
+				return true
+			}
+		}
+	}
+
+	// A client wired into no application has no generated code to read
+	// anything; the declared mode is the only thing left to answer from.
+	return !wired && declared != cfg.InstantiationDynamic
 }
 
 // onlineConfSurface describes the project dimensions the generator's own key
 // declarations expand over: which transports, applications, workers and Kafka
 // clients exist, under the names the generated readers actually use.
 func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
-	surface := ockeymap.ProjectSurface{Service: config.Main.Name}
+	surface := ockeymap.ProjectSurface{
+		Service:  config.Main.Name,
+		Tolerant: map[ockeymap.TolerantComponent]bool{},
+	}
 
 	for _, rest := range config.RestList {
 		// Both a server and a client read their configuration under the package
@@ -1385,15 +1519,29 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		// ("api_v1"), and the runtime passes it straight back into the
 		// configuration provider.
 		if rest.GeneratorType == cfg.GeneratorTypeOgenClient {
-			surface.RESTClients = append(surface.RESTClients, transportPkgName(rest.Name, rest.Version))
+			client := transportPkgName(rest.Name, rest.Version)
+			surface.RESTClients = append(surface.RESTClients, client)
+
+			if optionalEverywhere(config, rest.Name) || !readsItsAddress(config, rest.Name, rest.Instantiation) {
+				surface.Tolerant[ockeymap.TolerantComponent{
+					Dimension: ockeymap.DimensionRESTClient, Name: client,
+				}] = true
+			}
 
 			continue
 		}
 
+		server := transportPkgName(rest.Name, rest.Version)
 		surface.RESTServers = append(surface.RESTServers, ockeymap.RESTServer{
-			Transport: transportPkgName(rest.Name, rest.Version),
+			Transport: server,
 			Apps:      appsServingTransport(config, rest.Name),
 		})
+
+		if optionalEverywhere(config, rest.Name) {
+			surface.Tolerant[ockeymap.TolerantComponent{
+				Dimension: ockeymap.DimensionRESTServer, Name: server,
+			}] = true
+		}
 	}
 
 	for _, grpc := range config.GrpcList {
@@ -1405,12 +1553,28 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 		}
 
 		surface.GRPCClients = append(surface.GRPCClients, grpc.Name)
+
+		if optionalEverywhere(config, grpc.Name) || !readsItsAddress(config, grpc.Name, grpc.Instantiation) {
+			surface.Tolerant[ockeymap.TolerantComponent{
+				Dimension: ockeymap.DimensionGRPCClient, Name: grpc.Name,
+			}] = true
+		}
 	}
+
+	// Tolerance belongs to the client segment, and several producers may be
+	// configured under one client (config.Kafka's own godoc shows two). They
+	// read the one brokers key under it, so the segment is tolerant only if
+	// every one of them is — folded in with AND. Taken from any one producer,
+	// the one the project can do without would answer for the one it cannot,
+	// and the key would leave the registry while a startup check still demanded
+	// it.
+	tolerantClients := make(map[string]bool, len(config.KafkaList))
 
 	for _, kafka := range config.KafkaList {
 		// A custom driver is the project's own code: the generator emits no
 		// config.go for it, so it reads none of these keys (see
-		// GetKafkaDriverTemplates).
+		// GetKafkaDriverTemplates). It is left out of the fold for the same
+		// reason: it is not a reader of the brokers key.
 		if kafka.Type != ds.KafkaTypeProducer || kafka.Driver == ds.KafkaDriverCustom {
 			continue
 		}
@@ -1424,6 +1588,21 @@ func onlineConfSurface(config cfg.Config) ockeymap.ProjectSurface {
 			Client: kafka.Client,
 			Events: events,
 		})
+
+		tolerant := optionalEverywhere(config, kafka.Name)
+		if folded, seen := tolerantClients[kafka.Client]; seen {
+			tolerant = tolerant && folded
+		}
+
+		tolerantClients[kafka.Client] = tolerant
+	}
+
+	for client, tolerant := range tolerantClients {
+		if tolerant {
+			surface.Tolerant[ockeymap.TolerantComponent{
+				Dimension: ockeymap.DimensionKafkaClient, Name: client,
+			}] = true
+		}
 	}
 
 	for _, worker := range config.WorkerList {

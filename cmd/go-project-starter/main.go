@@ -18,6 +18,7 @@ import (
 	"github.com/Educentr/go-project-starter/internal/pkg/selfversion"
 	"github.com/Educentr/go-project-starter/internal/pkg/setup"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
+	"github.com/Educentr/go-project-starter/internal/pkg/treecheck"
 )
 
 const (
@@ -32,11 +33,15 @@ const (
 	defaultConfigDir  = ".project-config"
 	defaultConfigFile = "project.yaml"
 	flagConfig        = "config"
+	flagConfigDir     = "configDir"
 	flagDryRun        = "dry-run"
+	flagCheck         = "check"
 	flagSourceRef     = "sourceRef"
 	envSourceRef      = "GPS_SOURCE_REF"
 	usageConfigFile   = "project configuration file"
-	usageSourceRef    = "git ref for the spec sources in project.yaml that do not pin one explicitly: " +
+	usageCheck        = "verify the generated area of the project tree against the manifest in " +
+		".project-config/meta.yaml and exit; writes nothing and reads neither the config nor any spec source"
+	usageSourceRef = "git ref for the spec sources in project.yaml that do not pin one explicitly: " +
 		"either <ref> for every repository, or <repo>:<ref> for one of them. " +
 		"Repeatable, and one value may carry several entries separated by commas or spaces " +
 		"(env " + envSourceRef + ", used only when the flag is absent)"
@@ -49,8 +54,10 @@ const (
 	layoutFailedToSetup           = "failed to run setup: %v"
 	layoutFailedToInit            = "failed to run init: %v"
 	layoutFailedToMigrate         = "failed to migrate config: %v"
+	layoutFailedToCheck           = "failed to check the project tree: %v"
 	layoutInvalidSourceRef        = "invalid --%s: %v"
 	layoutVersion                 = "go-project-starter %s\ncommit: %s\nbuilt: %s\n"
+	layoutCheckIgnoredFlag        = "warning: --%s is ignored by --%s: the check reads the manifest and the tree, nothing else"
 )
 
 var (
@@ -270,17 +277,28 @@ func runGenerator() {
 		sourceRefs    *specsource.SourceRefs
 		err           error
 		dryRun        bool
+		checkMode     bool
 	)
 
-	pflag.StringVar(&baseConfigDir, "configDir", defaultConfigDir, "project configuration directory")
+	pflag.StringVar(&baseConfigDir, flagConfigDir, defaultConfigDir, "project configuration directory")
 	pflag.StringVar(&cfgPath, flagConfig, defaultConfigFile, usageConfigFile)
 	pflag.StringVar(&targetDir, "target", "", "target directory")
 	pflag.BoolVar(&dryRun, flagDryRun, false, "Dry run")
+	pflag.BoolVar(&checkMode, flagCheck, false, usageCheck)
 	// Repeatable: contracts come from several repositories, each of which may
 	// need its own ref in one build (see resolveSourceRefs).
 	pflag.StringArray(flagSourceRef, nil, usageSourceRef)
 
 	pflag.Parse()
+
+	// Before anything else is read: the check is defined as a verdict on the
+	// tree and the manifest alone, so it must not depend on a loadable config
+	// or a reachable contract repository (see internal/pkg/treecheck).
+	if checkMode {
+		runCheck(targetDir, pflag.CommandLine)
+
+		return
+	}
 
 	if err = viper.BindPFlags(pflag.CommandLine); err != nil {
 		log.Fatalf(layoutFailedToBindFlags, err)
@@ -306,8 +324,8 @@ func runGenerator() {
 	}
 
 	// Meta is always stored in target directory's .project-config
-	metaDir := filepath.Join(targetDir, ".project-config")
-	if genMeta, err = meta.GetMeta(metaDir, "meta.yaml"); err != nil {
+	metaDir := filepath.Join(targetDir, meta.DirName)
+	if genMeta, err = meta.GetMeta(metaDir, meta.FileName); err != nil {
 		log.Fatalf(layoutFailedToLoadMeta, err)
 	}
 
@@ -330,6 +348,34 @@ func runGenerator() {
 	}
 
 	log.Println("done")
+}
+
+// runCheck compares the generated area of the tree against the manifest the
+// last run wrote and exits non-zero when it no longer matches — the form a CI
+// gate needs. It writes nothing, so it is safe to run on a tree someone else
+// is about to commit.
+//
+// Flags that only make sense for generation are reported as ignored instead of
+// being honored or silently dropped: --sourceRef in particular would suggest
+// the check consults the contract repositories, which is exactly what it does
+// not do.
+func runCheck(targetDir string, flags *pflag.FlagSet) {
+	for _, name := range []string{flagConfig, flagConfigDir, flagSourceRef} {
+		if flags.Changed(name) {
+			log.Printf(layoutCheckIgnoredFlag, name, flagCheck)
+		}
+	}
+
+	res, err := treecheck.Run(targetDir)
+	if err != nil {
+		log.Fatalf(layoutFailedToCheck, err)
+	}
+
+	fmt.Println(res.Report())
+
+	if !res.OK() {
+		os.Exit(1)
+	}
 }
 
 // resolveSourceRefs returns the git ref overrides for the `path:` sources of
