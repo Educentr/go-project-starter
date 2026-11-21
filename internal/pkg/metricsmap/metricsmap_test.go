@@ -476,9 +476,9 @@ func TestLoad_InvalidMapNamesTheFile(t *testing.T) {
 
 func TestKnownTypes_IsSortedAndComplete(t *testing.T) {
 	types := metricsmap.KnownTypes()
-	require.Len(t, types, 8)
+	require.Len(t, types, 9)
 	assert.Equal(t, strings.Join([]string{
-		"Counter", "CounterVec", "Gauge", "GaugeVec",
+		"Counter", "CounterVec", "Gauge", "GaugeSet", "GaugeVec",
 		"Histogram", "HistogramVec", "Summary", "SummaryVec",
 	}, ","), strings.Join(types, ","))
 }

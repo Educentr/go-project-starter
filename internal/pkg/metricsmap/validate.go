@@ -69,6 +69,7 @@ var knownTypes = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup 
 	TypeHistogramVec: {},
 	TypeSummary:      {},
 	TypeSummaryVec:   {},
+	TypeGaugeSet:     {},
 }
 
 // Validate checks the whole map: every entry on its own, plus uniqueness of
@@ -191,6 +192,80 @@ func (m Metric) problems() []string {
 	problems = append(problems, m.labelProblems()...)
 	problems = append(problems, m.bucketProblems()...)
 	problems = append(problems, m.objectiveProblems()...)
+	problems = append(problems, m.gaugeSetProblems()...)
+
+	return problems
+}
+
+// gaugeSetProblems checks the rules specific to a state family: who may
+// declare one, and that its generated sample type is a struct that compiles.
+func (m Metric) gaugeSetProblems() []string {
+	if !m.IsGaugeSet() {
+		return nil
+	}
+
+	var problems []string
+
+	// `external` and `owner` both say "the collector is not built in the
+	// generated collector package", while GaugeSet is a statement about HOW
+	// that package builds it. Accepting the combination would generate
+	// nothing and read as if it had.
+	if m.External {
+		problems = append(problems,
+			fmt.Sprintf("type %s and external are mutually exclusive: %s describes how the service publishes "+
+				"the family; for a metric a library emits, declare its Prometheus type (Gauge/GaugeVec)",
+				TypeGaugeSet, TypeGaugeSet))
+	}
+
+	if m.Owner != "" {
+		problems = append(problems,
+			fmt.Sprintf("type %s and owner are mutually exclusive: a generator component builds its collectors "+
+				"in its own template, which has no state family in it", TypeGaugeSet))
+	}
+
+	return append(problems, m.sampleFieldProblems()...)
+}
+
+// sampleFieldProblems checks the label names of a state family against the
+// struct generated from them.
+//
+// A GaugeSet sample is a generated struct — one string field per declared
+// label plus the value — so that a sample with the wrong number of label
+// values is not something a caller can write. The price is that the label
+// names have to survive becoming field names: two labels that fold to one
+// field, or one that folds onto the value field, would produce a struct that
+// does not compile, in a package the service did not write.
+func (m Metric) sampleFieldProblems() []string {
+	var problems []string
+
+	seen := make(map[string]string, len(m.Labels))
+
+	for _, label := range m.Labels {
+		if !labelNameRx.MatchString(label) {
+			// Already reported by labelProblems; the derived field name of an
+			// invalid label says nothing useful.
+			continue
+		}
+
+		field := exportedIdent(label)
+
+		switch {
+		case field == "" || !startsWithLetter(field):
+			problems = append(problems, fmt.Sprintf(
+				"label %q generates the sample field %s of %s, which is not a Go identifier; "+
+					"the first character after any leading '_' must be a letter", label, field, m.SampleTypeName()))
+		case field == SampleValueField:
+			problems = append(problems, fmt.Sprintf(
+				"label %q generates the sample field %s of %s, which is the field carrying the value of the series; "+
+					"rename the label", label, field, m.SampleTypeName()))
+		case seen[field] != "":
+			problems = append(problems, fmt.Sprintf(
+				"labels %q and %q both generate the sample field %s of %s",
+				seen[field], label, field, m.SampleTypeName()))
+		default:
+			seen[field] = label
+		}
+	}
 
 	return problems
 }
@@ -225,12 +300,17 @@ func (m Metric) appProblems() []string {
 func (m Metric) labelProblems() []string {
 	var problems []string
 
-	if m.IsVec() && len(m.Labels) == 0 {
+	switch {
+	case m.IsGaugeSet() && len(m.Labels) == 0:
+		// A set with no labels is one series, and one series is not something
+		// a set has to be published whole: it is a Gauge the tick sets.
+		problems = append(problems, fmt.Sprintf(
+			"type %s requires labels; a family without labels is a single series — use %s",
+			TypeGaugeSet, TypeGauge))
+	case m.IsVec() && len(m.Labels) == 0:
 		problems = append(problems, fmt.Sprintf("type %s requires labels; use %s for a metric without labels",
 			m.Type, strings.TrimSuffix(m.Type, "Vec")))
-	}
-
-	if !m.IsVec() && len(m.Labels) > 0 {
+	case !m.HasLabels() && len(m.Labels) > 0:
 		problems = append(problems, fmt.Sprintf("type %s takes no labels; use %sVec to declare a series with labels", m.Type, m.Type))
 	}
 

@@ -1100,7 +1100,7 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 		return errors.Wrap(err, errMetricsMapCtx)
 	}
 
-	if err := metricsmap.ValidateVarNames(merged); err != nil {
+	if err := metricsmap.ValidateIdents(merged); err != nil {
 		return errors.Wrap(err, errMetricsMapCtx)
 	}
 

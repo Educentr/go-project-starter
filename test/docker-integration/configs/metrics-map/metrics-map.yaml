@@ -44,3 +44,23 @@ metrics:
     labels: outcome
     help: Spans handed to the OTLP exporter, by outcome.
     external: true
+
+  # A state family (TOOLS-125 / issue #148): the tick knows the whole truth
+  # about it, so the set is published as a unit and a series the tick no longer
+  # reports disappears instead of freezing at its last value. Written as a
+  # mutable GaugeVec this needs Reset() + refill, which shows the family as
+  # gone to any scrape landing in between.
+  - name: fleet_state
+    type: GaugeSet
+    labels: node, zone
+    help: >-
+      State of each known fleet node, by node and zone.
+
+  # A second one, to pin that the generated machinery is emitted once while the
+  # sample type is per family. Its label folds to a two-word field name.
+  - name: credential_probe_state
+    type: GaugeSet
+    labels:
+      - account_id
+      - kind
+    help: Result of the last credential probe, by account and credential kind.
