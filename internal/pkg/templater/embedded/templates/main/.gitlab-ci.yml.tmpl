@@ -313,12 +313,13 @@ notify:
     - |
       if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
         ESCAPED_COMMIT_MSG=$(echo "$CI_COMMIT_MESSAGE" | head -1 | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')
+        ESCAPED_BRANCH=$(echo "$CI_COMMIT_BRANCH" | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')
         MESSAGE="Репозиторий: *$(echo "$CI_PROJECT_PATH" | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g')*
       Коммит: _${ESCAPED_COMMIT_MSG}_
-      ✅ Успех: *CI Pipeline* завершен на ветке *$CI_COMMIT_BRANCH*"
+      ✅ Успех: *CI Pipeline* завершен на ветке *${ESCAPED_BRANCH}*"
 
 {{- if .Artifacts.HasDocker }}
-        DOCKER_LIST=$(echo "$CONTAINERS" | tr -d '[]"' | tr ',' '\n' | sed 's/^/      /')
+        DOCKER_LIST=$(echo "$CONTAINERS" | tr -d '[]"' | tr ',' '\n' | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g' | sed 's/^/      /')
         MESSAGE="$MESSAGE
 
       *Docker образы:*
@@ -326,7 +327,7 @@ notify:
 {{- end }}
 
 {{- if .Artifacts.HasPackaging }}
-        PKG_LIST=$(echo "$ARTIFACTS" | tr -d '[]"' | tr ',' '\n' | sed 's/^/      /')
+        PKG_LIST=$(echo "$ARTIFACTS" | tr -d '[]"' | tr ',' '\n' | sed 's/[][_*()~\`>#+=|{}.!-]/\\&/g' | sed 's/^/      /')
         MESSAGE="$MESSAGE
 
       *Пакеты:*
