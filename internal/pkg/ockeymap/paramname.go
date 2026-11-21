@@ -28,6 +28,8 @@ import (
 // assertAccessorsShadowNothing (test/onlineconf_map_test.go, called from
 // TestGenerateOnlineConfMap) reads the identifiers back out of a generated
 // package and fails when one of them is missing here.
+//
+//nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 var occonfIdents = []string{
 	// Imports the bodies call.
 	"context", "errors", "fmt", "onlineconf", "strings", "time",

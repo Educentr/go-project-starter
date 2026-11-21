@@ -31,6 +31,8 @@ var ErrUnknownApp = errors.New("unknown application")
 // {{ $m.VarName }} — {{ $m.Help | GoComment }}
 //
 // Metric: {{ $m.Name }} ({{ $m.Type }}){{ if $m.Labels }}, labels: {{ range $i, $l := $m.Labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}{{ end }}
+//
+//nolint:gochecknoglobals // коллектор процессный по устройству Prometheus: его регистрируют один раз и эмитят из любого места сервиса
 var {{ $m.VarName }} = {{ $m.Constructor }}(
 	{{ $m.OptsType }}{
 		Name: "{{ $m.Name }}",
@@ -62,6 +64,8 @@ var {{ $m.VarName }} = {{ $m.Constructor }}(
 // An application with no /metrics endpoint is a key here only when the map
 // names it: it has no endpoint of its own, so it is here to take its
 // collectors into a registry of its own code.
+//
+//nolint:gochecknoglobals // таблица, целиком сгенерированная из карты метрик; после инициализации только читается
 var collectorsByApp = map[string][]prometheus.Collector{
 {{- range $_, $a := .Metrics.CollectorsByApp }}
 	{{ $a.App | GoQuote }}: {

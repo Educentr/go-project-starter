@@ -79,7 +79,7 @@ func TestFilenameToTypeName(t *testing.T) {
 }
 
 func TestGenerator_GetTmplParams(t *testing.T) {
-	logger := loggers.LoggerMapping["zerolog"]
+	logger, _ := loggers.Get("zerolog")
 
 	g := &Generator{
 		Logger:              logger,
@@ -159,7 +159,7 @@ func TestGenerator_GetTmplParams(t *testing.T) {
 }
 
 func TestGenerator_GetTmplAppParams(t *testing.T) {
-	logger := loggers.LoggerMapping["zerolog"]
+	logger, _ := loggers.Get("zerolog")
 
 	g := &Generator{
 		Logger:      logger,
@@ -202,7 +202,7 @@ func TestGenerator_GetTmplAppParams(t *testing.T) {
 }
 
 func TestGenerator_GetTmplHandlerParams(t *testing.T) {
-	logger := loggers.LoggerMapping["zerolog"]
+	logger, _ := loggers.Get("zerolog")
 
 	g := &Generator{
 		Logger:      logger,
@@ -250,7 +250,7 @@ func TestGenerator_GetTmplHandlerParams(t *testing.T) {
 }
 
 func TestGenerator_GetTmplRunnerParams(t *testing.T) {
-	logger := loggers.LoggerMapping["zerolog"]
+	logger, _ := loggers.Get("zerolog")
 
 	g := &Generator{
 		Logger:      logger,

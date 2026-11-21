@@ -10,10 +10,6 @@ import (
 	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
-var (
-	tgSHA []byte
-)
-
 // GetTgTokenPath returns the path of the bot token, for a subscription to its
 // rotation. The token is a declared key, so the path comes from the accessor
 // package rather than from segments assembled here.
@@ -38,15 +34,32 @@ func GetTgToken(ctx context.Context, serviceName string) (string, error) {
 	return botToken, nil
 }
 
-func updateTgSHA(ctx context.Context, serviceName string) error {
+// updateTgSHA пересчитывает ключ подписи WebApp-данных по текущему токену бота.
+// Зовётся из Init и из подписки на ротацию токена.
+func (tg *Telegram) updateTgSHA(ctx context.Context, serviceName string) error {
 	botToken, err := GetTgToken(ctx, serviceName)
 	if err != nil {
 		return err
 	}
 
-	tgSHA, err = MakeSHA256Hash(ctx, []byte("WebAppData"), []byte(botToken))
+	sha, err := MakeSHA256Hash(ctx, []byte("WebAppData"), []byte(botToken))
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Под мьютексом: ротацию токена исполняет горутина наблюдателя OnlineConf, а
+	// читает ключ подпись/проверка инвойса в горутине запроса.
+	//
+	// Это закрывает гонку только на tgSHA — поле, которое переехало сюда из
+	// package-level переменной. Ротация в том же колбэке переписывает и tg.bot,
+	// тоже без синхронизации, и это по-прежнему гонка: она не про глобальные
+	// переменные, старше этой правки и требует протащить блокировку через все
+	// чтения tg.bot в драйвере. Заведена отдельной задачей.
+	tg.tgSHAMu.Lock()
+	tg.tgSHA = sha
+	tg.tgSHAMu.Unlock()
+
+	return nil
 }
 
 func MakeSHA256Hash(ctx context.Context, key, data []byte) ([]byte, error) {
@@ -62,10 +75,19 @@ func MakeSHA256Hash(ctx context.Context, key, data []byte) ([]byte, error) {
 	return hashKey.Sum(nil), nil
 }
 
-func GetTgTokenSHA(_ context.Context) ([]byte, error) {
-	if tgSHA == nil {
+// GetTgTokenSHA отдаёт ключ подписи WebApp-данных текущего токена бота.
+//
+// Метод, а не функция пакета: ключ живёт в драйвере (поле tgSHA), а не в
+// package-level переменной. Вызывающие вне драйвера получают его через сервис
+// (Service.TelegramPackInvoiceData / TelegramUnpackInvoiceData).
+func (tg *Telegram) GetTgTokenSHA(_ context.Context) ([]byte, error) {
+	tg.tgSHAMu.RLock()
+	sha := tg.tgSHA
+	tg.tgSHAMu.RUnlock()
+
+	if sha == nil {
 		return nil, ErrTGConfiguration
 	}
 
-	return tgSHA, nil
+	return sha, nil
 }

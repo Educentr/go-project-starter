@@ -29,8 +29,15 @@ var (
 	ErrParamsNotEnough         = errors.New("not enough parameters")
 )
 
-var (
-	UnimplementedResponse = telegram.Response{
+// UnimplementedResponse — ответ на команду, обработчик которой проект ещё не
+// написал.
+//
+// Функция, а не переменная: Response несёт срез сообщений, а у каждого сообщения
+// свой срез кнопок, поэтому один общий экземпляр отдавался бы всем вызывающим с
+// общей подложкой — дописанная одним обработчиком кнопка (append в пределах
+// capacity) видна остальным. Каждый вызов собирает свой.
+func UnimplementedResponse() telegram.Response {
+	return telegram.Response{
 		Messages: []telegram.Message{
 			{
 				Text:   "Unimplemented command",
@@ -38,7 +45,7 @@ var (
 			},
 		},
 	}
-)
+}
 
 func NewHandler(srv *service.EmptyService, rd telegram.RequestData) *Handler {
 	return &Handler{

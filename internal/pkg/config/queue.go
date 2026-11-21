@@ -27,7 +27,7 @@ type QueueSpec struct {
 }
 
 // validQueueFieldTypes contains allowed field types
-var validQueueFieldTypes = map[string]bool{
+var validQueueFieldTypes = map[string]bool{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"int":     true,
 	"int64":   true,
 	"string":  true,

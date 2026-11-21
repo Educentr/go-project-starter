@@ -80,7 +80,7 @@ var (
 
 // linterSections are the two mappings whose enable/disable sequences name
 // linters instead of carrying values (rule 4).
-var linterSections = []string{"linters", "formatters"}
+var linterSections = []string{"linters", "formatters"} //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 
 // Validate reports whether an override document is usable as the right-hand
 // side of Merge. It is meant for the config-load stage, where failing early

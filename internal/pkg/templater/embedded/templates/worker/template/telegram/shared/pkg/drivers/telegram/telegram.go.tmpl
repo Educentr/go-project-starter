@@ -6,6 +6,7 @@ import (
 	stdlog "log"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
@@ -27,6 +28,13 @@ type Telegram struct {
 	Poller              tgbotapi.UpdatesChannel
 	OnSendError         OnSendErrorCallback
 	apiEndpoint         string
+	// tgSHA — ключ подписи WebApp-данных для текущего токена бота. Поле, а не
+	// package-level переменная: токен принадлежит этому экземпляру драйвера, и
+	// два драйвера в одном процессе (разные боты) делили бы один ключ, то есть
+	// подписывали бы инвойс ключом чужого бота. Доступ — только через
+	// updateTgSHA / GetTgTokenSHA, под tgSHAMu.
+	tgSHA   []byte
+	tgSHAMu sync.RWMutex
 }
 
 const (
@@ -140,7 +148,7 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 	_ = tgbotapi.SetLogger(botLogger{out: stdlog.Default()})
 
 	updateTgToken := func(ctx context.Context) error {
-		err := updateTgSHA(ctx, serviceName)
+		err := tg.updateTgSHA(ctx, serviceName)
 		if err != nil {
 			return err
 		}

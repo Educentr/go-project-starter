@@ -95,7 +95,12 @@ func (tg *Telegram) SendInvoice(ctx context.Context,
 	return 0, errors.New("no message found")
 }
 
-func PackInvoiceData(ctx context.Context, invoiceData TelegramInvoiceData) (string, error) {
+// PackInvoiceData упаковывает данные инвойса в payload и подписывает его ключом
+// текущего токена бота.
+//
+// Метод, а не функция пакета: ключ подписи — поле драйвера. Вне драйвера зовётся
+// через сервис (Service.TelegramPackInvoiceData).
+func (tg *Telegram) PackInvoiceData(ctx context.Context, invoiceData TelegramInvoiceData) (string, error) {
 	ret := bytes.Buffer{}
 	w := bufio.NewWriter(&ret)
 
@@ -139,7 +144,7 @@ func PackInvoiceData(ctx context.Context, invoiceData TelegramInvoiceData) (stri
 		return "", err
 	}
 
-	key, err := GetTgTokenSHA(ctx)
+	key, err := tg.GetTgTokenSHA(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -162,13 +167,16 @@ func PackInvoiceData(ctx context.Context, invoiceData TelegramInvoiceData) (stri
 	return base64.StdEncoding.EncodeToString(ret.Bytes()), nil
 }
 
-func UnpackInvoiceData(ctx context.Context, invoice *TelegramInvoiceData, data string) error {
+// UnpackInvoiceData разбирает payload инвойса и проверяет его подпись ключом
+// текущего токена бота. Метод по той же причине, что PackInvoiceData; вне
+// драйвера — через Service.TelegramUnpackInvoiceData.
+func (tg *Telegram) UnpackInvoiceData(ctx context.Context, invoice *TelegramInvoiceData, data string) error {
 	dec, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return err
 	}
 
-	key, err := GetTgTokenSHA(ctx)
+	key, err := tg.GetTgTokenSHA(ctx)
 	if err != nil {
 		return err
 	}

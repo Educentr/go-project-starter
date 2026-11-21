@@ -44,6 +44,8 @@ func NewOnlineConfConfigProvider(serviceName string) *OnlineConfConfigProvider {
 // installation seeded it by hand, repeating a number declared in project.yaml
 // all along. A value in the tree still wins — this is only what the provider
 // answers with when neither form of the key is set.
+//
+//nolint:gochecknoglobals // таблица, целиком сгенерированная из project.yaml; после инициализации только читается
 var defaultPorts = map[string]string{
 {{- range $_, $server := .Applications.RESTServerPorts }}
 	"{{ $server.Server }}": "{{ $server.Port }}",

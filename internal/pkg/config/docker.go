@@ -145,7 +145,7 @@ var dockerUnsafeValueRx = regexp.MustCompile(`[\r\n"\\]`)
 // `ARG`s the Dockerfile template already declares and the variables the
 // Makefile template already assigns. Taking one of them would redeclare it and
 // silently change the value used by the rest of the generated build.
-var dockerReservedArgNames = map[string]struct{}{
+var dockerReservedArgNames = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	// Dockerfile template (app/files/Dockerfile.tmpl).
 	"binary": {},
 	// Makefile template (main/Makefile.tmpl).
@@ -223,7 +223,7 @@ var dockerWorkdirRx = regexp.MustCompile(`^/[^\s"'\\#]*$`)
 // of its distribution. Only the images whose manager is unambiguous are listed:
 // for anything else the section has to declare package_manager, because a
 // guessed manager produces a Dockerfile that fails at build time.
-var dockerBaseImageManagers = map[string]string{
+var dockerBaseImageManagers = map[string]string{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"alpine": ds.DockerPackageManagerAPK,
 	"debian": ds.DockerPackageManagerAPT,
 	"ubuntu": ds.DockerPackageManagerAPT,

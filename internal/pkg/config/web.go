@@ -139,7 +139,7 @@ const (
 
 // webVars is the variable vocabulary of the web codegen command, in the order
 // the error messages list it.
-var webVars = []string{WebVarSpec, WebVarSpecName, WebVarInput}
+var webVars = []string{WebVarSpec, WebVarSpecName, WebVarInput} //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 
 // webNameRe is the accepted shape of a web entry name: it becomes a make
 // target suffix (install-web-<name>, build-web-<name>, generate-web-<name>)

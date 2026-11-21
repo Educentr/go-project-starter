@@ -1,7 +1,6 @@
 package templater
 
 import (
-	"io/fs"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,29 +39,12 @@ var initFuncRx = regexp.MustCompile(`func\s+init\s*\(`)
 // reintroduced into a template would ship to every generated project and only
 // surface, if at all, in a user's lint run.
 //
-// Every template is scanned, not just `*.go.tmpl`: a Markdown template teaching
-// the pattern (LLMS.md, docs) hands projects the same thing the linter then
-// rejects.
+// Every template is scanned, not just `*.go.tmpl` — see walkTemplates.
 func InitFuncOccurrences() ([]InitFuncOccurrence, error) {
 	var found []InitFuncOccurrence
 
-	err := fs.WalkDir(templates, templatesRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		data, rerr := templates.ReadFile(path)
-		if rerr != nil {
-			return rerr
-		}
-
-		relative := templateRelPath(path)
-
-		for i, line := range strings.Split(string(data), "\n") {
+	err := walkTemplates(func(relative, body string) error {
+		for i, line := range strings.Split(body, "\n") {
 			if initFuncRx.MatchString(line) {
 				found = append(found, InitFuncOccurrence{
 					Template: relative,
