@@ -272,6 +272,29 @@ applications:
 `(*service.EmptyService).InitClients(ctx, []ds.ClientInitializer) error`: этот метод (как и сам
 тип `EmptyService`, на который опирается `main` сервисного приложения) нужно объявить самому.
 
+## Обязательные ключи OnlineConf (`CheckRequired`)
+
+`main` CLI-приложения инициализирует OnlineConf (`occonf.Initialize` — дерево доступно всем
+командам), но `occonf.CheckRequired` **не вызывает, намеренно**. Ключи карты сервиса
+(`onlineconf.path`) проверяются в каждом приложении, потому что у карты нет измерения
+приложений, — и CLI не стартовала бы из-за `required`-ключа, который читает только сервис. Плюс
+короткоживущей команде не обязательно нужна вся конфигурационная поверхность сервиса.
+
+Это **не** та проверка, что `<client> client URL not configured` выше: ту делает `InitClients`,
+когда адрес статического клиента не задан, и к `CheckRequired` она отношения не имеет — как и
+`optional: true`, который настраивает именно инициализацию клиента.
+
+Нужна проверка обязательных ключей — вызовите её сами в обработчике команды или в общем коде
+команд, то есть после `occonf.Initialize`:
+
+```go
+if err := occonf.CheckRequired(ctx, "admin-cli"); err != nil {
+	return err
+}
+```
+
+Подробнее — [«`CheckRequired` — проверка на старте»](../configuration/onlineconf-keys.md#checkrequired--проверка-на-старте).
+
 ## Сравнение подходов
 
 | Без спецификации | Со спецификацией (`commands.yaml`) |
