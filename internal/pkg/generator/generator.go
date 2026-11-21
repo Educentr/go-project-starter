@@ -645,6 +645,7 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
 		DoctlVersion:      config.GithubCI.DoctlVersion,
 		DoctlMode:         config.GithubCI.DoctlMode(),
+		PushBranches:      config.GithubCI.PushBranches,
 		Checks: ds.ChecksConfig{
 			// No checks declared — no checks job, CI graph unchanged.
 			Checks:   make([]ds.Check, 0, len(config.GithubCI.Checks)),
