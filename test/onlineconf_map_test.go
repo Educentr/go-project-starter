@@ -136,10 +136,33 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 		"func CheckRequired(ctx context.Context, app string) error",
 		"func Initialize(ctx context.Context, configDir string) (context.Context, error)",
 		"func StartWatcher(ctx context.Context) error",
+		// TOOLS-96 / issue #124 item 5. Same reason as Subscribe: hand-written
+		// code that can run on a context built outside the service wiring — a
+		// unit test on context.Background(), a helper shared with a tool — had
+		// no way to ask whether the tree is there, or to put one there, because
+		// the validator forbids reaching for the library itself. Clone comes
+		// with Release because a clone holds its version of the tree mapped
+		// until it is returned.
+		"func Initialized(ctx context.Context) bool",
+		"func Clone(from, to context.Context) (context.Context, error)",
+		"func Release(main, cloned context.Context) error",
 	} {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("generated accessor package should declare %q", want)
 		}
+	}
+
+	// Initialized answers from the context and nothing else — a guard that
+	// could itself fail would have to be guarded.
+	if !strings.Contains(occonfFile, "return onlineconf.FromContext(ctx) != nil") {
+		t.Error("Initialized should report on the context's tree directly")
+	}
+
+	// Clone refuses a source context without a tree instead of panicking on
+	// it: onlineconf.Clone dereferences the instance it finds, and the caller
+	// of this is by definition code that cannot rely on the startup boundary.
+	if !strings.Contains(occonfFile, `return nil, fmt.Errorf("clone onlineconf: %w", ErrNoTree)`) {
+		t.Error("Clone should report ErrNoTree for a source context with no tree, not dereference nil")
 	}
 
 	// CheckRequired covers exactly the three required declarations, through the
@@ -400,6 +423,18 @@ func TestGenerateRejectsKeysTheGeneratorReads(t *testing.T) {
 			keyType:  "duration",
 			wantMsgs: []string{"/octest/transport/rest/api_v1/api/handler", "computes"},
 		},
+		{
+			// The metrics prefix is open, so what protects the level the logger
+			// reads below it is the match by shape — and the middleware hands
+			// the url path whole, so the shape is as deep as the url is long.
+			name:    "the level of a multi-segment url path below the open metrics prefix",
+			path:    "/octest/transport/rest/api_v1/api/mw/metrics/v1/users/log_level",
+			keyType: "string",
+			wantMsgs: []string{
+				"/octest/transport/rest/api_v1/api/mw/metrics/<urlPath>/log_level",
+				"angle brackets", "logger/zlog/zlog.go.tmpl",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -475,6 +510,57 @@ func TestGenerateRejectsWorkerAndBotKeys(t *testing.T) {
 	}
 }
 
+// TestGenerateAllowsServiceKeysBesideAnOpenPrefix is the regression test for
+// TOOLS-87: the tick interval of a worker is read by the handwritten job code,
+// under the worker prefix, and nothing generated reads it. Reserving the whole
+// subtree left that key with no accessor and no way to declare it, so the only
+// way to read it was to call the OnlineConf library from a package excluded from
+// the validator — which is the thing the key map exists to remove.
+//
+// The worker prefix is `open`: every read the generated code performs below it
+// is declared, so the service may declare its own keys beside them.
+func TestGenerateAllowsServiceKeysBesideAnOpenPrefix(t *testing.T) {
+	const (
+		workerPrefix = "/simple-worker-daemon/worker/daemon"
+		intervalPath = workerPrefix + "/interval"
+	)
+
+	out, targetDir, err := generateOnlineConfMap(t, "worker-daemon",
+		"keys:\n  - path: "+intervalPath+"\n    type: duration\n    default: 1m\n"+
+			"    description: How long the worker sleeps between ticks.\n")
+	if err != nil {
+		t.Fatalf("generation should accept a key beside the reads of an open prefix: %v\n%s", err, out)
+	}
+
+	occonf := readGenerated(t, targetDir, "internal", "pkg", "occonf", "psg_occonf_gen.go")
+
+	if !strings.Contains(occonf, `"`+intervalPath+`"`) {
+		t.Errorf("the declared key should get a path constant carrying %s", intervalPath)
+	}
+
+	registry := onlineConfRegistry(t, targetDir)
+
+	entry, listed := registry[intervalPath]
+	if !listed {
+		t.Fatalf("%s should be a row of the registry", intervalPath)
+	}
+
+	if entry.Origin != "service" || entry.Accessor == "" {
+		t.Errorf("%s = %+v, want a service row read through an accessor", intervalPath, entry)
+	}
+
+	// The prefix row says who reads below it, and an open one claims no subtree:
+	// `owns` is what tells a reviewer the service may not declare there.
+	prefix, listed := registry[workerPrefix]
+	if !listed {
+		t.Fatalf("%s should be a row of the registry", workerPrefix)
+	}
+
+	if prefix.Owns != "" {
+		t.Errorf("%s owns = %q, want no claim: the subtree is open", workerPrefix, prefix.Owns)
+	}
+}
+
 // A key of a dimension the project does not have is the service's to declare:
 // nothing in this project reads it, so there is no second reader to protect
 // against. Over-reserving would be the mirror image of the old prefix list,
@@ -514,10 +600,22 @@ func TestGenerateWithoutOnlineConfMap(t *testing.T) {
 		"func SecurityCSRFEnabled(ctx context.Context) (bool, bool, error)",
 		"func Initialize(ctx context.Context, configDir string) (context.Context, error)",
 		"func CheckRequired(",
+		// The lifecycle and context helpers belong to the same half: they are
+		// what the validator leaves the project instead of the library.
+		"func Initialized(ctx context.Context) bool",
+		"func Clone(from, to context.Context) (context.Context, error)",
+		"func Release(main, cloned context.Context) error",
+		"var ErrNoTree = errors.New(",
 	} {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("a project without a key map should still declare %q", want)
 		}
+	}
+
+	// ErrNoTree is unconditional, so "errors" is now always imported — the
+	// shape this project had before was the one that left it out.
+	if _, err := parser.ParseFile(token.NewFileSet(), "psg_occonf_gen.go", occonfFile, parser.SkipObjectResolution); err != nil {
+		t.Errorf("generated accessor package is not valid Go: %v", err)
 	}
 
 	// And the service's half is empty, so there are no path constants of its

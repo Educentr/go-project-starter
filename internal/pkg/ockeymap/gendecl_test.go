@@ -579,6 +579,15 @@ func TestParseGenDeclRejectsDefects(t *testing.T) {
 				"        type: bool\n        description: d\n",
 			wantMsg: "twice",
 		},
+		{
+			// `open` says which of the paths below a prefix are the generator's.
+			// An entry that hands out no prefix reserves one path, its own, and
+			// there is nothing for `open` to narrow.
+			name: "open on an entry claiming no subtree",
+			yaml: "groups:\n  - scope: service\n    keys:\n      - path: \"{service}/a\"\n        name: X\n" +
+				"        type: bool\n        open: true\n        description: d\n",
+			wantMsg: "claims no subtree",
+		},
 	}
 
 	for _, tt := range tests {
@@ -717,6 +726,162 @@ func TestCheckGeneratorKeys(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An open prefix hands out a subtree whose reads are all declared, so the
+// service may declare its own keys there — the tick interval of a worker is
+// read by handwritten code below the worker prefix, and closing the subtree
+// left it with no accessor and no way to declare it (TOOLS-87).
+func TestCheckGeneratorKeysOpenSubtree(t *testing.T) {
+	generated := []ockeymap.GeneratorKey{
+		{
+			Path: "/svc/worker/reaper", Accessor: "WorkerPath",
+			OwnedPrefix: "/svc/worker/reaper", OpenSubtree: true,
+			ReadBy: []string{"daemon.go.tmpl"}, Descriptions: []string{"worker subtree"},
+		},
+		{
+			Path: "/svc/worker/reaper/job/timeout", Type: "duration", Accessor: "WorkerJobTimeout",
+			ReadBy: []string{"daemon.go.tmpl"}, Descriptions: []string{"job timeout"},
+		},
+		{
+			Path: "/svc/worker/reaper/<levelKey>/log_level", Type: "string", ReadVia: "LogLevel",
+			ReadBy: []string{"zlog.go.tmpl"}, Descriptions: []string{"log level of a stage"},
+		},
+		{
+			Path: "/svc/transport/rest/api_v1/web/mw/metrics", Accessor: "RESTAppMetricsPath",
+			OwnedPrefix: "/svc/transport/rest/api_v1/web/mw/metrics", OpenSubtree: true,
+			ReadBy: []string{"config_oc.go.tmpl"}, Descriptions: []string{"metrics prefix"},
+		},
+		{
+			Path:    "/svc/transport/rest/api_v1/web/mw/metrics/<urlPath>/log_level",
+			Type:    "string",
+			ReadVia: "LogLevel",
+			ReadBy:  []string{"zlog.go.tmpl"}, Descriptions: []string{"log level of a url path"},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		wantMsgs []string
+	}{
+		{
+			// The case the issue reports: a leaf nothing generated reads.
+			name: "a key beside the declared reads",
+			path: "/svc/worker/reaper/interval",
+		},
+		{
+			name: "a key deeper in the subtree",
+			path: "/svc/worker/reaper/drain/timeout",
+		},
+		{
+			name:     "a read declared in the subtree",
+			path:     "/svc/worker/reaper/job/timeout",
+			wantMsgs: []string{"reads itself", "daemon.go.tmpl", "job timeout"},
+		},
+		{
+			// The prefix itself stays the generator's: it is the node the
+			// generated code is handed, and the registry has a row for it.
+			name:     "the prefix itself",
+			path:     "/svc/worker/reaper",
+			wantMsgs: []string{"is the root of a subtree", "daemon.go.tmpl"},
+		},
+		{
+			// A read declared with a runtime segment names a shape, not a path:
+			// every stage below the prefix is read, whichever name it has.
+			name: "an instance of a read whose segment is computed at runtime",
+			path: "/svc/worker/reaper/startup/log_level",
+			wantMsgs: []string{
+				"reads itself", "/svc/worker/reaper/<levelKey>/log_level", "angle brackets",
+				"zlog.go.tmpl",
+			},
+		},
+		{
+			// A runtime segment stands for the whole value the generated code
+			// computes, slashes included: the request middleware hands the
+			// logger `r.URL.Path`, so the level of /v1/users is read several
+			// levels below the prefix. Matching segment for segment let exactly
+			// this shape — the common one for a REST url — through.
+			name: "an instance spanning several segments",
+			path: "/svc/transport/rest/api_v1/web/mw/metrics/v1/users/log_level",
+			wantMsgs: []string{
+				"reads itself", "/svc/transport/rest/api_v1/web/mw/metrics/<urlPath>/log_level",
+				"angle brackets", "zlog.go.tmpl",
+			},
+		},
+		{
+			name: "a deep key in the open subtree that no read reaches",
+			path: "/svc/transport/rest/api_v1/web/mw/metrics/v1/users/sample_rate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyMap, err := ockeymap.Parse([]byte("keys:\n  - path: " + tt.path + "\n    type: duration\n"))
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+
+			err = keyMap.CheckGeneratorKeys(generated)
+
+			if len(tt.wantMsgs) == 0 {
+				if err != nil {
+					t.Fatalf("CheckGeneratorKeys() error = %v, want nil", err)
+				}
+
+				return
+			}
+
+			if !errors.Is(err, ockeymap.ErrReservedPath) {
+				t.Fatalf("CheckGeneratorKeys() error = %v, want ErrReservedPath", err)
+			}
+
+			for _, want := range tt.wantMsgs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// Opening a subtree is a property of the prefix, so it survives the expansion
+// into the paths of a concrete project.
+func TestExpandOpenPathBuilder(t *testing.T) {
+	got := expand(t,
+		"groups:\n  - scope: worker_daemon\n    keys:\n      - path: \"{service}/worker/{worker}\"\n"+
+			"        name: WorkerPath\n        open: true\n        description: d\n",
+		fullSurface())
+
+	if got.Keys[0].OwnedPrefix != "/svc/worker/reaper" || !got.Keys[0].OpenSubtree {
+		t.Errorf("OwnedPrefix = %q, OpenSubtree = %v, want the path itself, open",
+			got.Keys[0].OwnedPrefix, got.Keys[0].OpenSubtree)
+	}
+
+	if !got.Accessors[0].Open {
+		t.Error("the accessor should carry the open prefix, so that no other declaration of it disagrees")
+	}
+}
+
+// Two declarations of one prefix disagreeing about `open` would reserve the
+// paths of one accessor in one scope and leave them declarable in another.
+func TestExpandRejectsOpenDisagreement(t *testing.T) {
+	first := parseDecl(t, "groups:\n  - scope: worker_daemon\n    keys:\n"+
+		"      - path: \"{service}/worker/{worker}\"\n        name: WorkerPath\n        open: true\n"+
+		"        description: d\n")
+
+	second := parseDecl(t, "groups:\n  - scope: worker_telegram\n    keys:\n"+
+		"      - path: \"{service}/worker/{worker}\"\n        name: WorkerPath\n        description: d\n")
+	second.Owner = "other.go.tmpl"
+
+	_, err := ockeymap.ExpandGenDecls([]ockeymap.GenDeclFile{first, second}, fullSurface())
+	if !errors.Is(err, ockeymap.ErrGenDeclDefect) {
+		t.Fatalf("ExpandGenDecls() error = %v, want ErrGenDeclDefect", err)
+	}
+
+	if !strings.Contains(err.Error(), "open") {
+		t.Errorf("the error should name the disagreement, got: %v", err)
 	}
 }
 

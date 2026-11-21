@@ -1278,6 +1278,29 @@ func TestGenerateCLIOnly(t *testing.T) {
 		"if errors.Is(err, flag.ErrHelp) {",
 	})
 
+	// TOOLS-96 / issue #124 item 3: a repeated flag is refused instead of
+	// silently resolving to its last value. Every flag of a generated command
+	// is scalar — the spec has no list type, so a list travels as one CSV
+	// value — which is what makes '--label a --label b' a mistake rather than
+	// an addition. The behavioral half of this is in the docker-integration
+	// suite, which runs the built binary.
+	assertFileContains(t, handlerFile, []string{
+		"func checkRepeatedFlags(fs *flag.FlagSet, args []string) error",
+		"func isBoolFlag(f *flag.Flag) bool",
+		`return fmt.Errorf("flag --%s is specified more than once", name)`,
+	})
+
+	// Checked before fs.Parse, not after: FlagSet keeps the last value of a
+	// repeated flag, so by the time Parse returns the earlier ones are gone.
+	for _, before := range []string{
+		"if err := checkRepeatedFlags(fs, args); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\n\t\t\tif err := fs.Parse(args); err != nil {",
+		"if err := checkRepeatedFlags(fs, args); err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n\n\t\t\t\t\tif err := fs.Parse(args); err != nil {",
+	} {
+		if !strings.Contains(string(handlerContent), before) {
+			t.Error("checkRepeatedFlags must be called immediately before fs.Parse, for commands and subcommands alike")
+		}
+	}
+
 	// Defect 6: generator self-tests must not be shipped into user projects.
 	if _, err := os.Stat(filepath.Join(tmpDir, "internal/app/transport/cli/admin/psg_handler_test.go")); err == nil {
 		t.Error("generated project must not contain psg_handler_test.go — " +
@@ -2698,13 +2721,15 @@ func TestGenerateRESTEnvsGoat(t *testing.T) {
 }
 
 // TestGeneratePrivateReposTokenSecret covers git.private_repos_token_secret:
-// the name of the CI secret the generated GitHub workflow reads to fetch
+// the name of the CI secret the generated GitHub workflows read to fetch
 // private Go modules.
 //
 // Both cases render from the same fixture, so the configured secret name is
 // the only difference between them: unset must keep the historical GH_PAT
 // (existing projects regenerate unchanged), and a configured name must replace
-// every occurrence.
+// every occurrence. The count spans both generated workflows: go-version-check
+// downloads modules too, and the checks job of ci_cd.yml used to hardcode
+// GH_PAT regardless of the configured name.
 func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 	curDir, err := os.Getwd()
 	if err != nil {
@@ -2715,7 +2740,7 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 
 	// generate renders the fixture, optionally dropping the
 	// private_repos_token_secret line to exercise the default, and returns the
-	// generated workflow.
+	// generated workflows.
 	generate := func(t *testing.T, withTokenSecret bool) string {
 		t.Helper()
 
@@ -2776,18 +2801,24 @@ func TestGeneratePrivateReposTokenSecret(t *testing.T) {
 			t.Fatalf("Error creating project: %s\n%s", err, out)
 		}
 
-		workflow, err := os.ReadFile(filepath.Join(tmpDir, ".github", "workflows", "ci_cd.yml"))
-		if err != nil {
-			t.Fatalf("Error reading generated workflow: %v", err)
+		workflows := ""
+
+		for _, name := range generatedWorkflowNames {
+			content, err := os.ReadFile(filepath.Join(tmpDir, filepath.FromSlash(name)))
+			if err != nil {
+				t.Fatalf("Error reading generated workflow %s: %v", name, err)
+			}
+
+			workflows += string(content)
 		}
 
-		return string(workflow)
+		return workflows
 	}
 
-	// The fixture enables goat tests plus docker and deb artifacts so that
-	// every job referencing the token is rendered. Pinning the count keeps a
-	// newly added reference from escaping the check.
-	const wantRefs = 4
+	// The fixture enables goat tests, a CI check plus docker and deb artifacts
+	// so that every job referencing the token is rendered. Pinning the count
+	// keeps a newly added reference from escaping the check.
+	const wantRefs = 6
 
 	t.Run("configured name replaces every occurrence", func(t *testing.T) {
 		workflow := generate(t, true)
