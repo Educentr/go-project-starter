@@ -302,7 +302,7 @@ type (
 	//	git:
 	//	  repo: https://github.com/org/repo
 	//	  module_path: github.com/org/repo
-	//	  private_repos: github.com/myorg/*
+	//	  private_repos: "github.com/myorg/*"
 	//	  private_repos_token_secret: GO_MODULES_TOKEN
 	//
 	// See docs/configuration/main.md for full documentation.
@@ -311,7 +311,11 @@ type (
 		Repo string `mapstructure:"repo"`
 		// ModulePath is the Go module path. Required.
 		ModulePath string `mapstructure:"module_path"`
-		// PrivateRepos is a comma-separated list of private modules for GOPRIVATE.
+		// PrivateRepos is a comma-separated list of private modules for
+		// GOPRIVATE. It is the whole value: the generator prepends no host of
+		// its own, and an empty field means an empty GOPRIVATE. A private
+		// Educentr module is listed here like any other
+		// (templater.GeneratorParams.GoPrivate).
 		PrivateRepos string `mapstructure:"private_repos"`
 		// PrivateReposTokenSecret is the name of the CI secret holding the token
 		// used to fetch private Go modules. Empty means the generator default

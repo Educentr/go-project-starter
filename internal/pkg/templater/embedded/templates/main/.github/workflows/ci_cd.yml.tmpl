@@ -351,7 +351,7 @@ jobs:
           password: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
 {{- end }}
 {{- end }}
-{{ template "privateModulesAccess" $ }}
+{{- template "privateModulesAccess" $ }}
 
       - name: Run check ${{"{{"}} matrix.name {{"}}"}}
         run: ${{"{{"}} matrix.run {{"}}"}}
@@ -489,7 +489,7 @@ jobs:
           username: ${{"{{"}} secrets.REGISTRY_USERNAME {{"}}"}}
           password: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
       {{ end }}
-{{ template "privateModulesAccess" $ }}
+{{- template "privateModulesAccess" $ }}
 
       - name: Run GOAT tests for {{ $a.Name }}
         run: |
@@ -622,7 +622,7 @@ jobs:
         with:
           go-version: '{{ .GoLangVersion }}'
           cache: true
-{{ template "privateModulesAccess" $ }}
+{{- template "privateModulesAccess" $ }}
 
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest

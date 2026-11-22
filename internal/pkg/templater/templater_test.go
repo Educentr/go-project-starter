@@ -2194,6 +2194,59 @@ func TestPrivateReposTokenSecretName(t *testing.T) {
 	}
 }
 
+// TestGoPrivate pins the decision the accessor carries: GOPRIVATE is exactly
+// git.private_repos, with no host prepended. The Makefile and the GitHub
+// workflows used to prepend github.com/Educentr and .gitlab-ci.yml gitlab.com,
+// which took every Educentr module off the proxy — and off the checksum
+// verification GOPRIVATE also disables — in every generated project, including
+// the ones that depend on no private module at all.
+func TestGoPrivate(t *testing.T) {
+	tests := []struct {
+		name         string
+		privateRepos string
+		want         string
+	}{
+		{
+			name:         "no private repos declared leaves GOPRIVATE empty",
+			privateRepos: "",
+			want:         "",
+		},
+		{
+			name:         "declared patterns are passed through verbatim",
+			privateRepos: "github.com/myorg/*",
+			want:         "github.com/myorg/*",
+		},
+		{
+			name:         "several patterns keep their order and separator",
+			privateRepos: "github.com/myorg/internal-pkg,gitlab.com/company/*",
+			want:         "github.com/myorg/internal-pkg,gitlab.com/company/*",
+		},
+		{
+			name:         "a private Educentr module is declared like any other",
+			privateRepos: "github.com/Educentr/secret-lib",
+			want:         "github.com/Educentr/secret-lib",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := GeneratorParams{PrivateRepos: tt.privateRepos}
+
+			if got := params.GoPrivate(); got != tt.want {
+				t.Errorf("GoPrivate() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	// The Dockerfile is rendered with GeneratorAppParams, and it is the
+	// consumer that disagreed with the Makefile before, so the method has to
+	// resolve through the embedded value there too.
+	appParams := GeneratorAppParams{GeneratorParams: GeneratorParams{PrivateRepos: "github.com/myorg/*"}}
+	if got := appParams.GoPrivate(); got != "github.com/myorg/*" {
+		t.Errorf("GeneratorAppParams.GoPrivate() = %q, want %q", got, "github.com/myorg/*")
+	}
+}
+
 func makefileTmplSource(t *testing.T) string {
 	t.Helper()
 

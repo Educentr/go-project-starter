@@ -72,7 +72,7 @@ GOBIN_DIR := $(GOPATH)/bin
 # a toolchain image keeps priority over a copy in GOBIN_DIR.
 export PATH := $(PATH):$(GOBIN_DIR)
 GOPROXY ?=https://proxy.golang.org,direct
-GOPRIVATE ?=github.com/Educentr{{ if .PrivateRepos }},{{ .PrivateRepos }}{{ end }}
+GOPRIVATE ?={{ .GoPrivate }}
 PACKAGE = $(shell go list -m)
 PKG_LIST_FOR_TEST = $(shell go list ./...)
 PKG_LIST_FOR_UNIT_TEST = $(shell go list ./... | grep -v '/tests')

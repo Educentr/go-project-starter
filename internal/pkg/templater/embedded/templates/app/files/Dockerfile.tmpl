@@ -32,8 +32,8 @@ ARG {{ $arg.Name }}
 RUN set -xe  && \
     apk add --no-cache make git openssh-client
 ENV CGO_ENABLED=0
-{{- if .PrivateRepos }}
-ENV GOPRIVATE="{{ .PrivateRepos }}"
+{{- if .GoPrivate }}
+ENV GOPRIVATE="{{ .GoPrivate }}"
 {{- end }}
 WORKDIR /go/src/app
 

@@ -857,7 +857,8 @@ func TestGenerateGoVersionCheckWithoutPrivateRepos(t *testing.T) {
 }
 
 // TestGeneratePrivateModulesAccessPerJob pins which jobs of ci_cd.yml get
-// private-module access on the runner.
+// private-module access on the runner, for a project that declares private
+// modules.
 //
 // The block is rendered from one shared fragment, so the question it used to
 // answer per copy — does this job need it — is now answered once per call
@@ -865,6 +866,11 @@ func TestGenerateGoVersionCheckWithoutPrivateRepos(t *testing.T) {
 // runner has both steps; `build` has neither, because it runs no Go there: it
 // calls `make docker-<app>`, and the modules are downloaded inside the image
 // from the BuildKit secret, which the Build-and-push step passes on its own.
+//
+// Whether the block is rendered at all is the second axis, and
+// TestGeneratePrivateModulesAccessWithoutPrivateRepos covers it: the steps
+// used to be unconditional here because GOPRIVATE always covered
+// github.com/Educentr.
 func TestGeneratePrivateModulesAccessPerJob(t *testing.T) {
 	// private-token-secret builds a container and a deb package, declares a CI
 	// check and runs goat tests, so every job that can carry the block is
@@ -920,5 +926,30 @@ func TestGeneratePrivateModulesAccessPerJob(t *testing.T) {
 
 	if got, w := step.Env["GITHUB_TOKEN"], "${{ secrets.GO_MODULES_TOKEN }}"; got != w {
 		t.Errorf("job \"build\": Build and push env GITHUB_TOKEN = %q, want %q", got, w)
+	}
+}
+
+// TestGeneratePrivateModulesAccessWithoutPrivateRepos checks that a project
+// without git.private_repos gets neither step, in either workflow.
+//
+// In ci_cd.yml they used to be unconditional, justified by GOPRIVATE always
+// covering github.com/Educentr: the credential rewrite was installed in every
+// generated project, so a project that depended on no private module still
+// needed a token secret for its own CI to fetch the public Educentr modules
+// through that rewrite. With nothing taken off the module proxy there is no
+// such fetch and no such secret.
+func TestGeneratePrivateModulesAccessWithoutPrivateRepos(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci-defaults")
+
+	for _, relPath := range generatedWorkflowNames {
+		wf := parseWorkflow(t, tmpDir, relPath)
+
+		for jobName, job := range wf.Jobs {
+			for _, name := range privateReposStepNames {
+				if _, ok := stepsByName(job)[name]; ok {
+					t.Errorf("%s: job %q has a %q step without git.private_repos", relPath, jobName, name)
+				}
+			}
+		}
 	}
 }
