@@ -58,7 +58,7 @@ func TestGenerateMetricsMapStateFamily(t *testing.T) {
 	// handling, so an error reaching the registry is HTTP 500 for the whole
 	// endpoint — every metric of the application off one scrape. Hence a
 	// refused sample is dropped rather than handed over as an invalid metric,
-	// and a repeated label-value combination is collapsed. The behaviour is
+	// and a repeated label-value combination is collapsed. The behavior is
 	// pinned by TestStateFamilyBadSampleDoesNotFailTheScrape in the generated
 	// project (test/docker-integration); this only keeps the shape of the
 	// generated code from drifting back.
