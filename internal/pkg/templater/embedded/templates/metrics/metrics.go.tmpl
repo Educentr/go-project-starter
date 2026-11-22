@@ -115,9 +115,9 @@ func (g *GaugeSet[S]) Describe(ch chan<- *prometheus.Desc) {
 // family — /metrics is served through promhttp.HandlerFor with its default
 // error handling, which answers HTTP 500 for the whole endpoint, so one bad
 // sample of one family would take every metric of the application off the
-// scrape (up=0, every series of the process stale). Losing the family the bad
-// sample belongs to is the narrower failure, and it is the one the panel of
-// that family already describes.
+// scrape (up=0, every series of the process stale). Losing one series of one
+// family is the narrower failure of the two, and the one the panel of that
+// family shows.
 //
 // Dropping the earlier duplicate is also what these families did before this
 // type existed: filled series by series, a *prometheus.GaugeVec keeps the last
