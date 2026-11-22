@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,23 +19,15 @@ import (
 // Path is always project-relative and slash-separated, so the manifest stays
 // valid regardless of where the project is checked out.
 //
-// Source/Ref/Commit record where a fetched file came from. They are written for
-// contract specs (see the `contract` section of project.yaml), whose whole
-// point is that the project declares what it takes and the generator records
-// what it actually took. Ref and Commit only exist for git sources; an https or
-// local source is identified by Source plus Hash alone.
+// Provenance is filled for every file the generator fetched through the source
+// resolver, whichever channel asked for it — not just for contract specs. A
+// file produced from a template carries no provenance and keeps exactly the
+// shape it had before provenance existed.
 type FileRecord struct {
-	Path string `yaml:"path"`
-	Kind string `yaml:"kind"`
-	Hash string `yaml:"hash"`
-	// Source is the spec source the file was fetched from, as written in
-	// project.yaml with any token redacted.
-	Source string `yaml:"source,omitempty"`
-	// Ref is the git ref the file was fetched at — the effective one, so a ref
-	// that came from --sourceRef is recorded rather than the config default.
-	Ref string `yaml:"ref,omitempty"`
-	// Commit is the SHA the git source resolved to at fetch time.
-	Commit string `yaml:"commit,omitempty"`
+	Path       string `yaml:"path"`
+	Kind       string `yaml:"kind"`
+	Hash       string `yaml:"hash"`
+	Provenance `yaml:",inline"`
 }
 
 // Manifest is the list of files written by the last generator run. It is the
@@ -44,8 +37,12 @@ type FileRecord struct {
 type Manifest []FileRecord
 
 type Meta struct {
-	Path     string   `yaml:"-"`
-	Version  int      `yaml:"version"`
+	Path    string `yaml:"-"`
+	Version int    `yaml:"version"`
+	// Inputs are the resolver inputs of the run that left no file in the
+	// project. Listed before the manifest because there are a handful of them
+	// and hundreds of files.
+	Inputs   Inputs   `yaml:"inputs,omitempty"`
 	Manifest Manifest `yaml:"manifest,omitempty"`
 }
 
@@ -53,7 +50,19 @@ type Meta struct {
 // higher one was produced by a newer generator: its manifest may hold records
 // this binary cannot interpret, so readers are expected to refuse it rather
 // than draw conclusions from the part they recognize.
-const CurrentVersion = 5
+//
+// 6 split the provenance of a fetched file into separate fields (source_kind,
+// source_repo, source_path, source_sha256 next to ref/commit), started
+// recording it for every channel instead of `contract:` alone, and added the
+// `inputs` section for resolver inputs that leave no file in the project.
+const CurrentVersion = 6
+
+// ErrFutureVersion reports a meta.yaml written by a newer generator. Its
+// records may carry fields this binary does not know, and the manifest is the
+// generator's only answer to "did I write this file?": acting on the part it
+// recognizes would mean overwriting files on the strength of a format it cannot
+// read in full.
+var ErrFutureVersion = errors.New("meta.yaml is newer than this generator")
 
 // Location of the metadata file inside a generated project. Exported because
 // everything that reads the manifest — generation, the tree check — has to
@@ -78,8 +87,6 @@ const (
 // line keeps meta.yaml diffs and merge conflicts line-local: meta.yaml changes
 // on every run that changes output, so the format has to survive branch merges.
 func (r FileRecord) MarshalYAML() (any, error) {
-	node := &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle}
-
 	kvs := [][2]string{
 		{"path", r.Path},
 		{"kind", r.Kind},
@@ -87,25 +94,10 @@ func (r FileRecord) MarshalYAML() (any, error) {
 	}
 
 	// Provenance is omitted when absent, so records of files the generator
-	// produced itself keep the exact shape they had before contracts existed.
-	for _, kv := range [][2]string{
-		{"source", r.Source},
-		{"ref", r.Ref},
-		{"commit", r.Commit},
-	} {
-		if kv[1] != "" {
-			kvs = append(kvs, kv)
-		}
-	}
+	// produced from a template keep the exact shape they had before it existed.
+	kvs = append(kvs, r.Provenance.kvs()...)
 
-	for _, kv := range kvs {
-		node.Content = append(node.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv[0]},
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv[1]},
-		)
-	}
-
-	return node, nil
+	return flowMapping(kvs), nil
 }
 
 // Index maps project-relative path to its record.
@@ -206,6 +198,16 @@ func GetMeta(baseDir, metaPath string) (Meta, error) {
 		return meta, err
 	}
 
+	// A newer schema is refused rather than partially understood: generation
+	// decides what to overwrite, what to delete and what is a hand-written file
+	// by reading this manifest, and it cannot make those calls on records whose
+	// fields it does not know. The same rule the tree check applies.
+	if meta.Version > CurrentVersion {
+		return meta, fmt.Errorf("%w: %s is version %d, this generator knows version %d. "+
+			"Generate with the version that produced it (GPSVERSION in the Makefile)",
+			ErrFutureVersion, realMetaPath, meta.Version, CurrentVersion)
+	}
+
 	meta.Path = realMetaPath
 
 	return meta, nil
@@ -214,6 +216,11 @@ func GetMeta(baseDir, metaPath string) (Meta, error) {
 // SetManifest replaces the manifest with a normalized copy of records.
 func (m *Meta) SetManifest(records Manifest) {
 	m.Manifest = records.Normalize()
+}
+
+// SetInputs replaces the inputs section with a normalized copy of records.
+func (m *Meta) SetInputs(records Inputs) {
+	m.Inputs = records.Normalize()
 }
 
 func (m *Meta) Save() error {

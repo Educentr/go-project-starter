@@ -20,6 +20,12 @@ github_ci:
     labels: [linux, x64]
   job_timeout_minutes: 30
   doctl_version: 1.170.0
+  push_branches:
+    - main
+    - 'release/**'
+    - '!release/**-alpha'
+    # A branch name YAML reads as a float unless the generator quotes it.
+    - '1.10'
 
 rest:
   - name: api
