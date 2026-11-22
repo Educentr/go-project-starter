@@ -792,6 +792,12 @@ manifest:
 Входы у упавшего прогона полные (все читаются до первой записи), поэтому заменяют прежние, а не
 мержатся.
 
+Реализация: `internal/pkg/specsource/provenance.go` (`Provenance`, `provenanceOf`,
+дайджесты по видам источника), `internal/pkg/meta/provenance.go` (форма записи, секция
+`inputs:`), `internal/pkg/generator/provenance.go` (леджер прогона, `resolveOne`,
+`resolveInlineSpec`, имена каналов). Полная документация:
+[docs/workflow/regeneration.md](docs/workflow/regeneration.md#происхождение-из-какого-дерева-контрактов-собран-проект).
+
 ### Один `specsource.Resolver` на прогон
 
 **Резолвер у прогона один** (`Generator.resolver`, ленивый геттер `Generator.sourceResolver()`), и
@@ -827,12 +833,6 @@ inline-вызовов плюс пре-пасс — шесть резолверо
 освобождение staging при `Close`, при упавшем `New` и отсутствие staging у локального прогона;
 `TestGenerateReportsFailuresByReturning` (`cmd/go-project-starter`) держит возврат ошибки вместо
 `log.Fatalf` на обоих путях.
-
-Реализация: `internal/pkg/specsource/provenance.go` (`Provenance`, `provenanceOf`,
-дайджесты по видам источника), `internal/pkg/meta/provenance.go` (форма записи, секция
-`inputs:`), `internal/pkg/generator/provenance.go` (леджер прогона, `resolveOne`,
-`resolveInlineSpec`, имена каналов). Полная документация:
-[docs/workflow/regeneration.md](docs/workflow/regeneration.md#происхождение-из-какого-дерева-контрактов-собран-проект).
 
 ### Скопированные спеки не правятся внутри проекта (`kind: copied`)
 
