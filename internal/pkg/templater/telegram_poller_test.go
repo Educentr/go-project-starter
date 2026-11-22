@@ -15,7 +15,7 @@ import (
 // under the driver's mutex. The fields the constructor fills once and nobody
 // writes again (`startUpdatePoller`, `apiEndpoint`, `updates`, `pollerStop`) are
 // deliberately absent: they are not shared mutable state.
-var guardedTelegramFieldRx = regexp.MustCompile(`\btg\.(bot|pollerBot|tgSHA|updateOffset|pollerDone)\b`)
+var guardedTelegramFieldRx = regexp.MustCompile(`\btg\.(bot|pollerBot|tgSHA|updateOffset|offsetBotID|pollerDone)\b`)
 
 // telegramFieldAccessors are the functions allowed to touch those fields: the
 // accessors themselves, plus the two lifecycle methods that own pollerDone.

@@ -579,12 +579,12 @@ func TestIntegrationWorkerTelegram(t *testing.T) {
 // generated tree, with the race detector on.
 //
 // The project ships them — psg_telegram_poller_test.go in the driver (a fake Bot
-// API, a token swap under a live long poll, the offset carried over to the new
-// bot, shutdown without a leaked goroutine) and psg_telegram_loop_test.go in the
-// worker (a closed update channel must leave the loop, not feed the handler zero
-// updates). The build stage of this file compiles the generated project but
-// never runs its tests, so without this step the generator could ship a driver
-// whose own tests fail.
+// API, a token swap under a live long poll, the offset carried over to a new
+// token of the same bot and dropped on another one, shutdown without a leaked
+// goroutine) and psg_telegram_loop_test.go in the worker (a closed update
+// channel must leave the loop, not feed the handler zero updates). The build
+// stage of this file compiles the generated project but never runs its tests,
+// so without this step the generator could ship a driver whose own tests fail.
 //
 // Race detector, not just `go test`: the bug behind these tests was a bare write
 // to the driver's bot field from the OnlineConf watcher goroutine while request
@@ -607,6 +607,7 @@ func assertTelegramPollerRotation(ctx context.Context, t *testing.T, container *
 	// test template dropped from the output would otherwise read as a pass.
 	for _, name := range []string{
 		"TestTelegramPollerFollowsRotatedToken",
+		"TestTelegramPollerResetsOffsetOnAnotherBot",
 		"TestWorkerLoopLeavesClosedChannel",
 	} {
 		require.Contains(t, output, name,

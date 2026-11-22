@@ -35,6 +35,10 @@ func TestGenerateTelegramPollerRotation(t *testing.T) {
 		"func (tg *Telegram) pumpUpdates(ctx context.Context, done chan struct{})",
 		"func (tg *Telegram) startPoller(ctx context.Context) (tgbotapi.UpdatesChannel, bool)",
 		"Offset:  tg.updateOffset,",
+		// Смещение переносится только на того же бота: update_id у каждого
+		// бота свой, и чужое смещение Telegram прочитал бы как подтверждение
+		// апдейтов, которых сервис не видел.
+		"if tg.bot.Self.ID != tg.offsetBotID {",
 		// Остановка бьёт по боту, на котором опрос реально работает.
 		"func (tg *Telegram) stopPollerBot()",
 		"bot.StopReceivingUpdates()",
