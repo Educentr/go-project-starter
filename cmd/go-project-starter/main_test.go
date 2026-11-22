@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/Educentr/go-project-starter/internal/pkg/config"
+	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 )
 
@@ -249,5 +251,64 @@ func TestVersionInvocationsAgree(t *testing.T) {
 				t.Errorf("got %q, want %q", stdout.String(), want)
 			}
 		})
+	}
+}
+
+// The run's staging directory and clones are released by a deferred
+// Generator.Close, and log.Fatalf does not run deferred calls — so generate
+// has to report both of its failures by returning. Each case below leaves a
+// staging directory behind if it does not.
+func TestGenerateReportsFailuresByReturning(t *testing.T) {
+	t.Run("config load", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Setenv("TMPDIR", tmp)
+
+		// The metrics map is resolved while the config is loaded, so the run
+		// owns a staging directory by the time the token lookup fails.
+		var cfg config.Config
+		cfg.Metrics.Path = "git+https://example.invalid/org/contracts.git" +
+			"?token_env=GPS_TEST_TOKEN_ENV_THAT_IS_NEVER_SET#metrics/map.yaml"
+
+		assertGenerateFails(t, tmp, cfg, "failed to create generator")
+	})
+
+	t.Run("generate", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Setenv("TMPDIR", tmp)
+
+		cfgDir := filepath.Join("..", "..", "test", "configs", "spec-dest-collision")
+
+		cfg, err := config.GetConfig(cfgDir, defaultConfigFile)
+		if err != nil {
+			t.Fatalf("load fixture config: %v", err)
+		}
+
+		cfg.SetTargetDir(t.TempDir())
+
+		assertGenerateFails(t, tmp, cfg, "failed to generate")
+	})
+}
+
+// assertGenerateFails runs generate, requires the error to be the one wantMsg
+// names, and requires nothing of the run to be left under tmpDir.
+func assertGenerateFails(t *testing.T, tmpDir string, cfg config.Config, wantMsg string) {
+	t.Helper()
+
+	err := generate("v1.0.0", cfg, meta.Meta{}, false, nil)
+	if err == nil {
+		t.Fatal("generate() must fail")
+	}
+
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("generate() error = %v, want it to mention %q", err, wantMsg)
+	}
+
+	left, globErr := filepath.Glob(filepath.Join(tmpDir, "gps-*"))
+	if globErr != nil {
+		t.Fatalf("glob staging dirs: %v", globErr)
+	}
+
+	if len(left) != 0 {
+		t.Errorf("staging dirs after a failed run = %v, want none", left)
 	}
 }

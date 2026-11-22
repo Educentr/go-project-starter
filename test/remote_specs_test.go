@@ -73,18 +73,20 @@ func writeRemoteSpecConfig(t *testing.T, dir, specPath string) {
 	}
 }
 
-func runGenerator(t *testing.T, configDir, targetDir string) (string, error) {
+func runGenerator(t *testing.T, configDir, targetDir string, extraArgs ...string) (string, error) {
 	t.Helper()
 	curDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	return ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+	args := []string{
 		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
 		"--target", targetDir,
 		"--configDir", configDir,
 		"--config", "project.yaml",
-	}, "generate with remote spec")
+	}
+
+	return ExecCommand(filepath.Join(curDir, ".."), "go", append(args, extraArgs...), "generate with remote spec")
 }
 
 // TestRemoteSpec_HTTP_DownloadsAndCopiesIntoApi verifies the happy path:
@@ -474,6 +476,17 @@ func TestRemoteSpec_HTTP_StagingCleaned(t *testing.T) {
 
 	if after > before {
 		t.Errorf("staging dirs leaked: before=%d after=%d (expected staging dirs to be removed in defer)", before, after)
+	}
+
+	// A dry run resolves the same sources — it is a preview of the run — so it
+	// owns the same staging directory and has to release it too.
+	before = countStagingDirs(t)
+	if _, err := runGenerator(t, configDir, t.TempDir(), "--dry-run"); err != nil {
+		t.Fatalf("dry run failed: %v", err)
+	}
+
+	if after = countStagingDirs(t); after > before {
+		t.Errorf("staging dirs leaked by --dry-run: before=%d after=%d", before, after)
 	}
 }
 

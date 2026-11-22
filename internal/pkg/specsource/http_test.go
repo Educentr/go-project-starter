@@ -140,15 +140,10 @@ func TestLocalSource_Resolve_AbsolutePath(t *testing.T) {
 
 func TestLocalSource_Resolve_RelativeToBase(t *testing.T) {
 	base := t.TempDir()
-	stagingDir := t.TempDir()
 
-	r, err := NewResolver(base, stagingDir, ResolverOptions{
-		EnvLookup:    func(string) string { return "" },
-		SkipGitCheck: true,
+	r := NewResolver(base, ResolverOptions{
+		EnvLookup: func(string) string { return "" },
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer r.Close()
 
 	res, err := r.Resolve(t.Context(), LocalSource{RawPath: "./api.yaml"})
@@ -161,22 +156,17 @@ func TestLocalSource_Resolve_RelativeToBase(t *testing.T) {
 	}
 }
 
-// newTestResolver builds a resolver with deterministic env lookup and a fresh
-// staging directory cleaned up via t.Cleanup.
+// newTestResolver builds a resolver with a deterministic env lookup. It stages
+// into a directory of its own, created on the first non-local resolve.
 func newTestResolver(t *testing.T, env map[string]string) *Resolver {
 	t.Helper()
-	stagingDir := t.TempDir()
-	r, err := NewResolver(t.TempDir(), stagingDir, ResolverOptions{
+
+	return NewResolver(t.TempDir(), ResolverOptions{
 		EnvLookup: func(k string) string {
 			if env == nil {
 				return ""
 			}
 			return env[k]
 		},
-		SkipGitCheck: true,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return r
 }

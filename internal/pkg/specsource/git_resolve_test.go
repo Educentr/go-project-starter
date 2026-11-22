@@ -82,13 +82,10 @@ func newTestRepo(t *testing.T) testRepo {
 func resolveFromRepo(t *testing.T, src GitSource, refEntries ...string) (string, error) {
 	t.Helper()
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+	r := NewResolver(t.TempDir(), ResolverOptions{
 		SourceRefs: mustSourceRefs(t, refEntries...),
 		LogStderr:  io.Discard,
 	})
-	if err != nil {
-		return "", err
-	}
 
 	defer r.Close()
 
@@ -170,13 +167,10 @@ func TestResolveGit_ScopedRefsPerRepository(t *testing.T) {
 	specs := newTestRepo(t)
 	proto := newTestRepo(t)
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+	r := NewResolver(t.TempDir(), ResolverOptions{
 		SourceRefs: mustSourceRefs(t, specs.path+":"+branchA, proto.path+":"+branchB),
 		LogStderr:  io.Discard,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	defer r.Close()
 
@@ -230,13 +224,10 @@ func TestResolveGit_ScopedRefLeavesOtherRepositoriesAlone(t *testing.T) {
 func TestResolveGit_OverriddenAndPinnedShareOneClone(t *testing.T) {
 	repo := newTestRepo(t)
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+	r := NewResolver(t.TempDir(), ResolverOptions{
 		SourceRefs: mustSourceRefs(t, branchA),
 		LogStderr:  io.Discard,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	defer r.Close()
 
@@ -273,13 +264,10 @@ func TestResolveGit_RecordsEffectiveRefAndCommit(t *testing.T) {
 	// actually fetched, not the "HEAD" written in the config.
 	src := GitSource{Repo: repo.path, Ref: "HEAD", Subpath: "api.yaml"}
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+	r := NewResolver(t.TempDir(), ResolverOptions{
 		SourceRefs: mustSourceRefs(t, branchA),
 		LogStderr:  io.Discard,
 	})
-	if err != nil {
-		t.Fatalf("new resolver: %v", err)
-	}
 
 	defer r.Close()
 
@@ -310,10 +298,7 @@ func TestResolveLocal_HasNoCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := NewResolver(dir, t.TempDir(), ResolverOptions{SkipGitCheck: true, LogStderr: io.Discard})
-	if err != nil {
-		t.Fatalf("new resolver: %v", err)
-	}
+	r := NewResolver(dir, ResolverOptions{LogStderr: io.Discard})
 
 	defer r.Close()
 

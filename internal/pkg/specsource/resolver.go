@@ -26,9 +26,6 @@ type ResolverOptions struct {
 	// LogStderr is the writer that receives git's stderr (token-redacted).
 	// Defaults to os.Stderr.
 	LogStderr io.Writer
-	// SkipGitCheck disables the up-front `git --version` probe. Used by tests
-	// that don't exercise GitSource.
-	SkipGitCheck bool
 	// SourceRefs overrides the ref of GitSources whose URI did not pin one
 	// explicitly (see GitSource.RefPinned), per repository or for all of them
 	// at once. Nil means "no override": each source keeps the ref it was
@@ -36,13 +33,34 @@ type ResolverOptions struct {
 	SourceRefs *SourceRefs
 }
 
+// stagingDirPrefix is the os.MkdirTemp prefix of the staging directory, so a
+// leftover is recognizable as ours.
+const stagingDirPrefix = "gps-specs-"
+
 // Resolver materializes SpecSources into local files under a per-run staging
 // directory. Construct with NewResolver; release resources with Close.
+//
+// One Resolver is meant to serve a whole run: the clone cache lives for its
+// lifetime, so every channel that names the same (repo, ref) is answered from
+// one clone — which is also what makes them agree on the commit when the
+// branch moves while the run is in progress.
 type Resolver struct {
-	basePath   string
+	basePath string
+
+	// stagingDir is created on first use rather than when the Resolver is
+	// built: a run whose sources are all local stages nothing and must not
+	// leave a temporary directory behind at all.
+	stagingMu  sync.Mutex
 	stagingDir string
 
 	cache *cloneCache
+
+	// gitOnce guards the `git` probe, which is deferred to the first git
+	// source for the same reason: whether a run needs git is answered by the
+	// sources it actually resolves, not by the subset of channels any one
+	// caller knows about.
+	gitOnce sync.Once
+	gitErr  error
 
 	envLookup  func(string) string
 	httpClient *http.Client
@@ -51,21 +69,13 @@ type Resolver struct {
 }
 
 // NewResolver constructs a Resolver. basePath is the directory of project.yaml
-// (used to resolve LocalSource). stagingDir must already exist and be
-// writable; the caller is responsible for creating it (typically via
-// os.MkdirTemp). The Resolver verifies that `git` is installed unless
-// opts.SkipGitCheck is set. Refs in opts.SourceRefs are validated where they
-// enter the process (ParseSourceRefs), not here.
-func NewResolver(basePath, stagingDir string, opts ResolverOptions) (*Resolver, error) {
-	if !opts.SkipGitCheck {
-		if _, err := exec.LookPath("git"); err != nil {
-			return nil, fmt.Errorf("%w: install git or set PATH (lookup error: %w)", ErrGitNotInstalled, err)
-		}
-	}
-
+// (used to resolve LocalSource). The staging directory is created under
+// os.TempDir() when the first non-local source is resolved and removed by
+// Close. Refs in opts.SourceRefs are validated where they enter the process
+// (ParseSourceRefs), not here.
+func NewResolver(basePath string, opts ResolverOptions) *Resolver {
 	r := &Resolver{
 		basePath:   basePath,
-		stagingDir: stagingDir,
 		cache:      newCloneCache(),
 		envLookup:  opts.EnvLookup,
 		httpClient: opts.HTTPClient,
@@ -82,7 +92,8 @@ func NewResolver(basePath, stagingDir string, opts ResolverOptions) (*Resolver, 
 	if r.logStderr == nil {
 		r.logStderr = os.Stderr
 	}
-	return r, nil
+
+	return r
 }
 
 // Resolve returns the local filesystem path for src. For LocalSource the
@@ -101,15 +112,56 @@ func (r *Resolver) Resolve(ctx context.Context, src SpecSource) (ResolvedSpec, e
 	}
 }
 
-// Close removes the staging directory and any per-run clones. Safe to call
-// multiple times.
+// Close removes the staging directory and the clones under it. Safe to call
+// multiple times, and on a Resolver that never staged anything. A Resolver is
+// not meant to be used after Close.
 func (r *Resolver) Close() error {
-	if r.stagingDir == "" {
-		return nil
-	}
+	r.stagingMu.Lock()
 	dir := r.stagingDir
 	r.stagingDir = ""
+	r.stagingMu.Unlock()
+
+	if dir == "" {
+		return nil
+	}
+
 	return os.RemoveAll(dir)
+}
+
+// stagingRoot returns this Resolver's staging directory, creating it on first
+// use.
+func (r *Resolver) stagingRoot() (string, error) {
+	r.stagingMu.Lock()
+	defer r.stagingMu.Unlock()
+
+	if r.stagingDir != "" {
+		return r.stagingDir, nil
+	}
+
+	dir, err := os.MkdirTemp("", stagingDirPrefix)
+	if err != nil {
+		return "", fmt.Errorf("specsource: create staging dir: %w", err)
+	}
+
+	r.stagingDir = dir
+
+	return dir, nil
+}
+
+// ensureGit verifies, once per Resolver, that `git` is on PATH. It runs when a
+// git source is resolved instead of when the Resolver is built: the Resolver
+// serves every channel of the run, so "does this project need git" cannot be
+// decided up front from the channels one caller happens to see — a project
+// whose only git source sits in an inline channel would lose the check, and a
+// project with no git source at all would gain a dependency on git.
+func (r *Resolver) ensureGit() error {
+	r.gitOnce.Do(func() {
+		if _, err := exec.LookPath("git"); err != nil {
+			r.gitErr = fmt.Errorf("%w: install git or set PATH (lookup error: %w)", ErrGitNotInstalled, err)
+		}
+	})
+
+	return r.gitErr
 }
 
 func (r *Resolver) resolveLocal(s LocalSource) (ResolvedSpec, error) {
@@ -159,13 +211,22 @@ func (r *Resolver) resolveHTTP(ctx context.Context, s HTTPSource) (ResolvedSpec,
 }
 
 func (r *Resolver) resolveGit(ctx context.Context, s GitSource) (ResolvedSpec, error) {
+	if err := r.ensureGit(); err != nil {
+		return ResolvedSpec{}, err
+	}
+
 	// From here on s carries the effective ref, so the clone cache key, the
 	// clone itself and every error message speak about the ref we actually
 	// fetched — not the one written in project.yaml.
 	s = r.sourceRefs.apply(s)
 
 	cloneDir, err := r.cache.getOrClone(s, func() (string, error) {
-		target := filepath.Join(r.stagingDir, "git", cacheKey(s))
+		root, rootErr := r.stagingRoot()
+		if rootErr != nil {
+			return "", rootErr
+		}
+
+		target := filepath.Join(root, "git", cacheKey(s))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return "", fmt.Errorf("specsource: prepare git clone dir: %w", err)
 		}
@@ -218,7 +279,14 @@ func (r *Resolver) uniqueStagingPath(filename string) (string, error) {
 	if filename == "" {
 		filename = "spec"
 	}
-	dir := filepath.Join(r.stagingDir, "files")
+
+	root, err := r.stagingRoot()
+	if err != nil {
+		return "", err
+	}
+
+	dir := filepath.Join(root, "files")
+
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("specsource: prepare staging dir: %w", err)
 	}

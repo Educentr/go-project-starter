@@ -3,6 +3,9 @@ package specsource
 import (
 	"bytes"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -113,5 +116,64 @@ func TestInjectUserInfo_LeavesNonHTTP(t *testing.T) {
 	}
 	if got != in {
 		t.Errorf("got %q, want unchanged", got)
+	}
+}
+
+// The `git` probe belongs to resolving a git source, not to building the
+// Resolver: one Resolver now serves every channel of a run, so whether the run
+// needs git is answered by the sources it actually resolves. A project on
+// local specs alone must not require git at all.
+func TestResolver_GitProbeOnlyForGitSources(t *testing.T) {
+	base := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(base, "api.yaml"), []byte(specBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", "")
+
+	r := NewResolver(base, ResolverOptions{LogStderr: io.Discard})
+	defer r.Close()
+
+	if _, err := r.Resolve(t.Context(), LocalSource{RawPath: "./api.yaml"}); err != nil {
+		t.Errorf("resolving a local source must not need git, got %v", err)
+	}
+
+	_, err := r.Resolve(t.Context(), GitSource{Repo: "ssh://git@host/org/repo.git", Ref: "main", Subpath: "api.yaml"})
+	if !errors.Is(err, ErrGitNotInstalled) {
+		t.Errorf("resolving a git source without git = %v, want ErrGitNotInstalled", err)
+	}
+}
+
+// A Resolver that only ever saw local sources leaves nothing behind: the
+// staging directory is created on first use, so a local-only run has none to
+// remove — and nothing for a later run to mistake for its own.
+func TestResolver_LocalSourceStagesNothing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+
+	base := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(base, "api.yaml"), []byte(specBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewResolver(base, ResolverOptions{})
+
+	if _, err := r.Resolve(t.Context(), LocalSource{RawPath: "./api.yaml"}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	staged, err := filepath.Glob(filepath.Join(tmp, stagingDirPrefix+"*"))
+	if err != nil {
+		t.Fatalf("glob staging dirs: %v", err)
+	}
+
+	if len(staged) != 0 {
+		t.Errorf("staging dirs = %v, want none", staged)
+	}
+
+	if err := r.Close(); err != nil {
+		t.Errorf("Close() on a resolver that staged nothing = %v", err)
 	}
 }

@@ -303,24 +303,6 @@ func TestCopyContracts_MissingResolvedSpec(t *testing.T) {
 	}
 }
 
-func TestHasGitSource_Contracts(t *testing.T) {
-	g := Generator{
-		Contracts: ds.Contracts{{RawPath: "./limits.yaml"}},
-	}
-
-	if g.hasGitSource() {
-		t.Error("local-only contract should not require git")
-	}
-
-	g.Contracts = append(g.Contracts, ds.Contract{
-		RawPath: "git+https://github.com/org/contracts.git#limits/limits.yaml",
-	})
-
-	if !g.hasGitSource() {
-		t.Error("git contract should require git")
-	}
-}
-
 func TestCheckContractCollisions(t *testing.T) {
 	generated := meta.Manifest{
 		{Path: "Makefile", Kind: meta.KindGenerated, Hash: "h"},

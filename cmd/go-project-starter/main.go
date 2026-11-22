@@ -49,8 +49,9 @@ const (
 	layoutFailedToBindFlags       = "failed to bind flags: %v"
 	layoutFailedToLoadConfig      = "failed to load config: %v"
 	layoutFailedToLoadMeta        = "failed to load meta: %v"
-	layoutFailedToCreateGenerator = "failed to create generator: %v"
-	layoutFailedToGenerate        = "failed to generate: %v"
+	layoutFailedToCreateGenerator = "failed to create generator: %w"
+	layoutFailedToGenerate        = "failed to generate: %w"
+	layoutFailedToRelease         = "warning: release spec staging dir: %v"
 	layoutFailedToSetup           = "failed to run setup: %v"
 	layoutFailedToInit            = "failed to run init: %v"
 	layoutFailedToMigrate         = "failed to migrate config: %v"
@@ -268,7 +269,6 @@ func runMigrate() {
 
 func runGenerator() {
 	var (
-		gen           *generator.Generator
 		cfg           config.Config
 		genMeta       meta.Meta
 		cfgPath       string
@@ -335,19 +335,46 @@ func runGenerator() {
 
 	// The version of this binary is pinned into the generated project, so the
 	// tree records which generator produced it (see selfversion).
-	if gen, err = generator.New(selfversion.Resolve(version), cfg, genMeta, dryRun, sourceRefs); err != nil {
-		log.Fatalf(layoutFailedToCreateGenerator, err)
+	if err = generate(selfversion.Resolve(version), cfg, genMeta, dryRun, sourceRefs); err != nil {
+		log.Fatal(err)
 	}
+
+	log.Println("done")
+}
+
+// generate builds the generator and runs it, releasing the staging directory
+// and the clones of the run on every exit path.
+//
+// It is a function of its own because log.Fatalf does not run deferred calls:
+// the two failures that used to end the process right here would have left the
+// run's gps-* directory behind, now that one resolver — created while the
+// config is loaded, read again by the pre-pass inside Generate — spans both
+// steps instead of each channel staging and wiping its own.
+func generate(
+	starterVersion string, cfg config.Config, genMeta meta.Meta, dryRun bool, sourceRefs *specsource.SourceRefs,
+) error {
+	gen, err := generator.New(starterVersion, cfg, genMeta, dryRun, sourceRefs)
+	if err != nil {
+		// New releases what it staged before failing, so there is nothing to
+		// close here.
+		return fmt.Errorf(layoutFailedToCreateGenerator, err)
+	}
+
+	defer func() {
+		if cerr := gen.Close(); cerr != nil {
+			log.Printf(layoutFailedToRelease, cerr)
+		}
+	}()
 
 	// ToDo debug log
 	// Прикрутить логгер, сделать уровни логирования и добавить эту секцию как Debug
 	// log.Printf("Generator: %+v", gen)
 
 	if err = gen.Generate(); err != nil {
-		log.Fatalf(layoutFailedToGenerate, err)
+		return fmt.Errorf(layoutFailedToGenerate, err)
 	}
 
-	log.Println("done")
+	return nil
 }
 
 // runCheck compares the generated area of the tree against the manifest the
