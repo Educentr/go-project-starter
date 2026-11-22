@@ -323,3 +323,169 @@ func TestGithubCIConfig_ViperDecoding(t *testing.T) {
 		})
 	}
 }
+
+func TestGithubCIConfig_ValidatePushBranches(t *testing.T) {
+	tests := []struct {
+		name     string
+		branches []string
+		wantErr  string
+	}{
+		{
+			name:     "omitted key keeps the defaults",
+			branches: nil,
+		},
+		{
+			name:     "plain branch names",
+			branches: []string{"main", "staging", "trunk"},
+		},
+		{
+			name:     "filter patterns",
+			branches: []string{"main", "release/**", "v1.*", "feature/?", "releases/**", "!releases/**-alpha"},
+		},
+		{
+			name:     "character range pattern",
+			branches: []string{"release/[0-9]*"},
+		},
+		{
+			name:     "explicit empty list is rejected",
+			branches: []string{},
+			wantErr:  "list is empty, omit the key instead",
+		},
+		{
+			name:     "empty branch filter is rejected",
+			branches: []string{"main", ""},
+			wantErr:  "invalid branch filter",
+		},
+		{
+			name:     "branch filter with a space is rejected",
+			branches: []string{"my branch"},
+			wantErr:  "invalid branch filter",
+		},
+		{
+			// A quote would have to be escaped in the generated scalar, and no
+			// git branch name may carry one.
+			name:     "branch filter with a quote is rejected",
+			branches: []string{"main'; rm -rf /"},
+			wantErr:  "invalid branch filter",
+		},
+		{
+			name:     "branch filter with a newline is rejected",
+			branches: []string{"main\n      - injected"},
+			wantErr:  "invalid branch filter",
+		},
+		{
+			name:     "duplicate branch filter is rejected",
+			branches: []string{"main", "staging", "main"},
+			wantErr:  "duplicate branch filter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := GithubCIConfig{PushBranches: tt.branches}.validatePushBranches()
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validatePushBranches() unexpected error: %v", err)
+				}
+
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("validatePushBranches() = nil, want error containing %q", tt.wantErr)
+			}
+
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("validatePushBranches() error = %q, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestGithubCIConfig_IsValidPushBranches pins that push_branches is reachable
+// through the validation entry point the config loader calls.
+func TestGithubCIConfig_IsValidPushBranches(t *testing.T) {
+	cfg := GithubCIConfig{PushBranches: []string{"main", "main"}}
+
+	ok, msg := cfg.IsValid("github")
+	if ok {
+		t.Fatal("IsValid() accepted duplicate push branches")
+	}
+
+	if !strings.Contains(msg, "duplicate branch filter") {
+		t.Errorf("IsValid() message = %q, want it to mention the duplicate branch filter", msg)
+	}
+}
+
+// TestGithubCIConfig_PushBranchesViperDecoding pins the distinction the
+// validation relies on: an omitted key decodes to a nil slice (defaults
+// apply), an explicit empty list to a non-nil empty one (rejected).
+func TestGithubCIConfig_PushBranchesViperDecoding(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		want    []string
+		wantNil bool
+	}{
+		{
+			name:    "omitted key",
+			yaml:    "github_ci:\n  job_timeout_minutes: 30\n",
+			wantNil: true,
+		},
+		{
+			name: "explicit empty list",
+			yaml: "github_ci:\n  push_branches: []\n",
+			want: []string{},
+		},
+		{
+			name: "branch list",
+			yaml: "github_ci:\n  push_branches:\n    - main\n    - 'release/**'\n",
+			want: []string{"main", "release/**"},
+		},
+		{
+			name: "flow branch list",
+			yaml: "github_ci:\n  push_branches: [main, staging]\n",
+			want: []string{"main", "staging"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "project.yaml")
+			if err := os.WriteFile(path, []byte(tt.yaml), 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+
+			v := viper.New()
+			v.SetConfigFile(path)
+
+			if err := v.ReadInConfig(); err != nil {
+				t.Fatalf("read config: %v", err)
+			}
+
+			var cfg Config
+			if err := v.Unmarshal(&cfg); err != nil {
+				t.Fatalf("unmarshal config: %v", err)
+			}
+
+			got := cfg.GithubCI.PushBranches
+
+			if tt.wantNil {
+				if got != nil {
+					t.Fatalf("PushBranches = %+v, want nil", got)
+				}
+
+				return
+			}
+
+			if got == nil {
+				t.Fatal("PushBranches = nil, want a non-nil slice")
+			}
+
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("PushBranches = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}

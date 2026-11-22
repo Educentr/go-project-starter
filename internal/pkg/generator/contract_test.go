@@ -9,6 +9,7 @@ import (
 	cfg "github.com/Educentr/go-project-starter/internal/pkg/config"
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
+	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
 	"github.com/pkg/errors"
 )
 
@@ -231,10 +232,19 @@ func TestCopyContracts_RecordsProvenance(t *testing.T) {
 			SpecPath: spec,
 			Copy:     "api/contract/limits.yaml",
 			Source:   "ssh://git@github.com/org/contracts.git@HEAD#limits/limits.yaml",
-			Ref:      "main",
-			Commit:   "0123456789abcdef0123456789abcdef01234567",
 		}},
 	}
+
+	// What the resolver recorded for the spec this contract was copied from:
+	// the manifest record takes its provenance from there, like every channel.
+	g.recordSourceProvenance(spec, specsource.Provenance{
+		Kind:   specsource.KindGit,
+		Repo:   "ssh://git@github.com/org/contracts.git",
+		Path:   "limits/limits.yaml",
+		Ref:    "main",
+		Commit: "0123456789abcdef0123456789abcdef01234567",
+		SHA256: meta.HashContent([]byte("limits: {}\n")),
+	})
 
 	records, err := g.copyContracts(target)
 	if err != nil {
@@ -257,6 +267,16 @@ func TestCopyContracts_RecordsProvenance(t *testing.T) {
 
 	if rec.Ref != "main" || rec.Commit != "0123456789abcdef0123456789abcdef01234567" {
 		t.Errorf("provenance = ref %q commit %q", rec.Ref, rec.Commit)
+	}
+
+	if rec.SourceKind != meta.SourceKindGit ||
+		rec.SourceRepo != "ssh://git@github.com/org/contracts.git" ||
+		rec.SourcePath != "limits/limits.yaml" {
+		t.Errorf("source identity = %+v, want repository and path separately", rec.Provenance)
+	}
+
+	if rec.SourceSHA256 != meta.HashContent([]byte("limits: {}\n")) {
+		t.Errorf("source digest = %q, want the digest of the bytes the source served", rec.SourceSHA256)
 	}
 
 	copied, err := os.ReadFile(filepath.Join(target, "api", "contract", "limits.yaml"))

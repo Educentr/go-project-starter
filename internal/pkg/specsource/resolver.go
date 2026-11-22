@@ -117,7 +117,18 @@ func (r *Resolver) resolveLocal(s LocalSource) (ResolvedSpec, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(r.basePath, path)
 	}
-	return ResolvedSpec{LocalPath: path, Source: s}, nil
+
+	// Best-effort digest: a local source that cannot be read is not this
+	// function's error to report. The pre-feature behavior is that a missing
+	// spec is reported by the copy step, which names the config entry and the
+	// path the operator has to fix; failing here would replace that with a
+	// bare read error.
+	sum, err := hashFile(path)
+	if err != nil {
+		sum = ""
+	}
+
+	return ResolvedSpec{LocalPath: path, Source: s, Provenance: provenanceOf(s, "", sum)}, nil
 }
 
 func (r *Resolver) resolveHTTP(ctx context.Context, s HTTPSource) (ResolvedSpec, error) {
@@ -132,11 +143,19 @@ func (r *Resolver) resolveHTTP(ctx context.Context, s HTTPSource) (ResolvedSpec,
 	}
 	defer f.Close()
 
-	if err := s.fetch(ctx, r.httpClient, r.envLookup, f); err != nil {
+	// Hashed as it is written: these are the bytes the source served, which is
+	// what the provenance digest has to cover — the copy inside the project may
+	// still be rewritten ($ref rewriting) before it is hashed for the manifest.
+	hasher := sha256.New()
+
+	if err := s.fetch(ctx, r.httpClient, r.envLookup, io.MultiWriter(f, hasher)); err != nil {
 		_ = os.Remove(dst)
 		return ResolvedSpec{}, err
 	}
-	return ResolvedSpec{LocalPath: dst, Source: s}, nil
+
+	sum := hex.EncodeToString(hasher.Sum(nil))
+
+	return ResolvedSpec{LocalPath: dst, Source: s, Provenance: provenanceOf(s, "", sum)}, nil
 }
 
 func (r *Resolver) resolveGit(ctx context.Context, s GitSource) (ResolvedSpec, error) {
@@ -172,12 +191,25 @@ func (r *Resolver) resolveGit(ctx context.Context, s GitSource) (ResolvedSpec, e
 		return ResolvedSpec{}, err
 	}
 
+	// The digest is taken from the file in the clone: that is the blob of the
+	// commit below, so a consumer can compare the two without having to know
+	// what the generator did with the copy afterwards.
+	sum, err := hashFile(srcFile)
+	if err != nil {
+		return ResolvedSpec{}, fmt.Errorf("specsource: %s: hash fetched file: %w", s.Describe(), err)
+	}
+
 	commit, err := gitHeadCommit(ctx, cloneDir, r.logStderr)
 	if err != nil {
 		return ResolvedSpec{}, fmt.Errorf("specsource: %s: %w", s.Describe(), err)
 	}
 
-	return ResolvedSpec{LocalPath: dst, Source: s, Commit: commit}, nil
+	return ResolvedSpec{
+		LocalPath:  dst,
+		Source:     s,
+		Commit:     commit,
+		Provenance: provenanceOf(s, commit, sum),
+	}, nil
 }
 
 // uniqueStagingPath builds a path under stagingDir/files/ that does not

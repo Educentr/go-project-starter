@@ -54,7 +54,9 @@ func assertResolvedWithRef(t *testing.T, err error, ref string) {
 func TestResolveInlineSpec_PassesSourceRefsToResolver(t *testing.T) {
 	refs := mustSourceRefs(t, scopedRefEntry)
 
-	_, cleanup, err := resolveInlineSpec(t.Context(), t.TempDir(), specURI, refs)
+	g := &Generator{SourceRefs: refs}
+
+	_, cleanup, err := g.resolveInlineSpec(t.Context(), t.TempDir(), channelMetricsPath, specURI)
 
 	cleanup()
 
@@ -132,7 +134,9 @@ func TestSourceRefs_UnusedSelectorIsReported(t *testing.T) {
 func TestResolveInlineSpec_LocalSourceIgnoresSourceRefs(t *testing.T) {
 	base := t.TempDir()
 
-	path, cleanup, err := resolveInlineSpec(t.Context(), base, "./commands.yaml", mustSourceRefs(t, "release/a"))
+	g := &Generator{SourceRefs: mustSourceRefs(t, "release/a")}
+
+	path, cleanup, err := g.resolveInlineSpec(t.Context(), base, channelMetricsPath, "./commands.yaml")
 
 	cleanup()
 

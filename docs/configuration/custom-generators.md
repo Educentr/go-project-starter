@@ -99,18 +99,23 @@ lint-runtime_limits_ts:
 
 ## Манифест и правка спек
 
-Скопированная спека попадает в `.project-config/meta.yaml` как `kind: copied` с провенансом:
+Скопированная спека попадает в `.project-config/meta.yaml` как `kind: copied` с провенансом —
+в той же форме, что и любой другой скачанный файл (`rest[]`, `grpc`, `jsonschema[]`):
 
 ```yaml
 manifest:
     - {path: api/contract/runtime_limits.yaml, kind: copied, hash: f7ec67…,
-       source: 'ssh://git@github.com/org/contracts.git@main#limits/runtime_limits.yaml',
-       ref: main, commit: 4f1c2a…}
+       source_kind: git, source_repo: 'ssh://git@github.com/org/contracts.git',
+       source_path: limits/runtime_limits.yaml, ref: main, commit: 4f1c2a…,
+       source_sha256: f7ec67…}
 ```
 
-- `source` — источник с вырезанным токеном;
+- `source_repo` / `source_path` — репозиторий и путь внутри него, раздельно и без токена;
 - `ref` — **эффективный** ref (учитывает `--sourceRef`), только для git-источников;
-- `commit` — SHA, на котором спека забрана; для https/local провенанс — `source` + `hash`.
+- `commit` — SHA, на котором спека забрана; у https/local ни ref, ни commit нет;
+- `source_sha256` — дайджест байтов источника (для спеки, скопированной как есть, равен `hash`).
+
+Полное описание полей — [regeneration.md](../workflow/regeneration.md#происхождение-из-какого-дерева-контрактов-собран-проект).
 
 Вывод `cmd` в манифест не попадает: его пишет не стартер.
 

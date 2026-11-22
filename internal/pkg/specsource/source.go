@@ -55,6 +55,11 @@ type ResolvedSpec struct {
 	// Commit is the SHA the git clone resolved to. Empty for local and HTTP
 	// sources, which have no commit to speak of.
 	Commit string
+	// Provenance is where these bytes came from, recorded for the manifest:
+	// source identity and path separately, the effective ref and commit, and
+	// the digest of the bytes as received — before anything downstream rewrites
+	// them. Filled by the Resolver for every kind of source.
+	Provenance Provenance
 }
 
 // Sentinel errors. Use errors.Is to distinguish.
