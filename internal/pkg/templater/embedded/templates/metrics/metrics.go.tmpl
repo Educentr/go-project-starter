@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 {{- if .Metrics.HasGaugeSet }}
+	"strings"
 	"sync/atomic"
 {{- end }}
 
@@ -107,24 +108,56 @@ func (g *GaugeSet[S]) Describe(ch chan<- *prometheus.Desc) {
 // emitted — that is the point of a state family: a series nobody knows about
 // any more has to disappear, not freeze at its last value.
 //
-// A sample the descriptor refuses is reported to the registry as an invalid
-// metric instead of taking the process down: the set comes from service code,
-// and a scrape is not a place to panic from. The generated sample types make
-// the usual cause — the wrong number of label values — impossible to write, so
-// what is left here is a value Prometheus rejects.
+// A bad set is kept inside its own family: a sample the descriptor refuses is
+// dropped, and a label-value combination the set carries more than once is
+// emitted once, carrying the value of the last such sample. Neither is
+// reported to the registry, because a Gather error is not a property of one
+// family — /metrics is served through promhttp.HandlerFor with its default
+// error handling, which answers HTTP 500 for the whole endpoint, so one bad
+// sample of one family would take every metric of the application off the
+// scrape (up=0, every series of the process stale). Losing the family the bad
+// sample belongs to is the narrower failure, and it is the one the panel of
+// that family already describes.
+//
+// Dropping the earlier duplicate is also what these families did before this
+// type existed: filled series by series, a *prometheus.GaugeVec keeps the last
+// write to a combination, so a set migrated from one behaves the same.
+//
+// The generated sample types make the usual cause of a refused sample — the
+// wrong number of label values — impossible to write, so what is left is a
+// label value Prometheus rejects, i.e. one that is not valid UTF-8.
 func (g *GaugeSet[S]) Collect(ch chan<- prometheus.Metric) {
 	src := g.src.Load()
 	if src == nil {
 		return
 	}
 
-	for _, sample := range (*src)() {
-		metric, err := prometheus.NewConstMetric(g.desc, prometheus.GaugeValue, sample.value(), sample.labelValues()...)
-		if err != nil {
-			ch <- prometheus.NewInvalidMetric(g.desc, err)
+	samples := (*src)()
 
+	// Walked backwards so that the first sample seen for a combination is the
+	// last one of the set — the one that wins. The order series leave here
+	// does not reach /metrics: a registry sorts a family's series by their
+	// label values while gathering.
+	seen := make(map[string]struct{}, len(samples))
+
+	for i := len(samples) - 1; i >= 0; i-- {
+		values := samples[i].labelValues()
+
+		metric, err := prometheus.NewConstMetric(g.desc, prometheus.GaugeValue, samples[i].value(), values...)
+		if err != nil {
 			continue
 		}
+
+		// Keyed only once the sample is accepted: an accepted label value is
+		// valid UTF-8, so it cannot hold the separator byte and two different
+		// combinations cannot fold onto one key.
+		key := strings.Join(values, "\xff")
+
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+
+		seen[key] = struct{}{}
 
 		ch <- metric
 	}

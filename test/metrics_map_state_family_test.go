@@ -46,10 +46,30 @@ func TestGenerateMetricsMapStateFamily(t *testing.T) {
 		"func (g *GaugeSet[S]) Describe(ch chan<- *prometheus.Desc) {",
 		"func (g *GaugeSet[S]) Collect(ch chan<- prometheus.Metric) {",
 		`"sync/atomic"`,
+		`"strings"`,
 	} {
 		if !strings.Contains(metricsFile, want) {
 			t.Errorf("generated collector package should contain %q", want)
 		}
+	}
+
+	// A set the registry would refuse costs its own family and nothing else:
+	// /metrics is served through promhttp.HandlerFor with the default error
+	// handling, so an error reaching the registry is HTTP 500 for the whole
+	// endpoint — every metric of the application off one scrape. Hence a
+	// refused sample is dropped rather than handed over as an invalid metric,
+	// and a repeated label-value combination is collapsed. The behaviour is
+	// pinned by TestStateFamilyBadSampleDoesNotFailTheScrape in the generated
+	// project (test/docker-integration); this only keeps the shape of the
+	// generated code from drifting back.
+	if strings.Contains(metricsFile, "NewInvalidMetric") {
+		t.Error("a refused sample must be dropped: an invalid metric reaches the registry as a Gather error, " +
+			"which promhttp turns into HTTP 500 for every metric of the application")
+	}
+
+	if !strings.Contains(metricsFile, "if _, duplicate := seen[key]; duplicate {") {
+		t.Error("Collect should collapse a repeated label-value combination; " +
+			"the registry refuses a family holding the same series twice")
 	}
 
 	if got := strings.Count(metricsFile, "type GaugeSet[S gaugeSetSample] struct {"); got != 1 {
@@ -140,7 +160,7 @@ func TestGenerateWithoutStateFamilyLeavesPackageUnchanged(t *testing.T) {
 	metricsFile := readGenerated(t, tmpDir, "internal", "pkg", "metrics", "psg_metrics_gen.go")
 
 	for _, forbidden := range []string{
-		"GaugeSet", "gaugeSetSample", "sync/atomic", "Sample struct", "labelValues()",
+		"GaugeSet", "gaugeSetSample", "sync/atomic", `"strings"`, "Sample struct", "labelValues()",
 	} {
 		if strings.Contains(metricsFile, forbidden) {
 			t.Errorf("a project with no state family must not carry %q in its collector package", forbidden)

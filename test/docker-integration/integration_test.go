@@ -1306,9 +1306,10 @@ func assertEarlyInitHook(ctx context.Context, t *testing.T, container *GolangBui
 // its text — and a state family is the one entry whose output is more than a
 // constructor call: a generic collector, a sample struct per family and an
 // atomic slot. And its contract is behavioral: a scrape must never see a
-// half-filled set, a series dropped from the set must stop being exported, and
-// a family with no source yet must read empty rather than fail. None of that
-// is visible in the text of the file.
+// half-filled set, a series dropped from the set must stop being exported, a
+// family with no source yet must read empty rather than fail, and a set the
+// registry would refuse must cost its own family rather than the whole
+// endpoint. None of that is visible in the text of the file.
 func TestIntegrationMetricsMap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -1353,11 +1354,17 @@ func writeStateFamilyProbe(ctx context.Context, t *testing.T, container *GolangB
 	const probe = `package metrics
 
 import (
+	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // fleetSeries scrapes the registry the way Prometheus does and returns the
@@ -1550,19 +1557,63 @@ func TestStateFamilyScrapeNeverSeesAPartialSet(t *testing.T) {
 	wg.Wait()
 }
 
-// A set carrying the same series twice is a scrape error, not a dead process:
-// the set comes from service code, and the registry is where Prometheus
-// reports what it cannot serve.
-func TestStateFamilyDuplicateSeriesIsAScrapeError(t *testing.T) {
+// A bad set costs its own family and nothing else. /metrics is served through
+// promhttp.HandlerFor with the default error handling, which answers HTTP 500
+// for the whole endpoint on any Gather error — so a set the registry refuses
+// would take every metric of the application off the scrape (up=0, every
+// series stale), which is a wider version of the hole this type exists to
+// close.
+//
+// Of the two sets the registry refuses, a duplicated label-value combination
+// is emitted once with the value of the last such sample (what a GaugeVec
+// filled series by series does too), and a sample with a label value
+// Prometheus rejects is dropped.
+func TestStateFamilyBadSampleDoesNotFailTheScrape(t *testing.T) {
 	reg := registerFleetState(t)
+
+	unrelated := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "unrelated_total",
+		Help: "A metric of another collector sharing the registry.",
+	})
+	unrelated.Inc()
+
+	if err := reg.Register(unrelated); err != nil {
+		t.Fatalf("register the unrelated collector: %v", err)
+	}
 
 	FleetState.Set([]FleetStateSample{
 		{Node: "a", Zone: "z", Value: 1},
 		{Node: "a", Zone: "z", Value: 2},
+		{Node: "b\xff", Zone: "z", Value: 3},
+		{Node: "c", Zone: "z", Value: 4},
 	})
 
-	if _, err := reg.Gather(); err == nil {
-		t.Fatal("a duplicate series must be reported by the registry")
+	srv := httptest.NewServer(promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("scrape: %v", err)
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read the scrape: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a bad sample must not fail the scrape, got %d:\n%s", resp.StatusCode, body)
+	}
+
+	if !strings.Contains(string(body), "unrelated_total 1") {
+		t.Fatalf("the rest of the application's metrics must survive a bad sample:\n%s", body)
+	}
+
+	want := map[string]float64{"a/z": 2, "c/z": 4}
+	if got := fleetSeries(t, reg); !maps.Equal(got, want) {
+		t.Fatalf("a set with a duplicate and a rejected sample read %v, want %v", got, want)
 	}
 }
 `
