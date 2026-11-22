@@ -79,6 +79,7 @@ func runGenerator(t *testing.T, configDir, targetDir string, extraArgs ...string
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
+
 	args := []string{
 		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
 		"--target", targetDir,
@@ -481,6 +482,7 @@ func TestRemoteSpec_HTTP_StagingCleaned(t *testing.T) {
 	// A dry run resolves the same sources — it is a preview of the run — so it
 	// owns the same staging directory and has to release it too.
 	before = countStagingDirs(t)
+
 	if _, err := runGenerator(t, configDir, t.TempDir(), "--dry-run"); err != nil {
 		t.Fatalf("dry run failed: %v", err)
 	}
