@@ -1,0 +1,41 @@
+main:
+  name: upload-docker-test
+  logger: zerolog
+  registry_type: github
+
+post_generate: []
+
+git:
+  repo: git@github.com:test/upload-docker-test.git
+  module_path: github.com/test/upload-docker-test
+
+tools:
+  golang_version: "1.27"
+  golangci_version: 2.1.6
+
+# A docker artifact next to the uploaded package is the combination where the
+# unreachable upload-packages job took deploy down with it (TOOLS-130): with
+# both, deploy waits for upload-packages, and its own `if:` has no always(),
+# so a skipped upload skips the whole deployment. The package-upload-*
+# fixtures carry a deb alone and therefore render no deploy job at all.
+artifacts:
+  - docker
+  - deb
+
+packaging:
+  maintainer: Test <test@example.com>
+  description: Package upload fixture (docker + upload)
+  upload:
+    type: minio
+
+rest:
+  - name: sys
+    port: 9090
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: server
+    transport:
+      - name: sys
