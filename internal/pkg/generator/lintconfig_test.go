@@ -180,7 +180,8 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 		doc := "linters:\n  disable:\n    - dupl\n"
 		writeTempFile(t, filepath.Join(baseDir, "golangci-overrides.yml"), doc)
 
-		var g Generator
+		g := Generator{BasePath: baseDir}
+		defer closeGenerator(t, &g)
 
 		config := cfg.Config{BasePath: baseDir}
 		config.Tools.LintConfig.Overrides = "./golangci-overrides.yml"
@@ -200,7 +201,8 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 		baseDir := t.TempDir()
 		writeTempFile(t, filepath.Join(baseDir, "broken.yml"), "linters: [\n")
 
-		var g Generator
+		g := Generator{BasePath: baseDir}
+		defer closeGenerator(t, &g)
 
 		config := cfg.Config{BasePath: baseDir}
 		config.Tools.LintConfig.Overrides = "./broken.yml"
@@ -219,7 +221,8 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 		baseDir := t.TempDir()
 		writeTempFile(t, filepath.Join(baseDir, "list.yml"), "- dupl\n")
 
-		var g Generator
+		g := Generator{BasePath: baseDir}
+		defer closeGenerator(t, &g)
 
 		config := cfg.Config{BasePath: baseDir}
 		config.Tools.LintConfig.Overrides = "./list.yml"
@@ -230,9 +233,12 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 	})
 
 	t.Run("missing override document is reported", func(t *testing.T) {
-		var g Generator
+		baseDir := t.TempDir()
 
-		config := cfg.Config{BasePath: t.TempDir()}
+		g := Generator{BasePath: baseDir}
+		defer closeGenerator(t, &g)
+
+		config := cfg.Config{BasePath: baseDir}
 		config.Tools.LintConfig.Overrides = "./absent.yml"
 
 		if err := g.processLintConfig(config); err == nil {
@@ -258,9 +264,12 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		var g Generator
+		baseDir := t.TempDir()
 
-		config := cfg.Config{BasePath: t.TempDir()}
+		g := Generator{BasePath: baseDir}
+		defer closeGenerator(t, &g)
+
+		config := cfg.Config{BasePath: baseDir}
 		config.Tools.LintConfig.Overrides = srv.URL + "/lint/golangci-overrides.yml"
 
 		if err := g.processLintConfig(config); err != nil {
@@ -284,9 +293,12 @@ func TestGenerator_ProcessLintConfig(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		var g Generator
+		baseDir := t.TempDir()
 
-		config := cfg.Config{BasePath: t.TempDir()}
+		g := Generator{BasePath: baseDir}
+		defer closeGenerator(t, &g)
+
+		config := cfg.Config{BasePath: baseDir}
 		config.Tools.LintConfig.Overrides = srv.URL + "/golangci-overrides.yml"
 
 		if err := g.processLintConfig(config); err == nil {

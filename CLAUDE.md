@@ -197,7 +197,7 @@ See [docs/NAMING.md](docs/NAMING.md) for detailed documentation.
 
 Реализация: `internal/pkg/specsource/`. Pre-pass резолва — в `Generator.resolveAllSources()` (`internal/pkg/generator/generator.go`), вызывается из `Generate()` перед `CopySpecs`/`CopySchemas`. Полная документация: [docs/configuration/remote-specs.md](docs/configuration/remote-specs.md).
 
-CLI и queue-worker spec'и (которые парсятся inline во время загрузки конфига) резолвятся через отдельный `resolveInlineSpec` хелпер: для local — joinpath, для remote — материализация во временный staging, парсинг, немедленная очистка (файл рантайму не нужен). REST/gRPC/JSONSchema — через основной `resolveAllSources()` pre-pass, файл остаётся живым для копирования в `api/`.
+CLI и queue-worker spec'и (которые парсятся inline во время загрузки конфига) резолвятся через отдельный `resolveInlineSpec` хелпер: для local — joinpath, для remote — материализация в staging прогона и парсинг (в `api/` файл не копируется, рантайму он не нужен). REST/gRPC/JSONSchema — через основной `resolveAllSources()` pre-pass, файл остаётся живым для копирования в `api/`. Резолвер у прогона **один** на оба пути, staging освобождает `Generator.Close()` — см. «Один `specsource.Resolver` на прогон».
 
 Известные ограничения v1: subpath = только файл (не директория), токен в `git clone` светится в `ps`.
 
@@ -783,8 +783,9 @@ manifest:
 `g.sourceProvenance` (ключ — локальный путь, единственное, что знает копирующий пасс):
 `Generator.resolveOne` (пре-пасс `resolveAllSources`: `rest[]`, `grpc`, `jsonschema[]`,
 `contract:`) и `Generator.resolveInlineSpec` (входы, парсящиеся при загрузке конфига). Поэтому
-новый канал покрывается сам; инвариант держит `TestEveryResolveRecordsProvenance`, который
-падает на вызове `Resolve`/`NewResolver` из функции вне этих двух.
+новый канал покрывается сам; инвариант держит `TestEveryResolveRecordsProvenance`, который падает
+на вызове `Resolve` из функции вне этих двух и на вызове `NewResolver` откуда-либо, кроме
+`Generator.sourceResolver` — резолвер у прогона один (см. ниже).
 
 **Секция `inputs:` — для входов, которые в проект не копируются** (`metrics.path`,
 `onlineconf.path`, `tools.lint_config.overrides`, spec CLI, контракт queue-воркера): файловой
@@ -799,16 +800,47 @@ manifest:
 Входы у упавшего прогона полные (все читаются до первой записи), поэтому заменяют прежние, а не
 мержатся.
 
-Единый резолвер на прогон при этом **не** введён: у каждого inline-вызова по-прежнему свой
-`Resolver` и свой клон, поэтому один `repo@branch` в разных inline-каналах может за прогон
-разрезолвиться в разные коммиты, если ветка сдвинулась между вызовами. Запись происхождения этот
-разрыв теперь показывает (разные `commit` при одном `ref`) — починка отдельной задачей.
-
 Реализация: `internal/pkg/specsource/provenance.go` (`Provenance`, `provenanceOf`,
 дайджесты по видам источника), `internal/pkg/meta/provenance.go` (форма записи, секция
 `inputs:`), `internal/pkg/generator/provenance.go` (леджер прогона, `resolveOne`,
 `resolveInlineSpec`, имена каналов). Полная документация:
 [docs/workflow/regeneration.md](docs/workflow/regeneration.md#происхождение-из-какого-дерева-контрактов-собран-проект).
+
+### Один `specsource.Resolver` на прогон
+
+**Резолвер у прогона один** (`Generator.resolver`, ленивый геттер `Generator.sourceResolver()`), и
+он живёт от загрузки конфига до конца `Generate()`. Раньше резолвер строил каждый канал: пять
+inline-вызовов плюс пре-пасс — шесть резолверов и до шести клонов, поэтому один `repo@ref`,
+названный в разных каналах, за прогон мог разрезолвиться в **разные коммиты**, если ветка
+сдвинулась между вызовами. Дерево собиралось из двух состояний контрактов молча. Общий резолвер
+означает общий `cloneCache`: `(repo, ref)` клонируется один раз, и все каналы читают один коммит.
+
+Из этого следуют три вещи:
+
+- **Закрывает тот, кто вызвал `New`.** `Generator.Close()` удаляет staging-каталог и клоны;
+  `cmd/go-project-starter/main.go` ставит его через `defer` в функции `generate()` — отдельной
+  именно потому, что `log.Fatalf` не выполняет `defer`, а оба отказа (`New`, `Generate`) раньше
+  заканчивали процесс здесь же. `New`, упав, закрывает то, что успел создать, и возвращает `nil`.
+  Staged-файл inline-канала больше не удаляется сразу после парса: его удержание и есть то, что
+  держит общий клон.
+- **Staging-каталог создаётся при первом использовании** (`Resolver.stagingRoot()`), а не при
+  конструировании. Прогон на одних локальных спеках не создаёт его вовсе — ни `gps-*` в
+  `os.TempDir()`, ни чего-либо удалять.
+- **Проверка наличия `git` отложена до первого git-источника** (`Resolver.ensureGit()`, один раз на
+  резолвер). Прежний вопрос «нужен ли прогону git» решался до резолва и по тому подмножеству
+  каналов, которое видел конкретный вызывающий (`SkipGitCheck`, `hasGitSource()`); с одним
+  резолвером на прогон так его задать нельзя — проект, у которого git-источник только в
+  inline-канале, потерял бы проверку, а проект без git-источников приобрёл бы зависимость от `git`.
+  Поэтому `ResolverOptions.SkipGitCheck` и `Generator.hasGitSource()` убраны, а `NewResolver` больше
+  не возвращает ошибку.
+
+Тесты: `TestOneResolverPerRunAgreesOnTheCommit` (`internal/pkg/generator/resolver_test.go`) двигает
+ветку контрактного репозитория **между** inline-резолвом и пре-пассом и требует, чтобы оба канала
+записали коммит, на котором прогон начался, в один staging-каталог и с одним клоном; репозиторий
+локальный, URI обычный `git+ssh://`, подмену делает `insteadOf` в `GIT_CONFIG_GLOBAL`. Рядом —
+освобождение staging при `Close`, при упавшем `New` и отсутствие staging у локального прогона;
+`TestGenerateReportsFailuresByReturning` (`cmd/go-project-starter`) держит возврат ошибки вместо
+`log.Fatalf` на обоих путях.
 
 ### Скопированные спеки не правятся внутри проекта (`kind: copied`)
 

@@ -24,10 +24,7 @@ func TestProvenanceLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := NewResolver(base, t.TempDir(), ResolverOptions{SkipGitCheck: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := NewResolver(base, ResolverOptions{})
 
 	defer r.Close()
 
@@ -55,10 +52,7 @@ func TestProvenanceLocal(t *testing.T) {
 // names the config entry; resolving must not fail earlier with a bare read
 // error, so the digest is simply absent.
 func TestProvenanceLocalMissingFile(t *testing.T) {
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{SkipGitCheck: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := NewResolver(t.TempDir(), ResolverOptions{})
 
 	defer r.Close()
 
@@ -84,10 +78,7 @@ func TestProvenanceHTTP(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{SkipGitCheck: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := NewResolver(t.TempDir(), ResolverOptions{})
 
 	defer r.Close()
 
@@ -121,10 +112,7 @@ func TestProvenanceHTTP(t *testing.T) {
 func TestProvenanceGit(t *testing.T) {
 	repo := newTestRepo(t)
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{LogStderr: io.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := NewResolver(t.TempDir(), ResolverOptions{LogStderr: io.Discard})
 
 	defer r.Close()
 
@@ -161,13 +149,10 @@ func TestProvenanceGit(t *testing.T) {
 func TestProvenanceGitRecordsEffectiveRef(t *testing.T) {
 	repo := newTestRepo(t)
 
-	r, err := NewResolver(t.TempDir(), t.TempDir(), ResolverOptions{
+	r := NewResolver(t.TempDir(), ResolverOptions{
 		LogStderr:  io.Discard,
 		SourceRefs: mustSourceRefs(t, branchA),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	defer r.Close()
 

@@ -54,11 +54,10 @@ func assertResolvedWithRef(t *testing.T, err error, ref string) {
 func TestResolveInlineSpec_PassesSourceRefsToResolver(t *testing.T) {
 	refs := mustSourceRefs(t, scopedRefEntry)
 
-	g := &Generator{SourceRefs: refs}
+	g := &Generator{BasePath: t.TempDir(), SourceRefs: refs}
+	defer closeGenerator(t, g)
 
-	_, cleanup, err := g.resolveInlineSpec(t.Context(), t.TempDir(), channelMetricsPath, specURI)
-
-	cleanup()
+	_, err := g.resolveInlineSpec(t.Context(), channelMetricsPath, specURI)
 
 	assertResolvedWithRef(t, err, scopedRef)
 
@@ -82,12 +81,9 @@ func TestResolveAllSources_PassesSourceRefsToResolver(t *testing.T) {
 		JSONSchemas: ds.JSONSchemas{},
 	}
 
-	cleanup, err := g.resolveAllSources()
-	if cleanup != nil {
-		if cerr := cleanup(); cerr != nil {
-			t.Logf("cleanup: %v", cerr)
-		}
-	}
+	defer closeGenerator(t, g)
+
+	err := g.resolveAllSources()
 
 	assertResolvedWithRef(t, err, scopedRef)
 
@@ -114,12 +110,9 @@ func TestSourceRefs_UnusedSelectorIsReported(t *testing.T) {
 		JSONSchemas: ds.JSONSchemas{},
 	}
 
-	cleanup, err := g.resolveAllSources()
-	if cleanup != nil {
-		if cerr := cleanup(); cerr != nil {
-			t.Logf("cleanup: %v", cerr)
-		}
-	}
+	defer closeGenerator(t, g)
+
+	err := g.resolveAllSources()
 
 	// The source itself still fails on the missing token — with the ref it had
 	// in the config, since no selector matched it.
@@ -134,11 +127,10 @@ func TestSourceRefs_UnusedSelectorIsReported(t *testing.T) {
 func TestResolveInlineSpec_LocalSourceIgnoresSourceRefs(t *testing.T) {
 	base := t.TempDir()
 
-	g := &Generator{SourceRefs: mustSourceRefs(t, "release/a")}
+	g := &Generator{BasePath: base, SourceRefs: mustSourceRefs(t, "release/a")}
+	defer closeGenerator(t, g)
 
-	path, cleanup, err := g.resolveInlineSpec(t.Context(), base, channelMetricsPath, "./commands.yaml")
-
-	cleanup()
+	path, err := g.resolveInlineSpec(t.Context(), channelMetricsPath, "./commands.yaml")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

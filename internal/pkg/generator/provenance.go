@@ -2,8 +2,6 @@ package generator
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/meta"
 	"github.com/Educentr/go-project-starter/internal/pkg/specsource"
@@ -102,71 +100,34 @@ func (g *Generator) resolveOne(
 // resolveInlineSpec materializes a spec source into a local file for one-shot
 // parsing during config load (CLI commands.yaml, queue worker contracts, the
 // metrics and OnlineConf key maps, the lint overrides) and records it under
-// channel in the `inputs` section of the manifest. Unlike the resolve pre-pass
-// — which keeps staged files alive for the spec/schema copy step — inline
-// specs are read and parsed immediately, so the caller invokes the returned
-// cleanup right after the parse and the staging dir is gone before Generate()
-// runs. The provenance outlives it: that is the only trace such an input leaves.
+// channel in the `inputs` section of the manifest. The file itself is not
+// copied into the project — the provenance is the only trace such an input
+// leaves there.
 //
-// LocalSource short-circuits the staging directory: the file is read where it
-// lies, so existing local-only flows incur no copy.
+// It resolves through the same Resolver as the pre-pass (g.sourceResolver), so
+// an inline channel and a REST/gRPC/contract entry naming the same (repo, ref)
+// share one clone and therefore one commit: the two used to clone separately,
+// and a branch that moved in between built the tree from two states of the
+// contracts without saying so. The staged file lives until Generator.Close
+// rather than being dropped right after the parse, which is what keeps that
+// clone — and the ref-override usage accounting (g.SourceRefs) — shared.
 //
-// The ref override (g.SourceRefs) applies here as it does to the pre-pass —
-// the very same set, so that selector usage accumulates across both paths —
-// otherwise the inline channels would be built from a different state of the
-// contracts than the REST/gRPC/JSON Schema ones.
-func (g *Generator) resolveInlineSpec(
-	ctx context.Context, basePath, channel, raw string,
-) (specPath string, cleanup func(), err error) {
-	src, perr := specsource.ParseSpecSource(raw)
-	if perr != nil {
-		return "", func() {}, perr
+// LocalSource is read where it lies, so a local-only run still stages nothing.
+func (g *Generator) resolveInlineSpec(ctx context.Context, channel, raw string) (string, error) {
+	src, err := specsource.ParseSpecSource(raw)
+	if err != nil {
+		return "", err
 	}
 
-	stagingDir := ""
-
-	if src.Kind() != specsource.KindLocal {
-		dir, mkErr := os.MkdirTemp("", "gps-inline-spec-")
-		if mkErr != nil {
-			return "", func() {}, fmt.Errorf("create inline-spec staging dir: %w", mkErr)
-		}
-
-		stagingDir = dir
-	}
-
-	cleanupStaging := func() {
-		if stagingDir != "" {
-			_ = os.RemoveAll(stagingDir)
-		}
-	}
-
-	resolver, rerr := specsource.NewResolver(basePath, stagingDir, specsource.ResolverOptions{
-		SkipGitCheck: src.Kind() != specsource.KindGit,
-		SourceRefs:   g.SourceRefs,
-	})
-	if rerr != nil {
-		cleanupStaging()
-
-		return "", func() {}, rerr
-	}
-
-	res, resErr := resolver.Resolve(ctx, src)
-	if resErr != nil {
-		_ = resolver.Close()
-
-		cleanupStaging()
-
-		return "", func() {}, resErr
+	res, err := g.sourceResolver().Resolve(ctx, src)
+	if err != nil {
+		return "", err
 	}
 
 	g.recordInput(channel, res.Provenance)
 	g.recordSourceProvenance(res.LocalPath, res.Provenance)
 
-	return res.LocalPath, func() {
-		_ = resolver.Close()
-
-		cleanupStaging()
-	}, nil
+	return res.LocalPath, nil
 }
 
 // inlineInputs returns the recorded inputs of this run, for the manifest.

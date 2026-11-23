@@ -101,6 +101,13 @@ type Generator struct {
 	// keeps the ref written in the config.
 	SourceRefs *specsource.SourceRefs
 
+	// resolver is the single source resolver of this run, created on first
+	// use and released by Close. One per run rather than one per channel: its
+	// clone cache is what makes every channel naming the same (repo, ref) read
+	// one clone, and therefore one commit, even when the branch moves between
+	// config load and the resolve pre-pass.
+	resolver *specsource.Resolver
+
 	// sourceProvenance maps the local path a source was materialized into to
 	// where it came from. Filled by the two resolve helpers for every channel
 	// alike, read when the manifest records are built — the copy step knows
@@ -199,10 +206,44 @@ func New(
 	}
 
 	if err := g.processConfig(config); err != nil {
+		// processConfig resolves the inline channels, so by now the run may
+		// already own a staging directory. New reports a failure by returning
+		// nil, leaving the caller nothing to Close.
+		if cerr := g.Close(); cerr != nil {
+			log.Printf("warning: release spec staging dir: %v", cerr)
+		}
+
 		return nil, err
 	}
 
 	return &g, nil
+}
+
+// sourceResolver returns the source resolver of this run, creating it on first
+// use. Every channel resolves through this one instance — see Generator.resolver.
+func (g *Generator) sourceResolver() *specsource.Resolver {
+	if g.resolver == nil {
+		g.resolver = specsource.NewResolver(g.BasePath, specsource.ResolverOptions{
+			SourceRefs: g.SourceRefs,
+		})
+	}
+
+	return g.resolver
+}
+
+// Close releases the staging directory and the clones of this run. It must be
+// deferred by whoever called New — including when New itself failed and when
+// Generate failed, since the resolver spans both — and is safe to call on a
+// generator that resolved nothing.
+func (g *Generator) Close() error {
+	if g.resolver == nil {
+		return nil
+	}
+
+	r := g.resolver
+	g.resolver = nil
+
+	return r.Close()
 }
 
 // resolveStarterVersion settles the generator pin written into the project.
@@ -248,6 +289,12 @@ func (g *Generator) resolveStarterVersion(configured string) error {
 }
 
 func (g *Generator) processConfig(config cfg.Config) error {
+	// First: the source resolver of this run is built with it (local sources
+	// are resolved against it), and the inline channels below resolve through
+	// that one resolver — so the run would otherwise read local maps and specs
+	// relative to the process working directory.
+	g.BasePath = config.BasePath
+
 	g.Logger = config.Main.LoggerObj
 	g.ProjectName = config.Main.Name
 	g.RegistryType = config.Main.RegistryType
@@ -291,7 +338,6 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 	g.TargetDir = "./"
 	g.ConfigPath = config.ConfigFilePath
-	g.BasePath = config.BasePath
 
 	if config.Deploy.LogCollector.Type != "" {
 		g.Deploy.LogCollector.Type = config.Deploy.LogCollector.Type
@@ -393,18 +439,17 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		}
 
 		// Parse queue contract for queue workers. Spec is materialized inline
-		// (local paths join with BasePath, remote URIs resolve into a
-		// scratch staging dir that is wiped right after the parse).
+		// (local paths join with BasePath, remote URIs resolve into the
+		// staging dir of this run, released by Generator.Close).
 		if w.GeneratorTemplate == "queue" && len(w.Path) > 0 && w.Path[0] != "" {
-			specPath, cleanup, err := g.resolveInlineSpec(
-				context.Background(), config.BasePath, fmt.Sprintf(channelWorkerSpecFmt, w.Name), w.Path[0],
+			specPath, err := g.resolveInlineSpec(
+				context.Background(), fmt.Sprintf(channelWorkerSpecFmt, w.Name), w.Path[0],
 			)
 			if err != nil {
 				return errors.Wrapf(err, "queue worker %q: resolve spec %s", w.Name, w.Path[0])
 			}
 
 			spec, parseErr := cfg.ParseQueueSpec(specPath)
-			cleanup()
 			if parseErr != nil {
 				return errors.Wrapf(parseErr, "failed to parse queue spec for worker '%s'", w.Name)
 			}
@@ -837,18 +882,17 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 			// Parse CLI spec if path is provided. Same inline-resolve pattern
 			// as queue workers: local paths join with BasePath, remote URIs
-			// (git+ssh://, git+https://, https://) materialize into a
-			// scratch staging dir that is wiped right after the parse.
+			// (git+ssh://, git+https://, https://) materialize into the
+			// staging dir of this run.
 			if len(cli.Path) > 0 && cli.Path[0] != "" {
-				specPath, cleanup, err := g.resolveInlineSpec(
-					context.Background(), config.BasePath, fmt.Sprintf(channelCLISpecFmt, cli.Name), cli.Path[0],
+				specPath, err := g.resolveInlineSpec(
+					context.Background(), fmt.Sprintf(channelCLISpecFmt, cli.Name), cli.Path[0],
 				)
 				if err != nil {
 					return errors.Wrapf(err, "CLI %q: resolve spec %s", cli.Name, cli.Path[0])
 				}
 
 				spec, parseErr := cfg.ParseCLISpec(specPath)
-				cleanup()
 				if parseErr != nil {
 					return errors.Wrapf(parseErr, "failed to parse CLI spec for '%s'", cli.Name)
 				}
@@ -1094,17 +1138,12 @@ func (g *Generator) processMetricsMap(config cfg.Config) error {
 	var serviceMap *metricsmap.Map
 
 	if config.Metrics.IsEnabled() {
-		mapPath, cleanup, err := g.resolveInlineSpec(
-			context.Background(), config.BasePath, channelMetricsPath, config.Metrics.Path,
-		)
+		mapPath, err := g.resolveInlineSpec(context.Background(), channelMetricsPath, config.Metrics.Path)
 		if err != nil {
 			return errors.Wrapf(err, "metrics.path: resolve %s", config.Metrics.Path)
 		}
 
 		serviceMap, err = metricsmap.Load(mapPath)
-
-		cleanup()
-
 		if err != nil {
 			return errors.Wrap(err, "metrics.path")
 		}
@@ -1218,17 +1257,12 @@ func (g *Generator) processLintConfig(config cfg.Config) error {
 		return nil
 	}
 
-	overridesPath, cleanup, err := g.resolveInlineSpec(
-		context.Background(), config.BasePath, channelLintOverrides, lintCfg.Overrides,
-	)
+	overridesPath, err := g.resolveInlineSpec(context.Background(), channelLintOverrides, lintCfg.Overrides)
 	if err != nil {
 		return errors.Wrapf(err, errResolveFmt, errLintOverridesCtx, lintCfg.Overrides)
 	}
 
 	overrides, err := os.ReadFile(overridesPath)
-
-	cleanup()
-
 	if err != nil {
 		return errors.Wrap(err, errLintOverridesCtx)
 	}
@@ -1284,17 +1318,12 @@ func (g *Generator) processOnlineConfMap(config cfg.Config) error {
 	var serviceKeys []ockeymap.Key
 
 	if config.OnlineConf.IsEnabled() {
-		mapPath, cleanup, err := g.resolveInlineSpec(
-			context.Background(), config.BasePath, channelOnlineConfPath, config.OnlineConf.Path,
-		)
+		mapPath, err := g.resolveInlineSpec(context.Background(), channelOnlineConfPath, config.OnlineConf.Path)
 		if err != nil {
 			return errors.Wrapf(err, errResolveFmt, errOnlineConfPathCtx, config.OnlineConf.Path)
 		}
 
 		keyMap, err := ockeymap.Load(mapPath)
-
-		cleanup()
-
 		if err != nil {
 			return errors.Wrap(err, errOnlineConfPathCtx)
 		}
@@ -1666,34 +1695,13 @@ func appsServingTransport(config cfg.Config, transportName string) []string {
 
 // resolveAllSources fetches every remote spec source referenced by the
 // generator (REST/gRPC SpecPath, JSONSchema Path/Schemas) and rewrites the
-// in-memory paths to point at materialized files under a per-run staging
-// directory. LocalSource entries are joined with BasePath as before.
+// in-memory paths to point at materialized files under the staging directory
+// of this run. LocalSource entries are joined with BasePath as before.
 //
-// The returned cleanup function MUST be called via defer once Generate is
-// done with the staging files (typically right after the spec/schema copies).
-func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
-	stagingDir, err := os.MkdirTemp("", "gps-specs-")
-	if err != nil {
-		return nil, fmt.Errorf("create spec staging dir: %w", err)
-	}
-
-	// Skip the `git` probe if no source actually needs git — keeps the
-	// dependency surface minimal for projects that only use local specs.
-	skipGit := !g.hasGitSource()
-
-	resolver, err := specsource.NewResolver(g.BasePath, stagingDir, specsource.ResolverOptions{
-		SkipGitCheck: skipGit,
-		SourceRefs:   g.SourceRefs,
-	})
-	if err != nil {
-		_ = os.RemoveAll(stagingDir)
-		return nil, err
-	}
-
-	cleanup = func() error {
-		_ = resolver.Close()
-		return os.RemoveAll(stagingDir)
-	}
+// The staged files stay alive until Generator.Close, which the owner of the
+// generator defers: the spec/schema copy step reads them after this returns.
+func (g *Generator) resolveAllSources() error {
+	resolver := g.sourceResolver()
 
 	ctx := context.Background()
 
@@ -1705,7 +1713,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 		for i, raw := range t.SpecPath {
 			res, rerr := g.resolveOne(ctx, resolver, raw)
 			if rerr != nil {
-				return cleanup, errors.Wrapf(rerr, "transport %q path[%d]=%s", name, i, raw)
+				return errors.Wrapf(rerr, "transport %q path[%d]=%s", name, i, raw)
 			}
 
 			t.SpecPath[i] = res.LocalPath
@@ -1737,7 +1745,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 				raw := j.Schemas[i].Path
 				res, rerr := g.resolveOne(ctx, resolver, raw)
 				if rerr != nil {
-					return cleanup, errors.Wrapf(rerr, "jsonschema %q schemas[%d]=%s", name, i, raw)
+					return errors.Wrapf(rerr, "jsonschema %q schemas[%d]=%s", name, i, raw)
 				}
 
 				j.Schemas[i].Path = res.LocalPath
@@ -1749,7 +1757,7 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 			for i, raw := range j.Path {
 				res, rerr := g.resolveOne(ctx, resolver, raw)
 				if rerr != nil {
-					return cleanup, errors.Wrapf(rerr, "jsonschema %q path[%d]=%s", name, i, raw)
+					return errors.Wrapf(rerr, "jsonschema %q path[%d]=%s", name, i, raw)
 				}
 
 				j.Path[i] = res.LocalPath
@@ -1761,45 +1769,10 @@ func (g *Generator) resolveAllSources() (cleanup func() error, err error) {
 	}
 
 	if err := g.resolveContracts(ctx, resolver); err != nil {
-		return cleanup, err
+		return err
 	}
 
-	return cleanup, nil
-}
-
-// hasGitSource reports whether any spec path is a git URI. Used to suppress
-// the up-front `git` binary probe when no git source is configured.
-func (g *Generator) hasGitSource() bool {
-	check := func(raw string) bool {
-		s, err := specsource.ParseSpecSource(raw)
-		return err == nil && s.Kind() == specsource.KindGit
-	}
-	for _, t := range g.Transports {
-		for _, p := range t.SpecPath {
-			if check(p) {
-				return true
-			}
-		}
-	}
-	for _, j := range g.JSONSchemas {
-		for _, p := range j.Path {
-			if check(p) {
-				return true
-			}
-		}
-		for _, item := range j.Schemas {
-			if check(item.Path) {
-				return true
-			}
-		}
-	}
-
-	for _, c := range g.Contracts {
-		if check(c.RawPath) {
-			return true
-		}
-	}
-	return false
+	return nil
 }
 
 // rewriteRefsForSpecs walks REST transports with RewriteRefs=true and rewrites
@@ -2104,15 +2077,7 @@ func (g *Generator) Generate() error {
 		}
 	}
 
-	cleanup, err := g.resolveAllSources()
-	if cleanup != nil {
-		defer func() {
-			if cerr := cleanup(); cerr != nil {
-				log.Printf("warning: cleanup spec staging dir: %v", cerr)
-			}
-		}()
-	}
-	if err != nil {
+	if err = g.resolveAllSources(); err != nil {
 		return errors.Wrap(err, "Error resolve specs")
 	}
 

@@ -16,9 +16,11 @@ import (
 // they resolved, which is what makes provenance a property of resolving rather
 // than of the channel that asked: a channel added later gets a record from the
 // same code as the existing ones.
+// The resolver itself is built in one place: the run has exactly one, so that
+// every channel naming the same (repo, ref) reads one clone and one commit.
 var (
 	allowedResolveCallers   = map[string]bool{"resolveOne": true, "resolveInlineSpec": true}
-	allowedNewResolverHosts = map[string]bool{"resolveAllSources": true, "resolveInlineSpec": true}
+	allowedNewResolverHosts = map[string]bool{"sourceResolver": true}
 )
 
 // TestEveryResolveRecordsProvenance is the guard behind "a new channel is
@@ -102,11 +104,10 @@ func TestResolveInlineSpecRecordsInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	g := &Generator{}
+	g := &Generator{BasePath: base}
+	defer closeGenerator(t, g)
 
-	path, cleanup, err := g.resolveInlineSpec(t.Context(), base, channelMetricsPath, "./metrics-map.yaml")
-	cleanup()
-
+	path, err := g.resolveInlineSpec(t.Context(), channelMetricsPath, "./metrics-map.yaml")
 	if err != nil {
 		t.Fatalf("resolveInlineSpec() error = %v", err)
 	}
