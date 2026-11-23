@@ -379,11 +379,18 @@ jobs:
     steps:
       - name: Create env file
         id: create_env_file
+        env:
+          # Имя ветки приходит переменной окружения, а не текстом скрипта:
+          # workflow-выражение в run: раскрывается до запуска shell, поэтому
+          # имя ветки стало бы частью исходника скрипта (GitHub Security
+          # hardening -> script injection). Git допускает в именах веток
+          # обратную кавычку, $, " и (), то есть release/$(cmd) выполнила бы
+          # команду, а release/a`b уронила бы шаг синтаксической ошибкой.
+          BRANCH: ${{"{{"}} github.ref_name {{"}}"}}
         run: |
           # Имя ветки нормализуется тем же правилом, что и имена переменных
           # ветки (шаг `Get branch`): `/` в имени ветки сделал бы из `.env.`
           # путь в несуществующий каталог, и шаг падал бы на первом `>>`.
-          BRANCH="${{"{{"}} github.ref_name {{"}}"}}"
           fname=".env.${BRANCH//[^A-Za-z0-9_]/_}"
 
           ENV_TYPE=${{"{{"}} fromJSON(needs.prepare-env.outputs.ENV_TYPE)[matrix.envs] {{"}}"}}
@@ -866,11 +873,19 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{"{{"}} secrets.TELEGRAM_BOT_TOKEN {{"}}"}}
       TELEGRAM_CHAT_ID: ${{"{{"}} secrets.TELEGRAM_CHAT_ID {{"}}"}}
       COMMIT_MSG: ${{"{{"}} github.event.head_commit.message {{"}}"}}
+      # Имя ветки, как и сообщение коммита, приходит переменной окружения, а не
+      # текстом скрипта: workflow-выражение в run: раскрывается до запуска
+      # shell, поэтому имя ветки стало бы частью исходника скрипта (GitHub
+      # Security hardening -> script injection). Git допускает в именах веток
+      # обратную кавычку, $, " и (), то есть release/$(cmd) выполнила бы
+      # команду в job'е с доступом к TELEGRAM_BOT_TOKEN, а release/a`b уронила
+      # бы шаг синтаксической ошибкой.
+      BRANCH: ${{"{{"}} github.ref_name {{"}}"}}
 
     steps:
       - name: Check conditions and set message
         run: |
-          BRANCH="${{"{{"}} github.ref_name {{"}}"}}"
+          # $BRANCH и $COMMIT_MSG приходят из env: job'а, см. комментарий там.
 {{- if .Artifacts.HasDocker }}
           BUILD_STATUS="${{"{{"}} needs.build.result {{"}}"}}"
 {{- end }}

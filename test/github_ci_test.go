@@ -1,6 +1,7 @@
 package test
 
 import (
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,11 +39,15 @@ type githubPushTrigger struct {
 }
 
 // githubJob is the subset of a workflow job the github_ci parameters affect.
+// Env is decoded because a job-level variable is part of the environment its
+// steps run with: a step executed in a test without it runs a different
+// script than the runner does.
 type githubJob struct {
-	RunsOn         any          `yaml:"runs-on"`
-	TimeoutMinutes *int         `yaml:"timeout-minutes"`
-	If             string       `yaml:"if"`
-	Steps          []githubStep `yaml:"steps"`
+	RunsOn         any               `yaml:"runs-on"`
+	TimeoutMinutes *int              `yaml:"timeout-minutes"`
+	If             string            `yaml:"if"`
+	Env            map[string]string `yaml:"env"`
+	Steps          []githubStep      `yaml:"steps"`
 }
 
 // githubStep is the subset of a job step the github_ci parameters affect.
@@ -52,6 +57,22 @@ type githubStep struct {
 	With map[string]any    `yaml:"with"`
 	Env  map[string]string `yaml:"env"`
 	Run  string            `yaml:"run"`
+}
+
+// exprStubs resolves a workflow expression to the value the runner would
+// substitute for it. Exact matches come first; the patterns cover the
+// expressions whose names depend on the project (one PORT_PREFIX per
+// application and transport), which an exact table would have to repeat per
+// config.
+type exprStubs struct {
+	exact    map[string]string
+	patterns []exprStubPattern
+}
+
+// exprStubPattern is a stub for every expression matching rx.
+type exprStubPattern struct {
+	rx    *regexp.Regexp
+	value string
 }
 
 // doRegistryLoginStepName is the name of the step that logs in to the
@@ -83,11 +104,17 @@ const curlArgSeparator = "===CURL-ARG==="
 const markdownV2Specials = "_*[]()~`>#+-=|{}.!"
 
 // branchSanitizePattern is the shell pattern both the `Get branch` step and
-// the env file name derive from the branch name. Asserting on the pattern,
-// rather than on a name produced by it, is what the env file step allows: its
-// recipe is full of workflow expressions, so it cannot be executed in a test
-// the way `Get branch` can.
+// the env file name derive from the branch name.
 const branchSanitizePattern = `[^A-Za-z0-9_]`
+
+// injectionMarkerFile is the file the hostile branch names of the injection
+// tests try to create. Its absence after the step is what says the branch name
+// stayed a value instead of becoming a command.
+const injectionMarkerFile = "pwned"
+
+// envTypeStub is the deploy environment type the stubbed `Create env file`
+// step resolves, which the step appends to the env file name.
+const envTypeStub = "prod"
 
 // The GitHub Actions workflows the generator produces.
 const (
@@ -123,6 +150,177 @@ var notifyBranchRx = regexp.MustCompile(`(?m)на ветке \*(.*)\*\s*$`)
 // workflowExprRx matches a GitHub Actions expression, which the runner
 // substitutes before the shell ever sees the recipe.
 var workflowExprRx = regexp.MustCompile(`\$\{\{\s*([^{}]+?)\s*\}\}`)
+
+// injectableRunExprRx matches the workflow contexts whose value carries text
+// an outside party chooses: the branch or tag name, the pull request head, the
+// event payload. In `run:` the runner substitutes them before the shell
+// starts, so the value becomes part of the script source — `release/$(cmd)`
+// runs a command in a job that holds the repository secrets, and a name with a
+// backtick or a quote kills the step with a syntax error. Such a value belongs
+// in `env:`, where it stays a value.
+var injectableRunExprRx = regexp.MustCompile(`github\.(ref_name|head_ref|ref|event)\b`)
+
+// branchSanitizeRx is branchSanitizePattern as the test applies it, to derive
+// the name the steps build out of a branch name.
+var branchSanitizeRx = regexp.MustCompile(branchSanitizePattern)
+
+// hostileBranchNames are branch names `git check-ref-format` accepts and the
+// shell reads as code: a command substitution, a backtick command and the
+// unbalanced backtick and quote that break the script outright.
+var hostileBranchNames = []string{
+	"x$(touch " + injectionMarkerFile + ")",
+	"x`touch " + injectionMarkerFile + "`",
+	"a`b",
+	`a"b`,
+	"a;b",
+}
+
+// lookup returns the stubbed value of an expression.
+func (s exprStubs) lookup(expr string) (string, bool) {
+	if value, ok := s.exact[expr]; ok {
+		return value, true
+	}
+
+	for _, p := range s.patterns {
+		if p.rx.MatchString(expr) {
+			return p.value, true
+		}
+	}
+
+	return "", false
+}
+
+// runnerStubs are the values a runner would substitute for the workflow
+// expressions of the executed steps, for a push of branch with the build
+// ending in buildResult.
+func runnerStubs(branch, buildResult string) exprStubs {
+	return exprStubs{
+		exact: map[string]string{
+			"github.ref_name":                  branch,
+			"github.ref":                       "refs/heads/" + branch,
+			"github.repository":                "Educentr/github-ci-test",
+			"github.workflow":                  "CI Pipeline",
+			"github.run_id":                    "42",
+			"github.event.head_commit.message": "fix: a commit",
+			"secrets.TELEGRAM_BOT_TOKEN":       "stub-token",
+			"secrets.TELEGRAM_CHAT_ID":         "1",
+			"secrets.REGISTRY_LOGIN_SERVER":    "registry.test",
+			"vars.REGISTRY_CONTAINER":          "github-ci-test",
+			"needs.build.result":               buildResult,
+			"needs.build-packages.result":      buildResult,
+
+			"needs.prepare-env.outputs.ARTIFACTS":                       `["registry/github-ci-test:1.0"]`,
+			"needs.prepare-env.outputs.PACKAGES":                        `["github-ci-test-1.0.rpm"]`,
+			"needs.prepare-env.outputs.OC_HOST":                         "oc.test",
+			"needs.prepare-env.outputs.OC_PORT":                         "8080",
+			"needs.prepare-env.outputs.RELEASE":                         "1.0.0",
+			"needs.prepare-env.outputs.INTERNAL_SUBNET":                 "10.1.0.0/24",
+			"fromJSON(needs.prepare-env.outputs.ENV_TYPE)[matrix.envs]": envTypeStub,
+		},
+		patterns: []exprStubPattern{
+			{
+				rx:    regexp.MustCompile(`^fromJson\(needs\.prepare-env\.outputs\.PORT_PREFIX_[A-Za-z0-9_]+\)\[matrix\.envs\]$`),
+				value: "31",
+			},
+			{
+				rx:    regexp.MustCompile(`^fromJson\(needs\.prepare-env\.outputs\.DOMAIN_[A-Za-z0-9_]+\)\[matrix\.envs\]$`),
+				value: "api.test",
+			},
+			{
+				rx:    regexp.MustCompile(`^fromJson\(secrets\[needs\.prepare-env\.outputs\.OC_(USER|PASSWORD)\]\)\[matrix\.envs\]$`),
+				value: "oc-secret",
+			},
+		},
+	}
+}
+
+// substituteWorkflowExprs replaces every workflow expression in text with the
+// value the runner would substitute, so the text can be used as what it
+// becomes on a runner. An expression without a stub fails the test: a silently
+// empty substitution would hide whatever the step does with that value.
+func substituteWorkflowExprs(t *testing.T, what, text string, stubs exprStubs) string {
+	t.Helper()
+
+	var unknown []string
+
+	substituted := workflowExprRx.ReplaceAllStringFunc(text, func(match string) string {
+		expr := workflowExprRx.FindStringSubmatch(match)[1]
+
+		value, ok := stubs.lookup(expr)
+		if !ok {
+			unknown = append(unknown, expr)
+		}
+
+		return value
+	})
+
+	if len(unknown) != 0 {
+		t.Fatalf("%s uses the workflow expressions %v the test has no stub for", what, unknown)
+	}
+
+	return substituted
+}
+
+// stepShellEnv renders the environment a step runs with — the `env:` of its
+// job plus its own, the step's winning — into the KEY=VALUE entries the shell
+// gets, with the same expression substitution the runner does.
+//
+// Reading the `env:` blocks is what keeps the executed script the one the
+// runner runs: a value moved out of `run:` into `env:` disappears from the
+// recipe, so a test that only executed the recipe would run it with the
+// variable unset and pass without asserting anything.
+func stepShellEnv(t *testing.T, what string, job githubJob, step githubStep, stubs exprStubs) []string {
+	t.Helper()
+
+	vars := map[string]string{}
+
+	for name, value := range job.Env {
+		vars[name] = substituteWorkflowExprs(t, what+" job env "+name, value, stubs)
+	}
+
+	for name, value := range step.Env {
+		vars[name] = substituteWorkflowExprs(t, what+" step env "+name, value, stubs)
+	}
+
+	env := make([]string, 0, len(vars))
+
+	for name, value := range vars {
+		env = append(env, name+"="+value)
+	}
+
+	slices.Sort(env)
+
+	return env
+}
+
+// findStepByName returns the job that carries the named step and the step
+// itself. The step is looked up by name across jobs because the job it lives
+// in is itself conditional on the project's artifacts.
+func findStepByName(t *testing.T, targetDir, stepName string) (string, githubJob, githubStep) {
+	t.Helper()
+
+	wf := parseWorkflow(t, targetDir, ciCDWorkflow)
+
+	for _, jobName := range slices.Sorted(maps.Keys(wf.Jobs)) {
+		job := wf.Jobs[jobName]
+
+		for _, step := range job.Steps {
+			if step.Name == stepName {
+				return jobName, job, step
+			}
+		}
+	}
+
+	t.Fatalf("ci_cd.yml has no %q step, got jobs %v", stepName, slices.Sorted(maps.Keys(wf.Jobs)))
+
+	return "", githubJob{}, githubStep{}
+}
+
+// sanitizeBranch is what both the `Get branch` step and the env file name do
+// to a branch name before using it.
+func sanitizeBranch(branch string) string {
+	return branchSanitizeRx.ReplaceAllString(branch, "_")
+}
 
 // stepsByName indexes the steps of a job by step name.
 func stepsByName(job githubJob) map[string]githubStep {
@@ -622,64 +820,27 @@ func escapeMarkdownV2(s string) string {
 	return b.String()
 }
 
-// notifyStepScript returns the recipe of the notify step with every workflow
-// expression replaced by the value the runner would substitute, so the recipe
-// can be executed as the shell script it becomes on a runner. An expression
-// without a stub fails the test: a silently empty substitution would hide
-// whatever the step does with that value.
-func notifyStepScript(t *testing.T, targetDir, branch, buildResult string) string {
+// notifyStepScript returns the recipe of the notify step and the environment
+// it runs with, both with every workflow expression replaced by the value the
+// runner would substitute, so the step can be executed the way a runner
+// executes it.
+func notifyStepScript(t *testing.T, targetDir, branch, buildResult string) (string, []string) {
 	t.Helper()
 
-	wf := parseWorkflow(t, targetDir, ciCDWorkflow)
+	jobName, job, step := findStepByName(t, targetDir, notifyStepName)
 
-	job, ok := wf.Jobs[notifyJobName]
-	if !ok {
-		t.Fatalf("ci_cd.yml has no %s job, got jobs %v", notifyJobName, wf.Jobs)
-	}
-
-	var step githubStep
-
-	for _, s := range job.Steps {
-		if s.Name == notifyStepName {
-			step = s
-
-			break
-		}
+	if jobName != notifyJobName {
+		t.Errorf("the %q step is in job %q, want it in %q", notifyStepName, jobName, notifyJobName)
 	}
 
 	if step.Run == "" {
-		t.Fatalf("job %s has no %q step, got steps %#v", notifyJobName, notifyStepName, job.Steps)
+		t.Fatalf("job %s has no recipe in its %q step, got %#v", jobName, notifyStepName, step)
 	}
 
-	stubs := map[string]string{
-		"github.ref_name":                     branch,
-		"github.repository":                   "Educentr/github-ci-test",
-		"github.workflow":                     "CI Pipeline",
-		"github.run_id":                       "42",
-		"needs.build.result":                  buildResult,
-		"needs.build-packages.result":         buildResult,
-		"needs.prepare-env.outputs.ARTIFACTS": `["registry/github-ci-test:1.0"]`,
-		"needs.prepare-env.outputs.PACKAGES":  `["github-ci-test-1.0.rpm"]`,
-	}
+	stubs := runnerStubs(branch, buildResult)
+	what := "the " + notifyStepName + " step"
 
-	var unknown []string
-
-	script := workflowExprRx.ReplaceAllStringFunc(step.Run, func(match string) string {
-		expr := workflowExprRx.FindStringSubmatch(match)[1]
-
-		value, ok := stubs[expr]
-		if !ok {
-			unknown = append(unknown, expr)
-		}
-
-		return value
-	})
-
-	if len(unknown) != 0 {
-		t.Fatalf("the %q step uses the workflow expressions %v the test has no stub for", notifyStepName, unknown)
-	}
-
-	return script
+	return substituteWorkflowExprs(t, what, step.Run, stubs), stepShellEnv(t, what, job, step, stubs)
 }
 
 // notifyMessage runs the notify step for a branch and returns the message text
@@ -689,7 +850,7 @@ func notifyStepScript(t *testing.T, targetDir, branch, buildResult string) strin
 func notifyMessage(t *testing.T, targetDir, branch, buildResult string) string {
 	t.Helper()
 
-	script := notifyStepScript(t, targetDir, branch, buildResult)
+	script, stepEnv := notifyStepScript(t, targetDir, branch, buildResult)
 
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "notify.sh")
@@ -714,17 +875,28 @@ func notifyMessage(t *testing.T, targetDir, branch, buildResult string) string {
 
 	cmd := exec.Command("bash", scriptPath)
 
-	cmd.Env = append(os.Environ(),
+	// The script runs in its own directory so that anything a hostile branch
+	// name manages to create lands where the test looks for it.
+	cmd.Dir = dir
+
+	// The `env:` of the step and its job carry everything the step itself
+	// reads — including the secrets it gives up early without, substituted by
+	// runnerStubs — so the test adds only what the runner provides around the
+	// step.
+	stepEnv = append(stepEnv,
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"CURL_ARGS_FILE="+argsPath,
-		// The step gives up early without both secrets.
-		"TELEGRAM_BOT_TOKEN=stub-token",
-		"TELEGRAM_CHAT_ID=1",
-		"COMMIT_MSG=fix: a commit",
 		"GITHUB_ENV="+filepath.Join(dir, "github_env"),
 	)
 
+	cmd.Env = append(os.Environ(), stepEnv...)
+
 	out, err := cmd.CombinedOutput()
+
+	// Checked before the exit status: a branch name that executed is the worse
+	// failure of the two, and it can make the step fail as well.
+	assertNoInjectionMarker(t, dir, notifyStepName, branch)
+
 	if err != nil {
 		t.Fatalf("Error running the %q step for %s: %v\n%s", notifyStepName, branch, err, out)
 	}
@@ -774,6 +946,174 @@ func TestGenerateGithubCINotifyEscapesBranch(t *testing.T) {
 						got, want, message)
 				}
 			})
+		}
+	}
+}
+
+// assertNoInjectionMarker checks that an executed step left no marker file
+// behind, which is what a branch name reaching the shell as code creates.
+func assertNoInjectionMarker(t *testing.T, dir, stepName, branch string) {
+	t.Helper()
+
+	if _, err := os.Stat(filepath.Join(dir, injectionMarkerFile)); err == nil {
+		t.Fatalf("the %q step executed the branch name %q: it created %s",
+			stepName, branch, injectionMarkerFile)
+	}
+}
+
+// envFileName runs the `Create env file` step for a branch and returns the
+// name of the env file it wrote, read back from the step output the upload
+// step takes the path from.
+//
+// The step is executed, not read, because the branch name is only dangerous
+// once a shell sees it, and only an executed step shows whether the name
+// reached the script at all.
+func envFileName(t *testing.T, targetDir, branch string) string {
+	t.Helper()
+
+	jobName, job, step := findStepByName(t, targetDir, envFileStepName)
+
+	if step.Run == "" {
+		t.Fatalf("job %s has no recipe in its %q step, got %#v", jobName, envFileStepName, step)
+	}
+
+	stubs := runnerStubs(branch, "success")
+	what := "the " + envFileStepName + " step"
+	script := substituteWorkflowExprs(t, what, step.Run, stubs)
+	stepEnv := stepShellEnv(t, what, job, step, stubs)
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "create-env-file.sh")
+	outputPath := filepath.Join(dir, "github_output")
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("Error writing the step script: %v", err)
+	}
+
+	if err := os.WriteFile(outputPath, nil, 0o600); err != nil {
+		t.Fatalf("Error creating the GITHUB_OUTPUT file: %v", err)
+	}
+
+	cmd := exec.Command("bash", scriptPath)
+
+	// The step writes the env file into the working directory, which is also
+	// where anything a hostile branch name creates lands.
+	cmd.Dir = dir
+
+	stepEnv = append(stepEnv, "GITHUB_OUTPUT="+outputPath)
+	cmd.Env = append(os.Environ(), stepEnv...)
+
+	out, err := cmd.CombinedOutput()
+
+	assertNoInjectionMarker(t, dir, envFileStepName, branch)
+
+	if err != nil {
+		t.Fatalf("Error running the %q step for %s: %v\n%s", envFileStepName, branch, err, out)
+	}
+
+	output, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Error reading the GITHUB_OUTPUT file: %v", err)
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if fname, found := strings.CutPrefix(line, "FNAME="); found {
+			if _, err := os.Stat(filepath.Join(dir, fname)); err != nil {
+				t.Fatalf("the %q step reported %s but wrote no such file: %v\n%s",
+					envFileStepName, fname, err, out)
+			}
+
+			return fname
+		}
+	}
+
+	t.Fatalf("the %q step reported no FNAME for %s, got the output:\n%s\n%s",
+		envFileStepName, branch, output, out)
+
+	return ""
+}
+
+// TestGenerateGithubCIEnvFileBranchNotInjected verifies that the deploy step
+// takes the branch name as a value: it names the env file after every branch
+// `git check-ref-format` accepts, including the names that read as shell code.
+//
+// With the name pasted into the recipe through a workflow expression, a branch
+// like `x$(touch pwned)` ran a command in the job and one with an unbalanced
+// backtick killed the step with a syntax error (GitHub Security hardening →
+// script injection).
+func TestGenerateGithubCIEnvFileBranchNotInjected(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci")
+
+	// The ordinary names come first: the same assertion also says the file
+	// name of an existing deploy did not change.
+	branches := append([]string{"main", "release/1.2", "hotfix-x", "feature_x"}, hostileBranchNames...)
+
+	for _, branch := range branches {
+		t.Run(branch, func(t *testing.T) {
+			want := ".env." + sanitizeBranch(branch) + "-" + envTypeStub
+
+			if got := envFileName(t, tmpDir, branch); got != want {
+				t.Errorf("the %q step named the env file %q, want %q", envFileStepName, got, want)
+			}
+		})
+	}
+}
+
+// TestGenerateGithubCINotifyBranchNotInjected verifies that the notify step
+// takes the branch name as a value: it reports every branch name
+// `git check-ref-format` accepts, including the names that read as shell code,
+// and runs none of them.
+func TestGenerateGithubCINotifyBranchNotInjected(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci")
+
+	// Both outcomes are checked because the message is composed twice, once
+	// per branch of the status check, and each pastes the branch name itself.
+	for _, buildResult := range []string{"success", "failure"} {
+		for _, branch := range hostileBranchNames {
+			t.Run(buildResult+"/"+branch, func(t *testing.T) {
+				message := notifyMessage(t, tmpDir, branch, buildResult)
+
+				match := notifyBranchRx.FindStringSubmatch(message)
+				if match == nil {
+					t.Fatalf("the message names no branch, got:\n%s", message)
+				}
+
+				if got, want := match[1], escapeMarkdownV2(branch); got != want {
+					t.Errorf("the message names the branch as %q, want %q (MarkdownV2 escaped)\n%s",
+						got, want, message)
+				}
+			})
+		}
+	}
+}
+
+// TestGenerateGithubCINoInjectableRunExpr verifies that no `run:` recipe of
+// the generated workflows substitutes a workflow context whose value an
+// outside party chooses. Such a value has to travel through `env:`, where the
+// shell reads it as data; in a recipe it is source code (GitHub Security
+// hardening → script injection).
+//
+// The test is the one that catches the pattern coming back: every future step
+// that pastes a branch name, a tag name or an event payload into a script
+// fails it, whether or not the test suite executes that step.
+func TestGenerateGithubCINoInjectableRunExpr(t *testing.T) {
+	// github-ci enables the most jobs of ci_cd.yml (build, deploy, env files,
+	// goat tests, notification), so it renders every recipe the other configs
+	// render a subset of.
+	tmpDir := generateProject(t, "github-ci")
+
+	for _, name := range generatedWorkflowNames {
+		wf := parseWorkflow(t, tmpDir, name)
+
+		for _, jobName := range slices.Sorted(maps.Keys(wf.Jobs)) {
+			for _, step := range wf.Jobs[jobName].Steps {
+				for _, match := range workflowExprRx.FindAllStringSubmatch(step.Run, -1) {
+					if ctx := injectableRunExprRx.FindString(match[1]); ctx != "" {
+						t.Errorf("%s: job %s step %q runs a script with ${{ %s }} in it (%s): pass the value through env: instead",
+							name, jobName, step.Name, match[1], ctx)
+					}
+				}
+			}
 		}
 	}
 }
