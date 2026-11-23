@@ -48,6 +48,10 @@ metrics:
 
 Оба случая — ошибка генерации с указанием объявления, а не синтаксическая ошибка в сгенерированном пакете.
 
+**Имя занимает идентификатор в пакете коллекторов, и этот идентификатор должен быть свободен.** Всё, что объявление порождает, экспортировано (сворачивание разделителей поднимает первый символ в верхний регистр), поэтому имя способно наехать и на другое объявление, и на то, что пакет объявляет сам: `register` даёт `var Register` против `func Register`, `collectors` — против `Collectors`, `err_unknown_app` — против `ErrUnknownApp`, а в карте с `GaugeSet` ещё и `gauge_set` — против сгенерированного коллектора `GaugeSet`. Любое совпадение — **ошибка генерации** с указанием обеих сторон: сгенерированный пакет, который дважды объявляет один идентификатор, не собирается, а починить его в проекте нечем — его пишет генератор.
+
+Зарезервированный набор следует фактическому выводу: `GaugeSet` занят только в карте, где есть хотя бы одно семейство состояния, — в карте без него имя `gauge_set` ничему не мешает.
+
 ### `type` — конструктор
 
 | `type` | Коллектор | Метки |
@@ -60,8 +64,11 @@ metrics:
 | `HistogramVec` | `prometheus.HistogramVec` | обязательны |
 | `Summary` | `prometheus.Summary` | нет |
 | `SummaryVec` | `prometheus.SummaryVec` | обязательны |
+| `GaugeSet` | сгенерированный `GaugeSet[…]` — [семейство состояния](#gaugeset--семейство-состояния) | обязательны |
 
 Метки у не-`Vec` типа и отсутствие меток у `Vec` — ошибка генерации, а не молчаливое исправление.
+
+Все типы, кроме `GaugeSet`, называются как конструктор `client_golang` — чтобы по карте было видно, какой объект получится. У `GaugeSet` конструктора в `client_golang` нет: это сгенерированный коллектор поверх объявленного здесь `Desc`.
 
 ### `labels` — метки серии
 
@@ -124,6 +131,103 @@ metrics:
 - попадает в дашборд.
 
 Это нужно для метрик OTEL SDK, драйверов БД и всего остального, что инструментирует себя само. Без этого поля такие метрики пришлось бы прятать от карты, и карта перестала бы быть полным списком.
+
+### `GaugeSet` — семейство состояния
+
+`GaugeSet` объявляет **семейство состояния**: gauge-семейство, про которое тик знает всю правду целиком — состояние флота, аккаунтов, кредов, реестров конфигурации, флаги кривого конфига. Набор серий у такого семейства публикуется **целиком**, а серия, о которой тик больше не знает, **исчезает**, а не застывает на последнем значении.
+
+```yaml
+  - name: fleet_state
+    type: GaugeSet
+    labels: node, zone
+    help: State of each known fleet node, by node and zone.
+```
+
+`labels` обязательны: семейство без меток — это одна серия, а одну серию публиковать «целиком» не нужно, это `Gauge`, который тик проставляет.
+
+#### Почему это не `GaugeVec`
+
+Очевидная запись на `GaugeVec` — `vec.Reset()`, затем заполнение. На время заполнения семейство опубликовано пустым, а `/metrics` опрашивают по чужим часам: опрос, попавший в это окно, видит, что семейство пропало, — на панели дыра, а каждое правило над ним получает ложный no-data. На проде это давало один пропущенный шаг примерно на 1% опросов.
+
+`GaugeSet` отдаёт набор атомарно: опрос видит **либо весь прежний набор, либо весь новый**.
+
+#### Что генерируется
+
+На каждое объявление — тип сэмпла, тип источника и коллектор:
+
+```go
+// FleetStateSample is one series of fleet_state: the values of its
+// labels plus the value of the series.
+type FleetStateSample struct {
+	// Node is the value of the node label.
+	Node string
+	// Zone is the value of the zone label.
+	Zone string
+	// Value is the value of the series.
+	Value float64
+}
+
+// FleetStateFunc is the source of the fleet_state set.
+type FleetStateFunc func() []FleetStateSample
+
+var FleetState = &GaugeSet[FleetStateSample]{ /* desc из карты */ }
+```
+
+Сэмпл — **структура, а не срез значений меток**: по одному строковому полю на объявленную метку плюс `Value`. Поэтому «сэмпл с неверным числом значений меток» — не ошибка рантайма, а код, который не компилируется; считает поля компилятор.
+
+Имя поля — имя метки, у которой свёрнуты `_`: `node` → `Node`, `account_id` → `AccountId`. Инициализмы (`Id` → `ID`) намеренно не распознаются: поле должно выводиться из метки на глаз, так же как имя переменной коллектора выводится из `name`.
+
+Руками пишется **только источник** — одна функция. Два способа её отдать, оба на сгенерированном коллекторе:
+
+```go
+// pull: коллектор зовёт функцию на каждом опросе
+metrics.FleetState.SetFunc(func() []metrics.FleetStateSample {
+	return fleet.snapshot()  // дёшево пересчитать на месте
+})
+
+// push: тик публикует законченный результат
+metrics.FleetState.Set(samples)  // часть значений нельзя считать на каждом опросе (пробы кредов)
+```
+
+`Set` — это `SetFunc` над источником, который отдаёт этот срез; ручного атомарного свопа на месте вызова не остаётся (а это ровно та часть, которую легко сделать неправильно). Срез после `Set` менять нельзя — его может читать опрос; следующий набор собирается в новом срезе.
+
+Поведение, на которое можно опираться:
+
+- **до первого `Set`/`SetFunc` семейство отдаёт пустой набор** — как свежезарегистрированный `GaugeVec`, поэтому первому тику не нужно обгонять первый опрос;
+- серия, которой нет в последнем наборе, **не экспонируется**;
+- `SetFunc(nil)` отцепляет источник, и семейство снова отдаёт пустой набор;
+- функция вызывается на горутине опроса, без удерживаемых коллектором локов: долго блокироваться в ней нельзя;
+- **плохой набор стоит своего семейства и больше ничего** — см. [«Плохой набор не роняет остальные метрики приложения»](#плохой-набор-не-роняет-остальные-метрики-приложения).
+
+Регистрирует семейство сгенерированный код, как и любую другую запись карты (`RegisterFor`/`Register`). Панель в дашборде — та же, что у `Gauge`: семейство состояния — это gauge во всём, что видит Prometheus и Grafana, отличается только объект, который его эмитит.
+
+`GaugeSet` несовместим с `external: true` и с `owner`: оба означают «коллектор строится не в сгенерированном пакете», а `GaugeSet` — это утверждение о том, **как** этот пакет его строит. Комбинация не генерировала бы ничего, читаясь при этом как объявление, поэтому она отвергается.
+
+#### Плохой набор не роняет остальные метрики приложения
+
+Источник обязан отдавать не больше одной серии на комбинацию меток и только значения меток, валидные с точки зрения Prometheus (валидный UTF-8). Если он этого не сделал, набор всё равно отдаётся:
+
+- **одна и та же комбинация меток дважды в одном наборе** — экспонируется одна серия, значение берётся у **последнего** такого сэмпла. Так же ведёт себя `GaugeVec`, который заполняют по одной серии (`WithLabelValues(...).Set`), поэтому семейство, перенесённое с ручного коллектора, поведения не меняет;
+- **сэмпл, который отверг `prometheus.NewConstMetric`** (значение метки — невалидный UTF-8), **пропускается**; остальные серии набора экспонируются.
+
+Почему не «ошибка опроса» (`NewInvalidMetric`, которую сообщил бы реестр): `/metrics` отдаёт сгенерированный `sys`-транспорт через `promhttp.HandlerFor(..., promhttp.HandlerOpts{})`, а там по умолчанию `ErrorHandling = HTTPErrorOnError` — **любая** ошибка `Gather` превращается в HTTP 500 на весь ответ. То есть один плохой сэмпл одного семейства убрал бы из опроса **все** метрики приложения: `up=0`, все серии процесса уходят в stale. Это тот же класс дефекта, который закрывает сам `GaugeSet`, только шире: вместо дыры на одной панели — дыра на всех.
+
+Диагностируется это не ошибкой опроса, а самими метриками: пропавший сэмпл виден как отсутствующая серия, свёрнутый дубль — как серия со значением последнего сэмпла. Проверять набор на дубли, если это важно, должен источник.
+
+#### Миграция с ручного коллектора
+
+До появления этого типа такие семейства писались руками: собственный коллектор, который каждый тик собирает свежий незарегистрированный `GaugeVec` и подменяет его одной атомарной записью. В карте они при этом стояли как `external: true` — то есть как **чужие** метрики, хотя эмитил их сервис; иначе генератор выпустил бы под тем же именем обычный `NewGaugeVec` и зарегистрировал его первым, а ручной коллектор молча отваливался бы на `AlreadyRegisteredError`.
+
+Что сделать на каждое такое семейство:
+
+1. В карте: `external: true` → `type: GaugeSet`. Имя, `help` и `labels` уже там — теперь они **действуют**, а не просто занимают имя.
+2. Удалить ручной коллектор: `Describe`, `Collect`, атомарный слот и вызовы `prometheus.NewGaugeVec`/`NewDesc` в нём. Вместе с ним уходят исключения `forbidigo`, которые ему были нужны (`make metrics-validate` запрещает конструкторы метрик вне сгенерированного пакета).
+3. Удалить ручную регистрацию коллектора и гвард «у помеченной записи нет двойника в сгенерированном коде»: регистрирует теперь сгенерированный `RegisterFor`.
+4. Тик переписать так, чтобы он отдавал `[]<Имя>Sample` — через `Set`, если он считает набор сам, или через `SetFunc`, если набор можно собрать на опросе.
+
+Названия сгенерированных типов (`<Имя>Sample`, его поля, `<Имя>Func`) — часть контракта с ручным кодом: их меняет только изменение `name`/`labels` в карте.
+
+Эти же названия — часть **пространства идентификаторов пакета**: семейство занимает три имени (`<Имя>`, `<Имя>Sample`, `<Имя>Func`), а само наличие семейства — ещё и `GaugeSet`. Поэтому `fleet_state` и `fleet_state_sample` в одной карте — ошибка генерации (`"fleet_state_sample" generates the variable FleetStateSample, which is already the sample type of "fleet_state"`), как и `gauge_set` рядом с любым семейством. См. [«`name` — полное имя метрики»](#name--полное-имя-метрики).
 
 ### `apps` — какие приложения публикуют метрику
 
@@ -208,6 +312,8 @@ import "github.com/org/myservice/internal/pkg/metrics"
 metrics.SpawnErrorsTotal.WithLabelValues("timeout", "init").Inc()
 metrics.QueueDepth.Set(float64(len(queue)))
 ```
+
+Запись типа [`GaugeSet`](#gaugeset--семейство-состояния) даёт вдобавок тип сэмпла и тип источника (`FleetStateSample`, `FleetStateFunc`), а саму машинерию коллектора (`GaugeSet[…]`) — один раз на пакет, и только если в карте есть хотя бы одно такое объявление. В карте без них пакет побайтно такой же, каким был до появления типа.
 
 ### Регистрация
 
@@ -321,7 +427,7 @@ var sneaky = NewCounter(CounterOpts{Name: "undeclared_total", Help: "…"})
 | Тип | Запрос |
 |---|---|
 | `Counter` / `CounterVec` | `rate(...)`, с разбивкой по объявленным меткам |
-| `Gauge` / `GaugeVec` | само значение |
+| `Gauge` / `GaugeVec` / `GaugeSet` | само значение |
 | `Histogram` / `HistogramVec` | `histogram_quantile` p99 и p95 по `_bucket` |
 | `Summary` / `SummaryVec` с `objectives` | серия по метке `quantile` |
 | `Summary` / `SummaryVec` без `objectives` | среднее `rate(_sum) / rate(_count)` — это всё, что метрика несёт |
@@ -355,6 +461,7 @@ metrics map: metric name collision:
 - **Пороги и алерт-правила.** Порог завязан на ёмкость конкретной инсталляции, а обоснование порога — это решение, и его место рядом с решением.
 - **Прод-дашборды.** Они живут в мониторинг-репозитории потребителя, их правят руками и осознанно. Сгенерированный, но редактируемый артефакт — это «второй дом»: его правят на месте, и он расходится с генератором молча.
 - **Доставка админской части наружу** (складывать дашборды в `etc/` для инфраструктурного репозитория).
+- **Counter-аналог `GaugeSet`.** Семейство состояния — про gauge: набор, который тик знает целиком. У счётчика набор накапливается, а не пересчитывается, так что отдавать его целиком незачем. Появится потребитель — появится и тип.
 
 ## Полный пример
 
@@ -398,6 +505,13 @@ metrics:
     labels: outcome
     help: Spans handed to the OTLP exporter, by outcome.
     external: true
+
+  # семейство состояния: набор отдаётся целиком, серия, о которой тик больше
+  # не знает, исчезает (см. «GaugeSet — семейство состояния»)
+  - name: fleet_state
+    type: GaugeSet
+    labels: node, zone
+    help: State of each known fleet node, by node and zone.
 ```
 
 ## Диагностика
@@ -410,10 +524,16 @@ metrics:
 | `invalid metrics map: metrics[0]: name "_123_total" generates the Go variable 123Total, which starts with a digit` | ведущий `_` или `:` перед цифрой: после сворачивания идентификатор начинается с цифры |
 | `invalid metrics map: metrics[1]: type CounterVec requires labels; use Counter for a metric without labels` | `Vec`-тип без `labels` |
 | `invalid metrics map: metrics[0]: buckets are only valid for Histogram/HistogramVec, not Counter` | `buckets` не у гистограммы |
+| `invalid metrics map: metrics[1]: type GaugeSet requires labels; a family without labels is a single series — use Gauge` | `GaugeSet` без `labels` |
+| `invalid metrics map: metrics[0]: label "value" generates the sample field Value of FleetStateSample, which is the field carrying the value of the series; rename the label` | метка `GaugeSet` занимает поле, несущее значение серии |
+| `invalid metrics map: metrics[0]: labels "node_id" and "node__id" both generate the sample field NodeId of FleetStateSample` | две метки `GaugeSet` сворачиваются в одно поле структуры сэмпла |
+| `invalid metrics map: metrics[0]: type GaugeSet and external are mutually exclusive` | `GaugeSet` + `external: true`: `external` означает «коллектор строится не здесь» |
 | `invalid metrics map: metrics[4]: help is required` | нет `help` |
 | `invalid metrics map: line 7: unknown field "lables"` | опечатка в имени поля: молча проигнорированный ключ — это объявление, которое не действует |
 | `metric name collision: "x" declared by both …internal metrics[n] and service metrics map[m]` | имя уже занято внутренним набором генератора |
-| `metric variable name collision: "queue:depth" and "queue_depth" both generate the variable QueueDepth` | два имени сворачиваются в один Go-идентификатор |
+| `metric identifier collision: "queue:depth" and "queue_depth" both generate the variable QueueDepth` | два имени сворачиваются в один Go-идентификатор |
+| `metric identifier collision: "fleet_state_sample" generates the variable FleetStateSample, which is already the sample type of "fleet_state"` | имя наезжает на тип, порождённый семейством состояния (`<Имя>Sample` / `<Имя>Func`) |
+| `metric identifier collision: "register" generates the variable Register, which the generated collector package declares itself; rename the metric` | имя занято самим пакетом коллекторов (`Register`, `RegisterFor`, `Collectors`, `CollectorsFor`, `Unregister`, `ErrUnknownApp`, а в карте с `GaugeSet` — ещё `GaugeSet`) |
 | `invalid metrics map: metrics[0] (x): `owner` is reserved for the generator's internal map` | `owner`/`requires` в карте сервиса |
 | `invalid metrics map: metrics[0]: application "api" is listed twice in apps` | имя приложения повторяется в `apps` |
 | `malformed metrics map: apps: declared but names no application; remove the key to publish the metric from every application` | `apps: ""` / `apps: []` / `apps: ","`: пустой список означал бы «публикуют все» — противоположность тому, как строка читается |

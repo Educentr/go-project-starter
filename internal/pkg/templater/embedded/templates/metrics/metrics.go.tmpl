@@ -11,11 +11,21 @@
 // main of an application that exposes /metrics calls it on startup; an
 // application with no /metrics endpoint calls it from its own code, with its
 // own registry.
+{{- if .Metrics.HasGaugeSet }}
+//
+// A declaration of type GaugeSet is a state family: its whole set of series
+// comes from one source the service installs (SetFunc) or refreshes (Set), and
+// a scrape sees the set as a unit. See GaugeSet.
+{{- end }}
 package {{ .Metrics.GetPackageName }}
 
 import (
 	"errors"
 	"fmt"
+{{- if .Metrics.HasGaugeSet }}
+	"strings"
+	"sync/atomic"
+{{- end }}
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -25,8 +35,180 @@ import (
 // to. Registering into the wrong name would otherwise leave the registry empty
 // and say nothing about why.
 var ErrUnknownApp = errors.New("unknown application")
+{{- if .Metrics.HasGaugeSet }}
+
+// gaugeSetSample is what a generated sample type hands its collector: the
+// values of one series' labels, in the order the map declares them, and the
+// value of that series.
+//
+// The methods are unexported deliberately: the interface is not implementable
+// outside this package, so a GaugeSet cannot be instantiated with anything but
+// a sample type generated from the map.
+type gaugeSetSample interface {
+	labelValues() []string
+	value() float64
+}
+
+// GaugeSet is the collector of a state family — a gauge family whose whole set
+// of series comes from one source, replaced as a unit.
+//
+// A *prometheus.GaugeVec cannot express that. Saying "the series I no longer
+// know about must disappear" with one means Reset() followed by a refill, and
+// a refill is not instantaneous: /metrics is scraped on someone else's clock,
+// so a scrape landing inside that window reads the family as gone — a hole on
+// the panel and a false no-data for every rule over it. Here a scrape sees
+// either the whole previous set or the whole new one, because the source is
+// replaced by a single atomic store.
+//
+// Zero value: a family with no source yet, which collects nothing — what
+// /metrics shows for a freshly registered GaugeVec too, and the reason the
+// first tick does not have to race the first scrape.
+type GaugeSet[S gaugeSetSample] struct {
+	desc *prometheus.Desc
+	src  atomic.Pointer[func() []S]
+}
+
+// SetFunc installs the source of the set. The collector calls src on every
+// scrape, so src is where a family cheap enough to rebuild is built from
+// scratch; a family that is not (a probe, a lock-protected registry) hands
+// back the last finished result of its own tick instead. A nil src detaches
+// the source, and the family collects nothing again.
+//
+// src runs on the scraping goroutine with no lock of this collector held: it
+// must not block for long, and it must not mutate a slice it has already
+// returned.
+func (g *GaugeSet[S]) SetFunc(src func() []S) {
+	if src == nil {
+		g.src.Store(nil)
+
+		return
+	}
+
+	g.src.Store(&src)
+}
+
+// Set publishes one finished set: the family as of now. It is SetFunc over a
+// source that keeps handing this slice back, which is what a tick computing
+// the whole family itself wants — and it leaves no atomic swap to be written
+// at the call site, which is the part that is easy to get wrong.
+//
+// The slice must not be mutated after the call: a scrape may be reading it.
+// Build the next set in a new slice.
+func (g *GaugeSet[S]) Set(samples []S) {
+	g.SetFunc(func() []S { return samples })
+}
+
+// Describe sends the family's single descriptor. It is what makes a registry
+// reject a second collector claiming the same metric name.
+func (g *GaugeSet[S]) Describe(ch chan<- *prometheus.Desc) {
+	ch <- g.desc
+}
+
+// Collect emits the current set. A series the source no longer reports is not
+// emitted — that is the point of a state family: a series nobody knows about
+// any more has to disappear, not freeze at its last value.
+//
+// A bad set is kept inside its own family: a sample the descriptor refuses is
+// dropped, and a label-value combination the set carries more than once is
+// emitted once, carrying the value of the last such sample. Neither is
+// reported to the registry, because a Gather error is not a property of one
+// family — /metrics is served through promhttp.HandlerFor with its default
+// error handling, which answers HTTP 500 for the whole endpoint, so one bad
+// sample of one family would take every metric of the application off the
+// scrape (up=0, every series of the process stale). Losing one series of one
+// family is the narrower failure of the two, and the one the panel of that
+// family shows.
+//
+// Dropping the earlier duplicate is also what these families did before this
+// type existed: filled series by series, a *prometheus.GaugeVec keeps the last
+// write to a combination, so a set migrated from one behaves the same.
+//
+// The generated sample types make the usual cause of a refused sample — the
+// wrong number of label values — impossible to write, so what is left is a
+// label value Prometheus rejects, i.e. one that is not valid UTF-8.
+func (g *GaugeSet[S]) Collect(ch chan<- prometheus.Metric) {
+	src := g.src.Load()
+	if src == nil {
+		return
+	}
+
+	samples := (*src)()
+
+	// Walked backwards so that the first sample seen for a combination is the
+	// last one of the set — the one that wins. The order series leave here
+	// does not reach /metrics: a registry sorts a family's series by their
+	// label values while gathering.
+	seen := make(map[string]struct{}, len(samples))
+
+	for i := len(samples) - 1; i >= 0; i-- {
+		values := samples[i].labelValues()
+
+		metric, err := prometheus.NewConstMetric(g.desc, prometheus.GaugeValue, samples[i].value(), values...)
+		if err != nil {
+			continue
+		}
+
+		// Keyed only once the sample is accepted: an accepted label value is
+		// valid UTF-8, so it cannot hold the separator byte and two different
+		// combinations cannot fold onto one key.
+		key := strings.Join(values, "\xff")
+
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+
+		seen[key] = struct{}{}
+
+		ch <- metric
+	}
+}
+{{- end }}
 
 {{- range $_, $m := .Metrics.Generated }}
+{{- if $m.IsGaugeSet }}
+
+// {{ $m.SampleTypeName }} is one series of {{ $m.Name }}: the values of its
+// labels plus the value of the series.
+type {{ $m.SampleTypeName }} struct {
+{{- range $_, $f := $m.SampleFields }}
+	// {{ $f.Name }} is the value of the {{ $f.Label }} label.
+	{{ $f.Name }} string
+{{- end }}
+	// {{ $m.ValueField }} is the value of the series.
+	{{ $m.ValueField }} float64
+}
+
+func (s {{ $m.SampleTypeName }}) labelValues() []string {
+	return []string{ {{- range $i, $f := $m.SampleFields }}{{ if $i }}, {{ end }}s.{{ $f.Name }}{{ end -}} }
+}
+
+func (s {{ $m.SampleTypeName }}) value() float64 {
+	return s.{{ $m.ValueField }}
+}
+
+// {{ $m.SourceTypeName }} is the source of the {{ $m.Name }} set: it returns
+// the whole family as of the moment it is called, and a series it leaves out
+// stops being exported.
+type {{ $m.SourceTypeName }} func() []{{ $m.SampleTypeName }}
+
+// {{ $m.VarName }} — {{ $m.Help | GoComment }}
+//
+// Metric: {{ $m.Name }} ({{ $m.Type }}){{ if $m.Labels }}, labels: {{ range $i, $l := $m.Labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}{{ end }}
+//
+// State family: install the source with {{ $m.VarName }}.SetFunc, or publish a
+// finished set with {{ $m.VarName }}.Set. Until one of the two is called the
+// family exports nothing.
+//
+//nolint:gochecknoglobals // коллектор процессный по устройству Prometheus: его регистрируют один раз и эмитят из любого места сервиса
+var {{ $m.VarName }} = &{{ $m.SetType }}{
+	desc: prometheus.NewDesc(
+		"{{ $m.Name }}",
+		{{ $m.Help | GoQuote }},
+		{{ $m.LabelsLiteral }},
+		nil,
+	),
+}
+{{- else }}
 
 // {{ $m.VarName }} — {{ $m.Help | GoComment }}
 //
@@ -48,6 +230,7 @@ var {{ $m.VarName }} = {{ $m.Constructor }}(
 	{{ $m.LabelsLiteral }},
 {{- end }}
 )
+{{- end }}
 {{- end }}
 
 // collectorsByApp holds, for each application that publishes collectors, the

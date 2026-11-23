@@ -108,6 +108,25 @@ func (m MetricsConfig) HasGenerated() bool {
 	return false
 }
 
+// HasGaugeSet reports whether at least one generated declaration is a state
+// family, i.e. whether the collector package needs the GaugeSet machinery at
+// all.
+//
+// It answers over the whole service, not over one application: the machinery
+// is one type in one package, shared by every application's collectors. A
+// project that declares no state family must get the output it got before the
+// type existed, down to the import block — hence the guard rather than an
+// unconditional emit.
+func (m MetricsConfig) HasGaugeSet() bool {
+	for _, metric := range m.Metrics {
+		if metric.Generated() && metric.IsGaugeSet() {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ForApp returns the declarations the named application publishes: the ones
 // whose `apps` list names it (or is empty), minus the generator-owned ones
 // whose component this application does not run.
