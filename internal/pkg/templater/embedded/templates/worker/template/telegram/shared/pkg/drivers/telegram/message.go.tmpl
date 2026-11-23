@@ -55,7 +55,12 @@ func ConvertButtonCMDToTgButton(ctx context.Context, btn [][]ButtonCmd) ([][]tgb
 }
 
 func (tg *Telegram) SendAnswerCallback(_ context.Context, callbackID string, text string) (bool, error) {
-	tgMes, err := tg.bot.Request(tgbotapi.CallbackConfig{
+	bot := tg.currentBot()
+	if bot == nil {
+		return false, ErrNotInitialized
+	}
+
+	tgMes, err := bot.Request(tgbotapi.CallbackConfig{
 		CallbackQueryID: callbackID,
 		Text:            text,
 	})
@@ -64,7 +69,12 @@ func (tg *Telegram) SendAnswerCallback(_ context.Context, callbackID string, tex
 }
 
 func (tg *Telegram) DeleteMessage(_ context.Context, chatID int64, msgID int) error {
-	_, err := tg.bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
+	bot := tg.currentBot()
+	if bot == nil {
+		return ErrNotInitialized
+	}
+
+	_, err := bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
 
 	return err
 }
@@ -124,6 +134,11 @@ func (tg *Telegram) EditMessageWithButton(ctx context.Context, rd RequestData, m
 		return err
 	}
 
+	bot := tg.currentBot()
+	if bot == nil {
+		return ErrNotInitialized
+	}
+
 	switch {
 	case len(msg.Photos) > 0:
 		if len(msg.Photos) > 1 {
@@ -144,7 +159,7 @@ func (tg *Telegram) EditMessageWithButton(ctx context.Context, rd RequestData, m
 			msgTg.ReplyMarkup = &markup
 		}
 
-		_, err = tg.bot.Request(msgTg)
+		_, err = bot.Request(msgTg)
 		if err != nil && tg.OnSendError != nil {
 			tg.OnSendError(ctx, rd, err)
 		}
@@ -157,7 +172,7 @@ func (tg *Telegram) EditMessageWithButton(ctx context.Context, rd RequestData, m
 			msgTg.ParseMode = msg.TextFormat
 		}
 
-		_, err = tg.bot.Request(msgTg)
+		_, err = bot.Request(msgTg)
 		if err != nil && tg.OnSendError != nil {
 			tg.OnSendError(ctx, rd, err)
 		}
@@ -167,11 +182,12 @@ func (tg *Telegram) EditMessageWithButton(ctx context.Context, rd RequestData, m
 }
 
 func (tg *Telegram) send(msg tgbotapi.Chattable) (int, error) {
-	if tg.bot == nil {
-		return 0, errors.New("telegram bot is not initialized")
+	bot := tg.currentBot()
+	if bot == nil {
+		return 0, ErrNotInitialized
 	}
-	
-	tgMsg, err := tg.bot.Send(msg)
+
+	tgMsg, err := bot.Send(msg)
 	if err != nil {
 		return 0, err
 	}

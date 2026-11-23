@@ -1,0 +1,575 @@
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
+	"golang.org/x/sync/errgroup"
+)
+
+const (
+	// fakePollHold — сколько поддельный Bot API держит getUpdates без апдейтов.
+	// Короткий, а не 60 секунд настоящего долгого опроса: тест проверяет, что
+	// остановленный опрос молчит, и для этого ему нужен живой опрос, который за
+	// то же время успевает постучаться много раз.
+	fakePollHold = 25 * time.Millisecond
+	fakePollTick = 2 * time.Millisecond
+
+	// silenceWindow — окно, в котором остановленный опрос обязан молчать. На
+	// порядок больше fakePollHold: живой опрос за него сходил бы к API заметное
+	// число раз.
+	silenceWindow = 250 * time.Millisecond
+
+	// updateWait — сколько тест ждёт апдейт, который обязан прийти.
+	updateWait = 5 * time.Second
+)
+
+// Токены в том виде, в каком их выдаёт BotFather: `<id бота>:<секрет>`. Именно
+// по идентификатору драйвер решает, переносить ли смещение апдейтов, а
+// поддельный Bot API отдаёт его в getMe — как настоящий.
+//
+// tokenBotAOld и tokenBotANew — один и тот же бот, у которого отозвали токен:
+// самый частый повод для ротации. tokenBotB — другой бот, со своей нумерацией
+// update_id.
+const (
+	tokenBotAOld = "100:secret-old"
+	tokenBotANew = "100:secret-new"
+	tokenBotB    = "200:secret-b"
+)
+
+// fakeTelegram — Bot API в объёме, который нужен опросу: getMe и getUpdates.
+//
+// Апдейты раздаются по токену, и по токену же считаются запросы: именно так тест
+// видит, на каком боте опрос работает, а на каком остановлен.
+type fakeTelegram struct {
+	srv *httptest.Server
+
+	mu      sync.Mutex
+	pending map[string][]tgbotapi.Update
+	offsets map[string][]string
+
+	// completed — getUpdates, на которые сервер успел ответить. Считаются
+	// ответы, а не запросы: запрос, отменённый остановкой опроса, доходит до
+	// сервера уже после неё и признаком живого опроса не является.
+	completed map[string]int
+}
+
+func newFakeTelegram(t *testing.T) *fakeTelegram {
+	t.Helper()
+
+	f := &fakeTelegram{
+		pending:   map[string][]tgbotapi.Update{},
+		offsets:   map[string][]string{},
+		completed: map[string]int{},
+	}
+
+	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.srv.Close)
+
+	return f
+}
+
+// endpoint отдаёт эндпоинт в том виде, в каком его ждёт библиотека: шаблон, в
+// который подставляются токен и метод.
+func (f *fakeTelegram) endpoint() string {
+	return f.srv.URL + "/bot%s/%s"
+}
+
+func (f *fakeTelegram) serve(w http.ResponseWriter, r *http.Request) {
+	token, method := splitBotPath(r.URL.Path)
+
+	switch method {
+	case "getMe":
+		f.serveGetMe(w, token)
+	case "getUpdates":
+		f.serveGetUpdates(w, r, token)
+	default:
+		writeJSON(w, `{"ok":true,"result":{}}`)
+	}
+}
+
+// serveGetMe отдаёт бота этого токена.
+//
+// Идентификатор — префикс токена, как у настоящего Telegram: отзыв токена
+// меняет секрет, а не идентификатор бота. Без этого поддельный API отдавал бы
+// один и тот же id на любой токен, и перенос смещения на другого бота — то, чего
+// делать нельзя, — тест бы не отличил от переноса на тот же.
+func (f *fakeTelegram) serveGetMe(w http.ResponseWriter, token string) {
+	id, err := botIDFromToken(token)
+	if err != nil {
+		// Отказом API, а не t.Fatalf: обработчик выполняется в горутине
+		// сервера. Так отказ приходит туда, где его видно, — в
+		// NewBotAPIWithClient того теста, который собрал бота с таким токеном.
+		writeJSON(w, fmt.Sprintf(`{"ok":false,"error_code":401,"description":%q}`, err.Error()))
+
+		return
+	}
+
+	writeJSON(w, fmt.Sprintf(
+		`{"ok":true,"result":{"id":%d,"is_bot":true,"first_name":"test","username":"test_bot"}}`, id))
+}
+
+// botIDFromToken — идентификатор бота по его токену (`<id бота>:<секрет>`).
+func botIDFromToken(token string) (int64, error) {
+	idPart, _, found := strings.Cut(token, ":")
+	if !found {
+		return 0, fmt.Errorf("fake Bot API: токен %q не в форме <id бота>:<секрет>", token)
+	}
+
+	id, err := strconv.ParseInt(idPart, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("fake Bot API: в токене %q id бота не число: %w", token, err)
+	}
+
+	return id, nil
+}
+
+func (f *fakeTelegram) serveGetUpdates(w http.ResponseWriter, r *http.Request, token string) {
+	_ = r.ParseForm()
+
+	f.mu.Lock()
+	f.offsets[token] = append(f.offsets[token], r.FormValue("offset"))
+	f.mu.Unlock()
+
+	deadline := time.Now().Add(fakePollHold)
+
+	for {
+		if updates := f.takePending(token); len(updates) > 0 {
+			f.recordCompleted(token)
+			writeUpdates(w, updates)
+
+			return
+		}
+
+		if !time.Now().Before(deadline) {
+			f.recordCompleted(token)
+			writeUpdates(w, nil)
+
+			return
+		}
+
+		select {
+		case <-r.Context().Done():
+			// Опрос остановлен — библиотека отменила запрос.
+			return
+		case <-time.After(fakePollTick):
+		}
+	}
+}
+
+// push кладёт апдейт, который отдаст следующий getUpdates этого токена.
+func (f *fakeTelegram) push(token string, updateID int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.pending[token] = append(f.pending[token], tgbotapi.Update{UpdateID: updateID})
+}
+
+func (f *fakeTelegram) takePending(token string) []tgbotapi.Update {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	updates := f.pending[token]
+	delete(f.pending, token)
+
+	return updates
+}
+
+func (f *fakeTelegram) recordCompleted(token string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.completed[token]++
+}
+
+// callCount — сколько раз опрос этого токена сходил за апдейтами и получил ответ.
+func (f *fakeTelegram) callCount(token string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.completed[token]
+}
+
+// firstOffset — смещение в первом getUpdates этого токена: с него опрос начал.
+//
+// Пустое поле — это 0: нулевой offset библиотека не отправляет вовсе
+// (Params.AddNonZero), поэтому «опрос начал с нуля» приходит отсутствием поля.
+func (f *fakeTelegram) firstOffset(t *testing.T, token string) string {
+	t.Helper()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	offsets := f.offsets[token]
+	if len(offsets) == 0 {
+		t.Fatalf("опрос токена %q не сделал ни одного getUpdates", token)
+	}
+
+	if offsets[0] == "" {
+		return "0"
+	}
+
+	return offsets[0]
+}
+
+// newBot собирает бота, который ходит в поддельный Bot API.
+func (f *fakeTelegram) newBot(t *testing.T, token string) *tgbotapi.BotAPI {
+	t.Helper()
+
+	bot, err := tgbotapi.NewBotAPIWithClient(token, f.endpoint(), &http.Client{Timeout: updateWait})
+	if err != nil {
+		t.Fatalf("не удалось создать бота с токеном %q: %v", token, err)
+	}
+
+	return bot
+}
+
+func splitBotPath(path string) (token, method string) {
+	token, method, _ = strings.Cut(strings.TrimPrefix(path, "/bot"), "/")
+
+	return token, method
+}
+
+func writeJSON(w http.ResponseWriter, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(body))
+}
+
+func writeUpdates(w http.ResponseWriter, updates []tgbotapi.Update) {
+	if updates == nil {
+		updates = []tgbotapi.Update{}
+	}
+
+	body, err := json.Marshal(struct {
+		OK     bool              `json:"ok"`
+		Result []tgbotapi.Update `json:"result"`
+	}{OK: true, Result: updates})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// newPollerDriver собирает драйвер с опросом апдейтов, но без Init: токен
+// ставится вручную (applyToken) — так тест обходится без дерева OnlineConf, а
+// проверяет ровно то, что делает ротация.
+func newPollerDriver(t *testing.T) *Telegram {
+	t.Helper()
+
+	tg, ok := Create(WithUpdatePoller()).(*Telegram)
+	if !ok {
+		t.Fatal("Create вернул не *Telegram")
+	}
+
+	return tg
+}
+
+// recvUpdate ждёт апдейт из канала драйвера.
+//
+// Проверяет и ok: закрытый канал отдаёт нулевой tgbotapi.Update, неотличимый от
+// настоящего, — именно его не должен увидеть воркер при ротации токена.
+func recvUpdate(t *testing.T, updates tgbotapi.UpdatesChannel) tgbotapi.Update {
+	t.Helper()
+
+	select {
+	case update, ok := <-updates:
+		if !ok {
+			t.Fatal("канал апдейтов закрыт: читатель получил бы нулевой апдейт")
+		}
+
+		return update
+	case <-time.After(updateWait):
+		t.Fatal("апдейт не пришёл")
+	}
+
+	return tgbotapi.Update{}
+}
+
+// assertSilent проверяет, что опрос этого токена остановлен: за окно, в которое
+// живой опрос постучался бы много раз, он не сходил к API ни разу.
+func assertSilent(t *testing.T, fake *fakeTelegram, token string) {
+	t.Helper()
+
+	// Пауза до замера: запрос, отправленный опросом перед остановкой, мог ещё
+	// не дойти до сервера — он не признак того, что опрос работает.
+	time.Sleep(fakePollHold * 4)
+
+	before := fake.callCount(token)
+
+	time.Sleep(silenceWindow)
+
+	if after := fake.callCount(token); after != before {
+		t.Errorf("опрос токена %q продолжает работать: getUpdates вызван ещё %d раз",
+			token, after-before)
+	}
+}
+
+// TestTelegramPollerFollowsRotatedToken — ротация токена переносит опрос на
+// нового бота: прежний останавливается, новый продолжает с того же смещения.
+//
+// Без этого опрос оставался на боте прежнего токена: после ротации сервис
+// опрашивал Telegram отозванным токеном, а StopReceivingUpdates на остановке
+// приходился уже на нового бота и прежний опрос не останавливал никогда.
+//
+// Токены здесь — одного и того же бота (отзыв токена), поэтому смещение
+// переносится. Ротация на токен другого бота — в
+// TestTelegramPollerResetsOffsetOnAnotherBot.
+func TestTelegramPollerFollowsRotatedToken(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newPollerDriver(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tg.applyToken(fake.newBot(t, tokenBotAOld), []byte("sha-old"))
+
+	errGr, runCtx := errgroup.WithContext(ctx)
+	tg.Run(runCtx, errGr)
+
+	updates := tg.GetUpdateChannel(ctx)
+
+	fake.push(tokenBotAOld, 11)
+
+	if update := recvUpdate(t, updates); update.UpdateID != 11 {
+		t.Fatalf("ожидался апдейт 11 от бота прежнего токена, пришёл %d", update.UpdateID)
+	}
+
+	// Ротация: бот нового токена встаёт на место прежнего.
+	tg.applyToken(fake.newBot(t, tokenBotANew), []byte("sha-new"))
+
+	fake.push(tokenBotANew, 12)
+
+	if update := recvUpdate(t, updates); update.UpdateID != 12 {
+		t.Fatalf("после ротации апдейты обязаны приходить от бота нового токена, пришёл %d",
+			update.UpdateID)
+	}
+
+	// Смещение перенесено: иначе Telegram отдал бы новому опросу апдейт 11
+	// заново, и сервис обработал бы его второй раз.
+	if offset := fake.firstOffset(t, tokenBotANew); offset != "12" {
+		t.Errorf("опрос нового токена начался со смещения %q, ожидалось \"12\"", offset)
+	}
+
+	// Апдейт прежнему боту уже не достанется: его опрос остановлен.
+	fake.push(tokenBotAOld, 99)
+
+	assertSilent(t, fake, tokenBotAOld)
+
+	select {
+	case update := <-updates:
+		t.Fatalf("апдейт %d пришёл от бота прежнего токена — его опрос не остановлен",
+			update.UpdateID)
+	default:
+	}
+
+	// Остановка бьёт по боту, на котором опрос реально работает, а не по тому,
+	// который был текущим при запуске.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), updateWait)
+	defer shutdownCancel()
+
+	if err := tg.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown вернул ошибку: %v", err)
+	}
+
+	select {
+	case <-tg.pollerDone:
+	default:
+		t.Fatal("Shutdown вернулся, пока помпа опроса ещё работает")
+	}
+
+	assertSilent(t, fake, tokenBotANew)
+
+	if err := errGr.Wait(); err != nil {
+		t.Fatalf("errgroup приложения вернула ошибку: %v", err)
+	}
+}
+
+// TestTelegramPollerResetsOffsetOnAnotherBot — ротация на токен другого бота
+// начинает опрос с нуля, а не с чужого смещения.
+//
+// update_id нумеруется у каждого бота свой, а переданный offset Telegram читает
+// как «всё до него подтверждено». Поэтому смещение прежнего бота, отданное
+// новому, молча съело бы его апдейты с меньшими номерами — ровно то, что ждёт
+// сервис, которому в security/tg_token положили токен другого бота.
+func TestTelegramPollerResetsOffsetOnAnotherBot(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newPollerDriver(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tg.applyToken(fake.newBot(t, tokenBotAOld), []byte("sha-old"))
+
+	errGr, runCtx := errgroup.WithContext(ctx)
+	tg.Run(runCtx, errGr)
+
+	updates := tg.GetUpdateChannel(ctx)
+
+	fake.push(tokenBotAOld, 11)
+
+	if update := recvUpdate(t, updates); update.UpdateID != 11 {
+		t.Fatalf("ожидался апдейт 11 от прежнего бота, пришёл %d", update.UpdateID)
+	}
+
+	// Ротация на токен другого бота: смещение 12 прежнего ему не принадлежит.
+	tg.applyToken(fake.newBot(t, tokenBotB), []byte("sha-b"))
+
+	// Номер меньше смещения прежнего бота — с перенесённым смещением апдейт
+	// пропал бы дважды: Telegram счёл бы его подтверждённым и не отдал вовсе, а
+	// то, что всё же пришло, отбросила бы сама библиотека (GetUpdatesChan
+	// отдаёт в канал только update_id не ниже своего offset).
+	fake.push(tokenBotB, 3)
+
+	if update := recvUpdate(t, updates); update.UpdateID != 3 {
+		t.Fatalf("апдейт другого бота с меньшим update_id обязан дойти, пришёл %d",
+			update.UpdateID)
+	}
+
+	if offset := fake.firstOffset(t, tokenBotB); offset != "0" {
+		t.Errorf("опрос другого бота начался со смещения %q прежнего бота, ожидалось \"0\"",
+			offset)
+	}
+
+	assertSilent(t, fake, tokenBotAOld)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), updateWait)
+	defer shutdownCancel()
+
+	if err := tg.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown вернул ошибку: %v", err)
+	}
+
+	if err := errGr.Wait(); err != nil {
+		t.Fatalf("errgroup приложения вернула ошибку: %v", err)
+	}
+}
+
+// TestTelegramPollerStopsAfterRunContext — отмена контекста приложения
+// останавливает и помпу, и опрос в библиотеке: errGr.Wait() не висит, а горутина
+// опроса не остаётся жить дольше приложения.
+func TestTelegramPollerStopsAfterRunContext(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newPollerDriver(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	tg.applyToken(fake.newBot(t, tokenBotAOld), []byte("sha-A"))
+
+	errGr, runCtx := errgroup.WithContext(ctx)
+	tg.Run(runCtx, errGr)
+
+	fake.push(tokenBotAOld, 1)
+
+	if update := recvUpdate(t, tg.GetUpdateChannel(ctx)); update.UpdateID != 1 {
+		t.Fatalf("ожидался апдейт 1, пришёл %d", update.UpdateID)
+	}
+
+	cancel()
+
+	if err := errGr.Wait(); err != nil {
+		t.Fatalf("errgroup приложения вернула ошибку: %v", err)
+	}
+
+	assertSilent(t, fake, tokenBotAOld)
+}
+
+// TestTelegramStopWithoutPoller — драйвер без опроса (драйвер подключён ради
+// отправки сообщений) останавливается, ничего не останавливая.
+func TestTelegramStopWithoutPoller(t *testing.T) {
+	tg, ok := Create().(*Telegram)
+	if !ok {
+		t.Fatal("Create вернул не *Telegram")
+	}
+
+	tg.StopChannel(context.Background())
+
+	if err := tg.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown вернул ошибку: %v", err)
+	}
+
+	if ch := tg.GetUpdateChannel(context.Background()); ch != nil {
+		t.Error("драйвер без опроса не должен отдавать канал апдейтов")
+	}
+}
+
+// TestTelegramTokenRotationUnderLoad — ротация токена при живых читателях.
+//
+// Смысл теста в -race: ротацию исполняет горутина наблюдателя OnlineConf, а бота
+// и ключ подписи читают горутины запросов. Прежний код писал в поле напрямую,
+// и детектор гонок ловил это ровно здесь.
+func TestTelegramTokenRotationUnderLoad(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newPollerDriver(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	tg.applyToken(fake.newBot(t, "300:secret-0"), []byte("sha-0"))
+
+	errGr, runCtx := errgroup.WithContext(ctx)
+	tg.Run(runCtx, errGr)
+
+	// Боты разные: ротация между ботами задевает на одно поле больше (смещение
+	// сбрасывается), то есть под детектором гонок проверяется больше.
+	bots := []*tgbotapi.BotAPI{
+		fake.newBot(t, "301:secret-1"),
+		fake.newBot(t, "302:secret-2"),
+		fake.newBot(t, "303:secret-3"),
+	}
+
+	readers := sync.WaitGroup{}
+	stop := make(chan struct{})
+
+	for range 4 {
+		readers.Add(1)
+
+		go func() {
+			defer readers.Done()
+
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				if bot := tg.currentBot(); bot == nil {
+					t.Error("бот не должен обнуляться ротацией")
+
+					return
+				}
+
+				if _, err := tg.GetTgTokenSHA(ctx); err != nil {
+					t.Errorf("ключ подписи не должен исчезать при ротации: %v", err)
+
+					return
+				}
+			}
+		}()
+	}
+
+	for i, bot := range bots {
+		tg.applyToken(bot, []byte{byte(i)})
+	}
+
+	close(stop)
+	readers.Wait()
+
+	cancel()
+
+	if err := errGr.Wait(); err != nil {
+		t.Fatalf("errgroup приложения вернула ошибку: %v", err)
+	}
+}

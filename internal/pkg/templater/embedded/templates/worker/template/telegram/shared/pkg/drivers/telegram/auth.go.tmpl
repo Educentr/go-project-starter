@@ -34,32 +34,16 @@ func GetTgToken(ctx context.Context, serviceName string) (string, error) {
 	return botToken, nil
 }
 
-// updateTgSHA пересчитывает ключ подписи WebApp-данных по текущему токену бота.
-// Зовётся из Init и из подписки на ротацию токена.
-func (tg *Telegram) updateTgSHA(ctx context.Context, serviceName string) error {
-	botToken, err := GetTgToken(ctx, serviceName)
-	if err != nil {
-		return err
-	}
-
-	sha, err := MakeSHA256Hash(ctx, []byte("WebAppData"), []byte(botToken))
-	if err != nil {
-		return err
-	}
-
-	// Под мьютексом: ротацию токена исполняет горутина наблюдателя OnlineConf, а
-	// читает ключ подпись/проверка инвойса в горутине запроса.
-	//
-	// Это закрывает гонку только на tgSHA — поле, которое переехало сюда из
-	// package-level переменной. Ротация в том же колбэке переписывает и tg.bot,
-	// тоже без синхронизации, и это по-прежнему гонка: она не про глобальные
-	// переменные, старше этой правки и требует протащить блокировку через все
-	// чтения tg.bot в драйвере. Заведена отдельной задачей.
-	tg.tgSHAMu.Lock()
-	tg.tgSHA = sha
-	tg.tgSHAMu.Unlock()
-
-	return nil
+// tgTokenSHA считает ключ подписи WebApp-данных по токену бота.
+//
+// Считает, но не ставит: ключ ставит applyToken вместе с ботом этого же токена,
+// одним захватом мьютекса драйвера. Прежний порядок — записать ключ, а потом
+// собрать бота, который может не собраться, — оставлял ключ нового токена при
+// боте прежнего до следующей удачной ротации. Пару «ключ и бот» в пределах
+// одного запроса это не фиксирует (подпись и отправка берут состояние по
+// отдельности), но разъехаться надолго ей больше не даёт.
+func tgTokenSHA(ctx context.Context, botToken string) ([]byte, error) {
+	return MakeSHA256Hash(ctx, []byte("WebAppData"), []byte(botToken))
 }
 
 func MakeSHA256Hash(ctx context.Context, key, data []byte) ([]byte, error) {
@@ -81,9 +65,9 @@ func MakeSHA256Hash(ctx context.Context, key, data []byte) ([]byte, error) {
 // package-level переменной. Вызывающие вне драйвера получают его через сервис
 // (Service.TelegramPackInvoiceData / TelegramUnpackInvoiceData).
 func (tg *Telegram) GetTgTokenSHA(_ context.Context) ([]byte, error) {
-	tg.tgSHAMu.RLock()
+	tg.mu.RLock()
 	sha := tg.tgSHA
-	tg.tgSHAMu.RUnlock()
+	tg.mu.RUnlock()
 
 	if sha == nil {
 		return nil, ErrTGConfiguration

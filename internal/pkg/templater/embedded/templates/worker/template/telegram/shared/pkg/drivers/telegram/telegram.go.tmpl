@@ -22,19 +22,81 @@ import (
 type OnSendErrorCallback func(ctx context.Context, rd RequestData, err error)
 
 type Telegram struct {
-	bot                 *tgbotapi.BotAPI
-	startUpdatePoller   bool
-	EnableHiddenMessage bool
-	Poller              tgbotapi.UpdatesChannel
-	OnSendError         OnSendErrorCallback
-	apiEndpoint         string
+	// mu защищает всё, что меняет ротация токена: бота, бота с запущенным
+	// опросом, смещение апдейтов и ключ подписи WebApp-данных. Ротацию исполняет
+	// горутина наблюдателя OnlineConf, а читают это состояние горутины обработки
+	// апдейтов и запросов, поэтому ни одно поле ниже напрямую не читается —
+	// только через аксессоры (currentBot, GetTgTokenSHA, startPoller,
+	// stopPollerBot).
+	//
+	// Один мьютекс на всё, а не по одному на поле: токен, его ключ подписи и
+	// опрос на нём меняются одним событием, поэтому ротация ставит их одним
+	// захватом (applyToken), и ошибка на сборке бота оставляет прежнюю пару
+	// целой. Прежний порядок — записать ключ, а потом собрать бота, который
+	// может не собраться, — оставлял ключ нового токена при боте прежнего до
+	// следующей удачной ротации.
+	//
+	// Согласованности в пределах одного запроса это не даёт: инвойс подписывает
+	// TelegramPackInvoiceData, а отправляет SendInvoice, и состояние они берут
+	// двумя отдельными захватами — ротация между ними по-прежнему означает
+	// подпись ключом одного токена и отправку ботом другого.
+	mu sync.RWMutex
+
+	// bot — бот текущего токена: на него идёт любой запрос к Telegram.
+	bot *tgbotapi.BotAPI
+
+	// pollerBot — бот, на котором запущен опрос, и это не всегда bot. Ротация
+	// ставит нового бота и останавливает опрос на прежнем, а поднимает опрос на
+	// новом помпа (pumpUpdates) — когда дочитает канал прежнего. Остановка
+	// (StopChannel) обязана бить именно по pollerBot: вызванная на bot, она
+	// оставила бы опрос прежнего бота работать с отозванным токеном навсегда.
+	pollerBot *tgbotapi.BotAPI
+
+	// updateOffset — update_id следующего ожидаемого апдейта. Библиотека ведёт
+	// смещение в своей копии UpdateConfig и наружу его не отдаёт, поэтому помпа
+	// ведёт его сама: без переноса смещения опрос на новом боте начался бы с
+	// того, что Telegram ещё помнит, то есть с уже обработанных апдейтов.
+	updateOffset int
+
+	// offsetBotID — бот, которому принадлежит updateOffset: его Self.ID, как
+	// его отдал getMe при сборке бота.
+	//
+	// update_id нумеруется у каждого бота свой, а переданный offset Telegram
+	// читает как «всё до него подтверждено», поэтому смещение переносится
+	// только на того же бота. Отзыв токена — самый частый повод для ротации —
+	// идентификатор бота не меняет, а вот на боте чужого токена прежнее
+	// смещение молча съело бы его апдейты с меньшими номерами; после недели
+	// простоя Telegram и вовсе выбирает следующий update_id случайно.
+	offsetBotID int64
+
 	// tgSHA — ключ подписи WebApp-данных для текущего токена бота. Поле, а не
 	// package-level переменная: токен принадлежит этому экземпляру драйвера, и
 	// два драйвера в одном процессе (разные боты) делили бы один ключ, то есть
 	// подписывали бы инвойс ключом чужого бота. Доступ — только через
-	// updateTgSHA / GetTgTokenSHA, под tgSHAMu.
-	tgSHA   []byte
-	tgSHAMu sync.RWMutex
+	// applyToken / GetTgTokenSHA.
+	tgSHA []byte
+
+	// updates — канал апдейтов наружу (GetUpdateChannel). Создаётся в Create и
+	// живёт столько же, сколько драйвер: ротация закрывает канал библиотеки, а
+	// не этот, поэтому читатель никогда не получает ни закрытого канала, ни
+	// нулевых апдейтов из него. Буфер — максимум, который разрешает buffer_size:
+	// GracefulStop воркера ждёт, пока канал опустеет, и в прежнем коде в это
+	// ожидание попадал буфер канала библиотеки.
+	updates chan tgbotapi.Update
+
+	// pollerStop закрывается, когда опрос останавливают, — один раз, поэтому
+	// через stopOnce: StopChannel зовут и Shutdown драйвера, и GracefulStop
+	// воркера, и сама помпа при отмене контекста.
+	pollerStop chan struct{}
+	stopOnce   sync.Once
+
+	// pollerDone закрывается, когда помпа вышла; nil, пока Run её не запускал.
+	pollerDone chan struct{}
+
+	startUpdatePoller   bool
+	EnableHiddenMessage bool
+	OnSendError         OnSendErrorCallback
+	apiEndpoint         string
 }
 
 const (
@@ -133,7 +195,56 @@ func Create(options ...Option) ds.Runnable {
 		opt.apply(tg)
 	}
 
+	if tg.startUpdatePoller {
+		// Канал наружу и сигнал остановки создаются здесь, до Init и Run, и
+		// больше не меняются: поэтому GetUpdateChannel читает канал без
+		// блокировки, а остановка работает при любом порядке вызовов.
+		tg.updates = make(chan tgbotapi.Update, defaultChannelSize)
+		tg.pollerStop = make(chan struct{})
+	}
+
 	return tg
+}
+
+// currentBot отдаёт бота текущего токена.
+//
+// Единственный способ добраться до бота внутри драйвера: ротация подменяет его
+// из горутины наблюдателя OnlineConf, поэтому прямое чтение поля — гонка.
+// Вызывающий обязан работать с полученным значением, а не перечитывать поле:
+// nil-проверка и запрос по двум разным чтениям попали бы на разных ботов.
+func (tg *Telegram) currentBot() *tgbotapi.BotAPI {
+	tg.mu.RLock()
+	defer tg.mu.RUnlock()
+
+	return tg.bot
+}
+
+// applyToken ставит нового бота вместе с ключом подписи его токена и, если опрос
+// запущен, останавливает его на прежнем боте — новый поднимет помпа, дочитав
+// канал прежнего.
+//
+// Останавливать до старта обязательно: два одновременных getUpdates одного бота
+// Telegram отвергает (409 Conflict).
+func (tg *Telegram) applyToken(bot *tgbotapi.BotAPI, sha []byte) {
+	tg.mu.Lock()
+	tg.bot = bot
+	tg.tgSHA = sha
+	prev := tg.pollerBot
+	tg.mu.Unlock()
+
+	if prev != nil {
+		prev.StopReceivingUpdates()
+	}
+}
+
+// GetUpdateChannel отдаёт канал апдейтов опроса.
+//
+// Канал принадлежит драйверу и живёт столько же, сколько он: ротация токена
+// закрывает канал библиотеки, а не этот. Поэтому читателю не нужна проверка
+// закрытия — из закрытого канала он получал бы нулевой tgbotapi.Update,
+// неотличимый от настоящего.
+func (tg *Telegram) GetUpdateChannel(_ context.Context) tgbotapi.UpdatesChannel {
+	return tg.updates
 }
 
 func (tg *Telegram) Name() string {
@@ -148,12 +259,12 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 	_ = tgbotapi.SetLogger(botLogger{out: stdlog.Default()})
 
 	updateTgToken := func(ctx context.Context) error {
-		err := tg.updateTgSHA(ctx, serviceName)
+		botToken, err := GetTgToken(ctx, serviceName)
 		if err != nil {
 			return err
 		}
 
-		botToken, err := GetTgToken(ctx, serviceName)
+		sha, err := tgTokenSHA(ctx, botToken)
 		if err != nil {
 			return err
 		}
@@ -205,7 +316,10 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 			}
 		}
 
-		tg.bot = bot
+		// Бот и ключ подписи его токена ставятся вместе, одним захватом мьютекса:
+		// любая ошибка выше оставляет прежнюю пару целой, а не ключ нового токена
+		// при боте прежнего.
+		tg.applyToken(bot, sha)
 
 		return nil
 	}
@@ -232,25 +346,215 @@ func (tg *Telegram) Init(ctx context.Context, serviceName string, _ ds.ServerBuc
 }
 
 // Run - start transport
-func (tg *Telegram) Run(_ context.Context, _ *errgroup.Group) {
-	if tg.startUpdatePoller {
-		config := tgbotapi.UpdateConfig{
-			Timeout: defaultWaitTimeout,
+//
+// Опрос апдейтов поднимает не Run, а помпа: она же поднимает его заново после
+// ротации токена, и обе точки обязаны быть одной.
+func (tg *Telegram) Run(ctx context.Context, errGr *errgroup.Group) {
+	if !tg.startUpdatePoller {
+		return
+	}
+
+	done := make(chan struct{})
+
+	tg.mu.Lock()
+	tg.pollerDone = done
+	tg.mu.Unlock()
+
+	// Помпа — в errgroup приложения: её выхода ждёт errGr.Wait() на остановке
+	// процесса, поэтому ни она, ни горутина опроса библиотеки, которую она
+	// дочитывает, не могут остаться жить дольше приложения.
+	errGr.Go(func() error {
+		tg.pumpUpdates(ctx, done)
+
+		return nil
+	})
+}
+
+// pumpUpdates перекладывает апдейты опроса в канал наружу и переживает ротацию
+// токена: канал библиотеки при ней закрывается, и помпа поднимает опрос заново —
+// на новом боте и с перенесённым смещением.
+//
+// Перезапуск делает помпа, а не сама ротация: смещение точно известно только
+// тому, кто дочитал канал прежнего опроса до конца, а до тех пор второй
+// одновременный getUpdates того же бота Telegram отверг бы.
+func (tg *Telegram) pumpUpdates(ctx context.Context, done chan struct{}) {
+	defer close(done)
+
+	for {
+		ch, ok := tg.startPoller(ctx)
+		if !ok {
+			return
 		}
 
-		tg.Poller = tg.bot.GetUpdatesChan(config)
+		{{ $.Logger.InfoMsg "ctx" "telegram update poller started" }}
+
+		if !tg.forwardUpdates(ctx, ch) {
+			return
+		}
+
+		{{ $.Logger.InfoMsg "ctx" "telegram update poller restarting on the rotated token" }}
+	}
+}
+
+// startPoller поднимает опрос на текущем боте и отдаёт его канал. false —
+// драйвер останавливается и опрос подниматься не должен.
+func (tg *Telegram) startPoller(ctx context.Context) (tgbotapi.UpdatesChannel, bool) {
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+
+	// Проверка сигнала и старт — под одним захватом мьютекса, и это обязательно:
+	// StopChannel закрывает pollerStop прежде, чем читает pollerBot, поэтому либо
+	// мы видим сигнал и не стартуем, либо он видит поднятый опрос и останавливает
+	// его. Иначе остановка могла бы пройти между проверкой и стартом.
+	select {
+	case <-tg.pollerStop:
+		return nil, false
+	case <-ctx.Done():
+		return nil, false
+	default:
+	}
+
+	if tg.bot == nil {
+		return nil, false
+	}
+
+	// Смещение досталось от прежнего опроса, и переносить его можно только на
+	// того же бота: у другого своя нумерация update_id, и чужое смещение
+	// подтвердило бы Telegram апдейты, которых сервис не видел, — а то, что
+	// Telegram всё же отдал, отбросила бы сама библиотека (в канал она кладёт
+	// только update_id не ниже своего offset).
+	if tg.bot.Self.ID != tg.offsetBotID {
+		tg.updateOffset = 0
+		tg.offsetBotID = tg.bot.Self.ID
+	}
+
+	ch := tg.bot.GetUpdatesChan(tgbotapi.UpdateConfig{
+		Timeout: defaultWaitTimeout,
+		Offset:  tg.updateOffset,
+	})
+
+	tg.pollerBot = tg.bot
+
+	return ch, true
+}
+
+// forwardUpdates перекладывает апдейты одного опроса. true — канал опроса
+// закрылся сам, то есть опрос остановила ротация токена и его надо поднять
+// заново; false — драйвер останавливается, опрос уже остановлен и дочитан.
+func (tg *Telegram) forwardUpdates(ctx context.Context, ch tgbotapi.UpdatesChannel) bool {
+	for {
+		select {
+		case update, ok := <-ch:
+			if !ok {
+				return true
+			}
+
+			tg.recordUpdateOffset(update)
+
+			if !tg.deliver(ctx, update) {
+				tg.drainStoppedPoller(ch)
+
+				return false
+			}
+		case <-tg.pollerStop:
+			tg.drainStoppedPoller(ch)
+
+			return false
+		case <-ctx.Done():
+			tg.drainStoppedPoller(ch)
+
+			return false
+		}
+	}
+}
+
+// deliver отдаёт апдейт читателю. false — драйвер останавливается.
+func (tg *Telegram) deliver(ctx context.Context, update tgbotapi.Update) bool {
+	select {
+	case tg.updates <- update:
+		return true
+	case <-tg.pollerStop:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// recordUpdateOffset запоминает смещение, с которого опрос продолжится после
+// ротации токена.
+func (tg *Telegram) recordUpdateOffset(update tgbotapi.Update) {
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+
+	if update.UpdateID >= tg.updateOffset {
+		tg.updateOffset = update.UpdateID + 1
+	}
+}
+
+// drainStoppedPoller останавливает опрос и дочитывает его канал.
+//
+// Дочитать обязательно: горутина библиотеки отдаёт в канал всё, что успела
+// получить, и закрывает его только после этого — брошенная на отправке, она
+// осталась бы висеть.
+func (tg *Telegram) drainStoppedPoller(ch tgbotapi.UpdatesChannel) {
+	tg.requestStop()
+	tg.stopPollerBot()
+
+	for range ch {
+		// Апдейты остановленного опроса отдавать некому: драйвер
+		// останавливается. Смещение по ним уже не нужно — вместе с драйвером
+		// уходит и тот, кто продолжил бы опрос.
+	}
+}
+
+// requestStop закрывает сигнал остановки опроса — один раз, из любого числа
+// вызывающих.
+func (tg *Telegram) requestStop() {
+	tg.stopOnce.Do(func() {
+		close(tg.pollerStop)
+	})
+}
+
+// stopPollerBot останавливает опрос на том боте, на котором он реально работает.
+func (tg *Telegram) stopPollerBot() {
+	tg.mu.RLock()
+	bot := tg.pollerBot
+	tg.mu.RUnlock()
+
+	if bot != nil {
+		bot.StopReceivingUpdates()
 	}
 }
 
 func (tg *Telegram) StopChannel(_ context.Context) {
-	if tg.startUpdatePoller {
-		tg.bot.StopReceivingUpdates()
+	if !tg.startUpdatePoller {
+		return
 	}
+
+	tg.requestStop()
+	tg.stopPollerBot()
 }
 
 // ShutdownHTTP shutting down transport
+//
+// Ждёт выхода помпы: только после него горутина опроса в библиотеке дочитана и
+// завершена, то есть опрос действительно остановлен, а не просто попрошен.
 func (tg *Telegram) Shutdown(ctx context.Context) error {
 	tg.StopChannel(ctx)
+
+	tg.mu.RLock()
+	done := tg.pollerDone
+	tg.mu.RUnlock()
+
+	if done == nil {
+		return nil
+	}
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		{{ $.Logger.WarnMsg "ctx" "telegram update poller is still running after the shutdown context expired" }}
+	}
 
 	return nil
 }
@@ -263,14 +567,26 @@ func (tg *Telegram) GracefulStop(_ context.Context) (<-chan struct{}, error) {
 	return stopped, nil
 }
 
+// StartUpdateListener поднимает свой собственный опрос — отдельный от того,
+// которым управляют Run / StopChannel, и ротацию токена он не переживает:
+// опрос остаётся на боте, который был текущим в момент вызова.
+//
+// Шаблоны генератора его не вызывают, он оставлен проектному коду. Одновременно
+// с опросом драйвера (WithUpdatePoller) его запускать нельзя: два getUpdates
+// одного бота Telegram отвергает.
 func (tg *Telegram) StartUpdateListener(
 	ctx context.Context,
 	updateHandler func(ctx context.Context, update tgbotapi.Update) error,
 ) error {
+	bot := tg.currentBot()
+	if bot == nil {
+		return ErrNotInitialized
+	}
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
-	updates := tg.bot.GetUpdatesChan(u)
+	updates := bot.GetUpdatesChan(u)
 
 	for update := range updates {
 		if err := updateHandler(ctx, update); err != nil {
@@ -282,7 +598,12 @@ func (tg *Telegram) StartUpdateListener(
 }
 
 func (tg *Telegram) CheckUserInChannel(_ context.Context, chatID int64, userID int64) (bool, error) {
-	member, err := tg.bot.GetChatMember(tgbotapi.GetChatMemberConfig{
+	bot := tg.currentBot()
+	if bot == nil {
+		return false, ErrNotInitialized
+	}
+
+	member, err := bot.GetChatMember(tgbotapi.GetChatMemberConfig{
 		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
 			UserID: userID,
 			ChatConfig: tgbotapi.ChatConfig{

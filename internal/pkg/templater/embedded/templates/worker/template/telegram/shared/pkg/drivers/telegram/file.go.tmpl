@@ -3,10 +3,18 @@ package telegram
 import tgbotapi "github.com/OvyFlash/telegram-bot-api"
 
 func (tg *Telegram) GetFileDirectURL(fileID string) (string, error) {
-	file, err := tg.bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	// Один бот на обе операции: ссылка на файл содержит токен, и перечитанное
+	// поле могло бы отдать токен уже другого бота — после ротации ссылка на
+	// файл, полученный прежним ботом, оказалась бы невалидной.
+	bot := tg.currentBot()
+	if bot == nil {
+		return "", ErrNotInitialized
+	}
+
+	file, err := bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
 	if err != nil {
 		return "", err
 	}
 
-	return file.Link(tg.bot.Token), nil
+	return file.Link(bot.Token), nil
 }

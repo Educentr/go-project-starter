@@ -9,8 +9,14 @@ import (
     "{{ .ProjectPath }}/pkg/drivers/telegram"
 )
 
+// GetUpdateChannel отдаёт канал апдейтов драйвера.
+//
+// Через аксессор драйвера, а не его полем (прежнее экспортированное поле
+// Poller): канал принадлежит драйверу и живёт столько же, сколько он. Ротация
+// токена его не подменяет — заново поднимается канал библиотеки, которого ни
+// сервис, ни воркер не видят, поэтому читателю не нужна и проверка закрытия.
 func (s *Service) GetUpdateChannel(ctx context.Context) tgbotapi.UpdatesChannel {
-    return s.telegram.Poller
+    return s.telegram.GetUpdateChannel(ctx)
 }
 
 func (s *Service) NeedStartHiddenMessageJob(ctx context.Context) bool {
