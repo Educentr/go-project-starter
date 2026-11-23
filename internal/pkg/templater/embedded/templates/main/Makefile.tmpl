@@ -48,7 +48,7 @@ GOATVERSION = {{ .GoatVersion }}
 GOATSERVICESVERSION = {{ .GoatServicesVersion }}
 {{- end }}
 # Onlineconf version
-ONLINECONF_UPDATER_VERSION = v3.6.4
+ONLINECONF_UPDATER_VERSION = {{ .OnlineConfUpdaterVersion }}
 # Build datetime
 BUILD_DATE = $(shell TZ=UTC-3 date +%Y%m%d-%H%M)
 # Operation system
@@ -804,7 +804,7 @@ ensure-goimports:
 
 .PHONY: install-onlineconf-updater
 install-onlineconf-updater:
-	go install github.com/Nikolo/onlineconf/onlineconf-updater/v3@$(ONLINECONF_UPDATER_VERSION)
+	go install {{ .OnlineConfUpdaterModule }}@$(ONLINECONF_UPDATER_VERSION)
 
 {{ range $_, $cg := .CustomGenerators }}# Generator '{{ $cg.Name }}', declared in the `generator` section of
 # .project-config/project.yaml. The commands belong to the project: the

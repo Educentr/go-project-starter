@@ -199,6 +199,24 @@ post_generate:
   - go_mod_tidy
 ```
 
+!!! note "Откуда берётся OnlineConf"
+    `onlineconf-database` и `onlineconf-admin` приезжают из сабмодуля
+    `etc/repo-oc` — это наш форк
+    [Educentr/onlineconf](https://github.com/Educentr/onlineconf) (основная ветка
+    `master`): из него берутся SQL-схема MySQL и исходники admin, который стенд
+    собирает локально. `onlineconf-updater` запускается образом
+    `ghcr.io/educentr/onlineconf-updater` той же версии, которую устанавливает
+    `make install-onlineconf-updater` (`ONLINECONF_UPDATER_VERSION` в Makefile) —
+    версию держит генератор, в `project.yaml` она не настраивается.
+
+    Сабмодуль добавляется только если каталога `etc/repo-oc` ещё нет, поэтому
+    стенд, созданный до перехода на форк, остаётся на прежнем URL. Переставить:
+
+    ```bash
+    git submodule set-url etc/repo-oc https://github.com/Educentr/onlineconf
+    git submodule sync && git submodule update --init --remote etc/repo-oc
+    ```
+
 ### Запуск
 
 ```bash

@@ -25,6 +25,13 @@ services:
       service: onlineconf-admin
     build:
       context: ./etc/repo-oc/admin
+    # The admin runs the sources of the submodule, not a published image. The
+    # service it extends declares both `image:` (ghcr.io/educentr/onlineconf-admin)
+    # and, through us, `build:`; without pull_policy compose decides between
+    # them by what happens to sit in the local image cache, so the same stand
+    # would run the fork's sources on one machine and a released image on
+    # another.
+    pull_policy: build
     ports:
       - "${DEV_ONLINECONF_ADMIN_PORT:-8888}:80"
     depends_on:
@@ -66,7 +73,7 @@ services:
   # Shared OnlineConf Updater
   # ============================================
   onlineconf-updater:
-    image: ghcr.io/nikolo/onlineconf-updater:5ee228a
+    image: {{ .OnlineConfUpdaterImage }}
     volumes:
       - ./etc/onlineconf/dev:/usr/local/etc/onlineconf
     environment:

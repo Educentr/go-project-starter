@@ -25,6 +25,26 @@ import (
 // This should be updated when new runtime version is released.
 const MinRuntimeVersion = "v0.15.0"
 
+// onlineConfUpdaterVersion is the onlineconf-updater release a generated
+// project is pinned to: the Makefile installs this module version and the
+// compose files run the image tagged with it.
+//
+// One constant on purpose. Until TOOLS-127 the two pins were independent
+// literals in three templates and had drifted — the Makefile installed
+// v3.6.4 while compose ran `ghcr.io/nikolo/onlineconf-updater:5ee228a`, a
+// 09.2024 build — so the binary a developer got from `make` and the one the
+// stand ran were different versions of the updater.
+const onlineConfUpdaterVersion = "v3.7.0"
+
+// onlineConfUpdaterModule is the Go module path of the updater. It lives in
+// our fork Educentr/onlineconf; the upstream path github.com/Nikolo/… gets no
+// new versions and survives only as a GitHub redirect.
+const onlineConfUpdaterModule = "github.com/Educentr/onlineconf/onlineconf-updater/v3"
+
+// onlineConfUpdaterImageRepo is the registry path the updater image is
+// published to by the CI of Educentr/onlineconf.
+const onlineConfUpdaterImageRepo = "ghcr.io/educentr/onlineconf-updater"
+
 // goTypeDuration is the Go type the CLI flag helpers emit for a `duration`
 // flag declared in a CLI spec.
 const goTypeDuration = "time.Duration"
@@ -120,6 +140,29 @@ func (g GeneratorParams) PrivateReposTokenSecretName() string {
 	}
 
 	return g.PrivateReposTokenSecret
+}
+
+// OnlineConfUpdaterVersion returns the updater release the generated project
+// is pinned to. The Makefile renders it as ONLINECONF_UPDATER_VERSION, the
+// version `go install` of OnlineConfUpdaterModule is called with.
+func (g GeneratorParams) OnlineConfUpdaterVersion() string {
+	return onlineConfUpdaterVersion
+}
+
+// OnlineConfUpdaterModule returns the Go module path of the updater.
+func (g GeneratorParams) OnlineConfUpdaterModule() string {
+	return onlineConfUpdaterModule
+}
+
+// OnlineConfUpdaterImage returns the fully tagged updater image the compose
+// files run — the same release OnlineConfUpdaterVersion names, so the binary
+// `make install-onlineconf-updater` builds and the one the stand runs cannot
+// name different versions.
+//
+// Templates call these three instead of carrying literals, so the pin is
+// changed in one place (see onlineConfUpdaterVersion on why).
+func (g GeneratorParams) OnlineConfUpdaterImage() string {
+	return onlineConfUpdaterImageRepo + ":" + onlineConfUpdaterVersion
 }
 
 // GoPrivate returns the GOPRIVATE value of the generated project: the module

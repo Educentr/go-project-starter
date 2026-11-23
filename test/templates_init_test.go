@@ -198,9 +198,9 @@ func TestNoInitFuncInGeneratedProjects(t *testing.T) {
 // assertNoInitFuncUnder walks the generated tree and reports every `func init(`
 // in a Go file the generator produced.
 //
-// `etc/repo-oc/` is skipped: `dev_stand: true` checks out the upstream
-// onlineconf sources there for the local stand, and those are somebody else's
-// code, not generator output.
+// `etc/repo-oc/` is skipped: `dev_stand: true` checks out the OnlineConf
+// sources (our fork, Educentr/onlineconf) there for the local stand, and those
+// are somebody else's code, not generator output.
 func assertNoInitFuncUnder(t *testing.T, root string) {
 	t.Helper()
 
