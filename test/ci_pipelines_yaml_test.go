@@ -66,10 +66,12 @@ var registryMatrixChecks = map[string]string{
 var sharedDomainPortPrefixes = []string{"PORT_PREFIX_API_API", "PORT_PREFIX_WORKER_API"}
 
 // domainEnvWrite matches the line a pipeline script writes a
-// DOMAIN_<transport> variable with, in each of the three forms the templates
-// use: the GitHub job output, the GitHub env file and the GitLab env file
-// heredoc.
-var domainEnvWrite = regexp.MustCompile(`(?m)^\s*(?:echo ')?(DOMAIN_[A-Za-z0-9_]+)=`)
+// DOMAIN_<transport> variable with, in each of the forms the templates use:
+// the GitHub job output and the GitHub env file (both `printf 'DOMAIN_X=…'`,
+// the value being an argument rather than part of the format) and the GitLab
+// env file heredoc. The `echo '` form is still matched: the GitLab templates
+// write some of these lines with it.
+var domainEnvWrite = regexp.MustCompile(`(?m)^\s*(?:echo '|printf ')?(DOMAIN_[A-Za-z0-9_]+)=`)
 
 // yamlErrorLine matches the line number a yaml.v3 syntax error reports.
 var yamlErrorLine = regexp.MustCompile(`line (\d+)`)

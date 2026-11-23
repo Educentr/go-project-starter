@@ -68,13 +68,30 @@ jobs:
 
       - name: Use vars
         id: vars_enabled
+        env:
+          # Значение переменной репозитория приходит переменной окружения, а не
+          # текстом скрипта: workflow-выражение в run: раскрывается до запуска
+          # shell, поэтому значение стало бы частью исходника скрипта (GitHub
+          # Security hardening -> script injection). Содержимое выбирает тот,
+          # кто настраивает репозиторий, то есть эскалации прав тут нет, — но
+          # одинарная кавычка в значении закрывает `'…'` и остаток строки
+          # читается как код, а `$(…)` выполняется.
+          #
+          # Правило действует на все шаги обоих workflow: ни в одном run: нет
+          # ${{"{{"}} secrets.* {{"}}"}}, ${{"{{"}} vars.* {{"}}"}},
+          # ${{"{{"}} needs.*.outputs.* {{"}}"}} и ${{"{{"}} steps.*.outputs.* {{"}}"}}.
+          #
+          # ${{"{{"}} env.<ИМЯ>_NAME {{"}}"}} в run: остаётся: суффикс там собран из
+          # имени ветки, нормализованного до [A-Za-z0-9_] (шаг `Get branch`),
+          # других символов GitHub в именах переменных и секретов не допускает.
+          ENABLED: ${{"{{"}} vars[env.ENABLED_NAME] {{"}}"}}
         run: |
-          if [ "${{"{{"}} vars[env.ENABLED_NAME] {{"}}"}}" == "ENABLED" ]; then
+          if [ "$ENABLED" == "ENABLED" ]; then
             echo "ENABLE_BUILD=true" >> $GITHUB_OUTPUT
 {{- if .Artifacts.HasDocker }}
             echo "ENABLE_DEPLOY=true" >> $GITHUB_OUTPUT
 {{- end }}
-          elif [ "${{"{{"}} vars[env.ENABLED_NAME] {{"}}"}}" == "ENABLED_ONLY_BUILD" ]; then
+          elif [ "$ENABLED" == "ENABLED_ONLY_BUILD" ]; then
             echo "ENABLE_BUILD=true" >> $GITHUB_OUTPUT
 {{- if .Artifacts.HasDocker }}
             echo "ENABLE_DEPLOY=false" >> $GITHUB_OUTPUT
@@ -95,34 +112,44 @@ jobs:
       - name: Deploy vars
         id: vars_deploy
         if: steps.vars_enabled.outputs.ENABLE_DEPLOY == 'true'
+        env:
+          # Переменные репозитория приходят переменными окружения, а не текстом
+          # скрипта, — см. комментарий в шаге `Use vars`. Значение пишется
+          # через printf '%s', чтобы оно не попадало и в строку формата.
+          SSH_HOST: ${{"{{"}} vars[env.SSH_HOST_NAME] {{"}}"}}
+          OC_HOST: ${{"{{"}} vars[env.OC_HOST_NAME] {{"}}"}}
+          OC_PORT: ${{"{{"}} vars[env.OC_PORT_NAME] {{"}}"}}
+          INTERNAL_SUBNET: ${{"{{"}} vars[env.INTERNAL_SUBNET_NAME] {{"}}"}}
+          # Массив типов окружений: шаг берёт только его длину.
+          ENV_TYPE_JSON: ${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}
         run: |
-          if [ -z "${{"{{"}} vars[env.SSH_HOST_NAME] {{"}}"}}" ]; then
+          if [ -z "$SSH_HOST" ]; then
             echo "Empty SSH_HOST"
             exit 1
           fi
 
-          echo 'SSH_HOST_MATRIX=${{"{{"}} vars[env.SSH_HOST_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'SSH_HOST_MATRIX=%s\n' "$SSH_HOST" >> "$GITHUB_OUTPUT"
 
-          if [ -z "${{"{{"}} vars[env.OC_HOST_NAME] {{"}}"}}" ]; then
+          if [ -z "$OC_HOST" ]; then
             echo "Empty OC_HOST"
             exit 2
           fi
-          echo 'OC_HOST=${{"{{"}} vars[env.OC_HOST_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'OC_HOST=%s\n' "$OC_HOST" >> "$GITHUB_OUTPUT"
 
-          if [ -z "${{"{{"}} vars[env.OC_PORT_NAME] {{"}}"}}" ]; then
+          if [ -z "$OC_PORT" ]; then
             echo "Empty OC_PORT use 443"
             echo 'OC_PORT=443' >> $GITHUB_OUTPUT
           else
-            echo 'OC_PORT=${{"{{"}} vars[env.OC_PORT_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+            printf 'OC_PORT=%s\n' "$OC_PORT" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ -z "${{"{{"}} vars[env.INTERNAL_SUBNET_NAME] {{"}}"}}" ]; then
+          if [ -z "$INTERNAL_SUBNET" ]; then
             echo "Empty INTERNAL_SUBNET"
             exit 2
           fi
-          echo 'INTERNAL_SUBNET=${{"{{"}} vars[env.INTERNAL_SUBNET_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'INTERNAL_SUBNET=%s\n' "$INTERNAL_SUBNET" >> "$GITHUB_OUTPUT"
 
-          LEN_EXPECTED=$(echo '${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}' | jq '. | length')
+          LEN_EXPECTED=$(printf '%s\n' "$ENV_TYPE_JSON" | jq '. | length')
           if [ -z "$LEN_EXPECTED" ]; then
             LEN_EXPECTED=1
           fi
@@ -136,84 +163,107 @@ jobs:
         id: set_env_main
         if: steps.vars_enabled.outputs.ENABLE_DEPLOY == 'true'
 
-        run: |
-          LEN_EXPECTED=${{"{{"}} steps.vars_deploy.outputs.LEN_EXPECTED {{"}}"}}
-
+        env:
+          # Переменные и секреты репозитория приходят переменными окружения, а
+          # не текстом скрипта, — см. комментарий в шаге `Use vars`. Шаг читает
+          # из них только длину массива, поэтому имена несут суффикс _JSON: в
+          # $GITHUB_OUTPUT уезжает весь массив, индексирует его по номеру
+          # окружения уже job create_env_files.
+          LEN_EXPECTED: ${{"{{"}} steps.vars_deploy.outputs.LEN_EXPECTED {{"}}"}}
           {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
-            if [ -z "${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME] {{"}}"}}" ]; then
-              echo "Empty variable ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME {{"}}"}}"
-              exit 3
-            fi
+          PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_JSON: ${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME] {{"}}"}}
+            {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
+              {{- if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
+          DOMAIN_{{ $t.Name | ToUpper }}_JSON: ${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}
+              {{- end }}
+          PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_JSON: ${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}
+            {{- end }}{{- end }}
+          {{- end }}{{ end }}
+          ENV_TYPE_JSON: ${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}
+          OC_USER_JSON: ${{"{{"}} secrets[env.OC_USER_NAME] {{"}}"}}
+          OC_PASSWORD_JSON: ${{"{{"}} secrets[env.OC_PASSWORD_NAME] {{"}}"}}
+        run: |
+          {{- /* Отступ блочного скаляра задаёт его первая непустая строка, а
+          ниже тут есть строки на 10 пробелах: первая строка этого run: обязана
+          остаться на 10 пробелах, иначе YAML закроется на первой же строке с
+          меньшим отступом и перестанет быть валидным. */ -}}
+          {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
+          if [ -z "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_JSON" ]; then
+            echo "Empty variable ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME {{"}}"}}"
+            exit 3
+          fi
 
-            LEN=$(echo '${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME] {{"}}"}}' | jq '. | length')
+          LEN=$(printf '%s\n' "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_JSON" | jq '. | length')
 
-            if [ "$LEN" != "$LEN_EXPECTED" ]; then
-              echo "Invalid array size ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME {{"}}"}}: $LEN"
-              exit 4
-            fi
+          if [ "$LEN" != "$LEN_EXPECTED" ]; then
+            echo "Invalid array size ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_NAME {{"}}"}}: $LEN"
+            exit 4
+          fi
 
-            echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_TRAEFIK_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK=%s\n' "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK_JSON" >> "$GITHUB_OUTPUT"
 
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
             {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
-          if [ -z "${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" ]; then
+          if [ -z "$DOMAIN_{{ $t.Name | ToUpper }}_JSON" ]; then
             echo "Empty variable ${{"{{"}} env.DOMAIN_{{ $t.Name | ToUpper }}_NAME {{"}}"}}"
             exit 5
           fi
 
-          LEN=$(echo '${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' | jq '. | length')
+          LEN=$(printf '%s\n' "$DOMAIN_{{ $t.Name | ToUpper }}_JSON" | jq '. | length')
 
           if [ "$LEN" != "$LEN_EXPECTED" ]; then
             echo "Invalid array size ${{"{{"}} env.DOMAIN_{{ $t.Name | ToUpper }}_NAME {{"}}"}}: $LEN"
             exit 6
           fi
 
-          echo 'DOMAIN_{{ $t.Name | ToUpper }}=${{"{{"}} vars[env.DOMAIN_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'DOMAIN_{{ $t.Name | ToUpper }}=%s\n' "$DOMAIN_{{ $t.Name | ToUpper }}_JSON" >> "$GITHUB_OUTPUT"
             {{ end }}
-          if [ -z "${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}" ]; then
+          if [ -z "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_JSON" ]; then
             echo "Empty variable ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME {{"}}"}}"
             exit 3
           fi
 
-          LEN=$(echo '${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' | jq '. | length')
+          LEN=$(printf '%s\n' "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_JSON" | jq '. | length')
 
           if [ "$LEN" != "$LEN_EXPECTED" ]; then
             echo "Invalid array size ${{"{{"}} env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_NAME {{"}}"}}: $LEN"
             exit 4
           fi
 
-          echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=${{"{{"}} vars[env.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash}}_{{ $t.Name | ToUpper }}_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}=%s\n' "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}_JSON" >> "$GITHUB_OUTPUT"
             {{ end -}}{{ end -}}
           {{ end }}{{ end -}}
 
-          LEN=$(echo '${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}' | jq '. | length')
+          LEN=$(printf '%s\n' "$ENV_TYPE_JSON" | jq '. | length')
 
           if [ "$LEN" != "$LEN_EXPECTED" ]; then
             echo "Invalid array size ${{"{{"}} env.ENV_TYPE_NAME {{"}}"}}: $LEN"
             exit 7
           fi
 
-          echo 'ENV_TYPE=${{"{{"}} vars[env.ENV_TYPE_NAME] {{"}}"}}' >> $GITHUB_OUTPUT
+          printf 'ENV_TYPE=%s\n' "$ENV_TYPE_JSON" >> "$GITHUB_OUTPUT"
 
-          if [ -z "${{"{{"}} secrets[env.OC_USER_NAME] {{"}}"}}" ]; then
+          if [ -z "$OC_USER_JSON" ]; then
             echo "Empty secrets ${{"{{"}} env.OC_USER_NAME {{"}}"}}"
             exit 8
           fi
 
-          LEN=$(echo '${{"{{"}} secrets[env.OC_USER_NAME] {{"}}"}}' | jq '. | length')
+          LEN=$(printf '%s\n' "$OC_USER_JSON" | jq '. | length')
 
           if [ "$LEN" != "$LEN_EXPECTED" ]; then
             echo "Invalid array size ${{"{{"}} env.OC_USER_NAME {{"}}"}}: $LEN"
             exit 9
           fi
 
+          # Наружу уезжает имя секрета, а не его значение: индексирует секрет
+          # по номеру окружения job create_env_files.
           echo 'OC_USER=${{"{{"}} env.OC_USER_NAME {{"}}"}}' >> $GITHUB_OUTPUT
 
-          if [ -z "${{"{{"}} secrets[env.OC_PASSWORD_NAME] {{"}}"}}" ]; then
+          if [ -z "$OC_PASSWORD_JSON" ]; then
             echo "Empty secrets ${{"{{"}} env.OC_PASSWORD_NAME {{"}}"}}"
             exit 10
           fi
-          LEN=$(echo '${{"{{"}} secrets[env.OC_PASSWORD_NAME] {{"}}"}}' | jq '. | length')
+          LEN=$(printf '%s\n' "$OC_PASSWORD_JSON" | jq '. | length')
 
           if [ "$LEN" != "$LEN_EXPECTED" ]; then
             echo "Invalid array size ${{"{{"}} env.OC_PASSWORD_NAME {{"}}"}}: $LEN"
@@ -387,39 +437,66 @@ jobs:
           # обратную кавычку, $, " и (), то есть release/$(cmd) выполнила бы
           # команду, а release/a`b уронила бы шаг синтаксической ошибкой.
           BRANCH: ${{"{{"}} github.ref_name {{"}}"}}
+          # Остальные значения — того же класса, только источник другой:
+          # переменные и секреты репозитория и версия из `make release-tag`
+          # (git допускает `'` в имени тега). Содержимое выбирает тот, кто
+          # настраивает репозиторий, то есть эскалации прав тут нет, — но
+          # кавычка в значении закрывала `'…'` и остаток строки читался как
+          # код, а ENV_TYPE подставлялся вообще без кавычек. См. комментарий в
+          # шаге `Use vars` job'а prepare-env.
+          ENV_TYPE: ${{"{{"}} fromJSON(needs.prepare-env.outputs.ENV_TYPE)[matrix.envs] {{"}}"}}
+          {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
+          PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK: ${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK)[matrix.envs] {{"}}"}}
+            {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
+              {{- if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
+          DOMAIN_{{ $t.Name | ToUpper }}: ${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}
+              {{- end }}
+          PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}: ${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}
+            {{- end }}{{- end }}
+          {{- end }}{{ end }}
+          OC_HOST: ${{"{{"}} needs.prepare-env.outputs.OC_HOST {{"}}"}}
+          OC_PORT: ${{"{{"}} needs.prepare-env.outputs.OC_PORT {{"}}"}}
+          OC_USER: ${{"{{"}} fromJson(secrets[needs.prepare-env.outputs.OC_USER])[matrix.envs] {{"}}"}}
+          OC_PASSWORD: ${{"{{"}} fromJson(secrets[needs.prepare-env.outputs.OC_PASSWORD])[matrix.envs] {{"}}"}}
+          APP_VERSION: ${{"{{"}} needs.prepare-env.outputs.RELEASE {{"}}"}}
+          REGISTRY_SERVER: ${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}
+          INTERNAL_SUBNET: ${{"{{"}} needs.prepare-env.outputs.INTERNAL_SUBNET {{"}}"}}
         run: |
           # Имя ветки нормализуется тем же правилом, что и имена переменных
           # ветки (шаг `Get branch`): `/` в имени ветки сделал бы из `.env.`
           # путь в несуществующий каталог, и шаг падал бы на первом `>>`.
           fname=".env.${BRANCH//[^A-Za-z0-9_]/_}"
 
-          ENV_TYPE=${{"{{"}} fromJSON(needs.prepare-env.outputs.ENV_TYPE)[matrix.envs] {{"}}"}}
           if [ ! -z "$ENV_TYPE" ]; then
             fname="$fname-$ENV_TYPE"
           fi
 
+          # Значение подставляется аргументом printf, а не строкой формата:
+          # так оно не может ни закрыть кавычку, ни быть прочитано как `%`.
+          {
           {{- range $_, $a := .Applications }}{{ if $a.HasDocker }}
-          echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK)[matrix.envs] {{"}}"}}"' >> $fname
+            printf 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK="%s"\n' "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_TRAEFIK"
             {{- range $_, $t := $a.GetRestTransport }}{{ if ne $t.GeneratorType "ogen_client" }}
-              {{ if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
-          echo 'DOMAIN_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.DOMAIN_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
-              {{ end }}
-          echo 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="${{"{{"}} fromJson(needs.prepare-env.outputs.PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }})[matrix.envs] {{"}}"}}"' >> $fname
+              {{- if and $t.PublicService ($.Applications.DeclaresPublicDomain $a.Name $t.Name) }}
+            printf 'DOMAIN_{{ $t.Name | ToUpper }}="%s"\n' "$DOMAIN_{{ $t.Name | ToUpper }}"
+              {{- end }}
+            printf 'PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}="%s"\n' "$PORT_PREFIX_{{ $a.Name | ToUpper | ReplaceDash }}_{{ $t.Name | ToUpper }}"
             {{- end }}{{- end }}
           {{- end }}{{ end }}
-          echo "ENV_TYPE=$ENV_TYPE" >> $fname
-          echo 'OC_HOST="${{"{{"}} needs.prepare-env.outputs.OC_HOST {{"}}"}}"' >> $fname
-          echo 'OC_PORT="${{"{{"}} needs.prepare-env.outputs.OC_PORT {{"}}"}}"' >> $fname
-          echo 'OC_USER="${{"{{"}} fromJson(secrets[needs.prepare-env.outputs.OC_USER])[matrix.envs] {{"}}"}}"' >> $fname
-          echo 'OC_PASSWORD="${{"{{"}} fromJson(secrets[needs.prepare-env.outputs.OC_PASSWORD])[matrix.envs] {{"}}"}}"' >> $fname
-          echo 'APP_VERSION="${{"{{"}} needs.prepare-env.outputs.RELEASE {{"}}"}}"' >> $fname
-          echo 'REGISTRY_SERVER=${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}' >> $fname
-          echo 'INTERNAL_SUBNET=${{"{{"}} needs.prepare-env.outputs.INTERNAL_SUBNET {{"}}"}}' >> $fname
+            printf 'ENV_TYPE=%s\n' "$ENV_TYPE"
+            printf 'OC_HOST="%s"\n' "$OC_HOST"
+            printf 'OC_PORT="%s"\n' "$OC_PORT"
+            printf 'OC_USER="%s"\n' "$OC_USER"
+            printf 'OC_PASSWORD="%s"\n' "$OC_PASSWORD"
+            printf 'APP_VERSION="%s"\n' "$APP_VERSION"
+            printf 'REGISTRY_SERVER=%s\n' "$REGISTRY_SERVER"
+            printf 'INTERNAL_SUBNET=%s\n' "$INTERNAL_SUBNET"
+          } >> "$fname"
 
 
           # ToDo add file encriptions
           echo "Generated $fname"
-          echo "FNAME=$fname" >> $GITHUB_OUTPUT
+          printf 'FNAME=%s\n' "$fname" >> "$GITHUB_OUTPUT"
 
       - name: Upload env file
         uses: actions/upload-artifact@v4
@@ -690,12 +767,23 @@ jobs:
           chmod +x /usr/local/bin/mc
 
       - name: Configure MinIO Client
+        env:
+          # Переменные и секреты репозитория приходят переменными окружения, а
+          # не текстом команды, — см. комментарий в шаге `Use vars` job'а
+          # prepare-env. Ключи доступа при этом ещё и не попадают в файл
+          # скрипта на раннере.
+          UPLOAD_ENDPOINT: ${{"{{"}} vars.UPLOAD_ENDPOINT {{"}}"}}
+          UPLOAD_ACCESS_KEY: ${{"{{"}} secrets.MINIO_ACCESS_KEY {{"}}"}}
+          UPLOAD_SECRET_KEY: ${{"{{"}} secrets.MINIO_SECRET_KEY {{"}}"}}
         run: |
-          mc alias set minio ${{"{{"}} vars.UPLOAD_ENDPOINT {{"}}"}} ${{"{{"}} secrets.MINIO_ACCESS_KEY {{"}}"}} ${{"{{"}} secrets.MINIO_SECRET_KEY {{"}}"}}
+          mc alias set minio "$UPLOAD_ENDPOINT" "$UPLOAD_ACCESS_KEY" "$UPLOAD_SECRET_KEY"
 
       - name: Upload to MinIO
+        env:
+          UPLOAD_BUCKET: ${{"{{"}} vars.UPLOAD_BUCKET {{"}}"}}
+          UPLOAD_PREFIX: ${{"{{"}} vars.UPLOAD_PREFIX || 'packages' {{"}}"}}
         run: |
-          mc cp ./packages/* minio/${{"{{"}} vars.UPLOAD_BUCKET {{"}}"}}/${{"{{"}} vars.UPLOAD_PREFIX || 'packages' {{"}}"}}/
+          mc cp ./packages/* "minio/$UPLOAD_BUCKET/$UPLOAD_PREFIX/"
       {{- else if .Artifacts.IsAWS }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -705,21 +793,36 @@ jobs:
           aws-region: ${{"{{"}} vars.UPLOAD_REGION || 'us-east-1' {{"}}"}}
 
       - name: Upload to AWS S3
+        env:
+          # См. комментарий в шаге `Use vars` job'а prepare-env.
+          UPLOAD_BUCKET: ${{"{{"}} vars.UPLOAD_BUCKET {{"}}"}}
+          UPLOAD_PREFIX: ${{"{{"}} vars.UPLOAD_PREFIX || 'packages' {{"}}"}}
         run: |
-          aws s3 cp ./packages/ s3://${{"{{"}} vars.UPLOAD_BUCKET {{"}}"}}/${{"{{"}} vars.UPLOAD_PREFIX || 'packages' {{"}}"}}/ \
+          aws s3 cp ./packages/ "s3://$UPLOAD_BUCKET/$UPLOAD_PREFIX/" \
             --recursive
       {{- else if .Artifacts.IsRsync }}
       - name: Setup SSH
+        env:
+          # Приватный ключ приходит переменной окружения, а не текстом
+          # скрипта: иначе он попадает в файл скрипта на раннере. См.
+          # комментарий в шаге `Use vars` job'а prepare-env.
+          UPLOAD_SSH_PRIVATE_KEY: ${{"{{"}} secrets.UPLOAD_SSH_PRIVATE_KEY {{"}}"}}
+          UPLOAD_HOST: ${{"{{"}} vars.UPLOAD_HOST {{"}}"}}
         run: |
           mkdir -p ~/.ssh
-          echo "${{"{{"}} secrets.UPLOAD_SSH_PRIVATE_KEY {{"}}"}}" > ~/.ssh/id_rsa
+          printf '%s\n' "$UPLOAD_SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{"{{"}} vars.UPLOAD_HOST {{"}}"}} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$UPLOAD_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload via rsync
+        env:
+          # См. комментарий в шаге `Use vars` job'а prepare-env.
+          UPLOAD_USER: ${{"{{"}} vars.UPLOAD_USER {{"}}"}}
+          UPLOAD_HOST: ${{"{{"}} vars.UPLOAD_HOST {{"}}"}}
+          UPLOAD_PATH: ${{"{{"}} vars.UPLOAD_PATH {{"}}"}}
         run: |
           rsync -avz --progress ./packages/ \
-            ${{"{{"}} vars.UPLOAD_USER {{"}}"}}@${{"{{"}} vars.UPLOAD_HOST {{"}}"}}:${{"{{"}} vars.UPLOAD_PATH {{"}}"}}/
+            "$UPLOAD_USER@$UPLOAD_HOST:$UPLOAD_PATH/"
       {{- end }}
 
       - name: Report Upload status
@@ -765,13 +868,19 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{"{{"}} secrets.DOCS_AWS_ACCESS_KEY_ID {{"}}"}}
           AWS_SECRET_ACCESS_KEY: ${{"{{"}} secrets.DOCS_AWS_SECRET_ACCESS_KEY {{"}}"}}
           AWS_DEFAULT_REGION: ${{"{{"}} vars.DOCS_REGION || 'us-east-1' {{"}}"}}
+          # См. комментарий в шаге `Use vars` job'а prepare-env.
+          DOCS_ENDPOINT: ${{"{{"}} vars.DOCS_ENDPOINT {{"}}"}}
+          DOCS_BUCKET: ${{"{{"}} vars.DOCS_BUCKET {{"}}"}}
+          DOCS_PREFIX: ${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}
         run: |
-          ENDPOINT_FLAG=""
-          if [ -n "${{"{{"}} vars.DOCS_ENDPOINT {{"}}"}}" ]; then
-            ENDPOINT_FLAG="--endpoint-url ${{"{{"}} vars.DOCS_ENDPOINT {{"}}"}}"
+          # Массив, а не строка: незаданный endpoint не должен добавить пустой
+          # аргумент, а заданный — разойтись по пробелу на несколько.
+          ENDPOINT_FLAG=()
+          if [ -n "$DOCS_ENDPOINT" ]; then
+            ENDPOINT_FLAG=(--endpoint-url "$DOCS_ENDPOINT")
           fi
-          aws s3 sync ./site/ s3://${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}/ \
-            --delete $ENDPOINT_FLAG
+          aws s3 sync ./site/ "s3://$DOCS_BUCKET/$DOCS_PREFIX/" \
+            --delete "${ENDPOINT_FLAG[@]}"
 {{- else if .Documentation.IsMinio }}
 
       - name: Build docs
@@ -783,9 +892,21 @@ jobs:
           chmod +x /usr/local/bin/mc
 
       - name: Deploy to MinIO
+        env:
+          # См. комментарий в шаге `Use vars` job'а prepare-env. Заголовки
+          # сюда же: ToGitHubSecret превращает ${VAR} в ссылку на секрет, то
+          # есть в run: значение секрета оказывалось текстом команды.
+          DOCS_MINIO_ENDPOINT: ${{"{{"}} vars.DOCS_MINIO_ENDPOINT {{"}}"}}
+          DOCS_MINIO_ACCESS_KEY: ${{"{{"}} secrets.DOCS_MINIO_ACCESS_KEY {{"}}"}}
+          DOCS_MINIO_SECRET_KEY: ${{"{{"}} secrets.DOCS_MINIO_SECRET_KEY {{"}}"}}
+          DOCS_BUCKET: ${{"{{"}} vars.DOCS_BUCKET {{"}}"}}
+          DOCS_PREFIX: ${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}
+{{- range $i, $h := .Documentation.Headers }}
+          DOCS_HEADER_{{ $i }}: {{ $h | ToGitHubSecret | YAMLQuote }}
+{{- end }}
         run: |
-          mc alias set docs ${{"{{"}} vars.DOCS_MINIO_ENDPOINT {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_ACCESS_KEY {{"}}"}} ${{"{{"}} secrets.DOCS_MINIO_SECRET_KEY {{"}}"}}{{ range .Documentation.Headers }} -H "{{ . | ToGitHubSecret }}"{{ end }}
-          mc mirror --remove --overwrite{{ range .Documentation.Headers }} -H "{{ . | ToGitHubSecret }}"{{ end }} ./site/ docs/${{"{{"}} vars.DOCS_BUCKET {{"}}"}}/${{"{{"}} vars.DOCS_PREFIX || '{{ .ProjectName }}' {{"}}"}}/
+          mc alias set docs "$DOCS_MINIO_ENDPOINT" "$DOCS_MINIO_ACCESS_KEY" "$DOCS_MINIO_SECRET_KEY"{{ range $i, $h := .Documentation.Headers }} -H "$DOCS_HEADER_{{ $i }}"{{ end }}
+          mc mirror --remove --overwrite{{ range $i, $h := .Documentation.Headers }} -H "$DOCS_HEADER_{{ $i }}"{{ end }} ./site/ "docs/$DOCS_BUCKET/$DOCS_PREFIX/"
 {{- else if .Documentation.IsGitHubPages }}
 
       - name: Deploy to GitHub Pages
@@ -824,12 +945,19 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: Modify env file
+        env:
+          # Матрица собрана из переменной репозитория SSH_HOST (через
+          # prepare-env), то есть значение того же класса, что и остальные:
+          # приходит переменной окружения, а не текстом скрипта. См.
+          # комментарий в шаге `Use vars` job'а prepare-env.
+          SSH_HOST: ${{"{{"}} matrix.ips[0] {{"}}"}}
+          INTERNAL_LAN: ${{"{{"}} matrix.ips[1] {{"}}"}}
         run: |
           for f in $(ls envs-*/.env.*); do
             echo "Processing file: $f"
-            echo "INTERNAL_LAN=${{"{{"}} matrix.ips[1] {{"}}"}}" >> $f
+            printf 'INTERNAL_LAN=%s\n' "$INTERNAL_LAN" >> "$f"
             # Replace deploy-time placeholders (@@SSH_HOST@@, etc.)
-            sed -i "s/@@SSH_HOST@@/${{"{{"}} matrix.ips[0] {{"}}"}}/g" "$f"
+            sed -i "s/@@SSH_HOST@@/$SSH_HOST/g" "$f"
           done
 
       - name: Deploy to Server
@@ -881,6 +1009,16 @@ jobs:
       # команду в job'е с доступом к TELEGRAM_BOT_TOKEN, а release/a`b уронила
       # бы шаг синтаксической ошибкой.
       BRANCH: ${{"{{"}} github.ref_name {{"}}"}}
+{{- if .Artifacts.HasDocker }}
+      # Списки версий — тоже переменными окружения: RELEASE приходит из
+      # `make release-tag` (`git describe --exact-match --tags`), а git
+      # допускает `'` в имени тега, то есть в run: имя тега закрывало бы
+      # `'…'` и остаток строки читался как код.
+      ARTIFACTS: ${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}
+{{- end }}
+{{- if .Artifacts.HasPackaging }}
+      PACKAGES: ${{"{{"}} needs.prepare-env.outputs.PACKAGES {{"}}"}}
+{{- end }}
 
     steps:
       - name: Check conditions and set message
@@ -936,14 +1074,14 @@ jobs:
             MESSAGE="$MESSAGE
             ✅ Успех: *${{"{{"}} github.workflow {{"}}"}}* завершен на ветке *$ESCAPED_BRANCH*"
 {{- if .Artifacts.HasDocker }}
-            DOCKER_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.ARTIFACTS {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
+            DOCKER_VERS=$(printf '%s\n' "$ARTIFACTS" | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
             MESSAGE="$MESSAGE
 
             *Docker образы:*
             ${DOCKER_VERS}"
 {{- end }}
 {{- if .Artifacts.HasPackaging }}
-            PKG_VERS=$(echo '${{"{{"}} needs.prepare-env.outputs.PACKAGES {{"}}"}}' | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
+            PKG_VERS=$(printf '%s\n' "$PACKAGES" | jq -r '.[]' | sed 's/[][_*()~`>#+=|{}.!-]/\\&/g')
             MESSAGE="$MESSAGE
 
             *Пакеты:*

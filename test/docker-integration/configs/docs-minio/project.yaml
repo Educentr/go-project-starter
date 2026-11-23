@@ -1,0 +1,33 @@
+main:
+  name: docs-minio-test
+  logger: zerolog
+  registry_type: github
+
+git:
+  repo: git@github.com:test/docs-minio-test.git
+  module_path: github.com/test/docs-minio-test
+
+tools:
+  golang_version: "1.27"
+  golangci_version: 2.1.6
+
+documentation:
+  type: minio
+  # The headers are the only input that reaches a run: recipe through
+  # ToGitHubSecret, which turns ${NAME} into a reference to that secret: the
+  # string `secrets.` appears in no template, only in the rendered workflow.
+  headers:
+    - "X-Amz-Meta-Owner: docs-bot"
+    - "Authorization: Bearer ${DOCS_UPLOAD_TOKEN}"
+
+rest:
+  - name: sys
+    port: 9090
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: server
+    transport:
+      - name: sys
