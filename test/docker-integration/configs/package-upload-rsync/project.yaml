@@ -1,0 +1,36 @@
+main:
+  name: upload-rsync-test
+  logger: zerolog
+  registry_type: github
+
+git:
+  repo: git@github.com:test/upload-rsync-test.git
+  module_path: github.com/test/upload-rsync-test
+
+tools:
+  golang_version: "1.27"
+  golangci_version: 2.1.6
+
+# A deb package plus an upload target is what renders the upload-packages job;
+# each upload type renders a branch of its own, so there is one fixture per
+# type.
+artifacts:
+  - deb
+
+packaging:
+  maintainer: Test <test@example.com>
+  description: Package upload fixture (rsync)
+  upload:
+    type: rsync
+
+rest:
+  - name: sys
+    port: 9090
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  - name: server
+    transport:
+      - name: sys
