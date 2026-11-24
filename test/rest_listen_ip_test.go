@@ -9,15 +9,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// restConfigProviderPath is the generated REST configuration provider, the one
-// file the declared listen address reaches.
-var restConfigProviderPath = []string{"pkg", "app", "restconfig", "psg_config_oc_gen.go"}
-
 // listenIPFixture is the fixture the listen_ip cases are built on: two servers
 // (api and sys) and no listen_ip of its own, so the test declares the
 // addresses itself and the unpatched fixture serves as the "declares nothing"
 // case.
 const listenIPFixture = "rest-only"
+
+// restConfigProviderPath is the generated REST configuration provider, the one
+// file the declared listen address reaches.
+var restConfigProviderPath = []string{"pkg", "app", "restconfig", "psg_config_oc_gen.go"}
 
 // declareListenIPs copies listenIPFixture into a config directory of its own
 // and writes listen_ip onto the named REST transports. Patching a copy rather
@@ -135,16 +135,20 @@ func TestGenerateRESTListenIPDefault(t *testing.T) {
 		}
 	}
 
-	// The default is applied before the keys are read, so a value in the tree
-	// still wins — under the application name first, transport-wide second.
-	table := strings.Index(provider, "ip = v")
-	seed := strings.Index(provider, "ip := rest.DefaultListenIP\n\tif v, ok := defaultListenIPs[serverName]; ok {")
-
-	if seed < 0 {
-		t.Fatal("the generated provider does not seed the address from defaultListenIPs")
+	// The declared address is applied before either key is read, which is what
+	// leaves a value in the tree winning over it — under the application name
+	// first, transport-wide second.
+	lookup := strings.Index(provider, "defaultListenIPs[serverName]")
+	if lookup < 0 {
+		t.Fatal("the generated provider never reads defaultListenIPs, so the declared address defaults nothing")
 	}
 
-	if table > 0 && seed > table {
+	appKeyRead := strings.Index(provider, "occonf.RESTServerAppIP(")
+	if appKeyRead < 0 {
+		t.Fatal("the generated provider does not read the application-level ip key")
+	}
+
+	if lookup > appKeyRead {
 		t.Error("the declared address is applied after the OnlineConf reads, so it would override the tree")
 	}
 }

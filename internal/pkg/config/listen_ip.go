@@ -8,6 +8,9 @@ import (
 	"github.com/pkg/errors"
 )
 
+// errFmtListenIP wraps a listen_ip sentinel with the value that violated it.
+const errFmtListenIP = "%s, got: %s"
+
 // Sentinel errors of rest[].listen_ip. Use errors.Is to distinguish.
 var (
 	ErrListenIPNotAnIP = errors.New(
@@ -38,13 +41,13 @@ func (r Rest) validateListenIP() (bool, string) {
 	}
 
 	if r.GeneratorType == GeneratorTypeOgenClient {
-		return false, fmt.Sprintf("%s, got: %s", ErrListenIPOnClient, r.ListenIP)
+		return false, fmt.Sprintf(errFmtListenIP, ErrListenIPOnClient, r.ListenIP)
 	}
 
 	if inner, bracketed := strings.CutPrefix(r.ListenIP, "["); bracketed {
 		addr, closed := strings.CutSuffix(inner, "]")
 		if !closed || net.ParseIP(addr) == nil {
-			return false, fmt.Sprintf("%s, got: %s", ErrListenIPNotAnIP, r.ListenIP)
+			return false, fmt.Sprintf(errFmtListenIP, ErrListenIPNotAnIP, r.ListenIP)
 		}
 
 		return true, ""
@@ -52,7 +55,7 @@ func (r Rest) validateListenIP() (bool, string) {
 
 	ip := net.ParseIP(r.ListenIP)
 	if ip == nil {
-		return false, fmt.Sprintf("%s, got: %s", ErrListenIPNotAnIP, r.ListenIP)
+		return false, fmt.Sprintf(errFmtListenIP, ErrListenIPNotAnIP, r.ListenIP)
 	}
 
 	if ip.To4() == nil {

@@ -1,5 +1,21 @@
 package templater
 
+// ChecksRender is the context the shared checksJob fragment renders with: the
+// root template parameters plus which of the two workflows is being rendered.
+//
+// The parameters are embedded rather than reached through a field, so the body
+// of the fragment reads the same as it did when it was inline in ci_cd.yml
+// (.GithubCI, .RegistryType, .GoLangVersion), and so that it can hand itself
+// to the privateModulesAccess fragment, which wants .GoPrivate and
+// .PrivateReposTokenSecretName.
+type ChecksRender struct {
+	GeneratorParams
+	// PullRequest is true when the fragment renders into pr-checks.yml. It is
+	// the only thing that differs between the two renderings, which is what
+	// keeps the checks themselves from drifting apart.
+	PullRequest bool
+}
+
 // prCheckWorkflowPath is the generated workflow that runs the declared checks
 // on a pull request. It exists only for a project that declares checks: see
 // GetMainTemplates, which drops it from the output set otherwise.
@@ -20,27 +36,13 @@ const registryLoginIfPullRequest = "matrix.registry_login && env.REGISTRY_CREDEN
 // main.registry_type. The fragment reads one of them only to tell whether this
 // run has credentials at all, so for a registry whose login takes several it
 // is the one without which none of the others is usable.
+//
+//nolint:gosec // G101: these are the names of CI secrets, not credentials
 const (
 	ghcrTokenSecret        = "GHCR_TOKEN"
 	awsAccessKeyIDSecret   = "AWS_ACCESS_KEY_ID"
 	registryPasswordSecret = "REGISTRY_PASSWORD"
 )
-
-// ChecksRender is the context the shared checksJob fragment renders with: the
-// root template parameters plus which of the two workflows is being rendered.
-//
-// The parameters are embedded rather than reached through a field, so the body
-// of the fragment reads the same as it did when it was inline in ci_cd.yml
-// (.GithubCI, .RegistryType, .GoLangVersion), and so that it can hand itself
-// to the privateModulesAccess fragment, which wants .GoPrivate and
-// .PrivateReposTokenSecretName.
-type ChecksRender struct {
-	GeneratorParams
-	// PullRequest is true when the fragment renders into pr-checks.yml. It is
-	// the only thing that differs between the two renderings, which is what
-	// keeps the checks themselves from drifting apart.
-	PullRequest bool
-}
 
 // ChecksOnPush returns the render context of the checks job of ci_cd.yml.
 func (g GeneratorParams) ChecksOnPush() ChecksRender {

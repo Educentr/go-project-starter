@@ -6,7 +6,23 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+// prOnSection is the `on:` section of the pull-request workflow, decoded
+// separately from githubWorkflow because that type carries only the push
+// trigger, which is all the other workflows have. The push trigger is decoded
+// here too, to assert that this workflow has none.
+type prOnSection struct {
+	PullRequest githubPushTrigger `yaml:"pull_request"`
+	Push        githubPushTrigger `yaml:"push"`
+}
+
+// prTriggers is the pull-request workflow as the trigger assertions read it.
+type prTriggers struct {
+	On prOnSection `yaml:"on"`
+}
 
 // prChecksConfig is the fixture the pull-request workflow is asserted on: it
 // declares three checks, one of them needing a registry login, plus a runner
@@ -84,16 +100,41 @@ func TestGeneratePRChecksRunsTheChecks(t *testing.T) {
 // TestGeneratePRChecksTrigger verifies the trigger: pull requests into the
 // branches whose CI the project declared (github_ci.push_branches), and no
 // push trigger, which would duplicate every run of ci_cd.yml.
+//
+// The expected branches are read out of the push workflow rather than spelled
+// out, so the assertion is the property — the two triggers cover the same
+// branches — and not the default of the fixture.
 func TestGeneratePRChecksTrigger(t *testing.T) {
-	content := readGenerated(t, generateProject(t, prChecksConfig), filepath.FromSlash(prChecksWorkflow))
+	targetDir := generateProject(t, prChecksConfig)
 
-	if !strings.Contains(content, "on:\n  pull_request:\n    branches:\n      - main\n      - staging\n") {
-		t.Errorf("%s does not trigger on pull requests into the declared branches:\n%s", prChecksWorkflow, content)
+	pr := parsePRTriggers(t, targetDir)
+
+	if want := parseWorkflow(t, targetDir, ciCDWorkflow).On.Push.Branches; !slices.Equal(pr.PullRequest.Branches, want) {
+		t.Errorf("%s triggers on pull requests into %#v, want the branches %s builds: %#v",
+			prChecksWorkflow, pr.PullRequest.Branches, ciCDWorkflow, want)
 	}
 
-	if strings.Contains(content, "\n  push:\n") {
-		t.Errorf("%s also triggers on push, which duplicates every run of %s", prChecksWorkflow, ciCDWorkflow)
+	if len(pr.Push.Branches) != 0 {
+		t.Errorf("%s also triggers on push (%#v), which duplicates every run of %s",
+			prChecksWorkflow, pr.Push.Branches, ciCDWorkflow)
 	}
+}
+
+// parsePRTriggers reads the triggers of the generated pull-request workflow.
+func parsePRTriggers(t *testing.T, targetDir string) prOnSection {
+	t.Helper()
+
+	content, err := os.ReadFile(filepath.Join(targetDir, prChecksWorkflow))
+	if err != nil {
+		t.Fatalf("Error reading %s: %v", prChecksWorkflow, err)
+	}
+
+	var triggers prTriggers
+	if err := yaml.Unmarshal(content, &triggers); err != nil {
+		t.Fatalf("%s is not valid YAML: %v\n%s", prChecksWorkflow, err, content)
+	}
+
+	return triggers.On
 }
 
 // TestGeneratePRChecksLintBase verifies the revision `make lint` compares
