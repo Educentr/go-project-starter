@@ -25,12 +25,19 @@ services:
       service: onlineconf-admin
     build:
       context: ./etc/repo-oc/admin
-    # The admin runs the sources of the submodule, not a published image. The
-    # service it extends declares both `image:` (ghcr.io/educentr/onlineconf-admin)
-    # and, through us, `build:`; without pull_policy compose decides between
-    # them by what happens to sit in the local image cache, so the same stand
-    # would run the fork's sources on one machine and a released image on
-    # another.
+    # The admin runs the sources of the submodule, not a published image, so
+    # the build gets a name local to this stand. The service it extends names
+    # the release image (ghcr.io/educentr/onlineconf-admin:<released version>),
+    # and inheriting that name would tag a build of the submodule's current
+    # master with a release tag: any other compose on the machine asking for
+    # that tag with the default pull policy — the fork's own
+    # admin/docker-compose.yml, another project's stand — would then silently
+    # run this local build instead of the released image.
+    image: {{ .ProjectName }}-onlineconf-admin:dev
+    # The extended service declares `image:` and, through us, `build:`;
+    # without pull_policy compose decides between them by what happens to sit
+    # in the local image cache, so the same stand would run the fork's sources
+    # on one machine and a stale image on another.
     pull_policy: build
     ports:
       - "${DEV_ONLINECONF_ADMIN_PORT:-8888}:80"
