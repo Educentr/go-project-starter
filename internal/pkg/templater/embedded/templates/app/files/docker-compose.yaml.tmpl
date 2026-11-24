@@ -41,7 +41,7 @@ services:
 
 {{ if not .Application.UseEnvs }}
   onlineconf-updater-{{ .Application.Name }}:
-    image: ghcr.io/nikolo/onlineconf-updater:5ee228a # ToDo: move to config
+    image: {{ .OnlineConfUpdaterImage }}
     volumes:
       - ./data-{{ .Application.Name }}${ENV_TYPE}:/usr/local/etc/onlineconf
     environment:

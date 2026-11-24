@@ -165,6 +165,14 @@ const (
 	// channels — planning, directory creation and the copy itself.
 	errCopySpecCtx   = "Error copy spec"
 	errCopySchemaCtx = "Error copy schemas"
+
+	// onlineConfRepoURL is the OnlineConf repository the dev stand
+	// (`dev_stand: true`) checks out into etc/repo-oc. It is our fork, not
+	// upstream onlineconf/onlineconf: the stand takes the MySQL schema, the
+	// database service and the admin sources from this submodule, and the
+	// admin image the project runs elsewhere is built from the same fork
+	// (ghcr.io/educentr/onlineconf-admin).
+	onlineConfRepoURL = "https://github.com/Educentr/onlineconf"
 )
 
 var (
@@ -2228,7 +2236,7 @@ func (g *Generator) Generate() error {
 		if _, err := os.Stat(submodulePath); os.IsNotExist(err) {
 			// Add submodule
 			cmd := exec.Command("git", "submodule", "add", "--depth", "1",
-				"https://github.com/onlineconf/onlineconf", "etc/repo-oc")
+				onlineConfRepoURL, "etc/repo-oc")
 			cmd.Dir = targetPath
 
 			log.Println("run: add onlineconf submodule")
@@ -2238,8 +2246,10 @@ func (g *Generator) Generate() error {
 				return fmt.Errorf("error adding submodule: %w (output: %s)", err, out)
 			}
 
-			// Note: Using default branch (main) which contains the node:18 fix
-			// Tag v3.5.0 has a bug with FROM node (uses latest which is v25, incompatible with postcss)
+			// No -b: the clone follows the fork's default branch (master).
+			// Pinning a tag is deliberately avoided — upstream v3.5.0 builds
+			// the admin UI `FROM node` (latest, v25 by now, incompatible with
+			// postcss), while the fork's master Dockerfile pins node:20.
 		} else {
 			log.Println("skip: onlineconf submodule already exists")
 		}
