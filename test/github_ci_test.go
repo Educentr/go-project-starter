@@ -49,6 +49,24 @@ type githubJob struct {
 	If             string            `yaml:"if"`
 	Env            map[string]string `yaml:"env"`
 	Steps          []githubStep      `yaml:"steps"`
+	Strategy       githubStrategy    `yaml:"strategy"`
+}
+
+// githubStrategy is the subset of a job's `strategy:` the declared checks
+// reach: the matrix legs. Only the keys of a checks leg are decoded, so the
+// matrices of the other jobs (a JSON array of deployment environments, the
+// container list) decode as an absent `include` rather than an error.
+type githubStrategy struct {
+	Matrix struct {
+		Include []githubMatrixLeg `yaml:"include"`
+	} `yaml:"matrix"`
+}
+
+// githubMatrixLeg is one leg of the checks matrix: a declared check.
+type githubMatrixLeg struct {
+	Name          string `yaml:"name"`
+	Run           string `yaml:"run"`
+	RegistryLogin bool   `yaml:"registry_login"`
 }
 
 // githubStep is the subset of a job step the github_ci parameters affect.
@@ -58,6 +76,11 @@ type githubStep struct {
 	With map[string]any    `yaml:"with"`
 	Env  map[string]string `yaml:"env"`
 	Run  string            `yaml:"run"`
+	// If is decoded because a step that runs under a condition is a step that
+	// does not always run: the registry login of a checks leg is conditioned
+	// on the leg needing the registry, and on a pull request also on the
+	// credential being there to log in with.
+	If string `yaml:"if"`
 }
 
 // exprStubs resolves a workflow expression to the value the runner would
@@ -178,13 +201,35 @@ const envTypeStub = "prod"
 const (
 	ciCDWorkflow           = ".github/workflows/ci_cd.yml"
 	goVersionCheckWorkflow = ".github/workflows/go-version-check.yml"
+	prChecksWorkflow       = ".github/workflows/pr-checks.yml"
 )
 
-// generatedWorkflowNames lists the GitHub Actions workflows the generator
-// produces; the github_ci parameters apply to every job of both.
+// generatedWorkflowNames lists the GitHub Actions workflows every project
+// gets, and which the `on.push` assertions apply to; the github_ci parameters
+// apply to every job of both.
 var generatedWorkflowNames = []string{
 	ciCDWorkflow,
 	goVersionCheckWorkflow,
+}
+
+// generatedWorkflowsIn lists the workflows one generated project actually has:
+// the two above plus pr-checks.yml, which only a project that declares checks
+// (github_ci.checks) gets. A sweep over a project uses this instead of the
+// list, so a workflow that exists is swept whether or not the sweep was
+// written with it in mind.
+func generatedWorkflowsIn(t *testing.T, targetDir string) []string {
+	t.Helper()
+
+	names := append([]string(nil), generatedWorkflowNames...)
+
+	switch _, err := os.Stat(filepath.Join(targetDir, prChecksWorkflow)); {
+	case err == nil:
+		names = append(names, prChecksWorkflow)
+	case !os.IsNotExist(err):
+		t.Fatalf("Error looking for %s: %v", prChecksWorkflow, err)
+	}
+
+	return names
 }
 
 // injectionScanConfigs are the configs the `run:` scan generates. Together
@@ -1571,7 +1616,7 @@ func TestGenerateGithubCINoInjectableRunExpr(t *testing.T) {
 	for _, config := range injectionScanConfigs {
 		tmpDir := config.generate(t)
 
-		for _, name := range generatedWorkflowNames {
+		for _, name := range generatedWorkflowsIn(t, tmpDir) {
 			wf := parseWorkflow(t, tmpDir, name)
 
 			for _, jobName := range slices.Sorted(maps.Keys(wf.Jobs)) {

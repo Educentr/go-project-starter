@@ -19,6 +19,12 @@ LOCAL_BIN:=$(CURDIR)/bin
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
 # Дополнительные аргументы линтера (точка расширения, напр. LINT_ARGS='--build-tags=integration')
 LINT_ARGS ?=
+# Ревизия, с которой `make lint` сравнивает код: проверяются только строки,
+# добавленные относительно неё. origin/main — это main на момент запуска,
+# поэтому на pull request'е базой должен быть коммит, в который влит PR (иначе
+# после ухода main вперёд линтер краснеет на строках, которых PR не трогал).
+# Сгенерированный workflow pr-checks.yml выставляет её сам.
+LINT_BASE_REV ?= origin/main
 # Minimal Golang version
 MIN_GO_VERSION = 1.27.0
 # Go language version targeted by the project (the "go" directive of go.mod)
@@ -240,10 +246,10 @@ onlineconf-update:
 check-go-version:
 	@./scripts/check-go-mod-version.sh
 
-# Linter will check only diffs with main branch (default)
+# Linter will check only diffs with LINT_BASE_REV (origin/main by default)
 .PHONY: lint
 lint: install-lint{{ range $_, $cg := .CustomGenerators }}{{ if $cg.Lints }} lint-{{ $cg.Name }}{{ end }}{{ end }}
-	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main $(LINT_ARGS)
+	$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=$(LINT_BASE_REV) $(LINT_ARGS)
 
 # Run full code lint
 .PHONY: lint-full

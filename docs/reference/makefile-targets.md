@@ -63,7 +63,7 @@
 
 | Цель | Описание |
 |------|----------|
-| `make lint` | Проверка изменений относительно main |
+| `make lint` | Проверка изменений относительно `LINT_BASE_REV` (по умолчанию `origin/main`) |
 | `make lint-full` | Полный lint всего кода |
 | `make lint-fix` | Автоисправление lint ошибок |
 | `make install-lint` | Установка golangci-lint |
@@ -74,6 +74,19 @@
 ```bash
 make lint LINT_ARGS='--build-tags=integration'
 ```
+
+Ревизия, с которой сравнивает `make lint`, задаётся переменной `LINT_BASE_REV`
+(по умолчанию `origin/main`):
+
+```bash
+make lint LINT_BASE_REV=$(git merge-base origin/main HEAD)
+```
+
+`origin/main` — это main **на момент запуска**, поэтому для открытого pull
+request'а база неверна: стоит main уйти вперёд, и линтер краснеет на строках,
+которых PR не трогал. Сгенерированный workflow `pr-checks.yml` выставляет
+`LINT_BASE_REV` в базовый коммит PR сам — см.
+[GitHub CI](../configuration/github-ci.md#проверки-на-pull-requestе-pr-checksyml).
 
 ## Docker
 

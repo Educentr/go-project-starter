@@ -1,0 +1,30 @@
+{{/*
+The pull-request workflow: the declared checks (github_ci.checks), and nothing
+else.
+
+Only generated for a project that declares checks — see GetMainTemplates, which
+drops this file from the output set otherwise, so a project without checks gets
+no workflow with an empty matrix in it.
+
+Why a workflow of its own rather than a pull_request trigger on ci_cd.yml:
+every job of that workflow hangs off prepare-env, which resolves the build
+variables of a *branch* (ENABLED_<BRANCH>, the deployment hosts, the port
+prefixes). On a pull request GITHUB_REF is refs/pull/<N>/merge, so there is no
+such branch and no such variable; the checks job would report `skipped` while
+the run stayed green, and the build and deployment jobs would have to be shut
+off one `if:` at a time — each one silent when it is wrong. Here there is
+nothing to shut off: the file has one job, and the job is the checks.
+
+The branch filters are the ones of the push trigger (github_ci.push_branches):
+they are the project's statement of which branches its CI covers, and a pull
+request into such a branch is a push into it with a review in between.
+*/ -}}
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      {{ $.GithubCI.PushBranchesBlock }}
+
+jobs:
+{{- template "checksJob" $.ChecksOnPullRequest }}
