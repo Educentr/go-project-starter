@@ -185,6 +185,107 @@ func TestAppDocker_ParseRuntimeAdditions(t *testing.T) {
 			wantErr: ErrAppDockerNameDuplicate,
 		},
 		{
+			// A digest per platform generates one stage per architecture, so
+			// an entry named `tool-amd64` collides with the amd64 variant of
+			// an entry named `tool` even though the entry names differ.
+			// BuildKit only warns (DuplicateStageName) and the COPY --from of
+			// one of the two then takes the file of the other.
+			name: "a fetch entry named like the variant stage of another one",
+			docker: AppDocker{
+				Platforms: []string{"linux/amd64", "linux/arm64"},
+				Fetch: []AppDockerFetchEntry{
+					{
+						Name: "tool", URL: archURL, To: "/usr/local/bin/tool",
+						Checksum: map[string]any{"linux/amd64": digestA, "linux/arm64": digestB},
+					},
+					{Name: "tool-amd64", URL: "https://example.com/other", To: "/usr/local/bin/other"},
+				},
+			},
+			wantErr: ErrAppDockerNameDuplicate,
+		},
+		{
+			// The same pair in the other declaration order: the collision is
+			// a property of the generated names, not of which entry came
+			// first.
+			name: "a fetch entry whose variant stage is named like another entry",
+			docker: AppDocker{
+				Platforms: []string{"linux/amd64", "linux/arm64"},
+				Fetch: []AppDockerFetchEntry{
+					{Name: "tool-amd64", URL: "https://example.com/other", To: "/usr/local/bin/other"},
+					{
+						Name: "tool", URL: archURL, To: "/usr/local/bin/tool",
+						Checksum: map[string]any{"linux/amd64": digestA, "linux/arm64": digestB},
+					},
+				},
+			},
+			wantErr: ErrAppDockerNameDuplicate,
+		},
+		{
+			// Two entries with a digest per platform: the selector of the
+			// second one is the variant stage of the first.
+			name: "two fetch entries whose variant stages collide",
+			docker: AppDocker{
+				Platforms: []string{"linux/amd64"},
+				Fetch: []AppDockerFetchEntry{
+					{
+						Name: "tool", URL: archURL, To: "/usr/local/bin/tool",
+						Checksum: map[string]any{"linux/amd64": digestA},
+					},
+					{
+						Name: "tool-amd64", URL: archURL, To: "/usr/local/bin/other",
+						Checksum: map[string]any{"linux/amd64": digestB},
+					},
+				},
+			},
+			wantErr: ErrAppDockerNameDuplicate,
+		},
+		{
+			// The names only collide through the architecture suffix, so an
+			// entry named after an architecture is fine on its own.
+			name: "a fetch entry named after an architecture, with no variant to collide with",
+			docker: AppDocker{Fetch: []AppDockerFetchEntry{
+				{Name: "tool-amd64", URL: "https://example.com/a", To: "/usr/local/bin/a"},
+				{Name: "tool", URL: "https://example.com/b", To: "/usr/local/bin/b"},
+			}},
+			want: ds.AppDockerConfig{Fetch: []ds.AppDockerFetch{
+				{Name: "tool-amd64", URL: "https://example.com/a", To: "/usr/local/bin/a"},
+				{Name: "tool", URL: "https://example.com/b", To: "/usr/local/bin/b"},
+			}},
+		},
+		{
+			// A fetch entry and a stage with one name generate different
+			// stages (fetch-tools, stage-tools), so the pair is accepted.
+			name: "a fetch entry and a stage with the same name",
+			docker: AppDocker{
+				Fetch: []AppDockerFetchEntry{{Name: "tools", URL: "https://example.com/a", To: "/usr/local/bin/a"}},
+				Stages: []AppDockerStageEntry{{
+					Name: "tools", Image: "alpine", Run: []string{"true"},
+					Copy: []AppDockerCopyEntry{{From: "/out/b", To: "/usr/local/bin/b"}},
+				}},
+			},
+			want: ds.AppDockerConfig{
+				Fetch: []ds.AppDockerFetch{{Name: "tools", URL: "https://example.com/a", To: "/usr/local/bin/a"}},
+				Stages: []ds.AppDockerStage{{
+					Name: "tools", Image: "alpine", Run: []string{"true"},
+					Copy: []ds.AppDockerCopy{{From: "/out/b", To: "/usr/local/bin/b"}},
+				}},
+			},
+		},
+		{
+			name: "two stages with one name",
+			docker: AppDocker{Stages: []AppDockerStageEntry{
+				{
+					Name: "tools", Image: "alpine", Run: []string{"true"},
+					Copy: []AppDockerCopyEntry{{From: "/out/a", To: "/usr/local/bin/a"}},
+				},
+				{
+					Name: "tools", Image: "alpine", Run: []string{"true"},
+					Copy: []AppDockerCopyEntry{{From: "/out/b", To: "/usr/local/bin/b"}},
+				},
+			}},
+			wantErr: ErrAppDockerNameDuplicate,
+		},
+		{
 			name: "file mode that is not one",
 			docker: AppDocker{Fetch: []AppDockerFetchEntry{{
 				Name: "tool", URL: "https://example.com/tool", To: "/usr/local/bin/tool", Mode: "rwx",

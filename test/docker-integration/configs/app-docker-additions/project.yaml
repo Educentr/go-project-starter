@@ -68,10 +68,13 @@ applications:
           workdir: /opt/npm
           run:
             # The architecture is translated into npm's dictionary: --cpu is
-            # compared against Node's process.arch (x64), while TARGETARCH
-            # carries Docker's name (amd64), and npm silently installs without
-            # the native binary of the optional dependency otherwise.
-            - npm install -g --prefix /opt/npm --os=${TARGETOS} --cpu=$([ "${TARGETARCH}" = amd64 ] && echo x64 || echo "${TARGETARCH}") some-cli@3.3.3
+            # compared against Node's process.arch (x64, ia32), while
+            # TARGETARCH carries Docker's name (amd64, 386), and npm silently
+            # installs without the native binary of the optional dependency
+            # otherwise. Both names that differ are translated; an
+            # architecture outside amd64/386/arm64/arm needs npm's own
+            # dictionary checked (ppc64le is ppc64 there).
+            - npm install -g --prefix /opt/npm --os=${TARGETOS} --cpu=$(case "${TARGETARCH}" in amd64) echo x64;; 386) echo ia32;; *) echo "${TARGETARCH}";; esac) some-cli@3.3.3
           copy:
             # The whole prefix, not just bin/: npm puts relative symlinks there
             # (../lib/node_modules/...), so a copy of bin/ alone would leave

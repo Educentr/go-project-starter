@@ -165,14 +165,6 @@ FROM {{ .Application.Docker.Image }}
 # until the package list itself changes.
 {{ . }}
 {{ end }}
-COPY --from=builder /service /service
-COPY --from=builder /public /public
-{{- range $dir := .Application.StaticDirs }}
-COPY --from=builder /{{ $dir }} /{{ $dir }}
-{{- end }}
-# Copying the directory from a stage keeps the ownership and mode it has there
-# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
-COPY --from=builder /etc/onlineconf /etc/onlineconf
 {{- range $_, $c := .Application.Docker.Copy }}
 # Project directory, declared in the `copy` list of the docker section of the
 # application in project.yaml. Copied straight from the build context and not
@@ -180,6 +172,10 @@ COPY --from=builder /etc/onlineconf /etc/onlineconf
 # architecture, so this keeps the stage buildable on a shell-less base image
 # and free of emulation, and nothing of the project lands in the builder where
 # it could overwrite its toolchain.
+#
+# The project-declared additions come before the service binary, as the package
+# install does: the binary changes on every build, and below it their layers —
+# including a copied tool prefix — would be rebuilt along with it.
 COPY {{ $c.From }} {{ $c.To }}
 {{- end }}
 {{- range $_, $f := .Application.Docker.Fetch }}
@@ -190,6 +186,14 @@ COPY --from={{ $f.StageName }} {{ $f.Path }} {{ $f.To }}
 COPY --from={{ $s.StageName }} {{ $c.From }} {{ $c.To }}
 {{- end }}
 {{- end }}
+COPY --from=builder /service /service
+COPY --from=builder /public /public
+{{- range $dir := .Application.StaticDirs }}
+COPY --from=builder /{{ $dir }} /{{ $dir }}
+{{- end }}
+# Copying the directory from a stage keeps the ownership and mode it has there
+# (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
+COPY --from=builder /etc/onlineconf /etc/onlineconf
 {{- with .Application.Docker.EnvDirective }}
 
 # Runtime environment, declared in the `env` list of the docker section of the

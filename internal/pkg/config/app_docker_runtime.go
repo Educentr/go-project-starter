@@ -27,6 +27,12 @@ import (
 // destSet tracks the destinations claimed in the image so far.
 type destSet map[string]struct{}
 
+// stageNameSet tracks the Dockerfile stage names the additions generate so
+// far. The keys are the generated names (`fetch-tool`, `fetch-tool-amd64`,
+// `stage-npmtools`), not the names of the config entries: one entry generates
+// more than one stage, and it is the generated names that have to be unique.
+type stageNameSet map[string]struct{}
+
 const (
 	// appDockerAbsPathPattern is the shape of a path safe to emit as an
 	// operand of a generated ADD, COPY or WORKDIR instruction: absolute, and
@@ -67,10 +73,14 @@ var (
 	ErrAppDockerEnvValue     = errors.New(`applications[].docker.env: value must be a single-line string without '"' and '\'`)
 	ErrAppDockerEnvDuplicate = errors.New("applications[].docker.env: duplicate name")
 	ErrAppDockerName         = errors.New("applications[].docker: name must match ^[a-z0-9_-]+$")
-	// ErrAppDockerNameDuplicate reports a fetch or stage name used twice: the
-	// names become Dockerfile stage names, so a repeat would redefine a stage.
-	ErrAppDockerNameDuplicate = errors.New("applications[].docker: duplicate name")
-	ErrAppDockerFetchURL      = errors.New(
+	// ErrAppDockerNameDuplicate reports two entries generating the same
+	// Dockerfile stage. The second FROM redefines the first, and the
+	// COPY --from of one of the two entries then takes the file of the other.
+	ErrAppDockerNameDuplicate = errors.New(
+		"applications[].docker: two entries generate the same Dockerfile stage, " +
+			"a digest per platform generates one stage per architecture (fetch-<name>-<arch>)",
+	)
+	ErrAppDockerFetchURL = errors.New(
 		"applications[].docker.fetch: url must be an https URL without whitespace, quotes or '#'",
 	)
 	ErrAppDockerFetchURLVar = errors.New(
@@ -164,12 +174,14 @@ var appDockerURLVars = map[string]struct{}{ //nolint:gochecknoglobals // fixed l
 //
 // One destSet is shared by all four keys, so that two entries writing the same
 // path fail here rather than silently losing one of the two copies in the built
-// image.
+// image. One stageNameSet is shared by `fetch` and `stages` for the same
+// reason, one level up: two entries generating the same stage.
 func (d AppDocker) parseRuntimeAdditions(platforms []string) (ds.AppDockerConfig, error) {
 	var (
-		out  ds.AppDockerConfig
-		err  error
-		seen = destSet{}
+		out    ds.AppDockerConfig
+		err    error
+		seen   = destSet{}
+		stages = stageNameSet{}
 	)
 
 	if out.Copy, err = d.parseCopy(seen); err != nil {
@@ -180,11 +192,11 @@ func (d AppDocker) parseRuntimeAdditions(platforms []string) (ds.AppDockerConfig
 		return ds.AppDockerConfig{}, err
 	}
 
-	if out.Fetch, err = d.parseFetch(platforms, seen); err != nil {
+	if out.Fetch, err = d.parseFetch(platforms, seen, stages); err != nil {
 		return ds.AppDockerConfig{}, err
 	}
 
-	if out.Stages, err = d.parseStages(seen); err != nil {
+	if out.Stages, err = d.parseStages(seen, stages); err != nil {
 		return ds.AppDockerConfig{}, err
 	}
 
@@ -277,13 +289,12 @@ func (d AppDocker) parseEnv() ([]ds.AppDockerEnv, error) {
 }
 
 // parseFetch validates the files the image takes from a URL.
-func (d AppDocker) parseFetch(platforms []string, seen destSet) ([]ds.AppDockerFetch, error) {
+func (d AppDocker) parseFetch(platforms []string, seen destSet, stages stageNameSet) ([]ds.AppDockerFetch, error) {
 	if len(d.Fetch) == 0 {
 		return nil, nil
 	}
 
 	out := make([]ds.AppDockerFetch, 0, len(d.Fetch))
-	names := make(map[string]struct{}, len(d.Fetch))
 
 	for _, entry := range d.Fetch {
 		fetch, err := entry.parse(platforms)
@@ -291,7 +302,7 @@ func (d AppDocker) parseFetch(platforms []string, seen destSet) ([]ds.AppDockerF
 			return nil, err
 		}
 
-		if err = claimStageName(names, fetch.Name); err != nil {
+		if err = stages.claimFetch(fetch); err != nil {
 			return nil, err
 		}
 
@@ -495,13 +506,12 @@ func platformList(platforms []string) string {
 }
 
 // parseStages validates the auxiliary build stages of the image.
-func (d AppDocker) parseStages(seen destSet) ([]ds.AppDockerStage, error) {
+func (d AppDocker) parseStages(seen destSet, stages stageNameSet) ([]ds.AppDockerStage, error) {
 	if len(d.Stages) == 0 {
 		return nil, nil
 	}
 
 	out := make([]ds.AppDockerStage, 0, len(d.Stages))
-	names := make(map[string]struct{}, len(d.Stages))
 
 	for _, entry := range d.Stages {
 		stage, err := entry.parse(seen)
@@ -509,7 +519,7 @@ func (d AppDocker) parseStages(seen destSet) ([]ds.AppDockerStage, error) {
 			return nil, err
 		}
 
-		if err = claimStageName(names, stage.Name); err != nil {
+		if err = stages.claim(stage.StageName()); err != nil {
 			return nil, err
 		}
 
@@ -595,14 +605,37 @@ func (e AppDockerStageEntry) parseCopy(seen destSet) ([]ds.AppDockerCopy, error)
 	return out, nil
 }
 
-// claimStageName records a fetch or stage name, rejecting a repeat: the names
-// become Dockerfile stage names, so the second one would redefine the first.
-func claimStageName(seen map[string]struct{}, name string) error {
-	if _, dup := seen[name]; dup {
+// claim records one generated stage name, rejecting a repeat. The names become
+// Dockerfile stage names, so the second FROM would redefine the first, and
+// BuildKit only warns about that (DuplicateStageName) while the COPY --from of
+// one entry silently takes the file of the other.
+func (s stageNameSet) claim(name string) error {
+	if _, dup := s[name]; dup {
 		return fmt.Errorf(errFmtGotValue, ErrAppDockerNameDuplicate, name)
 	}
 
-	seen[name] = struct{}{}
+	s[name] = struct{}{}
+
+	return nil
+}
+
+// claimFetch records every stage name one fetch entry generates: the stage the
+// runtime COPY names, plus one per architecture when the digest depends on it.
+//
+// The variants are claimed too, because the generated names of two entries can
+// collide even though the entry names differ: an entry named `tool-amd64`
+// generates the same `fetch-tool-amd64` as the amd64 variant of an entry named
+// `tool`. Checking entry names only would let that pair through.
+func (s stageNameSet) claimFetch(f ds.AppDockerFetch) error {
+	if err := s.claim(f.StageName()); err != nil {
+		return err
+	}
+
+	for _, variant := range f.Variants {
+		if err := s.claim(f.VariantStageName(variant.Arch)); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

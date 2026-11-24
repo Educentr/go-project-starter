@@ -57,7 +57,8 @@ func TestGenerateAppDockerAdditions(t *testing.T) {
 		"\nFROM --platform=$BUILDPLATFORM node:22-alpine AS stage-npmtools\n",
 		"\nARG TARGETARCH\nARG TARGETOS\nWORKDIR /opt/npm\n",
 		"\nRUN npm install -g --prefix /opt/npm --os=${TARGETOS} " +
-			"--cpu=$([ \"${TARGETARCH}\" = amd64 ] && echo x64 || echo \"${TARGETARCH}\") some-cli@3.3.3\n",
+			"--cpu=$(case \"${TARGETARCH}\" in amd64) echo x64;; 386) echo ia32;; *) echo \"${TARGETARCH}\";; esac) " +
+			"some-cli@3.3.3\n",
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Errorf("Dockerfile-api does not contain %q:\n%s", want, dockerfile)
@@ -88,6 +89,24 @@ func TestGenerateAppDockerAdditions(t *testing.T) {
 	// One ENV instruction, so one layer.
 	if got := strings.Count(final, "\nENV "); got != 1 {
 		t.Errorf("runtime stage has %d ENV instructions, want exactly 1:\n%s", got, final)
+	}
+
+	// The additions are copied before the service binary, as the package
+	// install is: the binary changes on every build, so below it their layers
+	// — including the copied tool prefix — would be rebuilt with it.
+	binaryAt := strings.Index(final, "\nCOPY --from=builder /service /service\n")
+	if binaryAt < 0 {
+		t.Fatalf("runtime stage does not copy the service binary:\n%s", final)
+	}
+
+	for _, addition := range []string{
+		"\nCOPY template /opt/api/template\n",
+		"\nCOPY --from=fetch-tool /fetched/tool /usr/local/bin/tool\n",
+		"\nCOPY --from=stage-npmtools /opt/npm /usr/local\n",
+	} {
+		if at := strings.Index(final, addition); at > binaryAt {
+			t.Errorf("%q is copied after the service binary, every build would rebuild its layer", addition)
+		}
 	}
 
 	assertFetchStageHasNoRun(t, dockerfile)
@@ -173,8 +192,10 @@ func assertSingleDigestFetch(t *testing.T, tmpDir string) {
 		t.Errorf("runtime stage of an application with a fetch entry contains a RUN:\n%s", final)
 	}
 
-	if !strings.Contains(final, "\nCOPY --from=fetch-helper /fetched/helper /usr/local/bin/helper\n") {
-		t.Errorf("runtime stage does not copy the fetched file:\n%s", final)
+	// The fetched file is copied before the binary, so with no package install
+	// in this stage its COPY is the first instruction of it.
+	if !strings.HasPrefix(final, "COPY --from=fetch-helper /fetched/helper /usr/local/bin/helper\n") {
+		t.Errorf("runtime stage does not copy the fetched file first:\n%s", final)
 	}
 }
 
