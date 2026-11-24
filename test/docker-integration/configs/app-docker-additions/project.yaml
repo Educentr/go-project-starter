@@ -67,10 +67,17 @@ applications:
           image: node:22-alpine
           workdir: /opt/npm
           run:
-            - npm install -g --prefix /opt/npm --cpu=${TARGETARCH} --os=${TARGETOS} some-cli@3.3.3
+            # The architecture is translated into npm's dictionary: --cpu is
+            # compared against Node's process.arch (x64), while TARGETARCH
+            # carries Docker's name (amd64), and npm silently installs without
+            # the native binary of the optional dependency otherwise.
+            - npm install -g --prefix /opt/npm --os=${TARGETOS} --cpu=$([ "${TARGETARCH}" = amd64 ] && echo x64 || echo "${TARGETARCH}") some-cli@3.3.3
           copy:
-            - from: /opt/npm/bin
-              to: /usr/local/bin/npmtools
+            # The whole prefix, not just bin/: npm puts relative symlinks there
+            # (../lib/node_modules/...), so a copy of bin/ alone would leave
+            # them dangling in the image.
+            - from: /opt/npm
+              to: /usr/local
   # One digest for a URL that does not depend on the platform, and a mode.
   - name: fixed
     transport:

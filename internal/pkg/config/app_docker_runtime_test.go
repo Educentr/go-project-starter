@@ -85,12 +85,12 @@ func TestAppDocker_ParseRuntimeAdditions(t *testing.T) {
 			docker: AppDocker{Stages: []AppDockerStageEntry{{
 				Name: "npmtools", Image: "node:22-alpine", Workdir: "/opt/npm",
 				Run:  []string{"npm install -g --prefix /opt/npm cli@1.0.0"},
-				Copy: []AppDockerCopyEntry{{From: "/opt/npm/bin", To: "/usr/local/bin/npmtools"}},
+				Copy: []AppDockerCopyEntry{{From: "/opt/npm", To: "/usr/local"}},
 			}}},
 			want: ds.AppDockerConfig{Stages: []ds.AppDockerStage{{
 				Name: "npmtools", Image: "node:22-alpine", Workdir: "/opt/npm",
 				Run:  []string{"npm install -g --prefix /opt/npm cli@1.0.0"},
-				Copy: []ds.AppDockerCopy{{From: "/opt/npm/bin", To: "/usr/local/bin/npmtools"}},
+				Copy: []ds.AppDockerCopy{{From: "/opt/npm", To: "/usr/local"}},
 			}}},
 		},
 		{

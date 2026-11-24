@@ -404,15 +404,17 @@ applications:
             linux/arm64: sha256:2222…
 
       # Инструмент, которого нет ни в одном пакетном менеджере: ставится в
-      # своей стадии, в runtime попадает копированием.
+      # своей стадии, в runtime попадает копированием. Архитектура цели
+      # переводится в словарь npm (`amd64` → `x64`), а префикс копируется
+      # целиком — в его `bin/` лежат относительные симлинки.
       stages:
         - name: npmtools
           image: node:22-alpine
           run:
-            - npm install -g --prefix /opt/npm --cpu=${TARGETARCH} --os=${TARGETOS} some-cli@3.3.3
+            - npm install -g --prefix /opt/npm --os=${TARGETOS} --cpu=$([ "${TARGETARCH}" = amd64 ] && echo x64 || echo "${TARGETARCH}") some-cli@3.3.3
           copy:
-            - from: /opt/npm/bin
-              to: /usr/local/bin/npmtools
+            - from: /opt/npm
+              to: /usr/local
 ```
 
 Все четыре опциональны. Приложение без них получает побайтно прежний
@@ -564,7 +566,7 @@ frontend 1.6, то есть во встроенном frontend Docker Engine 25.
 FROM --platform=$BUILDPLATFORM node:22-alpine AS stage-npmtools
 ARG TARGETARCH
 ARG TARGETOS
-RUN npm install -g --prefix /opt/npm --cpu=${TARGETARCH} --os=${TARGETOS} some-cli@3.3.3
+RUN npm install -g --prefix /opt/npm --os=${TARGETOS} --cpu=$([ "${TARGETARCH}" = amd64 ] && echo x64 || echo "${TARGETARCH}") some-cli@3.3.3
 ```
 
 **Стадия закреплена за платформой сборщика** (`--platform=$BUILDPLATFORM`).
@@ -575,14 +577,49 @@ builder-стадия. Ключа «собирать на целевой плат
 Из этого следует главное ограничение: всё архитектурно-зависимое внутри стадии
 обязано **назвать цель явно**. `TARGETARCH` и `TARGETOS` объявлены в стадии
 `ARG`-ами ровно для этого. Нативный бинарь, приезжающий через npm как optional
-dependency (как у `esbuild`), иначе скачается под архитектуру сборщика —
-`npm install --cpu=${TARGETARCH} --os=${TARGETOS}`.
+dependency (как у `esbuild`), иначе скачается под архитектуру сборщика.
+
+**Словарь архитектур у Docker и у инструмента, скорее всего, разный, и значение
+придётся переводить.** `--cpu` npm сверяет со значениями `process.arch` Node, а
+`TARGETARCH` несёт имя Docker: 64-битный x86 — это `x64` против `amd64`,
+32-битный — `ia32` против `386` (`arm64` и `arm` совпали). Переданный npm как
+есть, `--cpu=amd64` не подходит ни под один пакет `@scope/linux-*`, и npm
+**молча** ставит инструмент без нативного бинаря — то есть ровно то, от чего
+называние цели должно было защитить:
+
+```console
+$ docker run --rm node:22-alpine sh -c 'for c in amd64 x64; do rm -rf /opt/n; \
+    npm install -g --prefix /opt/n --os=linux --cpu=$c esbuild@0.24.0 >/dev/null 2>&1; \
+    echo "cpu=$c: $(find /opt/n -type d -name "linux-*")"; done'
+cpu=amd64:
+cpu=x64: /opt/n/lib/node_modules/esbuild/node_modules/@esbuild/linux-x64
+```
+
+Поэтому перевод стоит в самой команде (она обязана остаться однострочной):
+
+```yaml
+run:
+  - npm install -g --prefix /opt/npm --os=${TARGETOS} --cpu=$([ "${TARGETARCH}" = amd64 ] && echo x64 || echo "${TARGETARCH}") some-cli@3.3.3
+```
+
+`--os` переводить не нужно: платформа объявляется только как `linux/<арх>`
+(см. [`platforms`](#platforms)), а `linux` в обоих словарях один и тот же.
 
 **Стадия не получает контекст сборки.** Версия инструмента закрепляется в самой
 команде (`cli@3.3.3`), как в секции [`generator`](custom-generators.md):
 копирование контекста инвалидировало бы стадию инструментов на каждое изменение
 исходников. `npm ci` по проектному lockfile из стадии поэтому не делается —
 это установка по пину в команде.
+
+**Префикс npm копируется целиком, а не одним `bin/`.** `npm install -g --prefix
+/opt/npm` кладёт в `/opt/npm/bin` **относительные** симлинки
+(`prettier -> ../lib/node_modules/prettier/bin/prettier.cjs`). Скопированный
+один, `bin/` даёт в образе висящие ссылки, и инструмент не запускается
+(`not found`, exit 127). Два рабочих варианта: весь префикс в системный
+(`from: /opt/npm`, `to: /usr/local` — ссылки разрешаются в
+`/usr/local/lib/node_modules/…`, а `/usr/local/bin` уже в `PATH`, это форма
+примера выше) или префикс как есть (`to: /opt/npm`) плюс `env` с
+`PATH=/opt/npm/bin:$PATH`.
 
 **CLI из npm требует рантайма в образе.** Инструмент на JS не запустится от
 того, что его файлы скопированы: в финальной стадии нужен `node` — из

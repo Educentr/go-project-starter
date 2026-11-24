@@ -56,7 +56,8 @@ func TestGenerateAppDockerAdditions(t *testing.T) {
 	for _, want := range []string{
 		"\nFROM --platform=$BUILDPLATFORM node:22-alpine AS stage-npmtools\n",
 		"\nARG TARGETARCH\nARG TARGETOS\nWORKDIR /opt/npm\n",
-		"\nRUN npm install -g --prefix /opt/npm --cpu=${TARGETARCH} --os=${TARGETOS} some-cli@3.3.3\n",
+		"\nRUN npm install -g --prefix /opt/npm --os=${TARGETOS} " +
+			"--cpu=$([ \"${TARGETARCH}\" = amd64 ] && echo x64 || echo \"${TARGETARCH}\") some-cli@3.3.3\n",
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Errorf("Dockerfile-api does not contain %q:\n%s", want, dockerfile)
@@ -76,7 +77,7 @@ func TestGenerateAppDockerAdditions(t *testing.T) {
 	for _, want := range []string{
 		"\nCOPY template /opt/api/template\n",
 		"\nCOPY --from=fetch-tool /fetched/tool /usr/local/bin/tool\n",
-		"\nCOPY --from=stage-npmtools /opt/npm/bin /usr/local/bin/npmtools\n",
+		"\nCOPY --from=stage-npmtools /opt/npm /usr/local\n",
 		"\nENV API_TEMPLATE_DIR=\"/opt/api/template\" \\\n    API_TOOL=\"/usr/local/bin/tool\"\n",
 	} {
 		if !strings.Contains(final, want) {
