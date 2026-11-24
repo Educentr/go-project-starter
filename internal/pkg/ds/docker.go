@@ -77,6 +77,19 @@ type AppDockerConfig struct {
 	// order. Empty means the platform is not expressed at all: the image is
 	// built for the platform of the builder, as before the section existed.
 	Platforms []string
+	// Copy are the project directories carried into the image, in config
+	// order. They are copied straight from the build context: COPY needs
+	// neither a shell nor the target architecture, so nothing about them
+	// reaches the builder stage.
+	Copy []AppDockerCopy
+	// Env are the environment variables of the runtime stage, in config order.
+	Env []AppDockerEnv
+	// Fetch are the files the image takes from a URL, in config order. Each
+	// one becomes a stage of its own plus a COPY into the runtime stage.
+	Fetch []AppDockerFetch
+	// Stages are the auxiliary build stages of the image, in config order —
+	// where a tool no package manager provides is installed.
+	Stages []AppDockerStage
 }
 
 // Docker build stages a build argument can be declared in. A build argument is

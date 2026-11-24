@@ -809,6 +809,12 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			return errors.Wrapf(cfg.ErrAppDockerNoImage, "application %q", app.Name)
 		}
 
+		// The same for the additions to the image: they shape its Dockerfile
+		// and nothing else, so without the artifact they are a silent no-op.
+		if appDocker.HasRuntimeAdditions() && !application.HasDocker() {
+			return errors.Wrapf(cfg.ErrAppDockerNoImageAddition, "application %q", app.Name)
+		}
+
 		// Resolve Grafana datasources for this app
 		for _, dsName := range app.Grafana.Datasources {
 			for _, globalDs := range g.Grafana.Datasources {

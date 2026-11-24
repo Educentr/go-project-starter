@@ -1,0 +1,88 @@
+main:
+  name: appdockeradd
+  logger: zerolog
+  registry_type: github
+
+# Nothing below the generated recipes is inspected by the test, so the
+# post-generate chain is not needed.
+post_generate: []
+
+git:
+  repo: git@github.com:test/appdockeradd.git
+  module_path: github.com/test/appdockeradd
+
+tools:
+  golang_version: "1.24"
+  ogen_version: v1.18.0
+  golangci_version: 2.1.6
+
+rest:
+  - name: api
+    path:
+      - ./api.swagger.yml
+    api_prefix: /
+    version: "v1"
+    port: 8080
+    public_service: true
+    generator_type: ogen
+    generator_params:
+      auth_handler: "off"
+  - name: sys
+    port: 8085
+    version: "v1"
+    generator_type: template
+    generator_template: sys
+
+applications:
+  # The consumer case of Educentr/go-project-starter#14 in full: a project
+  # directory with an ENV pointing at it, a release binary fetched by URL with
+  # the architecture in its name and a digest per platform, and a CLI from npm
+  # installed in a stage of its own.
+  - name: api
+    transport:
+      - name: api
+      - name: sys
+    docker:
+      base_image: ubuntu:24.04
+      packages:
+        - nodejs
+      platforms: [linux/amd64, linux/arm64]
+      copy:
+        - from: template
+          to: /opt/api/template
+      env:
+        - name: API_TEMPLATE_DIR
+          value: /opt/api/template
+        - name: API_TOOL
+          value: /usr/local/bin/tool
+      fetch:
+        - name: tool
+          url: https://github.com/org/tool/releases/download/v1.2.3/tool-linux-${TARGETARCH}
+          to: /usr/local/bin/tool
+          checksum:
+            linux/amd64: sha256:1111111111111111111111111111111111111111111111111111111111111111
+            linux/arm64: sha256:2222222222222222222222222222222222222222222222222222222222222222
+      stages:
+        - name: npmtools
+          image: node:22-alpine
+          workdir: /opt/npm
+          run:
+            - npm install -g --prefix /opt/npm --cpu=${TARGETARCH} --os=${TARGETOS} some-cli@3.3.3
+          copy:
+            - from: /opt/npm/bin
+              to: /usr/local/bin/npmtools
+  # One digest for a URL that does not depend on the platform, and a mode.
+  - name: fixed
+    transport:
+      - name: sys
+    docker:
+      fetch:
+        - name: helper
+          url: https://example.com/helper
+          to: /usr/local/bin/helper
+          mode: "0700"
+          checksum: sha256:3333333333333333333333333333333333333333333333333333333333333333
+  # No new keys: the historical Dockerfile.
+  - name: plain
+    transport:
+      - name: sys
