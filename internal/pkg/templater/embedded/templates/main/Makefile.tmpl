@@ -722,10 +722,33 @@ ensure-protoc-plugins:
 {{- end }}
 {{- end }}
 
-# Install local git hooks
+# Install local git hooks.
+#
+# Куда ставить, отвечает сам git (`git rev-parse --git-path hooks`), а не
+# собранный руками ./.git/hooks: в git worktree `.git` — это файл со ссылкой
+# на настоящий каталог, поэтому `cp` падал, и вместе с ним обрывался
+# `make regenerate` (post_generate: tools_install -> install-tools ->
+# install-hooks) — до call_generate дело не доходило, ogen и argen не
+# запускались, и сгенерированный код молча оставался старым. Тот же вопрос
+# учитывает core.hooksPath, так что хук оказывается там, где его ищет git.
+#
+# Вне git-репозитория ставить хуки некуда и незачем: цель сообщает об этом и
+# выходит успешно, чтобы не ронять `make regenerate` (создавать `.git/hooks`
+# самим нельзя — каталог `.git` без репозитория ломает git в этом дереве).
+#
+# chmod на копии: неисполняемый хук git не запускает и об этом не сообщает, а
+# у источника бит выставлен не всегда (`post_generate: executable_scripts`
+# каталог githooks не трогает) — то есть цель проходила бы успешно, оставляя
+# хук, которого нет.
 .PHONY: install-hooks
 install-hooks:
-	cp ./scripts/githooks/pre-commit ./.git/hooks/
+	@hooks_dir=$$(git rev-parse --git-path hooks 2>/dev/null) || { \
+		echo "not a git repository: skipping git hooks"; \
+		exit 0; \
+	}; \
+	mkdir -p "$$hooks_dir" && \
+		cp ./scripts/githooks/pre-commit "$$hooks_dir/" && \
+		chmod +x "$$hooks_dir/pre-commit"
 
 # Run every //go:generate directive of the project, including hand-written ones.
 # Kept for backward compatibility; the code-generation gate uses the targeted
