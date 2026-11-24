@@ -752,6 +752,13 @@ jobs:
     {{ $.GithubCI.JobHeader }}
     needs:
       - build-packages
+{{- /* prepare-env стоит в needs потому, что его читает условие ниже: контекст
+       needs содержит только перечисленные здесь job'ы, поэтому без этой
+       строки needs.prepare-env — null, условие ложно, и job не выполняется
+       никогда (TOOLS-130). Run при этом зелёный: пакеты собраны и не
+       загружены, а в проекте с docker-артефактом вместе с этим job'ом
+       пропускается и deploy — он ждёт upload-packages без always(). */}}
+      - prepare-env
     if: needs.prepare-env.outputs.ENABLE_BUILD == 'true'
     steps:
       - name: Download packages
