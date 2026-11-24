@@ -23,8 +23,6 @@ import (
 
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
 	"github.com/Educentr/go-onlineconf/pkg/onlineconf_dev"
-
-	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
 )
 
 // Context returns a context carrying a configuration tree built from values —
@@ -43,6 +41,10 @@ import (
 // the context descends from tb.Context(). That is deliberate: a fixture that
 // did not take tb would have to build a context root of its own, which is the
 // very thing being removed.
+//
+// The environment does not reach the tree: ONLINECONFIG_FROM_ENV and the OC_*
+// variables, which is how the dev stand feeds a tree, do not change what this
+// answers. Only values does.
 func Context(tb testing.TB, values map[string]string) context.Context {
 	tb.Helper()
 
@@ -58,10 +60,16 @@ func Context(tb testing.TB, values map[string]string) context.Context {
 	// would answer from a map and prove nothing about the accessors.
 	onlineconf_dev.GenerateCDB(dir, onlineconf.DefaultModule, tree)
 
-	ctx, err := {{ .OnlineConf.GetPackageName }}.Initialize(tb.Context(), dir)
-	if err != nil {
-		tb.Fatalf("initialize onlineconf for the test: %v", err)
-	}
-
-	return ctx
+	// The instance is built here instead of through {{ .OnlineConf.GetPackageName }}.Initialize, which the
+	// service's main calls: Initialize rewrites TREE.cdb in its config
+	// directory from the OC_* variables whenever ONLINECONFIG_FROM_ENV is set,
+	// and the generated .env-<app>.example sets it on its first line. A test
+	// run by a developer whose shell has that file loaded would then read the
+	// environment's values — or, with no OC_* set, an empty tree — instead of
+	// the ones it declared, with no error and no log line. That is the silent
+	// degradation this fixture exists to make impossible, so it must not
+	// depend on the environment at all. Create plus ToContext is Initialize
+	// without that step; the library is called directly because this package
+	// is under the path make onlineconf-validate exempts.
+	return onlineconf.ToContext(tb.Context(), onlineconf.Create(onlineconf.WithConfigDir(dir)))
 }

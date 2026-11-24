@@ -219,13 +219,27 @@ func TestGeneratedOnlineConfTestFixture(t *testing.T) {
 		// builds one: a fake instance answering from a map would prove nothing
 		// about the accessors.
 		"onlineconf_dev.GenerateCDB(dir, onlineconf.DefaultModule, tree)",
-		"occonf.Initialize(tb.Context(), dir)",
+		// The instance is built here rather than through occonf.Initialize:
+		// see the check below for why.
+		"onlineconf.ToContext(tb.Context(), onlineconf.Create(onlineconf.WithConfigDir(dir)))",
 		// tb.TempDir, so the tree is gone when the test is.
 		"dir := tb.TempDir()",
 	} {
 		if !strings.Contains(fixture, want) {
 			t.Errorf("generated OnlineConf test fixture should contain %q", want)
 		}
+	}
+
+	// The fixture must not go through the service's Initialize: that one
+	// rewrites TREE.cdb from the OC_* variables whenever ONLINECONFIG_FROM_ENV
+	// is set — and the generated .env-<app>.example sets it — so a developer
+	// with that file loaded into the shell would get the environment's values,
+	// or an empty tree, instead of the ones the test declared. Silently, which
+	// is the class of defect this fixture is here to remove.
+	if strings.Contains(stripComments(t, fixture), "Initialize(") {
+		t.Error("the fixture must build the instance itself, not through Initialize: " +
+			"Initialize reads ONLINECONFIG_FROM_ENV and would let the environment " +
+			"replace the values the test declared")
 	}
 
 	if _, err := parser.ParseFile(token.NewFileSet(), "psg_occonftest_gen.go", fixture,

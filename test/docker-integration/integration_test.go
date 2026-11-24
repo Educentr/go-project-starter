@@ -704,6 +704,7 @@ func writeDerivedContextProbe(ctx context.Context, t *testing.T, container *Gola
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -774,6 +775,42 @@ func TestFixtureLeavesUndeclaredKeysAbsent(t *testing.T) {
 	if _, err := occonf.SupervisorMaxAgents(ctx); !errors.Is(err, occonf.ErrKeyNotSet) {
 		t.Errorf("an absent required key reported %v, want ErrKeyNotSet", err)
 	}
+}
+
+// The environment does not reach the fixture's tree. ONLINECONFIG_FROM_ENV
+// with OC_* variables is how the dev stand feeds a tree, and the generated
+// .env-<app>.example sets it on its first line — so a developer whose shell has
+// that file loaded has it set. The service's Initialize rewrites TREE.cdb from
+// those variables, so a fixture going through it would answer with the
+// environment's values instead of the test's, with no error and no log line.
+func TestFixtureIgnoresTheEnvironment(t *testing.T) {
+	t.Setenv("ONLINECONFIG_FROM_ENV", "true")
+	t.Setenv(envVarForPath(occonf.PathSupervisorMinLifetime), "1s")
+	t.Setenv(envVarForPath(occonf.PathQueueName), "from-env")
+
+	ctx := treeContext(t)
+
+	lifetime, err := occonf.SupervisorMinLifetime(ctx)
+	if err != nil {
+		t.Fatalf("read a duration from the fixture's tree: %v", err)
+	}
+
+	if lifetime != 11*time.Minute {
+		t.Errorf("the fixture read %v, want the test's 11m: the environment replaced the tree", lifetime)
+	}
+
+	name, ok, err := occonf.QueueName(ctx)
+	if err != nil || !ok || name != "probe-queue" {
+		t.Errorf("the fixture read queue %q (present=%v, err=%v), want the test's \"probe-queue\"", name, ok, err)
+	}
+}
+
+// envVarForPath spells a tree path the way ONLINECONFIG_FROM_ENV reads it: OC_
+// followed by the path's segments joined with a double underscore. Derived from
+// the path constant rather than written out, so the variable cannot drift away
+// from the key it is meant to collide with.
+func envVarForPath(path string) string {
+	return "OC_" + strings.ReplaceAll(strings.Trim(path, "/"), "/", "__")
 }
 
 // The reason the helper exists: work that must outlive its parent still reads
