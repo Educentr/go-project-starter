@@ -1,0 +1,67 @@
+// Package occonftest builds the context a test needs: one carrying a real
+// OnlineConf tree, with the values the test declares in it.
+//
+// It exists because a context without a tree is not a state the service's code
+// is written for. {{ .OnlineConf.GetPackageName }}.Initialize runs once at process start and the
+// process exits when it fails, so every context the service ever sees carries
+// the tree — which is why an accessor reads without asking first.
+//
+// A test on a bare context is outside that chain, and a read there does not
+// answer with a default: it dereferences the instance that is not in the
+// context. The answer is to put a tree in the context, not to teach every
+// reader to live without one.
+//
+// A separate package, so that `testing` stays out of the service binary's
+// import graph. Inside the accessor package's directory, because building a
+// tree means calling the OnlineConf library, which `make onlineconf-validate`
+// allows nowhere else.
+package occonftest
+
+import (
+	"context"
+	"testing"
+
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf"
+	"github.com/Educentr/go-onlineconf/pkg/onlineconf_dev"
+
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
+)
+
+// Context returns a context carrying a configuration tree built from values —
+// a map of full OnlineConf path to the value stored at it. Pass the path
+// constants and path builders of the {{ .OnlineConf.GetPackageName }} package rather than hand-written
+// strings: that is the point of the key map.
+//
+// Values are strings because that is what a tree holds; the typed accessors
+// parse them, so declaring "11m" for a duration key and "7" for an int key is
+// what the running service would read. A path the map does not mention is
+// simply absent, and an absent key is a case worth testing too: the accessor of
+// a key with a declared default answers with it, and the accessor of an
+// optional key reports the absence.
+//
+// The tree is written into tb.TempDir(), so it is gone when the test is, and
+// the context descends from tb.Context(). That is deliberate: a fixture that
+// did not take tb would have to build a context root of its own, which is the
+// very thing being removed.
+func Context(tb testing.TB, values map[string]string) context.Context {
+	tb.Helper()
+
+	dir := tb.TempDir()
+
+	tree := make(map[string]any, len(values))
+	for path, value := range values {
+		tree[path] = value
+	}
+
+	// The same call the dev stand makes from ONLINECONFIG_FROM_ENV: a real CDB
+	// on disk, read through the same code path as production. A fake instance
+	// would answer from a map and prove nothing about the accessors.
+	onlineconf_dev.GenerateCDB(dir, onlineconf.DefaultModule, tree)
+
+	ctx, err := {{ .OnlineConf.GetPackageName }}.Initialize(tb.Context(), dir)
+	if err != nil {
+		tb.Fatalf("initialize onlineconf for the test: %v", err)
+	}
+
+	return ctx
+}

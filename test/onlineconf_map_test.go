@@ -160,14 +160,13 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 		"func CheckRequired(ctx context.Context, app string) error",
 		"func Initialize(ctx context.Context, configDir string) (context.Context, error)",
 		"func StartWatcher(ctx context.Context) error",
-		// TOOLS-96 / issue #124 item 5. Same reason as Subscribe: hand-written
-		// code that can run on a context built outside the service wiring — a
-		// unit test on context.Background(), a helper shared with a tool — had
-		// no way to ask whether the tree is there, or to put one there, because
-		// the validator forbids reaching for the library itself. Clone comes
-		// with Release because a clone holds its version of the tree mapped
-		// until it is returned.
-		"func Initialized(ctx context.Context) bool",
+		// TOOLS-96 / issue #124 item 5, as narrowed by TOOLS-132. Same reason
+		// as Subscribe: hand-written code that can run on a context built
+		// outside the service wiring — the generated occonftest fixture, a
+		// helper shared with a tool — had no way to put a tree in a context,
+		// because the validator forbids reaching for the library itself. Clone
+		// comes with Release because a clone holds its version of the tree
+		// mapped until it is returned.
 		"func Clone(from, to context.Context) (context.Context, error)",
 		"func Release(main, cloned context.Context) error",
 	} {
@@ -176,17 +175,29 @@ func TestGenerateOnlineConfMap(t *testing.T) {
 		}
 	}
 
-	// Initialized answers from the context and nothing else — a guard that
-	// could itself fail would have to be guarded.
-	if !strings.Contains(occonfFile, "return onlineconf.FromContext(ctx) != nil") {
-		t.Error("Initialized should report on the context's tree directly")
+	// No "does this context carry a tree" probe (TOOLS-132, issue #158 item 3).
+	// Asking is what a silent fallback is built out of: the consumer that
+	// prompted it read the probe and fell back to a default, so a
+	// misconfiguration showed up as a plausible screen instead of an error.
+	// In a generated application a context without a tree is impossible, and
+	// where it is possible the answer is the fixture, not a branch.
+	if strings.Contains(occonfFile, "func Initialized(") {
+		t.Error("the accessor package must not offer a probe for the tree's presence: " +
+			"it legitimizes the silent fallback the key map exists to remove")
 	}
 
 	// Clone refuses a source context without a tree instead of panicking on
 	// it: onlineconf.Clone dereferences the instance it finds, and the caller
 	// of this is by definition code that cannot rely on the startup boundary.
-	if !strings.Contains(occonfFile, `return nil, fmt.Errorf("clone onlineconf: %w", ErrNoTree)`) {
-		t.Error("Clone should report ErrNoTree for a source context with no tree, not dereference nil")
+	// The check is inside Clone now that the probe is gone.
+	for _, want := range []string{
+		"if onlineconf.FromContext(from) == nil {",
+		`return nil, fmt.Errorf("clone onlineconf: %w", ErrNoTree)`,
+	} {
+		if !strings.Contains(occonfFile, want) {
+			t.Errorf("Clone should report ErrNoTree for a source context with no tree "+
+				"rather than dereference nil, via %q", want)
+		}
 	}
 
 	// CheckRequired covers exactly the three required declarations, through the
@@ -780,7 +791,6 @@ func TestGenerateWithoutOnlineConfMap(t *testing.T) {
 		"func CheckRequired(",
 		// The lifecycle and context helpers belong to the same half: they are
 		// what the validator leaves the project instead of the library.
-		"func Initialized(ctx context.Context) bool",
 		"func Clone(from, to context.Context) (context.Context, error)",
 		"func Release(main, cloned context.Context) error",
 		"var ErrNoTree = errors.New(",
@@ -788,6 +798,14 @@ func TestGenerateWithoutOnlineConfMap(t *testing.T) {
 		if !strings.Contains(occonfFile, want) {
 			t.Errorf("a project without a key map should still declare %q", want)
 		}
+	}
+
+	// And no probe for the tree's presence, here either (TOOLS-132): the half
+	// of the map that is always there is also the half whose only reader is
+	// the generated code, so this is exactly the project where a silent
+	// fallback would go unnoticed longest.
+	if strings.Contains(occonfFile, "func Initialized(") {
+		t.Error("a project without a key map must not get a probe for the tree's presence either")
 	}
 
 	// ErrNoTree is unconditional, so "errors" is now always imported — the

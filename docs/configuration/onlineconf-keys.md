@@ -266,44 +266,63 @@ func StartWatcher(ctx context.Context) error
 func StopWatcher(ctx context.Context) error
 ```
 
-### `Initialized`, `Clone`, `Release` — контекст без дерева
+### `Clone`, `Release` — контекст с деревом вне сервисной обвязки
 
 ```go
-func Initialized(ctx context.Context) bool
 func Clone(from, to context.Context) (context.Context, error)
 func Release(main, cloned context.Context) error
 
 var ErrNoTree = errors.New("context carries no onlineconf tree")
 ```
 
-**Коду сервиса `Initialized` не нужен.** `Initialize` выполняется один раз на старте процесса,
-и при ошибке процесс не стартует (`os.Exit(ExitCodeErrorConfig)`), поэтому любой контекст,
-происходящий от возвращённого ею, дерево несёт. Проверять это в каждой read-функции — значит
-размазать по коду инвариант, который валидируется один раз на границе; про этот антипаттерн
-см. раздел «OnlineConf — boundary invariant» в промпте разработчика.
-
-`Initialized` — для кода, который может выполниться и **вне** этой цепочки: юнит-тест на
-`context.Background()`, хелпер, который шарится с утилитой без сервисной обвязки. До TOOLS-96
-такому коду спросить было нечем: прямое обращение к библиотеке запрещает `forbidigo`, так что
-он либо не проверял, либо шёл мимо гварда.
-
 `Clone` даёт контексту `to` собственный хендл на дерево, которое несёт `from`; `Release`
 хендл возвращает. Клон держит mmap-файл открытым на той версии, которую увидел, — поэтому
 перезагрузка дерева не меняет ответы под уже летящим запросом (так работает
 `reqctx.CreateContext`), и поэтому это **пара**: невозвращённый клон держит свою версию дерева
-в памяти. В тестах — там, где чтение должно отвечать из реального дерева, а не дефолтом:
-
-```go
-ctx, err := occonf.Clone(serviceCtx, context.Background())
-if err != nil {
-	t.Fatalf("clone onlineconf: %v", err)
-}
-
-defer occonf.Release(serviceCtx, ctx)
-```
+в памяти.
 
 `from` без дерева — ошибка `ErrNoTree`, не паника: в отличие от кода сервиса, вызывающий
 `Clone` на границу старта опереться не может (`onlineconf.Clone` разыменовал бы `nil`).
+
+**Проверки «несёт ли контекст дерево» в пакете нет.** `Initialized(ctx) bool` существовал в
+unreleased main и снят (TOOLS-132, issue #158): спросить — это то, из чего собирается
+молчаливая деградация. Читатель, который при отсутствующем дереве берёт дефолт, **скрывает**
+misconfiguration вместо того, чтобы о ней сообщить, — ровно тот дефект, из-за которого задача
+и появилась. Коду сервиса спрашивать не о чем: `Initialize` выполняется один раз на старте
+процесса, и при ошибке процесс не стартует (`os.Exit(ExitCodeErrorConfig)`), поэтому любой
+контекст, происходящий от возвращённого ею, дерево несёт. Проверять это в каждой read-функции
+значило бы размазать по коду инвариант, который валидируется один раз на границе; про этот
+антипаттерн см. раздел «OnlineConf — boundary invariant» в промпте разработчика.
+
+### `occonftest.Context` — контекст для тестов
+
+```go
+// internal/pkg/occonf/occonftest
+func Context(tb testing.TB, values map[string]string) context.Context
+```
+
+То, чем тест получает контекст с **настоящим** деревом: `values` — карта «полный путь OnlineConf
+→ значение в нём», дерево пишется в `tb.TempDir()`, контекст происходит от `tb.Context()`.
+
+```go
+func TestSupervisorReapsStaleAgents(t *testing.T) {
+	ctx := occonftest.Context(t, map[string]string{
+		occonf.PathSupervisorMinLifetime: "11m",
+		occonf.PathSupervisorMaxAgents:   "7",
+	})
+
+	// occonf.SupervisorMinLifetime(ctx) → 11m: из дерева, а не объявленный дефолт 5m.
+}
+```
+
+Значения — строки, потому что дерево хранит строки, а типизированные аксессоры их разбирают.
+Путь, которого в карте нет, просто отсутствует: ключ с объявленным дефолтом ответит дефолтом,
+опциональный сообщит об отсутствии, `required` отдаст `ErrKeyNotSet`.
+
+Отдельный пакет — чтобы `testing` не попадал в граф импортов сервисного бинаря; внутри каталога
+пакета аксессоров — потому что построить дерево значит позвать библиотеку, а
+`make onlineconf-validate` разрешает это только там. Подробнее, вместе с правилом про корни
+контекста, — [Контекст: один корень на процесс](../architecture/context.md).
 
 ### `ActiveRecordConfig` — известная дыра в карте
 

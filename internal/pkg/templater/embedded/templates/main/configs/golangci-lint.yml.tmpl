@@ -112,6 +112,12 @@ linters:
 {{- end }}
     # OnlineConf is read through the generated accessor package only
     # (configs/golangci-onlineconf.yml, `make onlineconf-validate`).
+    #
+    # Plus one rule with no gate of its own: a context root belongs to the
+    # generated main. context.Background()/TODO() in hand-written code produces
+    # a context that carries neither the OnlineConf tree nor the logger — see
+    # {{ .AppCtx.GetPackagePath }} for what to use instead.
+    # `_test.go` is covered too, on purpose.
     forbidigo:
       # Match on the resolved package, not on the spelling at the call site —
       # otherwise an import alias defeats the rule. See the dedicated validator
@@ -125,6 +131,10 @@ linters:
 {{- end }}
 {{- end }}
 {{- range $_, $rule := .OnlineConf.ForbiddenCalls }}
+        - pattern: '{{ $rule.Pattern }}'
+          msg: "{{ $rule.Msg }}"
+{{- end }}
+{{- range $_, $rule := .AppCtx.ForbiddenCalls }}
         - pattern: '{{ $rule.Pattern }}'
           msg: "{{ $rule.Msg }}"
 {{- end }}

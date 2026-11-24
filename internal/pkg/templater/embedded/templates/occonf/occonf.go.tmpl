@@ -49,8 +49,12 @@ const serviceTree = "{{ .OnlineConf.TreeRoot }}"
 var ErrKeyNotSet = errors.New("required onlineconf key is not set")
 {{- end }}
 
-// ErrNoTree reports a context that carries no configuration tree. See
-// Initialized for when that is a possibility and when it is not.
+// ErrNoTree reports a context that carries no configuration tree.
+//
+// In the service's own code that cannot happen: Initialize runs once at process
+// start and the process exits when it fails, so every context descended from
+// the one it returned carries the tree. Clone reports this because its caller
+// is by definition code that cannot rely on that boundary having run.
 var ErrNoTree = errors.New("context carries no onlineconf tree")
 
 // --- lifecycle ---
@@ -89,23 +93,6 @@ func StopWatcher(ctx context.Context) error {
 	return nil
 }
 
-// Initialized reports whether ctx carries a configuration tree.
-//
-// The service's own code does not need to ask. Initialize runs once at process
-// start and the process exits when it fails, so every context descended from
-// the one it returned carries the tree — a read on such a context does not need
-// a guard, and a per-call-site check of this would be the boundary invariant
-// re-validated at every read.
-//
-// It is for code that can also run on a context built outside that chain: a
-// unit test on context.Background(), a helper shared with a tool that has no
-// service wiring. Such code had no way to tell, because the validator forbids
-// calling the onlineconf library outside this package — so it either skipped
-// the check or reached past the guard.
-func Initialized(ctx context.Context) bool {
-	return onlineconf.FromContext(ctx) != nil
-}
-
 // Clone gives to its own handle on the configuration tree carried by from, and
 // returns the context carrying it. Release returns that handle.
 //
@@ -114,12 +101,20 @@ func Initialized(ctx context.Context) bool {
 // generated request context does with it. Hence the pair: a clone that is never
 // released keeps its version of the tree mapped.
 //
-// It is exported for code that builds its own context — a test that needs a
-// read to answer from a real tree rather than a default. from without a tree is
-// an error, not a panic: unlike the service's own code, a caller of this cannot
-// rely on the startup boundary having run.
+// It is exported for code that builds its own context out of a tree that
+// already exists — handing a running service's tree to a test's own context,
+// for instance. A test that just needs a tree does not need this: the generated
+// occonftest fixture builds one. from without a tree is an error, not a panic:
+// unlike the service's own code, a caller of this cannot rely on the startup
+// boundary having run.
+//
+// There is deliberately no exported "does this context carry a tree" probe.
+// Asking is what a silent fallback is built out of — a reader that answers from
+// a default when the tree is missing hides a misconfiguration instead of
+// reporting it — and the service's code has no occasion to ask: the invariant
+// is established once, at startup.
 func Clone(from, to context.Context) (context.Context, error) {
-	if !Initialized(from) {
+	if onlineconf.FromContext(from) == nil {
 		return nil, fmt.Errorf("clone onlineconf: %w", ErrNoTree)
 	}
 

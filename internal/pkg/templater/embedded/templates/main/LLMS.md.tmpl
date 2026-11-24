@@ -147,6 +147,42 @@ Extend generated code through the point it offers, not by reassigning something:
 {{- end }}
 | a package-level `var` holding state your code mutates | a field on the owning struct, set by a constructor or a setter |
 
+### One context root per process
+
+The only context root of this project is `mainCtx` in `cmd/{app}/psg_main_gen.go`, and the
+generator writes it. That is where the OnlineConf tree, the logger, the metrics registry and the
+process's own cancellation enter the picture; everything else descends from it.
+
+{{ if .LintConfigOwn -}}
+This project owns `configs/golangci-lint.yml` (`tools.lint_config.own`), so whether
+`context.Background()` is rejected is decided there. The generated code is written as though it
+is, and the rules below are what keeps regeneration from fighting code you add.
+{{- else -}}
+`configs/golangci-lint.yml` therefore rejects `context.Background()` and `context.TODO()` in
+hand-written code, **including `_test.go`**. Only generated files (`psg_*`) are exempt.
+{{- end }}
+
+A context built next to the real root carries none of the wiring: a configuration read
+dereferences the instance that is not in the context. The panic is the good outcome — worse is
+code that "handles" it and answers from a default, which turns a misconfiguration into a
+service that looks like it works.
+
+| Instead of | Use |
+|------------|-----|
+| `context.Background()` in a handler, a service method, a worker | the `ctx` you were given |
+| `context.WithCancel(context.Background())` for work that outlives the request | `{{ .AppCtx.GetPackageName }}.{{ .AppCtx.GetEntryPoint }}(ctx, 0)` — `{{ .AppCtx.GetPackagePath }}` |
+| `context.WithTimeout(context.Background(), d)` for a shutdown step after the parent was canceled | `{{ .AppCtx.GetPackageName }}.{{ .AppCtx.GetEntryPoint }}(ctx, d)` |
+| `context.Background()` in a test | `t.Context()` |
+| `context.Background()` in a test that reads OnlineConf | `occonftest.Context(t, map[string]string{ {{ .OnlineConf.GetPackageName }}.Path<Key>: "…" })` — `{{ .OnlineConf.GetPackagePath }}/occonftest` |
+
+`{{ .AppCtx.GetEntryPoint }}` wraps `context.WithoutCancel`: the values survive, the parent's
+cancellation and deadline do not. It always returns a cancel function, so `defer cancel()` is
+correct with and without a timeout. It is **not** a way to get a context where there is none —
+`parent` has to be the context you were handed.
+
+Deriving is not forbidden: `context.WithCancel`, `context.WithTimeout` and `context.WithValue`
+over the context you were given are exactly what the rule asks for.
+
 ### Regeneration safety
 
 - Files with disclaimer markers: code above marker is regenerated, code below is preserved

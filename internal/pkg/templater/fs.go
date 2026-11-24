@@ -989,3 +989,32 @@ func GetStaticDirTemplates(params GeneratorAppParams) ([]ds.Files, []ds.Files, e
 
 	return dirs, files, nil
 }
+
+// GetAppCtxTemplates returns the generated derived-context helper — the one
+// sanctioned way for project code to build a context that outlives the one it
+// was handed.
+//
+// Every project gets it, with no setting to turn it off: the lint rule that
+// forbids a new context root is generated unconditionally too, and a rule whose
+// message names a package that is not there would leave the case it forbids
+// without an answer.
+func GetAppCtxTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files, err error) {
+	dirs, files, err = GetTemplates(templates, "embedded/templates/appctx", params)
+	if err != nil {
+		err = errors.Wrap(err, "error while get appctx templates")
+
+		return
+	}
+
+	appCtxPath := params.AppCtx.GetPackagePath()
+
+	for i := range dirs {
+		dirs[i].DestName = filepath.Join(appCtxPath, dirs[i].DestName)
+	}
+
+	for i := range files {
+		files[i].DestName = filepath.Join(appCtxPath, files[i].DestName)
+	}
+
+	return
+}
