@@ -51,7 +51,25 @@ var defaultPorts = map[string]string{
 	"{{ $server.Server }}": "{{ $server.Port }}",
 {{- end }}
 }
-
+{{ if .Applications.RESTServerListenIPs }}
+// defaultListenIPs are the addresses project.yaml declares for the REST
+// servers of this service (rest[].listen_ip), keyed by the same server name as
+// defaultPorts.
+//
+// An address is only here for a server that declares one: without the
+// declaration the provider answers with the runtime's DefaultListenIP as it
+// always did, and this table is not generated at all. A value in the tree
+// still wins — a server bound to loopback by project.yaml is bound there
+// because that is where it belongs, not because nobody got around to seeding
+// the key.
+//
+//nolint:gochecknoglobals // таблица, целиком сгенерированная из project.yaml; после инициализации только читается
+var defaultListenIPs = map[string]string{
+{{- range $_, $server := .Applications.RESTServerListenIPs }}
+	"{{ $server.Server }}": "{{ $server.ListenIP }}",
+{{- end }}
+}
+{{ end }}
 // --- ServerConfigProvider ---
 
 // GetServerConfig reads server configuration from OnlineConf.
@@ -63,16 +81,26 @@ var defaultPorts = map[string]string{
 //
 // The port falls back to the one declared for this server in project.yaml
 // (defaultPorts) when neither key is set, so a server that listens where the
-// project says it does needs no OnlineConf value at all.
+// project says it does needs no OnlineConf value at all.{{ if .Applications.RESTServerListenIPs }} The address does
+// the same (defaultListenIPs), which is what lets a server that serves only
+// the machine it runs on declare loopback rather than have the key seeded
+// around it.{{ end }}
 func (p *OnlineConfConfigProvider) GetServerConfig(ctx context.Context, serverName, appName string) (rest.ServerConfig, error) {
+{{- $ipFallback := "rest.DefaultListenIP" }}
+{{- if .Applications.RESTServerListenIPs }}{{ $ipFallback = "ip" }}
 	ip := rest.DefaultListenIP
-
+	if v, ok := defaultListenIPs[serverName]; ok {
+		ip = v
+	}
+{{ else }}
+	ip := rest.DefaultListenIP
+{{ end }}
 	if v, ok, err := occonf.RESTServerAppIP(ctx, serverName, appName); err != nil {
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" "str::Default::rest.DefaultListenIP" }}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" (printf "str::Default::%s" $ipFallback) }}
 	} else if ok {
 		ip = v
 	} else if v, ok, err := occonf.RESTServerIP(ctx, serverName); err != nil {
-		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" "str::Default::rest.DefaultListenIP" }}
+		{{ .Logger.ErrorMsg "ctx" "err" "error getting ip from onlineconf" (printf "str::Default::%s" $ipFallback) }}
 	} else if ok {
 		ip = v
 	}

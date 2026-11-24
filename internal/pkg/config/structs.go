@@ -412,6 +412,11 @@ type (
 		APIPrefix string `mapstructure:"api_prefix"`
 		// Port is the HTTP port. Required (except for template sys).
 		Port uint `mapstructure:"port"`
+		// ListenIP is the address the server binds to. Optional; omitted
+		// means the runtime's default (0.0.0.0). Becomes the default of the
+		// server's OnlineConf `ip` key, which still wins when set. Validated
+		// by validateListenIP.
+		ListenIP string `mapstructure:"listen_ip"`
 		// Version is the API version (v1, v2, etc). Required.
 		Version string `mapstructure:"version"`
 		// PublicService marks the service as public (no auth).
@@ -1068,6 +1073,13 @@ func (r Rest) IsValid(baseConfigDir string) (bool, string) {
 	// would otherwise turn a misplaced auth_params section into a silently
 	// ignored one.
 	if ok, msg := r.validateAuthParams(); !ok {
+		return false, msg
+	}
+
+	// Checked ahead of the sys shortcut as well: the metrics server is one of
+	// the servers a project most wants on loopback, so its address has to be
+	// validated like any other.
+	if ok, msg := r.validateListenIP(); !ok {
 		return false, msg
 	}
 
