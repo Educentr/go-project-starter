@@ -262,6 +262,19 @@ Dockerfile (`COPY --from=web-<name> /src/<output>/ /<output>/` поверх `ADD
 node на хосте и в CI-раннере не нужен, а node-тулчейн не попадает в runtime-образ.
 `build-web-<name>` — для локального цикла.
 
+**Стадия фронта закреплена за платформой сборщика ровно тогда, когда приложение объявило
+`docker.platforms`** (`WebApp.StageFrom(pinned bool)`, `internal/pkg/ds/web.go`):
+`FROM --platform=$BUILDPLATFORM <node_image> AS web-<name>`. Незакреплённую стадию BuildKit
+собирает по разу на **каждую** целевую платформу `buildx --platform`, то есть под эмуляцией
+чужой архитектуры (`npm ci` без binfmt — `exec format error`, с QEMU — медленно), и это
+нарушает инвариант TOOLS-93 «мультиплатформенная сборка не требует QEMU». Пин корректен,
+потому что результат сборки фронта — статика, от архитектуры не зависит: одного нативного
+прогона хватает на все платформы образа, а нативные модули остаются в стадии (в образ
+копируется только `output`, не `node_modules`). Без `platforms` пин не выводится — сборка идёт
+без `--platform`, все стадии и так собираются под хост, и Dockerfile существующего проекта
+остаётся побайтно прежним (`TestGenerateWithoutDockerPlatforms`,
+`TestGenerateWithoutWebApp_OutputUnchanged`).
+
 Команды рендерятся **до** resolve-пре-пасса: имена скопированных файлов выводятся из
 `specsource.ParseSpecSource(...).TargetFilename()` — так же, как их выводит `resolveAllSources`
 (иначе Makefile рендерился бы раньше, чем известны пути).

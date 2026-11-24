@@ -4,7 +4,15 @@
 # runtime stage. The whole context is copied, as in the builder stage below: a
 # frontend build reads more than {{ $w.Dir }} (the generated client, shared
 # configs), and which files exactly is the project's business.
-FROM {{ $w.NodeImage }} AS {{ $w.StageName }}
+{{- if $.Application.Docker.HasPlatforms }}
+#
+# The stage is pinned to the platform of the build host (BUILDPLATFORM): this
+# image is built for the target platforms listed below, and an unpinned stage
+# would be built once per platform, under emulation of each. The build writes
+# static files, which do not depend on the target architecture, so one native
+# run of it serves every platform of the image.
+{{- end }}
+{{ $w.StageFrom $.Application.Docker.HasPlatforms }}
 WORKDIR /src
 COPY . .
 {{- if $w.Install }}

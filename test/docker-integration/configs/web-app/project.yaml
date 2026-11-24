@@ -87,6 +87,11 @@ applications:
       - name: api
       - name: static
       - name: sys
+  # Platforms on one of the two applications: its frontend stage has to be
+  # pinned to the build host, while the stage of the application without the
+  # key stays exactly as it was.
   - name: landing
     transport:
       - name: landing_static
+    docker:
+      platforms: [linux/amd64, linux/arm64]

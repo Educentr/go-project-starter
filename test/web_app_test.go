@@ -159,10 +159,21 @@ func TestGenerateWebApp(t *testing.T) {
 			t.Error("Dockerfile-api carries the build stage of a frontend it does not serve")
 		}
 
+		// The application declares no platforms, so the stage carries no pin:
+		// the build passes no --platform, every stage is built for the host
+		// anyway, and the Dockerfile of an existing project is unchanged.
+		if strings.Contains(dockerfile, "BUILDPLATFORM") {
+			t.Error("Dockerfile-api pins a stage to the build platform without docker.platforms")
+		}
+
 		landing := readGenerated(t, tmpDir, "Dockerfile-landing")
 
 		for _, want := range []string{
-			"FROM node:20-alpine AS web-landing",
+			// The landing application declares platforms, so its frontend
+			// stage is pinned to the build host. Unpinned, buildx would build
+			// it once per target platform, under emulation of each — the QEMU
+			// the cross-compiling builder stage exists to avoid.
+			"FROM --platform=$BUILDPLATFORM node:20-alpine AS web-landing",
 			"COPY --from=web-landing /src/public_web/ /public_web/",
 		} {
 			if !strings.Contains(landing, want) {
@@ -172,6 +183,56 @@ func TestGenerateWebApp(t *testing.T) {
 
 		if strings.Contains(landing, "npm ci") {
 			t.Error("Dockerfile-landing has an install step for a frontend that declares none")
+		}
+	})
+
+	// The combination of `web` and `docker.platforms`: every stage that runs a
+	// command has to be pinned to the build host, otherwise the image loses the
+	// no-emulation invariant the platforms key is built on.
+	t.Run("frontend stage of a multi-platform image is pinned to the build host", func(t *testing.T) {
+		landing := readGenerated(t, tmpDir, "Dockerfile-landing")
+
+		// Every stage of the file that is not the runtime stage: the frontend
+		// build and the Go builder both run commands, so both are pinned.
+		var unpinned []string
+
+		for _, line := range strings.Split(landing, "\n") {
+			if !strings.HasPrefix(line, "FROM ") || !strings.Contains(line, " AS ") {
+				continue
+			}
+
+			if !strings.HasPrefix(line, "FROM --platform=$BUILDPLATFORM ") {
+				unpinned = append(unpinned, line)
+			}
+		}
+
+		if len(unpinned) > 0 {
+			t.Errorf("stages of a multi-platform image run under emulation: %q\n%s", unpinned, landing)
+		}
+
+		// The pin is what makes the frontend build run once; the result is
+		// still copied into the image built for every declared platform.
+		if !strings.Contains(landing, "RUN cd web/landing && npm run build") {
+			t.Errorf("Dockerfile-landing does not build the frontend:\n%s", landing)
+		}
+
+		// The frontend reaches the image through a COPY of its output
+		// directory only, so whatever the node stage installed for the build
+		// host — native modules included — stays in that stage.
+		if strings.Contains(landing, "COPY --from=web-landing /src/node_modules") {
+			t.Errorf("the node toolchain must not reach the image:\n%s", landing)
+		}
+
+		// The image is still a cross-built index: the frontend pin must not
+		// have displaced the builder's own cross-compilation.
+		for _, want := range []string{
+			"FROM --platform=$BUILDPLATFORM golang:",
+			"\nARG TARGETARCH\n",
+			"GOARCH=${TARGETARCH:?",
+		} {
+			if !strings.Contains(landing, want) {
+				t.Errorf("Dockerfile-landing misses %q:\n%s", want, landing)
+			}
 		}
 	})
 
