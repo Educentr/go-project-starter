@@ -1,11 +1,35 @@
 package test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
+)
+
+// composeService carries the fields of a dev stand service the tests here ask
+// about. Everything else in the compose file is left unparsed on purpose:
+// resolving `extends` is compose's job, and these two keys are written by the
+// template itself.
+type composeService struct {
+	Image      string `yaml:"image"`
+	PullPolicy string `yaml:"pull_policy"`
+}
+
+const (
+	// devStandProjectName is main.name of the config the subtests generate
+	// from (test/docker-integration/configs/rest-only), the prefix the stand
+	// puts on the images it builds.
+	devStandProjectName = "resttest"
+
+	// onlineConfAdminService is the name of the admin service in the generated
+	// dev stand compose file.
+	onlineConfAdminService = "onlineconf-admin"
 )
 
 // updaterImageRx matches the updater image reference a generated compose file
@@ -88,10 +112,66 @@ func TestOnlineConfSourcesPointAtTheFork(t *testing.T) {
 		}
 	})
 
+	// The stand builds the admin out of the submodule, so the image it writes
+	// must carry a name of this stand. Inheriting the name from the extended
+	// service tags a build of the submodule's current master with the release
+	// tag of the published admin, and then any other compose on the machine
+	// asking for that tag with the default pull policy runs this build
+	// instead of the release (TOOLS-131). This subtest shares the tree above
+	// because generating a second one re-clones the submodule.
+	t.Run("the stand tags its own admin build, not the release", func(t *testing.T) {
+		svc := devStandService(t, tmpDir, onlineConfAdminService)
+
+		// The project prefix is what keeps two stands on one machine from
+		// overwriting each other's admin build, so the whole name is checked,
+		// not just the absence of a registry. The released tag is deliberately
+		// not spelled out here: it moves with every admin release, while the
+		// defect is the registry-qualified name, not the version.
+		if want := devStandProjectName + "-onlineconf-admin:dev"; svc.Image != want {
+			t.Errorf("docker-compose-dev.yaml: %s image is %q, want %q",
+				onlineConfAdminService, svc.Image, want)
+		}
+
+		if strings.Contains(svc.Image, "/") {
+			t.Errorf("docker-compose-dev.yaml: %s image %q is registry-qualified — a local build must not claim a published name",
+				onlineConfAdminService, svc.Image)
+		}
+
+		// Without this the override above would be moot: compose would pick
+		// between the inherited image and our build by the local cache.
+		if svc.PullPolicy != "build" {
+			t.Errorf("docker-compose-dev.yaml: %s pull_policy is %q, want \"build\"",
+				onlineConfAdminService, svc.PullPolicy)
+		}
+	})
+
 	// The acceptance criterion of TOOLS-127 read off the output.
 	t.Run("nothing in the tree references the old namespace", func(t *testing.T) {
 		assertNoNikoloReferences(t, tmpDir)
 	})
+}
+
+// devStandService returns the named service of the generated dev stand compose
+// file.
+func devStandService(t *testing.T, targetDir, name string) composeService {
+	t.Helper()
+
+	body := readGenerated(t, targetDir, "docker-compose-dev.yaml")
+
+	var compose struct {
+		Services map[string]composeService `yaml:"services"`
+	}
+
+	if err := yaml.Unmarshal([]byte(body), &compose); err != nil {
+		t.Fatalf("Error parsing generated docker-compose-dev.yaml: %v", err)
+	}
+
+	svc, ok := compose.Services[name]
+	if !ok {
+		t.Fatalf("docker-compose-dev.yaml has no service %q, got %v", name, slices.Sorted(maps.Keys(compose.Services)))
+	}
+
+	return svc
 }
 
 // rootComposeFiles returns the generated compose files at the project root, so

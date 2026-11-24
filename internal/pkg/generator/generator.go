@@ -169,9 +169,11 @@ const (
 	// onlineConfRepoURL is the OnlineConf repository the dev stand
 	// (`dev_stand: true`) checks out into etc/repo-oc. It is our fork, not
 	// upstream onlineconf/onlineconf: the stand takes the MySQL schema, the
-	// database service and the admin sources from this submodule, and the
-	// admin image the project runs elsewhere is built from the same fork
-	// (ghcr.io/educentr/onlineconf-admin).
+	// database service and the admin sources from this submodule, and it is
+	// the fork the released admin image (ghcr.io/educentr/onlineconf-admin)
+	// is built from, so the stand runs the same admin that is published. The
+	// stand builds it locally and tags it with a name of its own — see
+	// main/docker-compose-dev.yaml.tmpl.
 	onlineConfRepoURL = "https://github.com/Educentr/onlineconf"
 )
 

@@ -204,7 +204,12 @@ post_generate:
     `etc/repo-oc` — это наш форк
     [Educentr/onlineconf](https://github.com/Educentr/onlineconf) (основная ветка
     `master`): из него берутся SQL-схема MySQL и исходники admin, который стенд
-    собирает локально. `onlineconf-updater` запускается образом
+    собирает локально. Собранный образ стенд метит своим именем
+    `<имя проекта>-onlineconf-admin:dev`, а не унаследованным от сабмодуля тегом
+    релиза `ghcr.io/educentr/onlineconf-admin:<версия>`: иначе сборка текущего
+    `master` заняла бы в локальном кеше имя опубликованного образа, и любой
+    другой compose на машине, запрашивающий этот тег, молча запускал бы её
+    вместо релиза. `onlineconf-updater` запускается образом
     `ghcr.io/educentr/onlineconf-updater` той же версии, которую устанавливает
     `make install-onlineconf-updater` (`ONLINECONF_UPDATER_VERSION` в Makefile) —
     версию держит генератор, в `project.yaml` она не настраивается.
