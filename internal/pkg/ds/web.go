@@ -60,6 +60,30 @@ func (w WebApp) StageName() string {
 	return "web-" + w.Name
 }
 
+// StageFrom renders the FROM instruction of this frontend's build stage.
+//
+// pinned pins the stage to the platform of the build host
+// (--platform=$BUILDPLATFORM) and is passed when the application declares
+// target platforms, i.e. when its image is built through buildx with an
+// explicit --platform. An unpinned stage is then built once per target
+// platform, under emulation of each — the QEMU the cross-compiling builder
+// stage exists to avoid, and on a frontend build it is the slow part. The build
+// writes static files, which do not depend on the target architecture, so one
+// native run of it serves every platform of the image.
+//
+// Without declared platforms the pin is not emitted: the build carries no
+// --platform at all, every stage is built for the host anyway, and the output
+// of an existing project stays byte for byte what it was.
+func (w WebApp) StageFrom(pinned bool) string {
+	from := "FROM "
+
+	if pinned {
+		from += "--platform=$BUILDPLATFORM "
+	}
+
+	return from + w.NodeImage + " AS " + w.StageName()
+}
+
 // ForApp returns the frontends whose Output is served by a static transport of
 // app — the ones whose build belongs in that application's image. The binding
 // is derived rather than declared twice: a frontend is embedded exactly where
