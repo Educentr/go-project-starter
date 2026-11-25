@@ -1,0 +1,377 @@
+package telegram
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gofrs/uuid/v5"
+
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}"
+	"{{ .ProjectPath }}/{{ .OnlineConf.GetPackagePath }}/occonftest"
+)
+
+// Секреты подписи инвойса, которыми тесты засеивают дерево конфигурации.
+// Ротация бота их не касается — это и есть свойство, которое тут проверяется.
+const (
+	invoiceSecret    = "invoice-secret"
+	invoiceSecretAlt = "invoice-secret-rotated"
+
+	// invoiceRotationRounds — сколько кругов ротации делает тест под нагрузкой.
+	// Один круг по трём ботам проходит быстрее, чем читатели успевают сделать
+	// цикл, то есть не пересекается с тем, что проверяется.
+	invoiceRotationRounds = 20
+)
+
+// newInvoiceDriver собирает драйвер без опроса апдейтов: упаковке и проверке
+// инвойса ни бот, ни опрос не нужны, и именно это утверждение проверяется ниже.
+func newInvoiceDriver(t *testing.T) *Telegram {
+	t.Helper()
+
+	tg, ok := Create().(*Telegram)
+	if !ok {
+		t.Fatal("Create вернул не *Telegram")
+	}
+
+	return tg
+}
+
+// invoiceCtx отдаёт контекст с деревом конфигурации, в котором задан секрет
+// подписи инвойса. Пустой секрет означает дерево без ключа — так проверяется
+// проект, который его ещё не засеял.
+func invoiceCtx(t *testing.T, secret string) context.Context {
+	t.Helper()
+
+	values := map[string]string{}
+	if secret != "" {
+		values[occonf.TelegramInvoiceSignKeyPath()] = secret
+	}
+
+	return occonftest.Context(t, values)
+}
+
+// testInvoice — инвойс с заполненными полями: нулевой не отличил бы «распакован»
+// от «не тронут».
+func testInvoice(t *testing.T) TelegramInvoiceData {
+	t.Helper()
+
+	key, err := uuid.NewV4()
+	if err != nil {
+		t.Fatalf("uuid.NewV4() вернул ошибку: %v", err)
+	}
+
+	return TelegramInvoiceData{
+		UserID:         424242,
+		IdempotencyKey: key,
+		Products:       &EmptyProducts{},
+		Created:        time.Now().UTC().Truncate(time.Second),
+	}
+}
+
+// unpacked разбирает payload и возвращает результат.
+//
+// Распакованное присваивается до return намеренно: `return got,
+// tg.UnpackInvoiceData(ctx, &got, payload)` читает got в порядке, который
+// спецификация не определяет, — вызов заполняет его по указателю, а копия для
+// возврата может быть снята и до вызова.
+func unpacked(ctx context.Context, tg *Telegram, payload string) (TelegramInvoiceData, error) {
+	got := TelegramInvoiceData{Products: &EmptyProducts{}}
+
+	err := tg.UnpackInvoiceData(ctx, &got, payload)
+
+	return got, err
+}
+
+// TestTelegramInvoiceSurvivesTokenRotation — инвойс, выпущенный до ротации
+// токена бота, проверяется после неё.
+//
+// Это основной дефект: payload лежит в чате, пока пользователь не нажмёт
+// «оплатить», то есть минуты и часы, а подпись ставилась ключом токена
+// (HMAC("WebAppData", token)) и проверялась ключом токена **текущего**. Ротация
+// в это окно давала «invalid sign» на pre_checkout_query, а попав между
+// pre_checkout_query и successful_payment — списанные Stars без выдачи товара.
+//
+// Ротируется здесь и токен того же бота, и токен другого: ни один из них на
+// подпись инвойса больше не влияет. Для другого бота это утверждение сильнее,
+// чем требует задача (его апдейты оплаты сервис не получит вовсе), и оно
+// осознанное: секрет один на сервис, поэтому возврат токена прежнему боту
+// оставляет неоплаченный инвойс проверяемым — см. комментарий invoiceSignKey.
+func TestTelegramInvoiceSurvivesTokenRotation(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newInvoiceDriver(t)
+	ctx := invoiceCtx(t, invoiceSecret)
+
+	tg.applyToken(fake.newBot(t, tokenBotAOld), []byte("sha-old"))
+
+	invoice := testInvoice(t)
+
+	payload, err := tg.PackInvoiceData(ctx, invoice)
+	if err != nil {
+		t.Fatalf("PackInvoiceData вернул ошибку: %v", err)
+	}
+
+	for _, rotation := range []struct {
+		name  string
+		token string
+		sha   string
+	}{
+		{name: "перевыпуск токена того же бота", token: tokenBotANew, sha: "sha-new"},
+		{name: "токен другого бота", token: tokenBotB, sha: "sha-b"},
+	} {
+		t.Run(rotation.name, func(t *testing.T) {
+			tg.applyToken(fake.newBot(t, rotation.token), []byte(rotation.sha))
+
+			got, err := unpacked(ctx, tg, payload)
+			if err != nil {
+				t.Fatalf("после ротации инвойс обязан проверяться: %v", err)
+			}
+
+			if got.UserID != invoice.UserID || got.IdempotencyKey != invoice.IdempotencyKey {
+				t.Errorf("распакован другой инвойс: UserID=%d key=%s, ожидались %d и %s",
+					got.UserID, got.IdempotencyKey, invoice.UserID, invoice.IdempotencyKey)
+			}
+		})
+	}
+}
+
+// TestTelegramInvoiceSentAfterRotationStillVerifies — ротация токена между
+// упаковкой инвойса и его отправкой.
+//
+// Ровно путь сгенерированного воркера: хендлер проекта зовёт
+// TelegramPackInvoiceData, формируя ответ, а отправляет payload уже
+// postProcessRequest через SendInvoice. Между этими двумя шагами стоит ротация,
+// и прежде она означала подпись ключом одного токена и отправку ботом другого:
+// упаковка брала ключ, отправка бота, двумя отдельными захватами мьютекса.
+//
+// Проверяется то, что ушло в Bot API, а не локальная переменная теста: payload,
+// отправленный ботом нового токена, обязан проверяться.
+func TestTelegramInvoiceSentAfterRotationStillVerifies(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newInvoiceDriver(t)
+	ctx := invoiceCtx(t, invoiceSecret)
+
+	tg.applyToken(fake.newBot(t, tokenBotAOld), []byte("sha-old"))
+
+	// Шаг 1: хендлер упаковал payload — бот прежнего токена ещё на месте.
+	payload, err := tg.PackInvoiceData(ctx, testInvoice(t))
+	if err != nil {
+		t.Fatalf("PackInvoiceData вернул ошибку: %v", err)
+	}
+
+	// Ротация попала между упаковкой и отправкой.
+	tg.applyToken(fake.newBot(t, tokenBotANew), []byte("sha-new"))
+
+	// Шаг 2: postProcessRequest отправляет — уже ботом нового токена.
+	if _, err := tg.SendInvoice(ctx, 1, InvoiceData{
+		ProductName:        "product",
+		ProductDescription: "description",
+		Data:               payload,
+		Price:              1,
+	}); err != nil {
+		t.Fatalf("SendInvoice вернул ошибку: %v", err)
+	}
+
+	if sent := fake.sentInvoices(tokenBotAOld); len(sent) != 0 {
+		t.Fatalf("инвойс ушёл ботом прежнего токена: %v", sent)
+	}
+
+	sent := fake.sentInvoices(tokenBotANew)
+	if len(sent) != 1 {
+		t.Fatalf("ботом нового токена ушёл %d инвойс(ов), ожидался один", len(sent))
+	}
+
+	// Шаг 3: Telegram прислал оплату — проверяется payload, который реально ушёл.
+	if _, err := unpacked(ctx, tg, sent[0]); err != nil {
+		t.Fatalf("payload, отправленный ботом нового токена, обязан проверяться: %v", err)
+	}
+}
+
+// TestTelegramInvoicePackNeedsNeitherBotNorPoller — упаковка и проверка инвойса
+// работают на драйвере, который ни разу не видел токена.
+//
+// Пара «бот и ключ подписи» им больше не нужна, и это проверяется тем, что бота
+// нет вовсе: прежняя упаковка на таком драйвере падала на ErrTGConfiguration,
+// потому что ключ брался из токена.
+func TestTelegramInvoicePackNeedsNeitherBotNorPoller(t *testing.T) {
+	tg := newInvoiceDriver(t)
+	ctx := invoiceCtx(t, invoiceSecret)
+
+	if bot := tg.currentBot(); bot != nil {
+		t.Fatal("драйвер без Init не должен иметь бота")
+	}
+
+	invoice := testInvoice(t)
+
+	payload, err := tg.PackInvoiceData(ctx, invoice)
+	if err != nil {
+		t.Fatalf("PackInvoiceData вернул ошибку на драйвере без бота: %v", err)
+	}
+
+	if _, err := unpacked(ctx, tg, payload); err != nil {
+		t.Fatalf("UnpackInvoiceData вернул ошибку на драйвере без бота: %v", err)
+	}
+}
+
+// TestTelegramInvoiceRefusesToPackWithoutSignKey — без секрета подписи инвойс не
+// выпускается.
+//
+// Подписать его нечем, а инвойс без проверяемой подписи — это оплата, которую
+// обработчик покупки отвергнет уже после списания Stars. Поэтому отказ, а не
+// подпись чем-нибудь ещё и не payload без подписи.
+func TestTelegramInvoiceRefusesToPackWithoutSignKey(t *testing.T) {
+	tg := newInvoiceDriver(t)
+	ctx := invoiceCtx(t, "")
+
+	_, err := tg.PackInvoiceData(ctx, testInvoice(t))
+	if !errors.Is(err, ErrInvoiceSignKeyNotSet) {
+		t.Fatalf("PackInvoiceData без секрета вернул %v, ожидался ErrInvoiceSignKeyNotSet", err)
+	}
+}
+
+// TestTelegramInvoiceChecksLegacyTokenSignature — инвойс, подписанный ключом
+// токена, проверяется и после того, как проект засеял секрет.
+//
+// Это переходный ключ: такие инвойсы выпускались прежней версией драйвера и
+// могут лежать в чатах неоплаченными в момент обновления. Без него обновление
+// отвергло бы каждый из них.
+//
+// Подпись здесь ставится секретом, а tgSHA ставится равным выведенному из него
+// ключу — то же, что payload прежней версии, подписанный тем, что лежит в
+// tgSHA. Секрет при проверке другой, поэтому первый ключ обязан не сойтись, и
+// проверку проходит именно второй.
+func TestTelegramInvoiceChecksLegacyTokenSignature(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newInvoiceDriver(t)
+
+	payload, err := tg.PackInvoiceData(invoiceCtx(t, invoiceSecret), testInvoice(t))
+	if err != nil {
+		t.Fatalf("PackInvoiceData вернул ошибку: %v", err)
+	}
+
+	legacyKey, err := MakeSHA256Hash(t.Context(), []byte(invoiceSignContext), []byte(invoiceSecret))
+	if err != nil {
+		t.Fatalf("MakeSHA256Hash вернул ошибку: %v", err)
+	}
+
+	tg.applyToken(fake.newBot(t, tokenBotAOld), legacyKey)
+
+	rotated := invoiceCtx(t, invoiceSecretAlt)
+
+	if _, err := unpacked(rotated, tg, payload); err != nil {
+		t.Fatalf("инвойс, подписанный ключом токена, обязан проверяться переходным ключом: %v", err)
+	}
+
+	// Переходный ключ — ключ токена, поэтому ротация его меняет: прежнее
+	// ограничение осталось ровно на прежних инвойсах и ни на каких других.
+	tg.applyToken(fake.newBot(t, tokenBotANew), []byte("sha-new"))
+
+	if _, err := unpacked(rotated, tg, payload); err == nil {
+		t.Fatal("ротация обязана обесценить подпись ключом прежнего токена")
+	}
+}
+
+// TestTelegramInvoiceRejectsForgedPayload — payload, подписанный не тем ключом
+// (или не подписанный вовсе), не проходит.
+//
+// Иначе переходный ключ читался бы как «проверка принимает что угодно»:
+// проверок две, и успех любой из них достаточен, поэтому отказ обеих —
+// утверждение, которое надо проверить отдельно.
+func TestTelegramInvoiceRejectsForgedPayload(t *testing.T) {
+	tg := newInvoiceDriver(t)
+
+	payload, err := tg.PackInvoiceData(invoiceCtx(t, invoiceSecret), testInvoice(t))
+	if err != nil {
+		t.Fatalf("PackInvoiceData вернул ошибку: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		ctx     context.Context
+		payload string
+	}{
+		{name: "подпись другим секретом", ctx: invoiceCtx(t, invoiceSecretAlt), payload: payload},
+		{name: "payload короче подписи", ctx: invoiceCtx(t, invoiceSecret), payload: "YWJj"},
+		{name: "payload не base64", ctx: invoiceCtx(t, invoiceSecret), payload: "не base64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := unpacked(tc.ctx, tg, tc.payload); err == nil {
+				t.Error("UnpackInvoiceData обязана отказать")
+			}
+		})
+	}
+}
+
+// TestTelegramInvoiceRotationUnderLoad — ротация токена при живом выпуске и
+// проверке инвойсов, по образцу TestTelegramTokenRotationUnderLoad.
+//
+// Смысл в -race и в утверждении, которое проверяют читатели: payload, выпущенный
+// между двумя ротациями, обязан проверяться — независимо от того, какой бот
+// стоял в драйвере в момент упаковки и какой стоит в момент проверки. Прежний
+// код брал ключ подписи и бота двумя разными захватами мьютекса, и именно это
+// окно оставляло инвойс, подписанный ключом одного токена и отправленный ботом
+// другого.
+func TestTelegramInvoiceRotationUnderLoad(t *testing.T) {
+	fake := newFakeTelegram(t)
+	tg := newInvoiceDriver(t)
+	ctx := invoiceCtx(t, invoiceSecret)
+
+	tg.applyToken(fake.newBot(t, "400:secret-0"), []byte("sha-0"))
+
+	bots := []string{"401:secret-1", "402:secret-2", "403:secret-3"}
+
+	readers := sync.WaitGroup{}
+	stop := make(chan struct{})
+
+	for range 4 {
+		readers.Add(1)
+
+		go func() {
+			defer readers.Done()
+
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				invoice := testInvoice(t)
+
+				payload, err := tg.PackInvoiceData(ctx, invoice)
+				if err != nil {
+					t.Errorf("ротация не должна мешать выпуску инвойса: %v", err)
+
+					return
+				}
+
+				got, err := unpacked(ctx, tg, payload)
+				if err != nil {
+					t.Errorf("ротация не должна обесценивать подпись инвойса: %v", err)
+
+					return
+				}
+
+				if got.IdempotencyKey != invoice.IdempotencyKey {
+					t.Errorf("распакован другой инвойс: %s вместо %s",
+						got.IdempotencyKey, invoice.IdempotencyKey)
+
+					return
+				}
+			}
+		}()
+	}
+
+	// Несколько кругов, а не один: читатели обязаны застать ротацию, а один
+	// проход по трём ботам успевает закончиться раньше, чем они сделают по
+	// циклу, — и тогда тест проверяет только то, что упаковка работает.
+	for round := range invoiceRotationRounds {
+		for i, token := range bots {
+			tg.applyToken(fake.newBot(t, token), []byte{byte(round*len(bots) + i)})
+		}
+	}
+
+	close(stop)
+	readers.Wait()
+}

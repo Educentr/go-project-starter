@@ -79,14 +79,19 @@ func (s *Service) GetFileDirectURL(fileID string) (string, error) {
 
 // TelegramPackInvoiceData упаковывает и подписывает payload инвойса.
 //
-// Подпись делается ключом текущего токена бота, а токен принадлежит экземпляру
-// драйвера — поэтому упаковка это метод драйвера, а не функция пакета telegram, и
-// добраться до неё можно только через сервис, у которого драйвер есть.
+// Подпись делается отдельным секретом (ключ OnlineConf
+// {service}/security/invoice_sign_key), а не ключом текущего токена бота:
+// payload проверяется при оплате, спустя минуты или часы после выпуска, и
+// ротация токена в это окно оставляла инвойс, который уже нечем проверить.
+// Секрет не задан — упаковка возвращает telegram.ErrInvoiceSignKeyNotSet, а не
+// подписывает чем-нибудь ещё.
 func (s *Service) TelegramPackInvoiceData(ctx context.Context, invoiceData telegram.TelegramInvoiceData) (string, error) {
 	return s.telegram.PackInvoiceData(ctx, invoiceData)
 }
 
-// TelegramUnpackInvoiceData разбирает payload инвойса и проверяет его подпись.
+// TelegramUnpackInvoiceData разбирает payload инвойса и проверяет его подпись —
+// тем же секретом, которым её поставила TelegramPackInvoiceData, поэтому инвойс,
+// выпущенный до ротации токена бота, проверяется и после неё.
 func (s *Service) TelegramUnpackInvoiceData(ctx context.Context, invoice *telegram.TelegramInvoiceData, data string) error {
 	return s.telegram.UnpackInvoiceData(ctx, invoice, data)
 }

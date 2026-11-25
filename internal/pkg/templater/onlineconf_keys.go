@@ -125,10 +125,23 @@ func OnlineConfLibraryUsers() ([]string, error) {
 // template declares has to be one it calls, so that a read removed from a
 // template takes its declaration with it. The facade names (see occonfFacade)
 // are excluded: they read no particular key.
+//
+// Test templates are excluded too. A generated test reads through the same
+// accessor as the code it covers, so it claims no path of its own, and the
+// declaration belongs next to the read rather than next to the test. Counting
+// one would force a declaration file beside a `_test.go.tmpl`, and its keys
+// would then appear in the project's key registry as surface the service reads.
+// The ban on calling the onlineconf library directly still covers test
+// templates (see OnlineConfLibraryUsers) — that one the generated project's own
+// gate enforces, `_test.go` included.
 func OnlineConfAccessorCalls() (map[string][]string, error) {
 	calls := map[string][]string{}
 
 	err := walkGoTemplates(func(relative, source string) error {
+		if strings.HasSuffix(relative, "_test.go.tmpl") {
+			return nil
+		}
+
 		seen := map[string]struct{}{}
 
 		var names []string

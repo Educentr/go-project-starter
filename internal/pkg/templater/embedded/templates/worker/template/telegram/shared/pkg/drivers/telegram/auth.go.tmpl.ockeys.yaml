@@ -14,3 +14,16 @@ groups:
           without a token cannot authenticate a single call, so an application
           running a telegram worker is misconfigured without it. The driver
           subscribes to the key as well — a new value rebuilds the bot in place.
+
+      - path: "{service}/security/invoice_sign_key"
+        name: TelegramInvoiceSignKey
+        type: string
+        description: >-
+          Secret the signature of an invoice payload is keyed on. Deliberately
+          not derived from the bot token: an invoice sits in the chat until the
+          user pays it, so a token rotated in that window used to leave a
+          payload that no longer verifies — at worst between pre_checkout_query
+          and successful_payment, with the Stars already charged. Optional
+          because a telegram worker need not issue invoices at all; absent, the
+          driver refuses to pack one (ErrInvoiceSignKeyNotSet) rather than sign
+          it with something else.

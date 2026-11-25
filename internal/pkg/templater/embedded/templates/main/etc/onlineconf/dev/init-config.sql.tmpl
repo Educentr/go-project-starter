@@ -467,6 +467,13 @@ VALUES ('buffer_size', @security_id, '100', 'text/plain', 'Updates channel buffe
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
 VALUES ('tg_api_endpoint', @security_id, '', 'text/plain', 'Custom Telegram API endpoint (optional)');
 
+-- Invoice payload signing key. Seeded with a value, unlike tg_token: the driver
+-- refuses to pack an invoice without it, and any value works here, so the dev
+-- stand would otherwise ship a payment flow that cannot start. Rotating the bot
+-- token does not touch it -- that is the point of the key.
+INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
+VALUES ('invoice_sign_key', @security_id, 'dev-only-invoice-sign-key', 'text/plain', 'Invoice payload signing key (dev value, set your own)');
+
 INSERT INTO `my_config_tree` (`Name`, `ParentID`, `Value`, `ContentType`, `Summary`)
 VALUES ('bot', @service_id, NULL, 'application/x-null', 'Bot configuration');
 SET @bot_id = LAST_INSERT_ID();

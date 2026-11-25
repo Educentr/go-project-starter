@@ -46,7 +46,8 @@ const (
 	tokenBotB    = "200:secret-b"
 )
 
-// fakeTelegram — Bot API в объёме, который нужен опросу: getMe и getUpdates.
+// fakeTelegram — Bot API в объёме, который нужен опросу (getMe, getUpdates) и
+// отправке инвойса (sendInvoice).
 //
 // Апдейты раздаются по токену, и по токену же считаются запросы: именно так тест
 // видит, на каком боте опрос работает, а на каком остановлен.
@@ -56,6 +57,11 @@ type fakeTelegram struct {
 	mu      sync.Mutex
 	pending map[string][]tgbotapi.Update
 	offsets map[string][]string
+
+	// invoices — payload'ы, ушедшие в sendInvoice, по токену бота, который их
+	// отправил. По токену, а не списком: вопрос, на который отвечает тест
+	// инвойса, — проверяется ли payload, который ушёл **этим** ботом.
+	invoices map[string][]string
 
 	// completed — getUpdates, на которые сервер успел ответить. Считаются
 	// ответы, а не запросы: запрос, отменённый остановкой опроса, доходит до
@@ -69,6 +75,7 @@ func newFakeTelegram(t *testing.T) *fakeTelegram {
 	f := &fakeTelegram{
 		pending:   map[string][]tgbotapi.Update{},
 		offsets:   map[string][]string{},
+		invoices:  map[string][]string{},
 		completed: map[string]int{},
 	}
 
@@ -92,6 +99,8 @@ func (f *fakeTelegram) serve(w http.ResponseWriter, r *http.Request) {
 		f.serveGetMe(w, token)
 	case "getUpdates":
 		f.serveGetUpdates(w, r, token)
+	case "sendInvoice":
+		f.serveSendInvoice(w, r, token)
 	default:
 		writeJSON(w, `{"ok":true,"result":{}}`)
 	}
@@ -164,6 +173,30 @@ func (f *fakeTelegram) serveGetUpdates(w http.ResponseWriter, r *http.Request, t
 		case <-time.After(fakePollTick):
 		}
 	}
+}
+
+// serveSendInvoice принимает инвойс и запоминает его payload за токеном, который
+// его отправил.
+//
+// Запоминает именно отправленное, а не то, что тест упаковал: вопрос «подпись
+// сходится с ботом, который отправил» иначе проверялся бы по локальной
+// переменной, а не по тому, что ушло в Bot API.
+func (f *fakeTelegram) serveSendInvoice(w http.ResponseWriter, r *http.Request, token string) {
+	_ = r.ParseForm()
+
+	f.mu.Lock()
+	f.invoices[token] = append(f.invoices[token], r.FormValue("payload"))
+	f.mu.Unlock()
+
+	writeJSON(w, `{"ok":true,"result":{"message_id":1}}`)
+}
+
+// sentInvoices — payload'ы, ушедшие этим токеном.
+func (f *fakeTelegram) sentInvoices(token string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.invoices[token]...)
 }
 
 // push кладёт апдейт, который отдаст следующий getUpdates этого токена.
