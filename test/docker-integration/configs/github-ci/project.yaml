@@ -26,6 +26,13 @@ github_ci:
     - '!release/**-alpha'
     # A branch name YAML reads as a float unless the generator quotes it.
     - '1.10'
+  build_env:
+    # A value carrying `'`, `,` and `{}` — a plain YAML scalar cannot hold it,
+    # so the generator has to quote and escape it.
+    - name: IMAGE_REGISTRY
+      value: "${{ vars.IMAGE_REGISTRY || format('{0}/{1}', secrets.REGISTRY_LOGIN_SERVER, vars.REGISTRY_CONTAINER) }}"
+    - name: UPSTREAM_REPO_URL
+      value: "${{ github.server_url }}/${{ github.repository_owner }}/some-repo.git"
 
 rest:
   - name: api

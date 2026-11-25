@@ -208,6 +208,10 @@ type GithubCIConfig struct {
 	// generated workflows. Empty means the trigger is rendered with the
 	// default branches, main and staging.
 	PushBranches []string
+	// BuildEnv carries the environment variables added to the "Build and
+	// push" step of the build job, in declaration order. Empty means the step
+	// keeps only the variables the template sets itself.
+	BuildEnv []GithubCIEnvVar
 }
 
 // DefaultRunsOn is the runner used by the generated workflows when

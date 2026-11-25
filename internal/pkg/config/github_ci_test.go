@@ -489,3 +489,211 @@ func TestGithubCIConfig_PushBranchesViperDecoding(t *testing.T) {
 		})
 	}
 }
+
+// TestGithubCIConfig_ParseBuildEnv covers the build_env entries: what the
+// generated step may be handed and what it may not.
+func TestGithubCIConfig_ParseBuildEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		buildEnv []GithubCIEnvEntry
+		want     []ds.GithubCIEnvVar
+		wantErr  string
+	}{
+		{
+			name: "omitted key yields no variables",
+			want: nil,
+		},
+		{
+			// Declaration order is the order the step's env: gets them, so it
+			// has to survive the parse.
+			name: "two variables keep their order and their value verbatim",
+			buildEnv: []GithubCIEnvEntry{
+				{Name: "IMAGE_REGISTRY", Value: "${{ vars.IMAGE_REGISTRY || format('{0}/{1}', secrets.A, vars.B) }}"},
+				{Name: "PACKAGES_PUBLIC_BASE_URL", Value: "${{ vars.PACKAGES_PUBLIC_BASE_URL }}"},
+			},
+			want: []ds.GithubCIEnvVar{
+				{Name: "IMAGE_REGISTRY", Value: "${{ vars.IMAGE_REGISTRY || format('{0}/{1}', secrets.A, vars.B) }}"},
+				{Name: "PACKAGES_PUBLIC_BASE_URL", Value: "${{ vars.PACKAGES_PUBLIC_BASE_URL }}"},
+			},
+		},
+		{
+			name:     "lowercase name is accepted",
+			buildEnv: []GithubCIEnvEntry{{Name: "_build_rev", Value: "1"}},
+			want:     []ds.GithubCIEnvVar{{Name: "_build_rev", Value: "1"}},
+		},
+		{
+			name:     "empty name is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "", Value: "x"}},
+			wantErr:  "github_ci.build_env: name must start with a letter or underscore",
+		},
+		{
+			name:     "name starting with a digit is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "1IMAGE", Value: "x"}},
+			wantErr:  `name must start with a letter or underscore and contain only letters, digits and underscores: "1IMAGE"`,
+		},
+		{
+			name:     "name with a dash is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "IMAGE-REGISTRY", Value: "x"}},
+			wantErr:  `"IMAGE-REGISTRY"`,
+		},
+		{
+			// A second REGISTRY_SERVER key in the step's env: would win over
+			// the one the template sets, silently changing where the image is
+			// pushed.
+			name:     "name the step already sets is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "REGISTRY_SERVER", Value: "x"}},
+			wantErr:  `name is already set by the generated "Build and push" step: "REGISTRY_SERVER"`,
+		},
+		{
+			name:     "GITHUB_TOKEN is rejected as well",
+			buildEnv: []GithubCIEnvEntry{{Name: "GITHUB_TOKEN", Value: "x"}},
+			wantErr:  `"GITHUB_TOKEN"`,
+		},
+		{
+			// The keys of an env: mapping are compared case-insensitively, so
+			// this is the same key the step already sets — the workflow would
+			// carry it twice and stop being valid.
+			name:     "name the step sets, written in another case, is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "github_token", Value: "x"}},
+			wantErr:  `step: "github_token" (the same env key as "GITHUB_TOKEN"`,
+		},
+		{
+			name:     "mixed-case REGISTRY_SERVER is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "Registry_Server", Value: "x"}},
+			wantErr:  `step: "Registry_Server" (the same env key as "REGISTRY_SERVER"`,
+		},
+		{
+			// GitHub ignores an assignment to its own default variables, so
+			// the build would never see the value.
+			name:     "a GITHUB_ default variable is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "GITHUB_SHA", Value: "x"}},
+			wantErr:  `GitHub reserves the GITHUB_ and RUNNER_ prefixes`,
+		},
+		{
+			name:     "a RUNNER_ default variable is rejected, in any case",
+			buildEnv: []GithubCIEnvEntry{{Name: "runner_os", Value: "x"}},
+			wantErr:  `"runner_os" starts with RUNNER_`,
+		},
+		{
+			name: "duplicate name is rejected",
+			buildEnv: []GithubCIEnvEntry{
+				{Name: "IMAGE_REGISTRY", Value: "a"},
+				{Name: "IMAGE_REGISTRY", Value: "b"},
+			},
+			wantErr: `github_ci.build_env: duplicate name: "IMAGE_REGISTRY"`,
+		},
+		{
+			// Two names that differ only in case are one env: key as well.
+			name: "names differing only in case are rejected as a duplicate",
+			buildEnv: []GithubCIEnvEntry{
+				{Name: "IMAGE_REGISTRY", Value: "a"},
+				{Name: "image_registry", Value: "b"},
+			},
+			wantErr: `duplicate name: "image_registry" (the same env key as "IMAGE_REGISTRY"`,
+		},
+		{
+			name:     "empty value is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "IMAGE_REGISTRY", Value: ""}},
+			wantErr:  "github_ci.build_env: value must be a non-empty single-line string",
+		},
+		{
+			// The tail of a multiline value would be read as workflow YAML of
+			// its own.
+			name:     "multiline value is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "IMAGE_REGISTRY", Value: "a\n          INJECTED: b"}},
+			wantErr:  "value must be a non-empty single-line string",
+		},
+		{
+			name:     "value with a control character is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "IMAGE_REGISTRY", Value: "a\tb"}},
+			wantErr:  "value must be a non-empty single-line string",
+		},
+		{
+			// The characters a workflow expression legitimately carries stay
+			// in the value: the template quotes them.
+			name:     "value with yaml metacharacters is accepted",
+			buildEnv: []GithubCIEnvEntry{{Name: "TAG", Value: "* it: '#1' \"q\""}},
+			want:     []ds.GithubCIEnvVar{{Name: "TAG", Value: "* it: '#1' \"q\""}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GithubCIConfig{BuildEnv: tt.buildEnv}.ParseBuildEnv()
+
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("ParseBuildEnv() = %+v, want error containing %q", got, tt.wantErr)
+				}
+
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("ParseBuildEnv() error = %q, want it to contain %q", err, tt.wantErr)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ParseBuildEnv() unexpected error: %v", err)
+			}
+
+			if len(got) != len(tt.want) {
+				t.Fatalf("ParseBuildEnv() = %+v, want %+v", got, tt.want)
+			}
+
+			for i, want := range tt.want {
+				if got[i] != want {
+					t.Errorf("ParseBuildEnv()[%d] = %+v, want %+v", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
+// TestGithubCIConfig_IsValidBuildEnv pins that build_env is reachable through
+// the validation entry point the config loader calls.
+func TestGithubCIConfig_IsValidBuildEnv(t *testing.T) {
+	cfg := GithubCIConfig{BuildEnv: []GithubCIEnvEntry{{Name: "GITHUB_TOKEN", Value: "x"}}}
+
+	ok, msg := cfg.IsValid("github")
+	if ok {
+		t.Fatal("IsValid() accepted a build_env variable the generated step already sets")
+	}
+
+	if !strings.Contains(msg, "github_ci.build_env") {
+		t.Errorf("IsValid() message = %q, want it to mention github_ci.build_env", msg)
+	}
+}
+
+// TestGithubCIConfig_BuildEnvViperDecoding pins the reason the key is a list of
+// {name, value} and not a map: viper lowercases config keys, so a map key
+// would arrive as a name the build never reads.
+func TestGithubCIConfig_BuildEnvViperDecoding(t *testing.T) {
+	yamlCfg := "github_ci:\n" +
+		"  build_env:\n" +
+		"    - name: IMAGE_REGISTRY\n" +
+		"      value: \"${{ vars.IMAGE_REGISTRY }}\"\n"
+
+	path := filepath.Join(t.TempDir(), "project.yaml")
+	if err := os.WriteFile(path, []byte(yamlCfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	v := viper.New()
+	v.SetConfigFile(path)
+
+	if err := v.ReadInConfig(); err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+
+	want := []GithubCIEnvEntry{{Name: "IMAGE_REGISTRY", Value: "${{ vars.IMAGE_REGISTRY }}"}}
+
+	if len(cfg.GithubCI.BuildEnv) != 1 || cfg.GithubCI.BuildEnv[0] != want[0] {
+		t.Fatalf("BuildEnv = %+v, want %+v", cfg.GithubCI.BuildEnv, want)
+	}
+}
