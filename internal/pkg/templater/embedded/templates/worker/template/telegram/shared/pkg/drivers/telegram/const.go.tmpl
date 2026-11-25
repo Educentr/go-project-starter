@@ -121,10 +121,27 @@ const (
 	configPath        = "security"
 	currency          = "XTR"
 	defaultBufferSize = 10
+
+	// invoiceSignLen — сколько байт подписи инвойса едет в payload: усечённый
+	// HMAC-SHA256. Константа одна на упаковку и проверку: разъехавшись, они
+	// дали бы «invalid sign» на любом инвойсе, то есть ровно тот отказ, который
+	// от подписи неотличим.
+	invoiceSignLen = 12
+
+	// invoiceSignContext — метка назначения ключа подписи инвойса. Ключ
+	// выводится из секрета invoice_sign_key, а не берётся им напрямую: тот же
+	// секрет, попав однажды в другую подпись, подписывал бы её тем же ключом.
+	invoiceSignContext = "InvoiceData"
 )
 
 var (
 	ErrInvalidAuthConfig = errors.New("invalid auth config")
 	ErrTGConfiguration   = errors.New("tgSHA is nil")
 	ErrInvalidTgData     = errors.New("invalid telegram config data")
+
+	// ErrInvoiceSignKeyNotSet — секрет подписи инвойса (invoice_sign_key) не
+	// задан в дереве конфигурации. Инвойс без подписи выпускать нельзя: проверить
+	// при оплате его будет нечем, поэтому упаковка отказывается, а не подписывает
+	// чем-нибудь ещё.
+	ErrInvoiceSignKeyNotSet = errors.New("invoice sign key is not set")
 )

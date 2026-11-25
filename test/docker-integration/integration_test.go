@@ -582,7 +582,9 @@ func TestIntegrationWorkerTelegram(t *testing.T) {
 // The project ships them — psg_telegram_poller_test.go in the driver (a fake Bot
 // API, a token swap under a live long poll, the offset carried over to a new
 // token of the same bot and dropped on another one, shutdown without a leaked
-// goroutine) and psg_telegram_loop_test.go in the worker (a closed update
+// goroutine), psg_invoice_test.go in the driver (an invoice issued before a
+// rotation still verifies after it, and packing refuses without the signing
+// secret) and psg_telegram_loop_test.go in the worker (a closed update
 // channel must leave the loop, not feed the handler zero updates). The build
 // stage of this file compiles the generated project but never runs its tests,
 // so without this step the generator could ship a driver whose own tests fail.
@@ -609,6 +611,10 @@ func assertTelegramPollerRotation(ctx context.Context, t *testing.T, container *
 	for _, name := range []string{
 		"TestTelegramPollerFollowsRotatedToken",
 		"TestTelegramPollerResetsOffsetOnAnotherBot",
+		"TestTelegramInvoiceSurvivesTokenRotation",
+		"TestTelegramInvoiceSentAfterRotationStillVerifies",
+		"TestTelegramInvoiceRefusesToPackWithoutSignKey",
+		"TestTelegramInvoiceRotationUnderLoad",
 		"TestWorkerLoopLeavesClosedChannel",
 	} {
 		require.Contains(t, output, name,

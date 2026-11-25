@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -96,11 +97,18 @@ func (tg *Telegram) SendInvoice(ctx context.Context,
 	return 0, errors.New("no message found")
 }
 
-// PackInvoiceData упаковывает данные инвойса в payload и подписывает его ключом
-// текущего токена бота.
+// PackInvoiceData упаковывает данные инвойса в payload и подписывает его.
 //
-// Метод, а не функция пакета: ключ подписи — поле драйвера. Вне драйвера зовётся
-// через сервис (Service.TelegramPackInvoiceData).
+// Ключ подписи — отдельный секрет (invoiceSignKey), а не ключ текущего токена
+// бота: payload проверяется при оплате, то есть спустя минуты или часы после
+// выпуска, и ключ, зависящий от токена, не переживал бы ротацию в этом окне.
+// Поэтому пара «бот и его ключ» упаковке не нужна — ни одного захвата мьютекса
+// драйвера здесь не осталось, и подписать ключом одного токена, а отправить
+// ботом другого больше нечем.
+//
+// Метод, а не функция пакета: вне драйвера зовётся через сервис
+// (Service.TelegramPackInvoiceData), и у соседней UnpackInvoiceData состояние
+// драйвера ещё читается — переходным ключом проверки.
 func (tg *Telegram) PackInvoiceData(ctx context.Context, invoiceData TelegramInvoiceData) (string, error) {
 	ret := bytes.Buffer{}
 	w := bufio.NewWriter(&ret)
@@ -145,9 +153,16 @@ func (tg *Telegram) PackInvoiceData(ctx context.Context, invoiceData TelegramInv
 		return "", err
 	}
 
-	key, err := tg.GetTgTokenSHA(ctx)
+	key, ok, err := invoiceSignKey(ctx)
 	if err != nil {
 		return "", err
+	}
+
+	// Отказ, а не подпись чем-нибудь ещё: инвойс, который нельзя будет
+	// проверить при оплате, — это списанные Stars без выдачи товара. Засейте
+	// {service}/security/invoice_sign_key.
+	if !ok {
+		return "", ErrInvoiceSignKeyNotSet
 	}
 
 	sign, err := MakeSHA256Hash(ctx, key, ret.Bytes())
@@ -155,7 +170,7 @@ func (tg *Telegram) PackInvoiceData(ctx context.Context, invoiceData TelegramInv
 		return "", err
 	}
 
-	_, err = w.Write(sign[0:12])
+	_, err = w.Write(sign[0:invoiceSignLen])
 	if err != nil {
 		return "", err
 	}
@@ -168,30 +183,94 @@ func (tg *Telegram) PackInvoiceData(ctx context.Context, invoiceData TelegramInv
 	return base64.StdEncoding.EncodeToString(ret.Bytes()), nil
 }
 
-// UnpackInvoiceData разбирает payload инвойса и проверяет его подпись ключом
-// текущего токена бота. Метод по той же причине, что PackInvoiceData; вне
-// драйвера — через Service.TelegramUnpackInvoiceData.
+// invoiceSignKeys отдаёт ключи, которыми проверяется подпись payload инвойса, в
+// порядке проверки.
+//
+// Их два, и второй — переходный. Первый — секрет invoice_sign_key, которым
+// подписывает PackInvoiceData. Второй — ключ текущего токена бота: им
+// подписывались инвойсы, выпущенные до появления секрета, и они в этот момент
+// ещё могут лежать в чатах неоплаченными. Без него обновление драйвера сразу
+// отвергло бы каждый такой инвойс.
+//
+// Переходный ключ наследует и прежнее ограничение: инвойс, подписанный им,
+// по-прежнему не переживает ротацию токена. Окно конечно — это инвойсы, выпущенные
+// до засева секрета, — и закрывается оно само, поэтому ключ будет убран (см.
+// DEPRECATION.md). Согласованной пары «ключ и бот» он не создаёт: проверке бот
+// не нужен.
+func (tg *Telegram) invoiceSignKeys(ctx context.Context) ([][]byte, error) {
+	keys := make([][]byte, 0, 2)
+
+	key, ok, err := invoiceSignKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if ok {
+		keys = append(keys, key)
+	}
+
+	if legacy, lerr := tg.GetTgTokenSHA(ctx); lerr == nil {
+		keys = append(keys, legacy)
+	}
+
+	// Ни секрета, ни токена: проверять нечем, и сказать об этом надо тем же, чем
+	// отказывает упаковка, — «invalid sign» увёл бы разбор на подделку payload.
+	if len(keys) == 0 {
+		return nil, ErrInvoiceSignKeyNotSet
+	}
+
+	return keys, nil
+}
+
+// UnpackInvoiceData разбирает payload инвойса и проверяет его подпись.
+//
+// Проверяется секретом invoice_sign_key — тем же, которым подписала
+// PackInvoiceData, и ротация токена бота между выпуском инвойса и его оплатой на
+// проверку больше не влияет. Переходный ключ прежних инвойсов — в
+// invoiceSignKeys.
+//
+// Метод по той же причине, что PackInvoiceData; вне драйвера — через
+// Service.TelegramUnpackInvoiceData.
 func (tg *Telegram) UnpackInvoiceData(ctx context.Context, invoice *TelegramInvoiceData, data string) error {
 	dec, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return err
 	}
 
-	key, err := tg.GetTgTokenSHA(ctx)
+	// Короче подписи — значит подписи в payload нет. Без этой проверки срез ниже
+	// паникует, а payload приходит из апдейта Telegram, то есть на вход попадает
+	// всё, что в этом поле окажется.
+	if len(dec) < invoiceSignLen {
+		return errors.New("invalid sign")
+	}
+
+	keys, err := tg.invoiceSignKeys(ctx)
 	if err != nil {
 		return err
 	}
 
-	sign := dec[len(dec)-12:]
+	sign := dec[len(dec)-invoiceSignLen:]
 
-	dec = dec[:len(dec)-12]
+	dec = dec[:len(dec)-invoiceSignLen]
 
-	signCheck, err := MakeSHA256Hash(ctx, key, dec)
-	if err != nil {
-		return err
+	signed := false
+
+	for _, key := range keys {
+		signCheck, serr := MakeSHA256Hash(ctx, key, dec)
+		if serr != nil {
+			return serr
+		}
+
+		// hmac.Equal, а не bytes.Equal: сравнение подписи за постоянное время не
+		// отдаёт по длительности того, сколько её байт угадано.
+		if hmac.Equal(sign, signCheck[0:invoiceSignLen]) {
+			signed = true
+
+			break
+		}
 	}
 
-	if !bytes.Equal(sign, signCheck[0:12]) {
+	if !signed {
 		return errors.New("invalid sign")
 	}
 
