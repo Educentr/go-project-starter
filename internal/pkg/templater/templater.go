@@ -114,6 +114,11 @@ type GeneratorParams struct {
 	Documentation ds.DocsConfig
 	Metrics       ds.MetricsConfig
 	OnlineConf    ds.OnlineConfConfig
+	// AppCtx carries the generated derived-context helper: its package name,
+	// its path and the lint rule that makes it the only way to get a context
+	// that outlives its parent. It holds no project data — the helper is the
+	// same in every project — so the zero value is the whole configuration.
+	AppCtx ds.AppCtxConfig
 	// GithubCI carries the runner, job timeout and doctl setup applied to
 	// every job of the generated GitHub Actions workflows, plus the checks that
 	// gate build.

@@ -1,0 +1,54 @@
+// Package {{ .AppCtx.GetPackageName }} is this project's only sanctioned way to build a context
+// that outlives the one it was handed.
+//
+// A context root is where the service's wiring enters the picture: the
+// OnlineConf tree, the logger, the metrics registry, the process's own
+// cancellation. This project has exactly one, and the generator writes it —
+// `mainCtx` in cmd/<app>/psg_main_gen.go. Everything else descends from it,
+// which is why a read does not have to ask whether configuration is there and
+// a log line does not have to be told where to go.
+//
+// A context built next to that root — context.Background(), context.TODO() —
+// carries none of it, and nothing about it fails loudly: the read answers from
+// a default, the log line goes nowhere, the goroutine outlives the shutdown it
+// was supposed to honor. `make lint` therefore forbids both names outside the
+// generated files (configs/golangci-lint.yml).
+//
+// Which leaves the case that made people reach for a root in the first place:
+// work that must not stop when its parent does — a background job started from
+// a handler that has already answered, a shutdown timeout that has to run after
+// the parent was canceled. {{ .AppCtx.GetEntryPoint }} is that, and it keeps everything the parent
+// carried.
+package {{ .AppCtx.GetPackageName }}
+
+import (
+	"context"
+	"time"
+)
+
+// {{ .AppCtx.GetEntryPoint }} returns a context that carries everything parent carries and is not
+// canceled when parent is, plus the function that cancels it. A positive
+// timeout gives the returned context that deadline; zero or less gives it none,
+// and then only the returned cancel ends it.
+//
+// Call the cancel function — it is what releases the returned context's
+// resources, and with no timeout it is the only thing that ever ends the
+// context. `defer cancel()` is correct in both shapes, which is why the cancel
+// is returned unconditionally rather than only with a timeout.
+//
+// What it is NOT is a way to get a context where there is none: parent has to
+// be the context the caller was given. Detaching from a root built next to the
+// real one detaches from nothing and carries nothing.
+func {{ .AppCtx.GetEntryPoint }}(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	// WithoutCancel keeps the values — the OnlineConf tree, the logger, the
+	// request's trace id — and drops only the cancellation and the deadline.
+	// Copying the values out by hand is what this replaces: a list of keys to
+	// copy is a list that goes stale the moment the wiring gains one.
+	detached := context.WithoutCancel(parent)
+
+	if timeout > 0 {
+		return context.WithTimeout(detached, timeout)
+	}
+
+	return context.WithCancel(detached)
+}

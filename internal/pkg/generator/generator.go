@@ -2551,6 +2551,16 @@ func (g *Generator) collectFiles(targetPath string) ([]ds.Files, []ds.Files, err
 	dirs = append(dirs, dirsOC...)
 	files = append(files, filesOC...)
 
+	// The derived-context helper — unconditional, like the rule that forbids a
+	// new context root.
+	dirsCtx, filesCtx, err := templater.GetAppCtxTemplates(g.GetTmplParams())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get appctx templates: %w", err)
+	}
+
+	dirs = append(dirs, dirsCtx...)
+	files = append(files, filesCtx...)
+
 	// Generate Kafka driver templates for segmentio drivers
 	for _, kafka := range g.Kafka {
 		dirsK, filesK, err := templater.GetKafkaDriverTemplates(kafka, g.GetTmplParams())

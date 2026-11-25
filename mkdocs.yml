@@ -69,6 +69,7 @@ nav:
   - Архитектура:
     - architecture/index.md
     - Сгенерированный проект: architecture/generated-project.md
+    - Контекст — один корень на процесс: architecture/context.md
   - CLI:
     - cli/index.md
     - Команды: cli/commands.md

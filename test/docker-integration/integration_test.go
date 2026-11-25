@@ -656,6 +656,260 @@ func TestIntegrationOnlineConfMap(t *testing.T) {
 	}
 
 	runTest(t, "onlineconf-map", "onlineconf-map")
+
+	// Last: it leaves a test file of its own in the project.
+	assertDerivedContextBehavior(t.Context(), t, GetContainer(), "/workspace/output/onlineconf-map")
+}
+
+// assertDerivedContextBehavior runs the contract of the generated
+// derived-context helper and the generated OnlineConf test fixture against the
+// generated project (TOOLS-132, issue #158 items 2 and 3).
+//
+// It has to run, not be read. The claim is that a context derived through the
+// helper still answers a configuration read after its parent was canceled —
+// three packages have to agree on that: the helper, the accessors and the
+// library's context plumbing. And the fixture's claim is that the read answers
+// from a real tree rather than from the declared default, which is only visible
+// if a value is actually in the tree and differs from the default.
+func assertDerivedContextBehavior(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	writeDerivedContextProbe(ctx, t, container, outputDir)
+
+	cmd := fmt.Sprintf("cd %s && go test -race -count=1 ./internal/pkg/appctx/", outputDir)
+
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", cmd})
+	require.NoError(t, err, "failed to run the derived-context probe")
+
+	out := readOutput(outputReader)
+	t.Logf("derived-context probe:\n%s", out)
+
+	require.Equal(t, 0, code, "the generated derived-context helper does not hold its contract:\n%s", out)
+}
+
+// writeDerivedContextProbe puts a test of the generated helper and fixture into
+// the generated project.
+//
+// Written here rather than generated into every project, for the same reason as
+// the state-family probe: the generator does not ship tests of its own output,
+// and this one asserts the contract of machinery that is identical in every
+// project. It lives in the helper's own package so that it reads the way a
+// project's test would — Detach unqualified, the accessors and the fixture
+// imported.
+func writeDerivedContextProbe(ctx context.Context, t *testing.T, container *GolangBuilderContainer, outputDir string) {
+	t.Helper()
+
+	const probe = `package appctx
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/test/octest/internal/pkg/occonf"
+	"github.com/test/octest/internal/pkg/occonf/occonftest"
+)
+
+// treeContext is the fixture's whole job: a context that carries a real tree,
+// with values that differ from the declared defaults so that an answer coming
+// from the default is visible as such.
+func treeContext(t *testing.T) context.Context {
+	t.Helper()
+
+	return occonftest.Context(t, map[string]string{
+		occonf.PathSupervisorMinLifetime: "11m",
+		occonf.PathSupervisorMaxAgents:   "7",
+		occonf.PathQueueName:             "probe-queue",
+	})
+}
+
+// The fixture answers from the tree, not from the key map's defaults.
+func TestFixtureReadsFromTheTree(t *testing.T) {
+	ctx := treeContext(t)
+
+	lifetime, err := occonf.SupervisorMinLifetime(ctx)
+	if err != nil {
+		t.Fatalf("read a duration from the fixture's tree: %v", err)
+	}
+
+	if lifetime != 11*time.Minute {
+		t.Errorf("the fixture read %v, want 11m — the declared default is 5m, so this answered from the default", lifetime)
+	}
+
+	agents, err := occonf.SupervisorMaxAgents(ctx)
+	if err != nil {
+		t.Fatalf("read a required key from the fixture's tree: %v", err)
+	}
+
+	if agents != 7 {
+		t.Errorf("the fixture read %d agents, want 7", agents)
+	}
+
+	name, ok, err := occonf.QueueName(ctx)
+	if err != nil || !ok || name != "probe-queue" {
+		t.Errorf("the fixture read queue %q (present=%v, err=%v), want \"probe-queue\"", name, ok, err)
+	}
+}
+
+// A key the fixture was not given is absent, and the accessors say so the way
+// their declarations promise: a default for a key with one, presence reported
+// for an optional key, ErrKeyNotSet for a required one.
+func TestFixtureLeavesUndeclaredKeysAbsent(t *testing.T) {
+	ctx := occonftest.Context(t, nil)
+
+	lifetime, err := occonf.SupervisorMinLifetime(ctx)
+	if err != nil {
+		t.Fatalf("read a key with a default from an empty tree: %v", err)
+	}
+
+	if lifetime != 5*time.Minute {
+		t.Errorf("an absent key with a declared default read %v, want the declared 5m", lifetime)
+	}
+
+	if _, ok, err := occonf.QueueName(ctx); err != nil || ok {
+		t.Errorf("an absent optional key reported present=%v (err=%v)", ok, err)
+	}
+
+	if _, err := occonf.SupervisorMaxAgents(ctx); !errors.Is(err, occonf.ErrKeyNotSet) {
+		t.Errorf("an absent required key reported %v, want ErrKeyNotSet", err)
+	}
+}
+
+// The environment does not reach the fixture's tree. ONLINECONFIG_FROM_ENV
+// with OC_* variables is how the dev stand feeds a tree, and the generated
+// .env-<app>.example sets it on its first line — so a developer whose shell has
+// that file loaded has it set. The service's Initialize rewrites TREE.cdb from
+// those variables, so a fixture going through it would answer with the
+// environment's values instead of the test's, with no error and no log line.
+func TestFixtureIgnoresTheEnvironment(t *testing.T) {
+	t.Setenv("ONLINECONFIG_FROM_ENV", "true")
+	t.Setenv(envVarForPath(occonf.PathSupervisorMinLifetime), "1s")
+	t.Setenv(envVarForPath(occonf.PathQueueName), "from-env")
+
+	ctx := treeContext(t)
+
+	lifetime, err := occonf.SupervisorMinLifetime(ctx)
+	if err != nil {
+		t.Fatalf("read a duration from the fixture's tree: %v", err)
+	}
+
+	if lifetime != 11*time.Minute {
+		t.Errorf("the fixture read %v, want the test's 11m: the environment replaced the tree", lifetime)
+	}
+
+	name, ok, err := occonf.QueueName(ctx)
+	if err != nil || !ok || name != "probe-queue" {
+		t.Errorf("the fixture read queue %q (present=%v, err=%v), want the test's \"probe-queue\"", name, ok, err)
+	}
+}
+
+// envVarForPath spells a tree path the way ONLINECONFIG_FROM_ENV reads it: OC_
+// followed by the path's segments joined with a double underscore. Derived from
+// the path constant rather than written out, so the variable cannot drift away
+// from the key it is meant to collide with.
+func envVarForPath(path string) string {
+	return "OC_" + strings.ReplaceAll(strings.Trim(path, "/"), "/", "__")
+}
+
+// The reason the helper exists: work that must outlive its parent still reads
+// configuration. This is the defect the guard addresses, stated as a test — on
+// a context.Background() the same read would not answer from a default, it
+// would dereference the instance that is not in the context.
+func TestDetachedContextStillReadsOnlineConf(t *testing.T) {
+	parent, cancel := context.WithCancel(treeContext(t))
+
+	detached, stop := Detach(parent, 0)
+	defer stop()
+
+	cancel()
+
+	if parent.Err() == nil {
+		t.Fatal("the parent should be canceled at this point")
+	}
+
+	if err := detached.Err(); err != nil {
+		t.Fatalf("the detached context must outlive its parent, it is %v", err)
+	}
+
+	if _, ok := detached.Deadline(); ok {
+		t.Error("a zero timeout must leave the detached context without a deadline")
+	}
+
+	lifetime, err := occonf.SupervisorMinLifetime(detached)
+	if err != nil {
+		t.Fatalf("read on the detached context: %v", err)
+	}
+
+	if lifetime != 11*time.Minute {
+		t.Errorf("the detached context read %v, want the tree's 11m: it lost the configuration", lifetime)
+	}
+
+	// The cancel the helper returns is the only thing that ends a context
+	// detached with no timeout.
+	stop()
+
+	if !errors.Is(detached.Err(), context.Canceled) {
+		t.Errorf("the returned cancel should end the detached context, it is %v", detached.Err())
+	}
+}
+
+// The optional timeout: a deadline of its own, and the values still there up to
+// and past it — a shutdown step reads configuration while it winds down.
+func TestDetachedContextHonorsTheTimeout(t *testing.T) {
+	parent, cancel := context.WithCancel(treeContext(t))
+	defer cancel()
+
+	detached, stop := Detach(parent, 50*time.Millisecond)
+	defer stop()
+
+	deadline, ok := detached.Deadline()
+	if !ok {
+		t.Fatal("a positive timeout should give the detached context a deadline")
+	}
+
+	if until := time.Until(deadline); until <= 0 || until > time.Second {
+		t.Errorf("the deadline is %v away, want about 50ms", until)
+	}
+
+	cancel()
+
+	select {
+	case <-detached.Done():
+		t.Fatal("the detached context must not end with its parent")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	if _, err := occonf.SupervisorMinLifetime(detached); err != nil {
+		t.Fatalf("read on the detached context before its deadline: %v", err)
+	}
+
+	select {
+	case <-detached.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the detached context should have hit its own deadline")
+	}
+
+	if !errors.Is(detached.Err(), context.DeadlineExceeded) {
+		t.Errorf("the detached context ended with %v, want DeadlineExceeded", detached.Err())
+	}
+
+	// Expiry ends the context; it does not empty it. A read after the deadline
+	// is a read the caller should not be making, but it must fail for its own
+	// reason rather than panic on a missing tree.
+	if _, err := occonf.SupervisorMinLifetime(detached); err != nil {
+		t.Errorf("the expired context lost its values: %v", err)
+	}
+}
+`
+
+	writeCmd := fmt.Sprintf("cat > %s/internal/pkg/appctx/derived_context_probe_test.go <<'PROBE_EOF'\n%s\nPROBE_EOF",
+		outputDir, probe)
+
+	code, outputReader, err := container.Exec(ctx, []string{"sh", "-c", writeCmd})
+	require.NoError(t, err, "failed to write the derived-context probe")
+	require.Equal(t, 0, code, "writing the derived-context probe failed: %s", readOutput(outputReader))
 }
 
 // TestIntegrationCLIOnly tests CLI-only project generation and then exercises the
