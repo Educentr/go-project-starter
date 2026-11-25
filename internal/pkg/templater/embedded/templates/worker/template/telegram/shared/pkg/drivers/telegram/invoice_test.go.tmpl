@@ -94,7 +94,10 @@ func unpacked(ctx context.Context, tg *Telegram, payload string) (TelegramInvoic
 // pre_checkout_query и successful_payment — списанные Stars без выдачи товара.
 //
 // Ротируется здесь и токен того же бота, и токен другого: ни один из них на
-// подпись инвойса больше не влияет.
+// подпись инвойса больше не влияет. Для другого бота это утверждение сильнее,
+// чем требует задача (его апдейты оплаты сервис не получит вовсе), и оно
+// осознанное: секрет один на сервис, поэтому возврат токена прежнему боту
+// оставляет неоплаченный инвойс проверяемым — см. комментарий invoiceSignKey.
 func TestTelegramInvoiceSurvivesTokenRotation(t *testing.T) {
 	fake := newFakeTelegram(t)
 	tg := newInvoiceDriver(t)
