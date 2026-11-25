@@ -156,6 +156,10 @@ type injectionScanConfig struct {
 // DigitalOcean Container Registry in both jobs that push images.
 const doRegistryLoginStepName = "Log in to DO Container Registry"
 
+// buildStepName is the name of the step of the build job that builds and
+// pushes the images — the step github_ci.build_env adds its variables to.
+const buildStepName = "Build and push"
+
 // branchVarsStepName is the name of the prepare-env step that resolves the
 // per-branch names of the repository variables and secrets the build reads.
 const branchVarsStepName = "Get branch"
@@ -281,7 +285,7 @@ var runStepNames = []string{
 	// run-goat-tests-<app>
 	"Run GOAT tests for api",
 	// build
-	"Build and push",
+	buildStepName,
 	// build-packages
 	"Install nfpm",
 	"Build packages",
@@ -686,6 +690,15 @@ func findStepByName(t *testing.T, targetDir, stepName string) (string, githubJob
 // to a branch name before using it.
 func sanitizeBranch(branch string) string {
 	return branchSanitizeRx.ReplaceAllString(branch, "_")
+}
+
+// buildStepGeneratedEnv returns the environment variables the "Build and
+// push" step sets itself, whatever the project declares: where the image goes
+// and the credentials its build needs for the private modules. A function
+// rather than a package-level slice, so what one caller does with the slice
+// cannot reach the next one.
+func buildStepGeneratedEnv() []string {
+	return []string{"REGISTRY_SERVER", "GITHUB_TOKEN"}
 }
 
 // stepsByName indexes the steps of a job by step name.
@@ -1797,9 +1810,9 @@ func TestGeneratePrivateModulesAccessPerJob(t *testing.T) {
 	// --secret`, which is what the removal of the runner-side step relies on.
 	buildSteps := stepsByName(wf.Jobs["build"])
 
-	step, ok := buildSteps["Build and push"]
+	step, ok := buildSteps[buildStepName]
 	if !ok {
-		t.Fatalf("job %q has no %q step, got steps %v", "build", "Build and push", wf.Jobs["build"].Steps)
+		t.Fatalf("job %q has no %q step, got steps %v", "build", buildStepName, wf.Jobs["build"].Steps)
 	}
 
 	if got, w := step.Env["GITHUB_TOKEN"], "${{ secrets.GO_MODULES_TOKEN }}"; got != w {
@@ -1828,6 +1841,126 @@ func TestGeneratePrivateModulesAccessWithoutPrivateRepos(t *testing.T) {
 					t.Errorf("%s: job %q has a %q step without git.private_repos", relPath, jobName, name)
 				}
 			}
+		}
+	}
+}
+
+// TestGenerateGithubCIBuildEnv verifies that github_ci.build_env reaches the
+// `env:` of the "Build and push" step with the values declared in
+// project.yaml, next to the ones the template sets itself. The values are read
+// back through the YAML parser, which is what proves the quoting: a workflow
+// expression carries `'`, `,` and `{}`, none of which a plain scalar can hold.
+func TestGenerateGithubCIBuildEnv(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci")
+
+	jobName, _, step := findStepByName(t, tmpDir, buildStepName)
+	if jobName != "build" {
+		t.Errorf("%q step lives in job %q, want it in \"build\"", buildStepName, jobName)
+	}
+
+	// Mirrors build_env in github-ci/project.yaml.
+	want := map[string]string{
+		"IMAGE_REGISTRY": "${{ vars.IMAGE_REGISTRY || " +
+			"format('{0}/{1}', secrets.REGISTRY_LOGIN_SERVER, vars.REGISTRY_CONTAINER) }}",
+		"UPSTREAM_REPO_URL": "${{ github.server_url }}/${{ github.repository_owner }}/some-repo.git",
+	}
+
+	for name, value := range want {
+		got, ok := step.Env[name]
+		if !ok {
+			t.Errorf("%q step env has no %q, got %v", buildStepName, name, slices.Sorted(maps.Keys(step.Env)))
+
+			continue
+		}
+
+		if got != value {
+			t.Errorf("%q step env %s = %q, want %q", buildStepName, name, got, value)
+		}
+	}
+
+	// The declared variables are added to the step, they do not replace it:
+	// without the two the template sets, the build pushes nowhere and the
+	// image gets no module credentials.
+	for _, name := range buildStepGeneratedEnv() {
+		if _, ok := step.Env[name]; !ok {
+			t.Errorf("%q step lost its own %q, got %v", buildStepName, name, slices.Sorted(maps.Keys(step.Env)))
+		}
+	}
+}
+
+// TestGenerateWithoutBuildEnv verifies that a project that does not declare
+// build_env gets the step exactly as before: the `env:` carries the two
+// variables the template sets and nothing else.
+//
+// It is also what pins the reserved name list of the config
+// (config.buildEnvReservedNames) to the template: a third variable added to
+// the step turns this test red, and until it is reserved a project can declare
+// the same name and silently win over the generator.
+func TestGenerateWithoutBuildEnv(t *testing.T) {
+	tmpDir := generateProject(t, "github-ci-defaults")
+
+	_, _, step := findStepByName(t, tmpDir, buildStepName)
+
+	if got, want := slices.Sorted(maps.Keys(step.Env)), slices.Sorted(slices.Values(buildStepGeneratedEnv())); !slices.Equal(got, want) {
+		t.Errorf("%q step env without build_env = %v, want %v", buildStepName, got, want)
+	}
+}
+
+// TestGenerateBuildEnvWithoutDocker verifies that build_env in a project that
+// builds no docker image fails the generation. The variables are set on the
+// "Build and push" step, which ci_cd.yml generates for the docker artifact
+// only, so there would be nothing to render them into — the same silent no-op
+// the image additions rule out.
+func TestGenerateBuildEnvWithoutDocker(t *testing.T) {
+	curDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Error getting current directory: %v", err)
+	}
+
+	fixture := filepath.Join(curDir, "..", "test", "docker-integration", "configs", "github-ci")
+	configDir := t.TempDir()
+
+	spec, err := os.ReadFile(filepath.Join(fixture, "api.swagger.yml"))
+	if err != nil {
+		t.Fatalf("Error reading fixture spec: %v", err)
+	}
+
+	if werr := os.WriteFile(filepath.Join(configDir, "api.swagger.yml"), spec, 0o600); werr != nil {
+		t.Fatalf("Error writing spec: %v", werr)
+	}
+
+	// Same project as the fixture, with its only application building a deb
+	// package instead of an image.
+	project, err := os.ReadFile(filepath.Join(fixture, "project.yaml"))
+	if err != nil {
+		t.Fatalf("Error reading fixture config: %v", err)
+	}
+
+	broken := strings.Replace(string(project),
+		"applications:\n  - name: api\n",
+		"applications:\n  - name: api\n    artifacts: [deb]\n", 1)
+	if broken == string(project) {
+		t.Fatal("fixture config changed shape, the artifacts override was not applied")
+	}
+
+	if werr := os.WriteFile(filepath.Join(configDir, "project.yaml"), []byte(broken), 0o600); werr != nil {
+		t.Fatalf("Error writing config: %v", werr)
+	}
+
+	out, err := ExecCommand(filepath.Join(curDir, ".."), "go", []string{
+		"run", filepath.Join(curDir, "..", "cmd", "go-project-starter", "main.go"),
+		"--target", t.TempDir(),
+		"--configDir", configDir,
+		"--config", "project.yaml",
+	}, "Generate project with build_env and no docker artifact")
+
+	if err == nil {
+		t.Fatalf("generation succeeded with build_env in a project that builds no image\n%s", out)
+	}
+
+	for _, want := range []string{"github_ci.build_env", "docker artifact"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generator error should mention %q, got:\n%s", want, out)
 		}
 	}
 }

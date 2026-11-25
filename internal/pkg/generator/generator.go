@@ -697,12 +697,18 @@ func (g *Generator) processConfig(config cfg.Config) error {
 		return errors.Wrap(err, "invalid github_ci configuration")
 	}
 
+	buildEnv, err := config.GithubCI.ParseBuildEnv()
+	if err != nil {
+		return errors.Wrap(err, "invalid github_ci configuration")
+	}
+
 	g.GithubCI = ds.GithubCIConfig{
 		RunsOn:            runsOn,
 		JobTimeoutMinutes: config.GithubCI.JobTimeout(),
 		DoctlVersion:      config.GithubCI.DoctlVersion,
 		DoctlMode:         config.GithubCI.DoctlMode(),
 		PushBranches:      config.GithubCI.PushBranches,
+		BuildEnv:          buildEnv,
 		Checks: ds.ChecksConfig{
 			// No checks declared — no checks job, CI graph unchanged.
 			Checks:   make([]ds.Check, 0, len(config.GithubCI.Checks)),
@@ -949,6 +955,15 @@ func (g *Generator) processConfig(config cfg.Config) error {
 
 	for a := range artifactSet {
 		g.Artifacts.Types = append(g.Artifacts.Types, a)
+	}
+
+	// The build_env variables are set on the "Build and push" step, which
+	// ci_cd.yml generates together with the build job — that is, for the
+	// docker artifact. Checked here and not in config, because the effective
+	// artifact list is the union of the applications' own ones and is only
+	// known once they are all processed.
+	if len(g.GithubCI.BuildEnv) > 0 && !g.Artifacts.HasDocker() {
+		return cfg.ErrBuildEnvNoDocker
 	}
 
 	if err := g.resolveMetricsApps(); err != nil {

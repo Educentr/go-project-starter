@@ -17,7 +17,12 @@
   запечён в образ собственного раннера, выключить его не мог, а установка в
   каждой джобе гоняется за общий tool-cache раннера (см. [`doctl`](#doctl));
 - `on.push.branches` в обоих файлах был литералом `[main, staging]` — проект,
-  который собирает ещё и `release/**`, своей ветки в триггер добавить не мог.
+  который собирает ещё и `release/**`, своей ветки в триггер добавить не мог;
+- шаг «Build and push» получал ровно две env-переменные (`REGISTRY_SERVER`,
+  `GITHUB_TOKEN`) — проекту, которому в сборку образа нужно значение из
+  `vars`/`secrets` репозитория, оставался sed-патч сгенерированного workflow в
+  `post_generate`: вторая точка правды, которую каждый regenerate стирал, а
+  патч накладывал заново (см. [`build_env`](#build_env)).
 
 Правка сгенерированного файла стиралась следующей регенерацией, и потеря не
 краснела: на `ubuntu-latest` с `latest` doctl workflow остаётся зелёным.
@@ -39,6 +44,9 @@ github_ci:
   push_branches:           # ветки триггера on.push; по умолчанию [main, staging]
     - main
     - 'release/**'
+  build_env:               # переменные шага «Build and push»; по умолчанию нет
+    - name: IMAGE_REGISTRY
+      value: "${{ vars.IMAGE_REGISTRY }}"
   checks:                  # matrix-job checks; по умолчанию не генерируется
     - name: lint
       run: make lint
@@ -333,6 +341,73 @@ github_ci:
 Образ раннера должен давать doctl всем job'ам, которые логинятся в реестр: это
 джоба GOAT-тестов, матричная джоба `build` и — если хотя бы одна проверка
 объявила `registry_login: true` — джоба [`checks`](#checks).
+
+### `build_env`
+
+Переменные окружения, которые добавляются в `env:` шага «Build and push» джобы
+`build` — рядом с `REGISTRY_SERVER` и `GITHUB_TOKEN`, которые шаблон ставит сам.
+Элемент — объект:
+
+| Поле | Обязательное | Значение |
+|---|---|---|
+| `name` | Да | Имя переменной, `[A-Za-z_][A-Za-z0-9_]*` |
+| `value` | Да | Значение: выражение GitHub Actions или литерал. Попадает в workflow **как есть**, вычисляет его раннер |
+
+```yaml
+github_ci:
+  build_env:
+    - name: IMAGE_REGISTRY
+      value: "${{ vars.IMAGE_REGISTRY || format('{0}/{1}', secrets.REGISTRY_LOGIN_SERVER, vars.REGISTRY_CONTAINER) }}"
+    - name: UPSTREAM_REPO_URL
+      value: "${{ github.server_url }}/${{ github.repository_owner }}/contracts.git"
+```
+
+```yaml
+      - name: "Build and push"
+        id: build_and_push
+        env:
+          REGISTRY_SERVER: ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ vars.REGISTRY_CONTAINER }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # github_ci.build_env: the values come verbatim from project.yaml,
+          # the runner evaluates the workflow expressions in them.
+          IMAGE_REGISTRY: '${{ vars.IMAGE_REGISTRY || format(''{0}/{1}'', secrets.REGISTRY_LOGIN_SERVER, vars.REGISTRY_CONTAINER) }}'
+          UPSTREAM_REPO_URL: '${{ github.server_url }}/${{ github.repository_owner }}/contracts.git'
+        run: |
+          make ${{ matrix.containers }}
+          make ${{ matrix.containers }}-push
+```
+
+Значение всегда выводится как одинарно-кавычная YAML-строка (`'` внутри
+удваивается): выражение вроде `format('{0}/{1}', …)` несёт `'`, `,` и `{}`,
+которые plain-скаляр не выдерживает. На вычисление выражения кавычки не влияют —
+YAML разбирается до подстановки, раннер видит ту же строку, что в
+`project.yaml`.
+
+**Зачем это нужно.** `env:` шага — единственный способ отдать сборке образа
+значение из `vars`/`secrets` репозитория: контекст `vars` сам в окружение шага
+не попадает, а из Makefile его не достать. Обратный конец цепочки уже закрывает
+[`docker.build_args`](docker.md#build_args): переменная окружения шага, у
+которой имя совпадает с объявленным build-аргументом, подхватывается
+сгенерированным Makefile (`<name> ?= <default>` оставляет приоритет за
+окружением) и уходит в образ через `--build-arg`. То есть цепочка целиком —
+`vars`/`secrets` → `env:` шага → `?=` в Makefile → `--build-arg` → `ARG` в
+Dockerfile.
+
+Проверки на загрузке конфига:
+
+- имя вне `[A-Za-z_][A-Za-z0-9_]*` — ошибка; имена `REGISTRY_SERVER` и
+  `GITHUB_TOKEN` **зарезервированы**: второй ключ с тем же именем в `env:`
+  победил бы тот, который ставит генератор, и сборка молча пушила бы не туда;
+- дубль имени — ошибка (в YAML это повтор ключа, выигрывает последний);
+- пустое или многострочное значение — ошибка: хвост многострочного значения
+  читался бы как workflow-YAML.
+
+Ключ действует только на шаг «Build and push». Джоба `build-packages`
+(`make packages`) и GitLab CI им не затрагиваются; в GitLab переменные CI/CD и
+так попадают в окружение job'а. Объявить `build_env` в проекте, который не
+собирает docker-образ, нельзя — шаг «Build and push» генерируется вместе с
+docker-артефактом, и переменным было бы некуда попасть; это ошибка генерации, а
+не молчаливый no-op.
 
 ## `checks`
 
@@ -727,7 +802,19 @@ env-переменной и потерянный шаг `GOPRIVATE`.
   **исполняет** шаг из сгенерированного YAML и смотрит на имена, которые тот
   выставил.
 - Имена и команды проверок попадают в YAML дословно из `project.yaml`, поэтому
-  шаблон прогоняет их через хелпер `YAMLQuote`.
+  шаблон прогоняет их через хелпер `YAMLQuote`. Через него же выводятся
+  значения `build_env` — по той же причине.
+- `build_env` разбирает и валидирует `ParseBuildEnv`
+  (`internal/pkg/config/github_ci.go`), нормализованный вид —
+  `ds.GithubCIEnvVar` (`internal/pkg/ds/github_ci.go`). Что проект собирает
+  docker-образ, проверяется в `Generator.processConfig`
+  (`internal/pkg/generator/generator.go`): эффективный список артефактов —
+  объединение артефактов приложений, то есть известен только после того, как
+  они все обработаны. Поведение сгенерированного файла —
+  `TestGenerateGithubCIBuildEnv`, `TestGenerateWithoutBuildEnv` и
+  `TestGenerateBuildEnvWithoutDocker` в `test/github_ci_test.go`; второй из них
+  держит зарезервированные имена в синхроне с шаблоном, сравнивая набор ключей
+  `env:` шага целиком.
 - Доступ к приватным модулям задан фрагментом `privateModulesAccess`
   (`internal/pkg/templater/embedded/partials/github_workflows.tmpl`), общий
   набор фрагментов подмешивается в каждый шаблон (`addSharedPartials`,

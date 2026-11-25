@@ -67,6 +67,27 @@ type GithubCIConfig struct {
 	Checks CheckList `mapstructure:"checks"`
 	// ChecksConfig holds the settings shared by every entry of Checks.
 	ChecksConfig ChecksConfig `mapstructure:"checks_config"`
+	// BuildEnv declares the environment variables added to the `env:` of the
+	// "Build and push" step of the build job, next to the two the template
+	// sets itself. Omitted means the step keeps exactly those two, the
+	// historical output.
+	BuildEnv []GithubCIEnvEntry `mapstructure:"build_env"`
+}
+
+// GithubCIEnvEntry is one environment variable of a generated workflow step,
+// declared by github_ci.build_env.
+//
+// A list of {name, value} and not a map, because viper lowercases config keys:
+// `IMAGE_REGISTRY` as a map key would silently arrive as `image_registry` and
+// the build would never see the variable it reads. The same reason the runtime
+// stage takes its variables as a list (AppDockerEnvEntry).
+type GithubCIEnvEntry struct {
+	// Name is the variable name. Required.
+	Name string `mapstructure:"name"`
+	// Value is the value the step gets — a workflow expression
+	// (`${{ vars.IMAGE_REGISTRY }}`) or a literal, emitted verbatim.
+	// Required: a variable without a value is nothing the step can use.
+	Value string `mapstructure:"value"`
 }
 
 // registryTypeDigitalOcean is the main.registry_type value whose login jobs
@@ -96,6 +117,21 @@ var (
 	ErrPushBranch = errors.New(
 		"github_ci.push_branches: invalid branch filter, expected a branch name or a GitHub filter pattern")
 	ErrPushBranchDuplicate = errors.New("github_ci.push_branches: duplicate branch filter")
+
+	ErrBuildEnvName = errors.New(
+		"github_ci.build_env: name must start with a letter or underscore and contain only letters, digits and underscores")
+	ErrBuildEnvValue     = errors.New("github_ci.build_env: value must be a non-empty single-line string")
+	ErrBuildEnvDuplicate = errors.New("github_ci.build_env: duplicate name")
+	ErrBuildEnvReserved  = errors.New(
+		"github_ci.build_env: name is already set by the generated \"Build and push\" step")
+	// ErrBuildEnvNoDocker reports build_env in a project that builds no docker
+	// image. The variables reach the project through the "Build and push" step
+	// of the build job, which ci_cd.yml generates for the docker artifact
+	// only, so there would be nothing at all to render them into — the silent
+	// no-op ErrAppDockerNoImageAddition rules out for the image additions.
+	ErrBuildEnvNoDocker = errors.New(
+		"github_ci.build_env: declared in a project that builds no docker artifact, " +
+			"the variables are set on the \"Build and push\" step of the build job")
 )
 
 // runsOnTokenRx matches the runner labels and runner group names accepted in
@@ -112,6 +148,30 @@ var runsOnTokenRx = regexp.MustCompile(`^[A-Za-z0-9._/-]+( [A-Za-z0-9._/-]+)*$`)
 // quotes) are rejected here rather than quoted away, because no GitHub filter
 // needs them and a branch name cannot contain them either.
 var pushBranchRx = regexp.MustCompile(`^[A-Za-z0-9._/*?+!\[\]-]+$`)
+
+// buildEnvNameRx matches the accepted github_ci.build_env names. The shape is
+// that of a docker build argument (dockerArgNamePattern) on purpose: the
+// documented use of the key is to hand a repository `vars` value to a
+// docker.build_args argument of the same name, which the Makefile picks up
+// through `?=` — a name only one of the two accepts would break that chain.
+var buildEnvNameRx = regexp.MustCompile(`^` + dockerArgNamePattern + `$`)
+
+// buildEnvUnsafeValueRx matches what a build_env value may not carry: a line
+// break, which would turn the rest of the value into workflow YAML of its own,
+// and the other control characters, which a YAML scalar cannot hold as is.
+// Everything else — `:`, `#`, quotes — is kept and quoted by the template
+// (YAMLQuote), because a workflow expression legitimately contains them
+// (`format('{0}/{1}', …)`).
+var buildEnvUnsafeValueRx = regexp.MustCompile(`[\x00-\x1f\x7f]`)
+
+// buildEnvReservedNames lists the variables the "Build and push" step of
+// main/.github/workflows/ci_cd.yml.tmpl sets itself. Taking one of them would
+// emit the same key twice in the step's `env:`; the later one wins, so the
+// project would silently lose the value the generator put there.
+var buildEnvReservedNames = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
+	"REGISTRY_SERVER": {},
+	"GITHUB_TOKEN":    {},
+}
 
 // doctlVersionRx matches the accepted github_ci.doctl_version values, e.g.
 // "1.170.0". Restricted to a version-like token so the generated `version:`
@@ -241,6 +301,43 @@ func (g GithubCIConfig) validatePushBranches() error {
 	return nil
 }
 
+// ParseBuildEnv validates github_ci.build_env and returns the variables in the
+// order they were declared, which is the order the step's `env:` gets them. A
+// nil result means the key was omitted and the step keeps the two variables
+// the template sets itself.
+func (g GithubCIConfig) ParseBuildEnv() ([]ds.GithubCIEnvVar, error) {
+	if len(g.BuildEnv) == 0 {
+		return nil, nil
+	}
+
+	out := make([]ds.GithubCIEnvVar, 0, len(g.BuildEnv))
+	seen := make(map[string]struct{}, len(g.BuildEnv))
+
+	for _, entry := range g.BuildEnv {
+		if !buildEnvNameRx.MatchString(entry.Name) {
+			return nil, fmt.Errorf(errFmtGotValue, ErrBuildEnvName, entry.Name)
+		}
+
+		if _, reserved := buildEnvReservedNames[entry.Name]; reserved {
+			return nil, fmt.Errorf(errFmtGotValue, ErrBuildEnvReserved, entry.Name)
+		}
+
+		if entry.Value == "" || buildEnvUnsafeValueRx.MatchString(entry.Value) {
+			return nil, fmt.Errorf(errFmtNamedValue, ErrBuildEnvValue, entry.Name, entry.Value)
+		}
+
+		if _, dup := seen[entry.Name]; dup {
+			return nil, fmt.Errorf(errFmtGotValue, ErrBuildEnvDuplicate, entry.Name)
+		}
+
+		seen[entry.Name] = struct{}{}
+
+		out = append(out, ds.GithubCIEnvVar{Name: entry.Name, Value: entry.Value})
+	}
+
+	return out, nil
+}
+
 // JobTimeout returns the configured job timeout in minutes, or 0 when the
 // timeout is not configured.
 func (g GithubCIConfig) JobTimeout() int {
@@ -284,6 +381,10 @@ func (g GithubCIConfig) IsValid(registryType string) (bool, string) {
 
 	if ok, msg := g.validateChecks(); !ok {
 		return false, msg
+	}
+
+	if _, err := g.ParseBuildEnv(); err != nil {
+		return false, err.Error()
 	}
 
 	return g.validateDoctlMode(registryType)

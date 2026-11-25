@@ -559,6 +559,13 @@ jobs:
         env:
           REGISTRY_SERVER: ${{"{{"}} secrets.REGISTRY_LOGIN_SERVER {{"}}"}}/${{"{{"}} vars.REGISTRY_CONTAINER {{"}}"}}
           GITHUB_TOKEN: ${{"{{"}} secrets.{{ $.PrivateReposTokenSecretName }} {{"}}"}}
+{{- if $.GithubCI.BuildEnv }}
+          # github_ci.build_env: the values come verbatim from project.yaml,
+          # the runner evaluates the workflow expressions in them.
+{{- range $e := $.GithubCI.BuildEnv }}
+          {{ $e.Name }}: {{ $e.Value | YAMLQuote }}
+{{- end }}
+{{- end }}
         run: |
           make ${{"{{"}} matrix.containers {{"}}"}}
           make ${{"{{"}} matrix.containers {{"}}"}}-push
