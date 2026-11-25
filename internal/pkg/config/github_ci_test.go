@@ -550,12 +550,46 @@ func TestGithubCIConfig_ParseBuildEnv(t *testing.T) {
 			wantErr:  `"GITHUB_TOKEN"`,
 		},
 		{
+			// The keys of an env: mapping are compared case-insensitively, so
+			// this is the same key the step already sets — the workflow would
+			// carry it twice and stop being valid.
+			name:     "name the step sets, written in another case, is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "github_token", Value: "x"}},
+			wantErr:  `step: "github_token" (the same env key as "GITHUB_TOKEN"`,
+		},
+		{
+			name:     "mixed-case REGISTRY_SERVER is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "Registry_Server", Value: "x"}},
+			wantErr:  `step: "Registry_Server" (the same env key as "REGISTRY_SERVER"`,
+		},
+		{
+			// GitHub ignores an assignment to its own default variables, so
+			// the build would never see the value.
+			name:     "a GITHUB_ default variable is rejected",
+			buildEnv: []GithubCIEnvEntry{{Name: "GITHUB_SHA", Value: "x"}},
+			wantErr:  `GitHub reserves the GITHUB_ and RUNNER_ prefixes`,
+		},
+		{
+			name:     "a RUNNER_ default variable is rejected, in any case",
+			buildEnv: []GithubCIEnvEntry{{Name: "runner_os", Value: "x"}},
+			wantErr:  `"runner_os" starts with RUNNER_`,
+		},
+		{
 			name: "duplicate name is rejected",
 			buildEnv: []GithubCIEnvEntry{
 				{Name: "IMAGE_REGISTRY", Value: "a"},
 				{Name: "IMAGE_REGISTRY", Value: "b"},
 			},
 			wantErr: `github_ci.build_env: duplicate name: "IMAGE_REGISTRY"`,
+		},
+		{
+			// Two names that differ only in case are one env: key as well.
+			name: "names differing only in case are rejected as a duplicate",
+			buildEnv: []GithubCIEnvEntry{
+				{Name: "IMAGE_REGISTRY", Value: "a"},
+				{Name: "image_registry", Value: "b"},
+			},
+			wantErr: `duplicate name: "image_registry" (the same env key as "IMAGE_REGISTRY"`,
 		},
 		{
 			name:     "empty value is rejected",

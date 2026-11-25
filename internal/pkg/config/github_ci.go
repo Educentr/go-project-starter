@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/Educentr/go-project-starter/internal/pkg/ds"
 	"github.com/pkg/errors"
@@ -98,6 +99,9 @@ const registryTypeDigitalOcean = "digitalocean"
 const (
 	errFmtGotType  = "%w, got %T"
 	errFmtGotValue = "%w: %q"
+	// errFmtGotValueNote wraps the sentinel with the offending value and a
+	// note that explains a collision the names alone do not show (sameEnvKeyNote).
+	errFmtGotValueNote = "%w: %q%s"
 )
 
 // Sentinel errors of the github_ci section. Use errors.Is to distinguish.
@@ -124,6 +128,16 @@ var (
 	ErrBuildEnvDuplicate = errors.New("github_ci.build_env: duplicate name")
 	ErrBuildEnvReserved  = errors.New(
 		"github_ci.build_env: name is already set by the generated \"Build and push\" step")
+	// ErrBuildEnvDefaultVar reports a name GitHub reserves for its own default
+	// environment variables. An assignment to one of those is ignored by the
+	// runner, so the variable would never reach the build — a silent no-op,
+	// which is what the rest of the key's validation rules out too. The
+	// workflow context (`${{ github.sha }}`) is the way to read such a value;
+	// it can be handed to a variable of any other name.
+	ErrBuildEnvDefaultVar = errors.New(
+		"github_ci.build_env: GitHub reserves the GITHUB_ and RUNNER_ prefixes for its default " +
+			"environment variables and ignores an assignment to them; rename the variable and pass " +
+			"the value through a workflow context expression")
 	// ErrBuildEnvNoDocker reports build_env in a project that builds no docker
 	// image. The variables reach the project through the "Build and push" step
 	// of the build job, which ci_cd.yml generates for the docker artifact
@@ -165,12 +179,55 @@ var buildEnvNameRx = regexp.MustCompile(`^` + dockerArgNamePattern + `$`)
 var buildEnvUnsafeValueRx = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 
 // buildEnvReservedNames lists the variables the "Build and push" step of
-// main/.github/workflows/ci_cd.yml.tmpl sets itself. Taking one of them would
-// emit the same key twice in the step's `env:`; the later one wins, so the
-// project would silently lose the value the generator put there.
+// main/.github/workflows/ci_cd.yml.tmpl sets itself, keyed by buildEnvKey.
+// Taking one of them would emit the same key twice in the step's `env:`; the
+// later one wins, so the project would silently lose the value the generator
+// put there.
 var buildEnvReservedNames = map[string]struct{}{ //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
 	"REGISTRY_SERVER": {},
 	"GITHUB_TOKEN":    {},
+}
+
+// buildEnvDefaultVarPrefixes lists the prefixes GitHub reserves for its own
+// default environment variables (GITHUB_SHA, RUNNER_OS, …). Compared against
+// buildEnvKey, so the case a name is written in does not matter — neither does
+// it to the runner.
+var buildEnvDefaultVarPrefixes = []string{"GITHUB_", "RUNNER_"} //nolint:gochecknoglobals // fixed lookup table, written as a literal and read-only afterwards
+
+// buildEnvKey normalizes a build_env name into the key GitHub Actions compares
+// it by. The keys of an `env:` mapping are case-insensitive, so `github_token`
+// and `GITHUB_TOKEN` are one key: a name that differs only in case from a
+// reserved one — or from another declared one — emits the same key twice and
+// the workflow stops being valid ("key is duplicated in env section ... note
+// that this key is case insensitive", actionlint).
+func buildEnvKey(name string) string {
+	return strings.ToUpper(name)
+}
+
+// buildEnvDefaultVarPrefix reports whether the normalized name falls into the
+// space GitHub keeps for its default environment variables, and with which
+// prefix. Checked by prefix rather than against the list of the default
+// variables themselves: that list grows on GitHub's side, and a name matching
+// a future default would silently become the no-op this rules out.
+func buildEnvDefaultVarPrefix(key string) (string, bool) {
+	for _, prefix := range buildEnvDefaultVarPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return prefix, true
+		}
+	}
+
+	return "", false
+}
+
+// sameEnvKeyNote explains a collision the two names do not show on their own:
+// they are one `env:` key because the comparison ignores case. Empty when the
+// names are identical, where the collision needs no explaining.
+func sameEnvKeyNote(name, collidesWith string) string {
+	if name == collidesWith {
+		return ""
+	}
+
+	return fmt.Sprintf(" (the same env key as %q, GitHub Actions compares env keys case-insensitively)", collidesWith)
 }
 
 // doctlVersionRx matches the accepted github_ci.doctl_version values, e.g.
@@ -311,26 +368,34 @@ func (g GithubCIConfig) ParseBuildEnv() ([]ds.GithubCIEnvVar, error) {
 	}
 
 	out := make([]ds.GithubCIEnvVar, 0, len(g.BuildEnv))
-	seen := make(map[string]struct{}, len(g.BuildEnv))
+	// Keyed by buildEnvKey and holding the name as it was declared, so a
+	// collision that only differs in case can name both sides.
+	seen := make(map[string]string, len(g.BuildEnv))
 
 	for _, entry := range g.BuildEnv {
 		if !buildEnvNameRx.MatchString(entry.Name) {
 			return nil, fmt.Errorf(errFmtGotValue, ErrBuildEnvName, entry.Name)
 		}
 
-		if _, reserved := buildEnvReservedNames[entry.Name]; reserved {
-			return nil, fmt.Errorf(errFmtGotValue, ErrBuildEnvReserved, entry.Name)
+		key := buildEnvKey(entry.Name)
+
+		if _, reserved := buildEnvReservedNames[key]; reserved {
+			return nil, fmt.Errorf(errFmtGotValueNote, ErrBuildEnvReserved, entry.Name, sameEnvKeyNote(entry.Name, key))
+		}
+
+		if prefix, isDefault := buildEnvDefaultVarPrefix(key); isDefault {
+			return nil, fmt.Errorf("%w: %q starts with %s", ErrBuildEnvDefaultVar, entry.Name, prefix)
 		}
 
 		if entry.Value == "" || buildEnvUnsafeValueRx.MatchString(entry.Value) {
 			return nil, fmt.Errorf(errFmtNamedValue, ErrBuildEnvValue, entry.Name, entry.Value)
 		}
 
-		if _, dup := seen[entry.Name]; dup {
-			return nil, fmt.Errorf(errFmtGotValue, ErrBuildEnvDuplicate, entry.Name)
+		if first, dup := seen[key]; dup {
+			return nil, fmt.Errorf(errFmtGotValueNote, ErrBuildEnvDuplicate, entry.Name, sameEnvKeyNote(entry.Name, first))
 		}
 
-		seen[entry.Name] = struct{}{}
+		seen[key] = entry.Name
 
 		out = append(out, ds.GithubCIEnvVar{Name: entry.Name, Value: entry.Value})
 	}
