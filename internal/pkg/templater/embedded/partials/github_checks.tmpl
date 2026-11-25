@@ -1,0 +1,178 @@
+{{/*
+The checks job of the generated GitHub Actions workflows, shared by the two
+workflows that run it.
+
+checksJob renders one matrix job out of github_ci.checks: the project's own
+guards (lint, unit tests, whatever else it declares), each as a leg of its own.
+Both workflows run the same legs, because a check worth gating a merge on is
+worth running before the merge — ci_cd.yml on push, pr-checks.yml on a pull
+request. Before the fragment existed, the push copy was the only one, and a
+project that wanted its checks on pull requests kept a workflow of its own
+alongside the generated one.
+
+Call it with the render context of one of the two workflows
+(GeneratorParams.ChecksOnPush / ChecksOnPullRequest): the only differences
+between them live under .PullRequest, so the legs themselves cannot drift
+apart. They are:
+
+  - The gate. On push the job waits for prepare-env and runs only for a branch
+    whose repository variable enables the build, as the rest of that workflow
+    does. On a pull request there is no such variable to read: GITHUB_REF is
+    refs/pull/<N>/merge, so the name built out of it (ENABLED_REFS_PULL_<N>_MERGE)
+    cannot exist, and a job gated on it would report `skipped` on every pull
+    request — a green run with no check in it, which is worse than no checks
+    at all. vars.SKIP_CHECKS applies to both: it is the project's switch for
+    turning the checks off, and a switch that works in one workflow and not in
+    the other is not a switch.
+
+  - LINT_BASE_REV, the revision `make lint` compares against. Its default is
+    origin/main, which on a pull request means main as it is *now*: once main
+    moves, a re-run reports lines the pull request never touched. The base of
+    the pull request is what it was merged into, so that is what the job hands
+    the Makefile. The checkout below fetches the full history, which is what
+    makes that commit resolvable.
+
+  - The registry login. On a pull request from a fork the secrets are empty,
+    and docker/login-action with an empty password fails the leg before the
+    check it was supposed to guard ever runs. So on a pull request the login
+    steps also require the credential to be present; a leg that genuinely
+    needs the registry still fails, but on its own command and with its own
+    message, rather than on a login nobody could have performed.
+
+The body starts with a single newline and ends without one, so a call on a line
+of its own renders the job where the call site puts it — see the call sites in
+both workflow templates.
+*/}}
+{{- define "checksJob" }}
+  checks:
+    {{ $.GithubCI.JobHeader }}
+{{- if .PullRequest }}
+    if: vars.SKIP_CHECKS != 'true'
+    env:
+      # Revision `make lint` compares against: the commit this pull request is
+      # merged into, instead of the Makefile's origin/main default. Passed as a
+      # job variable rather than written into the recipe, both because that is
+      # where a value belongs (GitHub Security hardening -> script injection)
+      # and because make reads it from the environment through `?=`.
+      LINT_BASE_REV: ${{"{{"}} github.event.pull_request.base.sha {{"}}"}}
+{{- if $.GithubCI.Checks.HasRegistryLogin }}
+      # The registry credential, read only to tell whether this run has one:
+      # a pull request from a fork does not, and the login steps below skip
+      # themselves rather than fail the whole leg. Secrets cannot be read in a
+      # job-level `if:`, and a step-level one cannot see a value the same step
+      # sets, so the presence check goes through a job variable.
+      REGISTRY_CREDENTIAL: ${{"{{"}} secrets.{{ $.RegistryCredentialSecret }} {{"}}"}}
+{{- end }}
+{{- else }}
+    needs:
+      - prepare-env
+    if: needs.prepare-env.outputs.ENABLE_BUILD == 'true' && vars.SKIP_CHECKS != 'true'
+{{- end }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      # fail-fast: false lets one push report every violation instead of the first.
+      fail-fast: {{ .GithubCI.Checks.FailFast }}
+      matrix:
+        include:
+{{- range $_, $c := .GithubCI.Checks.Checks }}
+          - name: {{ $c.Name | YAMLQuote }}
+            run: {{ $c.Run | YAMLQuote }}
+{{- if $.GithubCI.Checks.HasRegistryLogin }}
+            registry_login: {{ $c.RegistryLogin }}
+{{- end }}
+{{- end }}
+    name: checks (${{"{{"}} matrix.name {{"}}"}})
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+{{- if .PullRequest }}
+          # Full history: `make lint` diffs against the base commit of the
+          # pull request, which a shallow checkout does not contain.
+{{- else }}
+          # Full history: `make lint` diffs against origin/main.
+{{- end }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '{{ .GoLangVersion }}'
+          cache: true
+{{- if .GithubCI.Checks.HasRegistryLogin }}
+{{- if eq .RegistryType "github" }}
+
+      - name: Log in to GitHub Container Registry
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{"{{"}} secrets.GHCR_USER {{"}}"}}
+          password: ${{"{{"}} secrets.GHCR_TOKEN {{"}}"}}
+{{- else if eq .RegistryType "digitalocean" }}
+{{- if $.GithubCI.DoctlFromImage }}
+
+      - name: Log in to DO Container Registry
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+        run: |
+          doctl version
+          doctl registry login
+{{- else }}
+
+      - name: Install doctl
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- if $.GithubCI.DoctlVersion }}
+          version: {{ $.GithubCI.DoctlVersion }}
+{{- end }}
+
+      - name: Log in to DO Container Registry
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        run: doctl registry login
+{{- end }}
+{{- else if eq .RegistryType "aws" }}
+
+      - name: Configure AWS credentials
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{"{{"}} secrets.AWS_ACCESS_KEY_ID {{"}}"}}
+          aws-secret-access-key: ${{"{{"}} secrets.AWS_SECRET_ACCESS_KEY {{"}}"}}
+          aws-region: ${{"{{"}} secrets.AWS_REGION {{"}}"}}
+
+      - name: Log in to Amazon ECR
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        uses: aws-actions/amazon-ecr-login@v2
+{{- else if eq .RegistryType "selfhosted" }}
+
+      - name: Log in to Docker Registry
+        if: ${{"{{"}} {{ $.RegistryLoginIf }} {{"}}"}}
+        uses: docker/login-action@v2
+        with:
+          registry: ${{"{{"}} secrets.REGISTRY_URL {{"}}"}}
+          username: ${{"{{"}} secrets.REGISTRY_USERNAME {{"}}"}}
+          password: ${{"{{"}} secrets.REGISTRY_PASSWORD {{"}}"}}
+{{- end }}
+{{- end }}
+{{- template "privateModulesAccess" $ }}
+
+      - name: Run check ${{"{{"}} matrix.name {{"}}"}}
+        run: ${{"{{"}} matrix.run {{"}}"}}
+
+      - name: Report checks status
+        uses: act10ns/slack@v2
+        if: failure()
+        with:
+          status: ${{"{{"}} job.status {{"}}"}}
+          steps: ${{"{{"}} toJson(steps) {{"}}"}}
+          matrix: ${{"{{"}} toJson(matrix) {{"}}"}}
+        env:
+          SLACK_WEBHOOK_URL: ${{"{{"}} secrets.ACTION_MONITORING_SLACK {{"}}"}}
+{{- end }}

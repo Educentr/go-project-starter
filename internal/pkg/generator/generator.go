@@ -403,6 +403,8 @@ func (g *Generator) processConfig(config cfg.Config) error {
 			},
 			PublicService: rest.PublicService,
 			RewriteRefs:   rest.RewriteRefs,
+			// Empty for a client: config validation rejects listen_ip on one.
+			ListenIP: rest.ListenIP,
 		}
 
 		if rest.GeneratorType == "ogen_client" {

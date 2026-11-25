@@ -31,7 +31,7 @@
 
 | Команда | Описание |
 |---------|----------|
-| `make lint` | Проверка изменений относительно main |
+| `make lint` | Проверка изменений относительно `LINT_BASE_REV` (по умолчанию `origin/main`) |
 | `make lint-full` | Полный lint всего кода |
 | `make lint-fix` | Автоисправление lint ошибок |
 | `make install-lint` | Установка golangci-lint |

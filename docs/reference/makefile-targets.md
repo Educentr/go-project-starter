@@ -48,6 +48,23 @@
 | `make generate-{generator}` | Вызов генератора на каждой его спеке; в зависимостях `generate` |
 | `make lint-{generator}` | Линтер генератора; в зависимостях `lint` |
 
+### `install-hooks`
+
+Ставит git-хуки проекта (`scripts/githooks/pre-commit`); входит в `install-tools`,
+то есть выполняется и при `make regenerate` с `post_generate: tools_install`.
+
+Каталог цель спрашивает у git (`git rev-parse --git-path hooks`), а не собирает как
+`./.git/hooks`: в **git worktree** `.git` — это файл со ссылкой на настоящий каталог,
+поэтому собранный путь не существовал, `cp` падал и обрывал весь `make regenerate` —
+до запуска генераторов дело не доходило, и сгенерированный код молча оставался
+старым. Тот же вопрос учитывает `core.hooksPath`, так что хук попадает туда, где его
+ищет git, при любой настройке. Скопированному хуку выставляется бит исполнения:
+неисполняемый хук git пропускает, ничего об этом не сообщая.
+
+Вне git-репозитория цель печатает `not a git repository: skipping git hooks` и
+завершается успешно — ставить хуки некуда, но ронять из-за этого `make regenerate`
+не за что.
+
 ## Тестирование
 
 | Цель | Описание |
@@ -63,7 +80,7 @@
 
 | Цель | Описание |
 |------|----------|
-| `make lint` | Проверка изменений относительно main |
+| `make lint` | Проверка изменений относительно `LINT_BASE_REV` (по умолчанию `origin/main`) |
 | `make lint-full` | Полный lint всего кода |
 | `make lint-fix` | Автоисправление lint ошибок |
 | `make install-lint` | Установка golangci-lint |
@@ -74,6 +91,19 @@
 ```bash
 make lint LINT_ARGS='--build-tags=integration'
 ```
+
+Ревизия, с которой сравнивает `make lint`, задаётся переменной `LINT_BASE_REV`
+(по умолчанию `origin/main`):
+
+```bash
+make lint LINT_BASE_REV=$(git merge-base origin/main HEAD)
+```
+
+`origin/main` — это main **на момент запуска**, поэтому для открытого pull
+request'а база неверна: стоит main уйти вперёд, и линтер краснеет на строках,
+которых PR не трогал. Сгенерированный workflow `pr-checks.yml` выставляет
+`LINT_BASE_REV` в базовый коммит PR сам — см.
+[GitHub CI](../configuration/github-ci.md#проверки-на-pull-requestе-pr-checksyml).
 
 ## Docker
 

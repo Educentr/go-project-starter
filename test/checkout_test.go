@@ -24,7 +24,7 @@ func checkoutSteps(t *testing.T, targetDir string) []checkoutStep {
 
 	steps := []checkoutStep{}
 
-	for _, name := range generatedWorkflowNames {
+	for _, name := range generatedWorkflowsIn(t, targetDir) {
 		wf := parseWorkflow(t, targetDir, name)
 
 		for jobName, job := range wf.Jobs {
@@ -85,8 +85,12 @@ func TestGenerateCheckoutPersistCredentials(t *testing.T) {
 	steps := checkoutSteps(t, tmpDir)
 
 	// Guards against a template change that stops emitting a checkout and
-	// would otherwise make the assertions below pass vacuously.
-	wantJobs := []string{"build", "build-packages", "check-go-mod-version", "checks", "prepare-env", "run-goat-tests-api"}
+	// would otherwise make the assertions below pass vacuously. `checks`
+	// appears twice because two workflows run that job: ci_cd.yml on push and
+	// pr-checks.yml on a pull request.
+	wantJobs := []string{
+		"build", "build-packages", "check-go-mod-version", "checks", "checks", "prepare-env", "run-goat-tests-api",
+	}
 
 	if got := checkoutJobs(steps); !equalStrings(got, wantJobs) {
 		t.Errorf("jobs with a checkout step = %v, want %v", got, wantJobs)

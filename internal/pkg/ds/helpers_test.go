@@ -1316,6 +1316,75 @@ func TestApps_RESTServerPorts(t *testing.T) {
 	}
 }
 
+// The addresses the generated REST configuration provider falls back to: the
+// ones project.yaml declares, keyed by the same server name as the ports.
+func TestApps_RESTServerListenIPs(t *testing.T) {
+	apps := Apps{
+		{
+			Name: "web",
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", PkgName: "api_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8080", ListenIP: "127.0.0.1",
+				},
+				"sys": Transport{
+					Name: "sys", PkgName: "sys_v1", Type: RestTransportType,
+					GeneratorType: "template", Port: "8085", ListenIP: "[::1]",
+				},
+				// No address declared: the provider answers with the
+				// runtime's default, as it did before the key existed.
+				"public": Transport{
+					Name: "public", PkgName: "public_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8081",
+				},
+				// A client dials an address instead of listening on one;
+				// config validation rejects the key there.
+				"billing": Transport{
+					Name: "billing", PkgName: "billing_v1", Type: RestTransportType,
+					GeneratorType: "ogen_client", ListenIP: "127.0.0.1",
+				},
+				// Another protocol entirely.
+				"items": Transport{Name: "items", Type: GrpcTransportType, ListenIP: "127.0.0.1"},
+			},
+		},
+		{
+			// The same server served by a second application is one entry.
+			Name: "admin",
+			Transports: Transports{
+				"api": Transport{
+					Name: "api", PkgName: "api_v1", Type: RestTransportType,
+					GeneratorType: "ogen", Port: "8080", ListenIP: "127.0.0.1",
+				},
+			},
+		},
+	}
+
+	got := apps.RESTServerListenIPs()
+
+	want := []RESTServerListenIP{
+		{Server: "api_v1", ListenIP: "127.0.0.1"},
+		{Server: "sys_v1", ListenIP: "[::1]"},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("Apps.RESTServerListenIPs() = %+v, want %+v", got, want)
+	}
+
+	for i, server := range want {
+		if got[i] != server {
+			t.Errorf("Apps.RESTServerListenIPs()[%d] = %+v, want %+v", i, got[i], server)
+		}
+	}
+
+	// A project that declares no address renders no table at all, which is
+	// what keeps its generated provider unchanged.
+	if got := (Apps{{Name: "web", Transports: Transports{
+		"api": Transport{Name: "api", PkgName: "api_v1", Type: RestTransportType, GeneratorType: "ogen", Port: "8080"},
+	}}}).RESTServerListenIPs(); len(got) != 0 {
+		t.Errorf("Apps.RESTServerListenIPs() = %+v, want nothing when no transport declares an address", got)
+	}
+}
+
 func TestApps_DeclaresPublicDomain(t *testing.T) {
 	apps := Apps{
 		{

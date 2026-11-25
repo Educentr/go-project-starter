@@ -289,10 +289,17 @@ func TestLintTargetsFlags(t *testing.T) {
 		t.Error("generated Makefile must declare the overridable LINT_ARGS variable")
 	}
 
+	// The comparison revision is overridable too, and defaults to what the
+	// recipe used to spell out: the generated pull-request workflow points it
+	// at the base of the pull request instead (TOOLS-133).
+	if !strings.Contains(makefile, "LINT_BASE_REV ?= origin/main") {
+		t.Error("generated Makefile must declare LINT_BASE_REV with the origin/main default")
+	}
+
 	// All three lint targets must forward LINT_ARGS, otherwise lint and
 	// lint-fix would look at a different set of files.
 	expectedCommands := []string{
-		`$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=origin/main $(LINT_ARGS)`,
+		`$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... --new-from-rev=$(LINT_BASE_REV) $(LINT_ARGS)`,
 		`$(GOLANGCI_BIN) --timeout=5m run --config=./configs/golangci-lint.yml ./... $(LINT_ARGS)`,
 		`$(GOLANGCI_BIN) run --fix --config=./configs/golangci-lint.yml ./... $(LINT_ARGS)`,
 	}

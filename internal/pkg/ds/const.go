@@ -995,6 +995,10 @@ type Transport struct {
 	SpecTargetFiles []string
 	ApiVersion      string // перенесено из Hendler
 	Port            string // перенесено из Hendler
+	// ListenIP is the address project.yaml declares for this server
+	// (rest[].listen_ip), empty when it declares none. Server transports
+	// only: a client dials an address rather than listening on one.
+	ListenIP        string
 	BufLocalPlugins bool   // Use local buf instead of docker for proto generation
 	Instantiation   string // "static" (default) or "dynamic" - only for ogen_client
 	Optional        bool   // true = optional dependency for this app
@@ -1425,6 +1429,61 @@ func (a Apps) RESTServerPorts() []RESTServerPort {
 		seen[transport.PkgName] = struct{}{}
 
 		out = append(out, RESTServerPort{Server: transport.PkgName, Port: transport.Port})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Server < out[j].Server })
+
+	return out
+}
+
+// RESTServerListenIP is one REST server of the project and the address
+// project.yaml declares for it.
+//
+//nolint:decorder // follows existing pattern - declared next to the method producing it
+type RESTServerListenIP struct {
+	// Server is the name the generated main hands to rest.NewServer
+	// (<transport>_<version>) — the name the runtime hands back to the
+	// configuration provider, so the key the provider resolves an address
+	// under. Same identity as RESTServerPort.Server.
+	Server string
+	// ListenIP is the declared address, in the form the server configuration
+	// carries it in.
+	ListenIP string
+}
+
+// RESTServerListenIPs returns the address project.yaml declares for every REST
+// server of the project, sorted by server name.
+//
+// It is the default the generated configuration provider applies when neither
+// form of the `ip` key is set in OnlineConf — the same role RESTServerPorts
+// plays for the port, and for the same reason: an application that serves only
+// the machine it runs on has to bind to loopback, and until the address could
+// be declared, every installation seeded the key by hand to say so.
+//
+// Servers without a declared address are left out, so a project that declares
+// none renders no table at all and its provider is unchanged. Clients are left
+// out too — config validation rejects the key on them (validateListenIP), this
+// is the second half of the same statement.
+func (a Apps) RESTServerListenIPs() []RESTServerListenIP {
+	out := make([]RESTServerListenIP, 0, len(a))
+	seen := make(map[string]struct{}, len(a))
+
+	for _, transport := range a.GetRestTransport() {
+		if transport.GeneratorType == ogenClientGeneratorType {
+			continue
+		}
+
+		if transport.ListenIP == "" {
+			continue
+		}
+
+		if _, dup := seen[transport.PkgName]; dup {
+			continue
+		}
+
+		seen[transport.PkgName] = struct{}{}
+
+		out = append(out, RESTServerListenIP{Server: transport.PkgName, ListenIP: transport.ListenIP})
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Server < out[j].Server })

@@ -178,6 +178,24 @@ func GetMainTemplates(params GeneratorParams) (dirs []ds.Files, files []ds.Files
 		files = filteredFiles
 	}
 
+	// The pull-request workflow is the checks matrix and nothing else, so a
+	// project that declares no checks (github_ci.checks) gets no such file at
+	// all — an empty matrix is a workflow GitHub rejects, and the point of the
+	// file is the checks.
+	if !params.GithubCI.Checks.Enabled() {
+		filteredFiles := make([]ds.Files, 0, len(files))
+
+		for _, f := range files {
+			if f.DestName == filepath.FromSlash(prCheckWorkflowPath) {
+				continue
+			}
+
+			filteredFiles = append(filteredFiles, f)
+		}
+
+		files = filteredFiles
+	}
+
 	// A validator config only makes sense alongside the map it enforces, and so
 	// does the registry of the surface the map describes. The OnlineConf map is
 	// never absent — the generated code's half of it is always there — so its
