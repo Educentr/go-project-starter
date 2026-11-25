@@ -20,6 +20,53 @@ RUN cd {{ $w.Dir }} && {{ $w.Install }}
 {{- end }}
 RUN cd {{ $w.Dir }} && {{ $w.Build }}
 
+{{ end }}{{ range $_, $f := .Application.Docker.Fetch }}# Tool '{{ $f.Name }}', declared in the `fetch` list of the docker section of
+# the application in project.yaml. It arrives in a stage of its own and is
+# copied into the runtime stage below, rather than being added there directly:
+# that keeps the runtime stage free of RUN (so a shell-less base image still
+# builds) and of ARG (whose value change invalidates the cache of every layer
+# under it). The mode is set by the instruction itself — ADD from a URL leaves
+# the file non-executable, and a chmod would need a shell this stage has none of.
+{{- if $f.PerPlatform }}
+#
+# One digest cannot cover a file whose name carries the architecture, and a
+# Dockerfile cannot choose between digests. Hence a stage per declared
+# architecture plus the selector below it, where TARGETARCH resolves in the
+# global scope. BuildKit builds only the stage the selector reaches, so a build
+# downloads the file of the architecture it is building for and no other.
+{{- range $_, $v := $f.Variants }}
+FROM scratch AS {{ $f.VariantStageName $v.Arch }}
+ARG TARGETARCH
+ARG TARGETOS
+{{ $f.AddDirective $v.Digest }}
+{{- end }}
+FROM {{ $f.SelectorImage }} AS {{ $f.StageName }}
+{{- else }}
+FROM scratch AS {{ $f.StageName }}
+ARG TARGETARCH
+ARG TARGETOS
+{{ $f.AddDirective $f.Checksum }}
+{{- end }}
+
+{{ end }}{{ range $_, $s := .Application.Docker.Stages }}# Stage '{{ $s.Name }}', declared in the `stages` list of the docker section of
+# the application in project.yaml — a tool no package manager provides is
+# installed here and copied into the runtime stage below.
+#
+# Pinned to the platform of the build host: a multi-platform build would
+# otherwise run the stage once per target platform, under emulation. Whatever is
+# architecture-dependent in it takes the target from TARGETARCH, declared below,
+# and so has to pass it on explicitly. The stage gets no build context, so the
+# version of the tool is pinned in the command itself.
+{{ $s.StageFrom }}
+ARG TARGETARCH
+ARG TARGETOS
+{{- with $s.WorkdirDirective }}
+{{ . }}
+{{- end }}
+{{- range $_, $cmd := $s.Run }}
+RUN {{ $cmd }}
+{{- end }}
+
 {{ end }}{{ if .Application.Docker.HasPlatforms }}# Target platforms: {{ .Application.Docker.PlatformList }} (applications[].docker.platforms).
 # The builder runs natively on the platform of the build host (BUILDPLATFORM) and
 # cross-compiles for TARGETARCH — Go cross-compiles itself, so no emulation of the
@@ -126,6 +173,27 @@ FROM {{ .Application.Docker.Image }}
 # until the package list itself changes.
 {{ . }}
 {{ end }}
+{{- range $_, $c := .Application.Docker.Copy }}
+# Project directory, declared in the `copy` list of the docker section of the
+# application in project.yaml. Copied straight from the build context and not
+# through the builder stage: COPY needs neither a shell nor the target
+# architecture, so this keeps the stage buildable on a shell-less base image
+# and free of emulation, and nothing of the project lands in the builder where
+# it could overwrite its toolchain.
+#
+# The project-declared additions come before the service binary, as the package
+# install does: the binary changes on every build, and below it their layers —
+# including a copied tool prefix — would be rebuilt along with it.
+COPY {{ $c.From }} {{ $c.To }}
+{{- end }}
+{{- range $_, $f := .Application.Docker.Fetch }}
+COPY --from={{ $f.StageName }} {{ $f.Path }} {{ $f.To }}
+{{- end }}
+{{- range $_, $s := .Application.Docker.Stages }}
+{{- range $_, $c := $s.Copy }}
+COPY --from={{ $s.StageName }} {{ $c.From }} {{ $c.To }}
+{{- end }}
+{{- end }}
 COPY --from=builder /service /service
 COPY --from=builder /public /public
 {{- range $dir := .Application.StaticDirs }}
@@ -134,6 +202,12 @@ COPY --from=builder /{{ $dir }} /{{ $dir }}
 # Copying the directory from a stage keeps the ownership and mode it has there
 # (root:root, 0755) — the same a `mkdir -p` in this stage would have given.
 COPY --from=builder /etc/onlineconf /etc/onlineconf
+{{- with .Application.Docker.EnvDirective }}
+
+# Runtime environment, declared in the `env` list of the docker section of the
+# application in project.yaml — one instruction, so one layer.
+{{ . }}
+{{- end }}
 {{- with .Application.Docker.WorkdirDirective }}
 {{ . }}
 {{- end }}

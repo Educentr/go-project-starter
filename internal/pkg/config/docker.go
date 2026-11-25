@@ -94,7 +94,93 @@ type AppDocker struct {
 	// behavior: the image is built for the platform of the builder. Read via
 	// Parse.
 	Platforms []string `mapstructure:"platforms"`
+	// Copy carries project directories into the image: `template` next to the
+	// sources becomes `/opt/<app>/template` in the image. Optional.
+	Copy []AppDockerCopyEntry `mapstructure:"copy"`
+	// Env declares the environment variables of the runtime stage — usually
+	// what points the application at the directories Copy brought in.
+	// Optional.
+	Env []AppDockerEnvEntry `mapstructure:"env"`
+	// Fetch takes files from a URL into the image — a release binary pinned to
+	// a version, with the target architecture in its file name. Optional.
+	Fetch []AppDockerFetchEntry `mapstructure:"fetch"`
+	// Stages declares auxiliary build stages the runtime stage copies from —
+	// where a tool no package manager provides is installed. Optional.
+	Stages []AppDockerStageEntry `mapstructure:"stages"`
 }
+
+type (
+	// AppDockerCopyEntry is one copy into the image: either a project
+	// directory (the application's own `copy`) or a path inside an auxiliary
+	// stage (a stage's `copy`).
+	AppDockerCopyEntry struct {
+		// From is the source — project-relative for the application's `copy`,
+		// absolute inside the stage for a stage's `copy`. Required.
+		From string `mapstructure:"from"`
+		// To is the absolute destination path in the image. Required.
+		To string `mapstructure:"to"`
+	}
+
+	// AppDockerEnvEntry is one environment variable of the runtime stage.
+	//
+	// A list of {name, value} and not a map, because viper lowercases config
+	// keys: `VT_TEMPLATE_DIR` as a map key would silently arrive as
+	// `vt_template_dir` and the application would never see the variable it
+	// reads.
+	AppDockerEnvEntry struct {
+		// Name is the variable name. Required.
+		Name string `mapstructure:"name"`
+		// Value is the variable value. May be empty — an empty variable is
+		// still a declared variable.
+		Value string `mapstructure:"value"`
+	}
+
+	// AppDockerFetchEntry is one file the image takes from a URL.
+	AppDockerFetchEntry struct {
+		// Name identifies the entry: the suffix of its Dockerfile stage and
+		// the name of the file inside it. Required, ^[a-z0-9_-]+$.
+		Name string `mapstructure:"name"`
+		// URL is the source of the file, https only. May reference
+		// ${TARGETARCH} and ${TARGETOS}; no other variable, because nothing
+		// would give it a value and the download would silently 404.
+		// Required.
+		URL string `mapstructure:"url"`
+		// To is the absolute destination path in the image. Required.
+		To string `mapstructure:"to"`
+		// Mode is the octal file mode of the fetched file. Optional, defaults
+		// to ds.DefaultDockerFetchMode — `ADD` from a URL leaves the file
+		// non-executable, and a fetch entry carries a tool binary.
+		Mode string `mapstructure:"mode"`
+		// Checksum is the expected digest of the file. Either one
+		// "sha256:<hex>" for a URL that does not depend on the platform, or a
+		// map of platform ("linux/amd64") to digest for one that does.
+		// Optional. Read via Parse.
+		Checksum any `mapstructure:"checksum"`
+	}
+
+	// AppDockerStageEntry is one auxiliary build stage of the application
+	// image: a tool is installed in it and copied into the runtime stage.
+	//
+	// The commands belong to the project, as in the `generator` and `web`
+	// sections: the generator owns wiring the stage into the Dockerfile, not
+	// the choice of tool or the way it is installed. The stage gets no build
+	// context, so the version of the tool is pinned in the command itself.
+	AppDockerStageEntry struct {
+		// Name identifies the stage: the suffix of its Dockerfile stage.
+		// Required, ^[a-z0-9_-]+$.
+		Name string `mapstructure:"name"`
+		// Image is the base image of the stage. Required.
+		Image string `mapstructure:"image"`
+		// Workdir is the working directory of the stage. Optional.
+		Workdir string `mapstructure:"workdir"`
+		// Run are the commands of the stage, one RUN instruction each. At
+		// least one. Required.
+		Run []string `mapstructure:"run"`
+		// Copy are the paths the runtime stage takes from this stage. At least
+		// one — nothing else carries the result out of the stage. Required.
+		Copy []AppDockerCopyEntry `mapstructure:"copy"`
+	}
+)
 
 // dockerArgNamePattern is the shape of a build argument name: the intersection
 // of what a Dockerfile `ARG` and a Makefile variable accept. Shared by the name
@@ -508,14 +594,22 @@ func (d AppDocker) Parse() (ds.AppDockerConfig, error) {
 		return ds.AppDockerConfig{}, err
 	}
 
-	return ds.AppDockerConfig{
-		BaseImage:      d.BaseImage,
-		PackageManager: manager,
-		Packages:       d.Packages,
-		Workdir:        d.Workdir,
-		Entrypoint:     d.Entrypoint,
-		Platforms:      platforms,
-	}, nil
+	// The project-declared additions to the runtime stage. They are parsed
+	// after the platforms because a per-platform checksum is checked against
+	// them.
+	out, err := d.parseRuntimeAdditions(platforms)
+	if err != nil {
+		return ds.AppDockerConfig{}, err
+	}
+
+	out.BaseImage = d.BaseImage
+	out.PackageManager = manager
+	out.Packages = d.Packages
+	out.Workdir = d.Workdir
+	out.Entrypoint = d.Entrypoint
+	out.Platforms = platforms
+
+	return out, nil
 }
 
 // IsValid validates the application docker section.
